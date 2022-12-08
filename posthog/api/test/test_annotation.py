@@ -6,7 +6,12 @@ from django.utils.timezone import now
 from rest_framework import status
 
 from posthog.models import Annotation, Organization, Team, User
-from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
+from posthog.test.base import (
+    APIBaseTest,
+    QueryMatchingTest,
+    capture_postgres_queries,
+    snapshot_postgres_queries_context,
+)
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
@@ -28,9 +33,11 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         """
         see https://sentry.io/organizations/posthog/issues/3706110236/events/db0167ece56649f59b013cbe9de7ba7a/?project=1899813
         """
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with capture_postgres_queries() as context, snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             self.assertEqual(len(response["results"]), 0)
+
+            self.assertLessEqual(len(context.captured_queries), 6)
 
         Annotation.objects.create(
             organization=self.organization,
@@ -40,9 +47,11 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with capture_postgres_queries() as context, snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             self.assertEqual(len(response["results"]), 1)
+
+            query_count_with_1 = len(context.captured_queries)
 
         Annotation.objects.create(
             organization=self.organization,
@@ -52,9 +61,11 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with capture_postgres_queries() as context, snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             self.assertEqual(len(response["results"]), 2)
+
+            self.assertLessEqual(len(context.captured_queries), query_count_with_1)
 
     def test_org_scoped_annotations_are_returned_between_projects(self):
         second_team = Team.objects.create(organization=self.organization, name="Second team")

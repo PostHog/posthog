@@ -354,6 +354,16 @@ class QueryMatchingTest:
 
 
 @contextmanager
+def capture_postgres_queries(connection_name="default"):
+    """
+    Very simply wrapper around django's `CaptureQueriesContext` that by default
+    uses the `default` database connection.
+    """
+    with CaptureQueriesContext(connections[connection_name]) as context:
+        yield context
+
+
+@contextmanager
 def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_numbers: bool = True):
     """
     Captures and snapshots select queries from test using `syrupy` library.
