@@ -87,7 +87,11 @@ const EventAggegations: DataTableNode = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.EventsNode,
-        select: ["properties['$geoip_city_name']", 'event', 'total()'],
+        select: [
+            "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
+            'event',
+            'total() + 100000 # Inflamed total',
+        ],
         orderBy: ['-total()'],
     },
     showReload: true,

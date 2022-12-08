@@ -73,7 +73,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
         ...columns.map((key, index) => ({
             dataIndex: key as any,
-            title: renderTitle(key, context),
+            title:
+                isEventsNode(query.source) && query.source.select && key.includes('#')
+                    ? key.split('#')[1].trim()
+                    : renderTitle(key, context),
             render: function RenderDataTableColumn(_: any, record: EventType) {
                 const arrayOfArrays = isEventsNode(query.source) && !!query.source.select
                 const value = arrayOfArrays ? record[index] : record[key]
