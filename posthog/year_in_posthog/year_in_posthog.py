@@ -101,6 +101,7 @@ def render_2022(request, user_token: str) -> HttpResponse:
             "opengraph_image": f"open-graph/2022_{badge}.png",
             "explanation": explanation.get(badge),
             "stats": count_from(data, badge),
+            "page_url": f"{request.scheme}://{request.META['HTTP_HOST']}{request.get_full_path()}",
         }
 
         template = get_template("2022.html")
