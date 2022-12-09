@@ -10,6 +10,7 @@ from rest_framework.request import Request
 
 from posthog.helpers.session_recording import ACTIVITY_THRESHOLD_SECONDS, DecompressedRecordingData, RecordingSegment
 from posthog.models import Filter
+from posthog.models.session_recording import SessionRecording as SessionRecordingModel
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
 from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot
@@ -290,12 +291,17 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             )
 
             req, _ = create_recording_request_and_filter("1")
+            SessionRecordingModel.objects.create(
+                session_id="1", team=self.team, description="test description", s3_url="fake s3 url"
+            )
             recording = SessionRecording(team=self.team, session_recording_id="1", request=req).get_metadata()
 
             millisecond = relativedelta(microseconds=1000)
 
             expectation = RecordingMetadata(
                 distinct_id="u",
+                description="test description",
+                s3_url="fake s3 url",
                 segments=[
                     RecordingSegment(is_active=True, window_id="2", start_time=now(), end_time=now()),
                     RecordingSegment(

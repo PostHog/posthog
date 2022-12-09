@@ -20,6 +20,7 @@ from posthog.helpers.session_recording import (
     parse_snapshot_timestamp,
 )
 from posthog.models import Team
+from posthog.models.session_recording import SessionRecording as SessionRecordingModel
 
 
 class SessionRecording:
@@ -127,11 +128,22 @@ class SessionRecording:
             statsd.incr("session_recordings.metadata_parsed_from_snapshot_data")
             segments, start_and_end_times_by_window_id = self._get_recording_segments_from_snapshot(snapshots)
 
-        return RecordingMetadata(
-            segments=segments,
-            start_and_end_times_by_window_id=start_and_end_times_by_window_id,
-            distinct_id=cast(str, distinct_id),
-        )
+        # Add model metadata to payload
+        recording = SessionRecordingModel.objects.filter(session_id=self._session_recording_id, team=self._team).first()
+        if recording:
+            return RecordingMetadata(
+                segments=segments,
+                start_and_end_times_by_window_id=start_and_end_times_by_window_id,
+                distinct_id=cast(str, distinct_id),
+                description=cast(str, recording.description),
+                s3_url=cast(str, recording.s3_url),
+            )
+        else:
+            return RecordingMetadata(
+                segments=segments,
+                start_and_end_times_by_window_id=start_and_end_times_by_window_id,
+                distinct_id=cast(str, distinct_id),
+            )
 
     def _get_events_summary_by_window_id(
         self, snapshots: List[SessionRecordingEvent]

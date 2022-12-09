@@ -16,6 +16,7 @@ from typing import (
 )
 
 from sentry_sdk.api import capture_exception, capture_message
+from typing_extensions import NotRequired
 
 from posthog.models import utils
 
@@ -128,6 +129,8 @@ class RecordingMetadata(TypedDict):
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
+    description: NotRequired[str]
+    s3_url: NotRequired[str]
 
 
 class DecompressedRecordingData(TypedDict):
