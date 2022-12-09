@@ -70,7 +70,7 @@ let nestedPopupReceivedClick = false
  *
  * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithPopup`.
  */
-export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(function Popup(
+export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(function PopupInternal(
     {
         children,
         referenceElement,
