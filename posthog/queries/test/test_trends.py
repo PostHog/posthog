@@ -2624,10 +2624,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
-        # TODO: This is way more than the event-based version. Doesn't seem like a bottleneck, but def not optimal
-        with self.assertNumQueries(20):
+        # We make 3 extra InstanceSetting queries if persons-on-events is enabled
+        env_dependent_extra_num_queries = 3 if get_instance_setting("PERSON_ON_EVENTS_ENABLED") else 0
+        # TODO: This is way more than the event-based version. Doesn't seem like a bottleneck atm, but def not optimal
+        with self.assertNumQueries(15 + env_dependent_extra_num_queries):
             action_response = Trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3 + env_dependent_extra_num_queries):
             event_response = Trends().run(Filter(data={"events": [{"id": "sign up"}]}), self.team)
         self.assertEqual(len(action_response), 1)
 
