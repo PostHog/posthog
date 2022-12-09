@@ -8,7 +8,7 @@ class SessionRecordingPlaylistItem(models.Model):
         unique_together = ("recording_id", "playlist_id", "team")
 
     recording: models.ForeignKey = models.ForeignKey(
-        "SessionRecording", related_name="playlist_items", on_delete=models.CASCADE, null=True
+        "SessionRecording", related_name="playlist_items", on_delete=models.CASCADE, null=True, to_field="session_id"
     )
     playlist: models.ForeignKey = models.ForeignKey(
         "SessionRecordingPlaylist", related_name="playlist_items", on_delete=models.CASCADE
