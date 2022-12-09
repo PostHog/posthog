@@ -6,8 +6,10 @@ from typing import (
     List,
     Literal,
     Optional,
+    Set,
     Tuple,
     TypedDict,
+    Union,
     cast,
 )
 
@@ -576,12 +578,11 @@ class FunnelCorrelation:
             )
 
     def _get_funnel_step_names(self):
-        events = set()
+        events: Set[Union[int, str]] = set()
         for entity in self._filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                for action_step in action.steps.all():
-                    events.add(action_step.event)
+                events.update(action.get_step_events())
             else:
                 events.add(entity.id)
 
