@@ -86,7 +86,11 @@ describe('sessionRecordingsListLogic', () => {
 
     describe('global logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingsListLogic({ playlistShortId: 'tests', updateSearchParams: true })
+            logic = sessionRecordingsListLogic({
+                key: 'tests',
+                playlistShortId: 'playlist-test',
+                updateSearchParams: true,
+            })
             logic.mount()
         })
 
@@ -253,7 +257,8 @@ describe('sessionRecordingsListLogic', () => {
         describe('fetch pinned recordings', () => {
             beforeEach(() => {
                 logic = sessionRecordingsListLogic({
-                    playlistShortId: 'static-tests',
+                    key: 'static-tests',
+                    playlistShortId: 'static-playlist-test',
                 })
                 logic.mount()
             })
@@ -273,7 +278,7 @@ describe('sessionRecordingsListLogic', () => {
                 router.actions.push('/recordings/recent', {}, { sessionRecordingId: 'abc' })
 
                 logic = sessionRecordingsListLogic({
-                    playlistShortId: 'hash-recording-tests',
+                    key: 'hash-recording-tests',
                 })
                 logic.mount()
 
@@ -379,7 +384,7 @@ describe('sessionRecordingsListLogic', () => {
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsListLogic({
-                playlistShortId: 'cool_user_99',
+                key: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })

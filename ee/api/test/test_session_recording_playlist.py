@@ -35,29 +35,6 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "filters": {},
             "last_modified_at": "2022-01-01T00:00:00Z",
             "last_modified_by": response.json()["last_modified_by"],
-            "is_static": False,
-        }
-
-    @freeze_time("2022-01-01")
-    def test_creates_static_playlist(self):
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists", data={"name": "test", "is_static": True}
-        )
-        assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "id": response.json()["id"],
-            "short_id": response.json()["short_id"],
-            "name": "test",
-            "derived_name": None,
-            "description": "",
-            "pinned": False,
-            "created_at": "2022-01-01T00:00:00Z",
-            "created_by": response.json()["created_by"],
-            "deleted": False,
-            "filters": {},
-            "last_modified_at": "2022-01-01T00:00:00Z",
-            "last_modified_by": response.json()["last_modified_by"],
-            "is_static": True,
         }
 
     @freeze_time("2022-01-01")
@@ -146,6 +123,25 @@ class TestSessionRecordingPlaylist(APIBaseTest):
 
         assert len(results) == 1
         assert results[0]["short_id"] == playlist3.short_id
+
+    def test_get_pinned_recordings_for_playlist(self):
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
+
+        # Create playlist items
+        self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/1")
+        self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/2")
+
+        playlist_item_ids = list(
+            SessionRecordingPlaylistItem.objects.filter(playlist=playlist).values_list("id", flat=True)
+        )
+        assert playlist_item_ids == [1, 2]
+
+        # Test get recordings
+        result = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
+        ).json()
+        assert len(["results"]) == 2
+        assert result["results"][0]["id"] == "1"
 
     @freeze_time("2022-01-01")
     def test_fetch_playlist_recordings(self):

@@ -95,6 +95,7 @@ export const defaultPageviewPropertyEntityFilter = (
 }
 
 export interface SessionRecordingListLogicProps {
+    key?: string
     playlistShortId?: string
     personUUID?: PersonUUID
     filters?: RecordingFilters
@@ -104,7 +105,10 @@ export interface SessionRecordingListLogicProps {
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key]),
     props({} as SessionRecordingListLogicProps),
-    key((props) => `${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ?? '-with-search'}`),
+    key(
+        (props) =>
+            `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ?? '-with-search'}`
+    ),
     connect({
         actions: [
             eventUsageLogic,
@@ -115,6 +119,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         replaceFilters: (filters: RecordingFilters) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
+        setShowPinnedRecordingsPanel: (showPinned: boolean) => ({ showPinned }),
+        setShowOtherRecordingsPanel: (showOther: boolean) => ({ showOther }),
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
@@ -215,11 +221,22 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 }),
             },
         ],
-
         showFilters: [
             false,
             {
                 setShowFilters: (_, { showFilters }) => showFilters,
+            },
+        ],
+        showPinnedRecordingsPanel: [
+            true,
+            {
+                setShowPinnedRecordingsPanel: (_, { showPinned }) => showPinned,
+            },
+        ],
+        showOtherRecordingsPanel: [
+            true,
+            {
+                setShowOtherRecordingsPanel: (_, { showOther }) => showOther,
             },
         ],
         sessionRecordings: [
