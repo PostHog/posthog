@@ -17,6 +17,7 @@ export async function emitToBufferStep(
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
     status.debug('🔁', 'Running emitToBufferStep', { event: event.event, distinct_id: event.distinct_id })
+
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
     if (event.event === '$snapshot') {
@@ -31,6 +32,14 @@ export async function emitToBufferStep(
             eventId: event.uuid,
             processEventAt,
         })
+
+        // Set `posthog_team.ingested_event` early such that e.g. the onboarding
+        // flow is allowed to proceed as soon as there has been an event starts
+        // processed as opposed to having to wait for the event to be buffered.
+        const team = await runner.hub.teamManager.fetchTeam(event.team_id)
+        if (team) {
+            await runner.hub.teamManager.setTeamIngestedEvent(team, event.properties || {})
+        }
 
         // TODO: handle delaying offset commit for this message, according to
         // producer acknowledgement. It's a little tricky as it stands as we do
