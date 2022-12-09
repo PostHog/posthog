@@ -4,7 +4,6 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.constants import AvailableFeature
-from posthog.models.team.team import get_effective_membership_level
 from posthog.utils import absolute_uri
 
 
@@ -101,6 +100,7 @@ class Dashboard(models.Model):
     def can_user_restrict(self, user_id: int) -> bool:
         # Sync conditions with frontend hasInherentRestrictionsRights
         from posthog.models.organization import OrganizationMembership
+        from posthog.models.team.team import get_effective_membership_level
 
         # The owner (aka creator) has full permissions
         if user_id == self.created_by_id:
