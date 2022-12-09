@@ -87,8 +87,8 @@ jobs:
                   echo "image_size=$image_size_bytes" >> $GITHUB_ENV
                   echo "image_name=$image_name" >> $GITHUB_ENV
             - name: Report image size to PostHog
+              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
-              if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == 'PostHog/posthog'
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-docker-image-built'
