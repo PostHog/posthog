@@ -40,14 +40,14 @@ export function SignupContainer(): JSX.Element | null {
                 </>
             }
             sideLogo
-            leftContainerContent={<SignupLeftConainer />}
+            leftContainerContent={<SignupLeftContainer />}
         >
             <SignupForm />
         </BridgePage>
     ) : null
 }
 
-export function SignupLeftConainer(): JSX.Element {
+export function SignupLeftContainer(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
 
     const getRegionUrl = (region: string): string => {
