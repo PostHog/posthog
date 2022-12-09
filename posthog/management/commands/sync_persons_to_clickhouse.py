@@ -183,6 +183,7 @@ def run_group_sync(team_id: int, live_run: bool, sync: bool):
                     group_key=pg_group.group_key,
                     properties=pg_group.group_properties,
                     created_at=pg_group.created_at,
+                    sync=sync,
                 )
 
 
