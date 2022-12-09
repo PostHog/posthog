@@ -6,7 +6,7 @@ import { Field } from 'lib/forms/Field'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupLogic } from '../signupLogic'
+import { signupLogic } from '../../signupLogic'
 import { Link } from 'lib/components/Link'
 
 export function SignupPanel1(): JSX.Element | null {
