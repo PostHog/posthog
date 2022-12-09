@@ -119,6 +119,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         replaceFilters: (filters: RecordingFilters) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
+        setShowPinnedRecordingsPanel: (showPinned: boolean) => ({ showPinned }),
+        setShowOtherRecordingsPanel: (showOther: boolean) => ({ showOther }),
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
@@ -219,11 +221,22 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 }),
             },
         ],
-
         showFilters: [
             false,
             {
                 setShowFilters: (_, { showFilters }) => showFilters,
+            },
+        ],
+        showPinnedRecordingsPanel: [
+            true,
+            {
+                setShowPinnedRecordingsPanel: (_, { showPinned }) => showPinned,
+            },
+        ],
+        showOtherRecordingsPanel: [
+            true,
+            {
+                setShowOtherRecordingsPanel: (_, { showOther }) => showOther,
             },
         ],
         sessionRecordings: [

@@ -17,6 +17,7 @@ import {
     IconFilter,
     IconInfo,
     IconUnfoldLess,
+    IconUnfoldMore,
     IconWithCount,
 } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
@@ -63,11 +64,21 @@ export function SessionRecordingsPlaylist({
         filters,
         totalFiltersCount,
         showFilters,
+        showPinnedRecordingsPanel,
+        showOtherRecordingsPanel,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
     } = useValues(logic)
-    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, reportRecordingsListFilterAdded, setShowFilters } =
-        useActions(logic)
+    const {
+        setSelectedRecordingId,
+        loadNext,
+        loadPrev,
+        setFilters,
+        reportRecordingsListFilterAdded,
+        setShowFilters,
+        setShowPinnedRecordingsPanel,
+        setShowOtherRecordingsPanel,
+    } = useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -209,35 +220,47 @@ export function SessionRecordingsPlaylist({
                     {/* Pinned recordings */}
 
                     {!!playlistShortId &&
+                        !showFilters &&
                         (pinnedRecordingsResponse?.results?.length ? (
                             <>
                                 <div className="w-full overflow-hidden border rounded">
-                                    <div className="relative flex justify-between items-center p-2 border-b gap-1">
+                                    <div className="relative flex justify-between items-center p-2 gap-1">
                                         {playlistShortId ? (
-                                            <LemonButton status="stealth" icon={<IconUnfoldLess />} size="small" />
+                                            <LemonButton
+                                                status="stealth"
+                                                icon={
+                                                    showPinnedRecordingsPanel ? <IconUnfoldLess /> : <IconUnfoldMore />
+                                                }
+                                                size="small"
+                                                onClick={() => {
+                                                    setShowPinnedRecordingsPanel(!showPinnedRecordingsPanel)
+                                                }}
+                                            />
                                         ) : null}
                                         <span className="font-bold uppercase text-xs my-1 tracking-wide flex-1">
                                             Pinned Recordings
                                         </span>
                                         <span className="rounded p-1 px-2 text-xs bg-border-light">5 of 100</span>
                                     </div>
-                                    <ul className="overflow-y-auto">
-                                        {pinnedRecordingsResponse?.results.map((rec, i) => (
-                                            <Fragment key={rec.id}>
-                                                {i > 0 && <div className="border-t" />}
-                                                <SessionRecordingPlaylistItem
-                                                    recording={rec}
-                                                    recordingProperties={sessionRecordingIdToProperties[rec.id]}
-                                                    recordingPropertiesLoading={
-                                                        sessionRecordingsPropertiesResponseLoading
-                                                    }
-                                                    onClick={() => onRecordingClick(rec)}
-                                                    onPropertyClick={onPropertyClick}
-                                                    isActive={activeSessionRecording?.id === rec.id}
-                                                />
-                                            </Fragment>
-                                        ))}
-                                    </ul>
+                                    {showPinnedRecordingsPanel && (
+                                        <ul className="overflow-y-auto border-t">
+                                            {pinnedRecordingsResponse?.results.map((rec, i) => (
+                                                <Fragment key={rec.id}>
+                                                    {i > 0 && <div className="border-t" />}
+                                                    <SessionRecordingPlaylistItem
+                                                        recording={rec}
+                                                        recordingProperties={sessionRecordingIdToProperties[rec.id]}
+                                                        recordingPropertiesLoading={
+                                                            sessionRecordingsPropertiesResponseLoading
+                                                        }
+                                                        onClick={() => onRecordingClick(rec)}
+                                                        onPropertyClick={onPropertyClick}
+                                                        isActive={activeSessionRecording?.id === rec.id}
+                                                    />
+                                                </Fragment>
+                                            ))}
+                                        </ul>
+                                    )}
                                 </div>
                             </>
                         ) : pinnedRecordingsResponseLoading ? (
@@ -273,10 +296,17 @@ export function SessionRecordingsPlaylist({
                     <LemonDivider dashed />
 
                     <div className="w-full overflow-hidden border rounded">
-                        <div className="relative flex justify-between items-center p-2 border-b">
+                        <div className="relative flex justify-between items-center p-2">
                             <span className="flex items-center gap-2">
                                 {playlistShortId ? (
-                                    <LemonButton status="stealth" icon={<IconUnfoldLess />} size="small" />
+                                    <LemonButton
+                                        status="stealth"
+                                        icon={showOtherRecordingsPanel ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                                        size="small"
+                                        onClick={() => {
+                                            setShowOtherRecordingsPanel(!showOtherRecordingsPanel)
+                                        }}
+                                    />
                                 ) : null}
                                 <span className="font-bold uppercase text-xs my-1 tracking-wide">
                                     {!playlistShortId ? 'Recent recordings' : 'Other recordings'}
@@ -286,37 +316,37 @@ export function SessionRecordingsPlaylist({
 
                             <LemonTableLoader loading={sessionRecordingsResponseLoading} />
                         </div>
-
-                        {!sessionRecordings.length ? (
-                            sessionRecordingsResponseLoading ? (
-                                <>
-                                    {range(PLAYLIST_LIMIT).map((i) => (
-                                        <div key={i} className="p-4 space-y-2 border-b">
-                                            <LemonSkeleton className="w-1/2" />
-                                            <LemonSkeleton className="w-1/3" />
-                                        </div>
-                                    ))}
-                                </>
+                        {showOtherRecordingsPanel &&
+                            (!sessionRecordings.length ? (
+                                sessionRecordingsResponseLoading ? (
+                                    <>
+                                        {range(PLAYLIST_LIMIT).map((i) => (
+                                            <div key={i} className="p-4 space-y-2 border-b">
+                                                <LemonSkeleton className="w-1/2" />
+                                                <LemonSkeleton className="w-1/3" />
+                                            </div>
+                                        ))}
+                                    </>
+                                ) : (
+                                    <p className="text-muted-alt m-4">No matching recordings found</p>
+                                )
                             ) : (
-                                <p className="text-muted-alt m-4">No matching recordings found</p>
-                            )
-                        ) : (
-                            <ul className={clsx(sessionRecordingsResponseLoading ? 'opacity-50' : '')}>
-                                {sessionRecordings.map((rec, i) => (
-                                    <Fragment key={rec.id}>
-                                        {i > 0 && <div className="border-t" />}
-                                        <SessionRecordingPlaylistItem
-                                            recording={rec}
-                                            recordingProperties={sessionRecordingIdToProperties[rec.id]}
-                                            recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
-                                            onClick={() => onRecordingClick(rec)}
-                                            onPropertyClick={onPropertyClick}
-                                            isActive={activeSessionRecording?.id === rec.id}
-                                        />
-                                    </Fragment>
-                                ))}
-                            </ul>
-                        )}
+                                <ul className={clsx(sessionRecordingsResponseLoading && 'opacity-50', 'border-t')}>
+                                    {sessionRecordings.map((rec, i) => (
+                                        <Fragment key={rec.id}>
+                                            {i > 0 && <div className="border-t" />}
+                                            <SessionRecordingPlaylistItem
+                                                recording={rec}
+                                                recordingProperties={sessionRecordingIdToProperties[rec.id]}
+                                                recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
+                                                onClick={() => onRecordingClick(rec)}
+                                                onPropertyClick={onPropertyClick}
+                                                isActive={activeSessionRecording?.id === rec.id}
+                                            />
+                                        </Fragment>
+                                    ))}
+                                </ul>
+                            ))}
                     </div>
 
                     <div className="flex justify-between items-center">
