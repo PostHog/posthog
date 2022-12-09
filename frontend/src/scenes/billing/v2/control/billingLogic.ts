@@ -24,6 +24,7 @@ export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
     title: string
     message: string
+    contactSupport?: boolean
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -118,6 +119,15 @@ export const billingLogic = kea<billingLogicType>([
                             remainingHours < 24 ? pluralize(remainingHours, 'hour') : pluralize(remainingDays, 'day')
                         }.`,
                         message: `Setup billing now to ensure you don't lose access to premium features.`,
+                    }
+                }
+
+                if (billing.deactivated) {
+                    return {
+                        status: 'error',
+                        title: 'Your organization has been temporarily suspended.',
+                        message: 'Please contact support to reactivate it.',
+                        contactSupport: true,
                     }
                 }
 
