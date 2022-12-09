@@ -226,7 +226,7 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
         )
     }
 
-    private async setTeamIngestedEvent(team: Team, properties: Properties) {
+    public async setTeamIngestedEvent(team: Team, properties: Properties) {
         if (team && !team.ingested_event) {
             await this.db.postgresQuery(
                 `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,

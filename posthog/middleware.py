@@ -175,14 +175,15 @@ class CHQueries:
         if hasattr(user, "current_team_id") and user.current_team_id:
             tag_queries(team_id=user.current_team_id)
 
-        response: HttpResponse = self.get_response(request)
+        try:
+            response: HttpResponse = self.get_response(request)
 
-        if "api/" in request.path and "capture" not in request.path:
-            statsd.incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
+            if "api/" in request.path and "capture" not in request.path:
+                statsd.incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
 
-        reset_query_tags()
-
-        return response
+            return response
+        finally:
+            reset_query_tags()
 
 
 def shortcircuitmiddleware(f):
