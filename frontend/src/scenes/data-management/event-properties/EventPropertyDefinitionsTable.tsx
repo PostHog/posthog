@@ -30,8 +30,8 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
     const { eventPropertyDefinitions, eventPropertyDefinitionsLoading, filters } = useValues(
         eventPropertyDefinitionsTableLogic
     )
-    const { loadEventPropertyDefinitions, setFilters } = useActions(eventPropertyDefinitionsTableLogic)
-    const { hasDashboardCollaboration, hasIngestionTaxonomy, sorting } = useValues(organizationLogic)
+    const { loadEventPropertyDefinitions, setFilters, sorting } = useActions(eventPropertyDefinitionsTableLogic)
+    const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
