@@ -310,8 +310,8 @@ class FeatureFlagMatcher:
         groups: Dict[GroupTypeName, str] = {},
         cache: Optional[FlagsMatcherCache] = None,
         hash_key_overrides: Dict[str, str] = {},
-        property_value_overrides: Dict[str, str] = {},
-        group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+        property_value_overrides: Dict[str, Union[str, int]] = {},
+        group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -431,6 +431,7 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
+
         team_id = self.feature_flags[0].team_id
         person_query: QuerySet = Person.objects.filter(
             team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
@@ -578,8 +579,8 @@ def _get_active_feature_flags(
     distinct_id: str,
     person_id: Optional[int] = None,
     groups: Dict[GroupTypeName, str] = {},
-    property_value_overrides: Dict[str, str] = {},
-    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+    property_value_overrides: Dict[str, Union[str, int]] = {},
+    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
     cache = FlagsMatcherCache(team_id)
 
@@ -608,8 +609,8 @@ def get_active_feature_flags(
     distinct_id: str,
     groups: Dict[GroupTypeName, str] = {},
     hash_key_override: Optional[str] = None,
-    property_value_overrides: Dict[str, str] = {},
-    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+    property_value_overrides: Dict[str, Union[str, int]] = {},
+    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
 
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
@@ -754,7 +755,8 @@ def can_user_edit_feature_flag(request, feature_flag):
             final_level = org_level
         else:
             final_level = role_level
-
+        if OrganizationResourceAccess.objects.filter(organization=request.user.organization).exists() is False:
+            return True
         if final_level == OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW:
             can_edit = FeatureFlagRoleAccess.objects.filter(
                 feature_flag__id=feature_flag.pk,

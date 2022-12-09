@@ -155,56 +155,63 @@ describe('eventsListLogic', () => {
             await expectLogic(logic, () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
-            })
-                .toDispatchActionsInAnyOrder([
-                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
-                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
-                    sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
-                ])
-                .toMatchValues({
-                    eventListData: [
-                        expect.objectContaining({
-                            playerPosition: {
-                                time: 0,
-                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
-                            },
-                            timestamp: '2021-12-09T19:36:59.223000Z',
-                            type: 'events',
-                        }),
-                        expect.objectContaining({
-                            playerPosition: {
-                                time: 39000,
-                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
-                            },
-                            timestamp: '2021-12-09T19:37:39.223000Z',
-                            type: 'events',
-                        }),
-                        expect.objectContaining({
-                            playerPosition: {
-                                time: 40000,
-                                windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
-                            },
-                            timestamp: '2021-12-09T19:37:40.223000Z',
-                            type: 'events',
-                        }),
-                        expect.objectContaining({
-                            playerPosition: {
-                                time: 99000,
-                                windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
-                            },
-                            timestamp: '2021-12-09T19:38:39.223000Z',
-                            type: 'events',
-                        }),
-                        expect.objectContaining({
-                            playerPosition: {
-                                time: 159000,
-                                windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
-                            },
-                            timestamp: '2021-12-09T19:39:39.223000Z',
-                            type: 'events',
-                        }),
-                    ],
-                })
+            }).toDispatchActionsInAnyOrder([
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
+                sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
+            ])
+
+            expect(logic.values.eventListData).toMatchObject([
+                expect.objectContaining({
+                    playerPosition: {
+                        time: 0,
+                        windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                    },
+                    name: '$event_before_recording_starts',
+                    timestamp: '2021-12-09T19:35:59.223000Z',
+                }),
+                expect.objectContaining({
+                    playerPosition: {
+                        time: 0,
+                        windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                    },
+                    timestamp: '2021-12-09T19:36:59.223000Z',
+                    name: '$pageview',
+                }),
+                expect.objectContaining({
+                    playerPosition: {
+                        time: 40000,
+                        windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                    },
+                    timestamp: '2021-12-09T19:37:39.223000Z',
+                    name: 'blah',
+                }),
+                // NO autocapture event as wrong windowId
+                expect.objectContaining({
+                    playerPosition: {
+                        time: 41000,
+                        windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                    },
+                    timestamp: '2021-12-09T19:37:40.223000Z',
+                    name: 'backend event',
+                }),
+                expect.objectContaining({
+                    playerPosition: {
+                        time: 100000,
+                        windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
+                    },
+                    timestamp: '2021-12-09T19:38:39.223000Z',
+                    name: 'nightly',
+                }),
+                expect.objectContaining({
+                    playerPosition: {
+                        windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
+                        time: 160000,
+                    },
+                    timestamp: '2021-12-09T19:39:39.223000Z',
+                    name: 'gooddog',
+                }),
+            ])
         })
         it('should filter events by fuzzy query', async () => {
             await expectLogic(logic, () => {
@@ -235,7 +242,7 @@ describe('eventsListLogic', () => {
                     eventListData: [
                         expect.objectContaining({
                             playerPosition: {
-                                time: 99000,
+                                time: 100000,
                                 windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                             },
                             timestamp: '2021-12-09T19:38:39.223000Z',
@@ -243,7 +250,7 @@ describe('eventsListLogic', () => {
                         }),
                         expect.objectContaining({
                             playerPosition: {
-                                time: 159000,
+                                time: 160000,
                                 windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                             },
                             timestamp: '2021-12-09T19:39:39.223000Z',

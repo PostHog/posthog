@@ -2,7 +2,7 @@ import './PlayerMeta.scss'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useActions, useValues } from 'kea'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils'
@@ -70,11 +70,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-12 h-12" />
                     ) : (
-                        <ProfilePicture
-                            name={sessionPerson?.name}
-                            email={sessionPerson?.properties?.$email}
-                            size={!isFullScreen ? 'xxl' : 'md'}
-                        />
+                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xxl' : 'md'} />
                     )}
                 </div>
                 <div className="overflow-hidden ph-no-capture">

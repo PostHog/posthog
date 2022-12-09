@@ -516,9 +516,9 @@ class ClickhouseFunnelBase(ABC):
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
-            for action_step in action.steps.all():
+            for action_step_event in action.get_step_events():
                 if entity_name not in self.params[entity_name]:
-                    self.params[entity_name].append(action_step.event)
+                    self.params[entity_name].append(action_step_event)
 
             action_query, action_params = format_action_filter(
                 team_id=self._team.pk,
