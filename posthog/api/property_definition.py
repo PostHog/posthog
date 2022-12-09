@@ -28,6 +28,7 @@ class QueryContext:
 
     limit: int
     offset: int
+    order: str = "is_event_property DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC"
 
     name_filter: str = ""
     numerical_filter: str = ""
@@ -136,6 +137,21 @@ class QueryContext:
             },
         )
 
+    def with_order(self, order: str) -> "QueryContext":
+        if order:
+            is_desc = False
+            if order.startswith("-"):
+                order = order[1:]
+                is_desc = True
+
+            if order == "name":
+                order = f"{self.posthog_eventproperty_table_join_alias}.event"
+
+            order = f"{order} {'DESC' if is_desc else 'ASC'}"
+            return dataclasses.replace(self, order=order)
+        else:
+            return self
+
     def as_sql(self):
         query = f"""
             SELECT {self.property_definition_fields},{self.event_property_field} AS is_event_property
@@ -143,7 +159,7 @@ class QueryContext:
             {self._join_on_event_property()}
             WHERE posthog_propertydefinition.team_id = {self.team_id} AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter} {self.event_name_filter}
-            ORDER BY is_event_property DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
+            ORDER BY {self.order}
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -302,6 +318,8 @@ class PropertyDefinitionViewSet(
         limit = self.paginator.get_limit(self.request)  # type: ignore
         offset = self.paginator.get_offset(self.request)  # type: ignore
 
+        order: Optional[str] = self.request.GET.get("order", "")
+
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
@@ -326,6 +344,7 @@ class PropertyDefinitionViewSet(
             )
             .with_search(search_query, search_kwargs)
             .with_excluded_properties(self.request.GET.get("excluded_properties", None))
+            .with_order(order)
         )
 
         with connection.cursor() as cursor:

@@ -8,6 +8,7 @@ import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
+import { Sorting } from 'lib/components/LemonTable'
 
 export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {
     current?: string
@@ -25,6 +26,7 @@ export interface Filters {
     event: string
     properties: AnyPropertyFilter[]
     event_type: EventDefinitionType
+    order: string
 }
 
 function cleanFilters(filter: Partial<Filters>): Filters {
@@ -32,6 +34,7 @@ function cleanFilters(filter: Partial<Filters>): Filters {
         event: '',
         properties: [],
         event_type: EventDefinitionType.Event,
+        order: '',
         ...filter,
     }
 }
@@ -62,11 +65,13 @@ function normalizeEventDefinitionEndpointUrl({
     searchParams = {},
     full = false,
     eventTypeFilter = EventDefinitionType.Event,
+    order = '',
 }: {
     url?: string | null | undefined
     searchParams?: Record<string, any>
     full?: boolean
     eventTypeFilter?: EventDefinitionType
+    order: string
 }): string | null {
     if (!full && !url) {
         return null
@@ -76,6 +81,7 @@ function normalizeEventDefinitionEndpointUrl({
             ? {
                   ...combineUrl(url).searchParams,
                   event_type: eventTypeFilter,
+                  order,
               }
             : {}),
         ...searchParams,
@@ -132,6 +138,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     let url = normalizeEventDefinitionEndpointUrl({
                         url: _url,
                         eventTypeFilter: values.filters.event_type,
+                        order: values.filters.order,
                     })
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
@@ -154,10 +161,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             previous: normalizeEventDefinitionEndpointUrl({
                                 url: response.previous,
                                 eventTypeFilter: values.filters.event_type,
+                                order: values.filters.order,
                             }),
                             next: normalizeEventDefinitionEndpointUrl({
                                 url: response.next,
                                 eventTypeFilter: values.filters.event_type,
+                                order: values.filters.order,
                             }),
                             current: url,
                             page:
@@ -293,6 +302,26 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 ]
             },
         ],
+        sorting: [
+            (s) => [s.filters],
+            (filters: Filters | undefined): Sorting | null => {
+                if (!filters || !filters?.order) {
+                    return {
+                        columnKey: '',
+                        order: -1,
+                    }
+                }
+                return filters.order.startsWith('-')
+                    ? {
+                          columnKey: filters.order.slice(1),
+                          order: -1,
+                      }
+                    : {
+                          columnKey: filters.order,
+                          order: 1,
+                      }
+            },
+        ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {
@@ -302,6 +331,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     searchParams: { search: values.filters.event },
                     full: true,
                     eventTypeFilter: values.filters.event_type,
+                    order: values.filters.order,
                 })
             )
         },

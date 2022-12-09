@@ -45,7 +45,7 @@ export const scene: SceneExport = {
 
 export function EventDefinitionsTable(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
-    const { eventDefinitions, eventDefinitionsLoading, filters } = useValues(eventDefinitionsTableLogic)
+    const { eventDefinitions, eventDefinitionsLoading, filters, sorting } = useValues(eventDefinitionsTableLogic)
     const { loadEventDefinitions, setFilters } = useActions(eventDefinitionsTableLogic)
     const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
 
@@ -64,7 +64,7 @@ export function EventDefinitionsTable(): JSX.Element {
             render: function Render(_, definition: EventDefinition) {
                 return <EventDefinitionHeader definition={definition} hideIcon asLink />
             },
-            sorter: (a, b) => a.name?.localeCompare(b.name ?? '') ?? 0,
+            sorter: true,
         },
         ...(hasDashboardCollaboration
             ? [
@@ -90,7 +90,7 @@ export function EventDefinitionsTable(): JSX.Element {
                               <span className="text-muted">—</span>
                           )
                       },
-                      sorter: (a, b) => (a?.volume_30_day ?? 0) - (b?.volume_30_day ?? 0),
+                      sorter: true,
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
                   {
                       title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
@@ -103,7 +103,7 @@ export function EventDefinitionsTable(): JSX.Element {
                               <span className="text-muted">—</span>
                           )
                       },
-                      sorter: (a, b) => (a?.query_usage_30_day ?? 0) - (b?.query_usage_30_day ?? 0),
+                      sorter: true,
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
               ]
             : []),
@@ -181,6 +181,12 @@ export function EventDefinitionsTable(): JSX.Element {
                 className="events-definition-table"
                 data-attr="events-definition-table"
                 loading={eventDefinitionsLoading}
+                onSort={(newSorting) =>
+                    setFilters({
+                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
+                    })
+                }
+                sorting={sorting}
                 rowKey="id"
                 pagination={{
                     controlled: true,
