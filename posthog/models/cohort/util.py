@@ -277,6 +277,13 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
     return count
 
 
+def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
+    sync_execute(
+        clear_stale_cohortpeople,
+        {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": current_version},
+    )
+
+
 def get_cohort_size(cohort_id: int, team_id: int) -> Optional[int]:
     count_result = sync_execute(GET_COHORT_SIZE_SQL, {"cohort_id": cohort_id, "team_id": team_id})
 

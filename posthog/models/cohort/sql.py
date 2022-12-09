@@ -96,3 +96,10 @@ FROM {PERSON_STATIC_COHORT_TABLE}
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
 """
+
+CLEAR_STALE_COHORTPEOPLE = f"""
+INSERT INTO cohortpeople
+SELECT person_id, %(cohort_id)s AS cohort_id, %(team_id)s AS team_id, sign * -1, %(version)s AS version
+FROM cohortpeople
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(version)s
+"""
