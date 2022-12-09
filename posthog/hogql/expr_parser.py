@@ -9,7 +9,31 @@ from posthog.models.property.util import get_property_string_expr
 
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 PERSON_FIELDS = ["id", "created_at", "properties"]
-CLICKHOUSE_FUNCTIONS = ["concat", "coalesce"]
+CLICKHOUSE_FUNCTIONS = [
+    "concat",
+    "coalesce",
+    "toYear",
+    "toQuarter",
+    "toMonth",
+    "toDayOfYear",
+    "toDayOfMonth",
+    "toDayOfWeek",
+    "toHour",
+    "toMinute",
+    "toSecond",
+    "toStartOfYear",
+    "toStartOfISOYear",
+    "toStartOfQuarter",
+    "toStartOfMonth",
+    "toMonday",
+    "toStartOfDay",
+    "toStartOfHour",
+    "toStartOfMinute",
+    "toStartOfSecond",
+    "toStartOfFiveMinutes",
+    "toStartOfTenMinutes",
+    "toStartOfFifteenMinutes",
+]
 HOGQL_AGGREGATIONS = ["avg", "sum", "total"]
 
 
