@@ -91,11 +91,11 @@ export function normalizeEventDefinitionEndpointUrl({
         ...(url
             ? {
                   ...combineUrl(url).searchParams,
-                  event_type: eventTypeFilter,
-                  ...(order ? { order } : {}),
               }
             : {}),
         ...searchParams,
+        ...(order ? { order } : {}),
+        event_type: eventTypeFilter,
     }
 
     return api.eventDefinitions.determineListEndpoint(params)
@@ -150,6 +150,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     let url = normalizeEventDefinitionEndpointUrl({
                         url: _url,
                         eventTypeFilter: values.filters.event_type,
+                        order: values.filters.order,
                     })
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
@@ -207,7 +208,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             {} as Record<string, PropertyDefinitionsPaginatedResponse>,
             {
                 loadPropertiesForEvent: async ({ definition, url }, breakpoint) => {
-                    debugger
                     if (url && url in (cache.apiCache ?? {})) {
                         return {
                             ...values.eventPropertiesCacheMap,

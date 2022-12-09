@@ -156,7 +156,7 @@ describe('eventDefinitionsTableLogic', () => {
                 full: true,
                 searchParams: undefined,
                 eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event`,
             },
             {
                 url: 'anything',
@@ -177,28 +177,28 @@ describe('eventDefinitionsTableLogic', () => {
                 full: true,
                 searchParams: { search: '' },
                 eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event&search=`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=&event_type=event`,
             },
             {
                 url: 'anything',
                 full: true,
                 searchParams: { search: 'tomato' },
                 eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event&search=tomato`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=tomato&event_type=event`,
             },
             {
                 url: 'anything?offset=5',
                 full: true,
                 searchParams: { search: 'tomato' },
                 eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&event_type=event&search=tomato`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato&event_type=event`,
             },
             {
                 url: 'anything?offset=5',
                 full: true,
                 searchParams: { search: 'tomato', second: 'included' },
                 eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&event_type=event&search=tomato&second=included`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato&second=included&event_type=event`,
             },
             {
                 url: 'anything?offset=5',
@@ -206,7 +206,15 @@ describe('eventDefinitionsTableLogic', () => {
                 searchParams: { search: 'tomato', second: 'included' },
                 eventTypeFilter: undefined,
                 order: '-something',
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&event_type=event&order=-something&search=tomato&second=included`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato&second=included&order=-something&event_type=event`,
+            },
+            {
+                url: '',
+                full: true,
+                searchParams: { search: '' },
+                eventTypeFilter: undefined,
+                order: '-something',
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=&order=-something&event_type=event`,
             },
         ]
         testCases.forEach((testCase) => {

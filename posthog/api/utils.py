@@ -391,7 +391,7 @@ def _ordering(is_enterprise: bool, order: str) -> str:
             order = order[1:]
             is_desc = True
 
-        return f"ORDER BY {order} {'DESC NULLS LAST' if is_desc else 'ASC'}"
+        return f"ORDER BY {order} {'DESC NULLS LAST' if is_desc else 'ASC NULLS FIRST'}"
 
 
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
