@@ -10,7 +10,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import {
     IconChevronLeft,
     IconChevronRight,

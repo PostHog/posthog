@@ -36,7 +36,6 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "last_modified_at": "2022-01-01T00:00:00Z",
             "last_modified_by": response.json()["last_modified_by"],
             "is_static": False,
-            "playlist_items": [],
         }
 
     @freeze_time("2022-01-01")
@@ -59,7 +58,6 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "last_modified_at": "2022-01-01T00:00:00Z",
             "last_modified_by": response.json()["last_modified_by"],
             "is_static": True,
-            "playlist_items": [],
         }
 
     @freeze_time("2022-01-01")

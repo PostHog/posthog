@@ -354,7 +354,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
             self.assertEqual(response_data["result"]["session_recording"]["session_id"], chunked_session_id)
-            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [])
 
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)

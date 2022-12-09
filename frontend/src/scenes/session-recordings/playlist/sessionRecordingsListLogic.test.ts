@@ -71,6 +71,14 @@ describe('sessionRecordingsListLogic', () => {
                         },
                     ]
                 },
+                '/api/projects/:team/session_recording_playlists/:playlist_id/recordings': () => {
+                    return [
+                        200,
+                        {
+                            results: ['Pinned recordings'],
+                        },
+                    ]
+                },
             },
         })
         initKeaTests()
@@ -78,15 +86,20 @@ describe('sessionRecordingsListLogic', () => {
 
     describe('global logic', () => {
         beforeEach(() => {
-            logic = sessionRecordingsListLogic({ key: 'tests', updateSearchParams: true })
+            logic = sessionRecordingsListLogic({ playlistShortId: 'tests', updateSearchParams: true })
             logic.mount()
         })
 
         describe('core assumptions', () => {
-            it('loads session recordings after mounting', async () => {
+            it('loads recent recordings and pinned recordings after mounting', async () => {
                 await expectLogic(logic)
-                    .toDispatchActions(['getSessionRecordingsSuccess'])
-                    .toMatchValues({ sessionRecordings: listOfSessionRecordings })
+                    .toDispatchActionsInAnyOrder(['getSessionRecordingsSuccess', 'loadPinnedRecordingsSuccess'])
+                    .toMatchValues({
+                        sessionRecordings: listOfSessionRecordings,
+                        pinnedRecordingsResponse: {
+                            results: ['Pinned recordings'],
+                        },
+                    })
             })
         })
 
@@ -237,19 +250,20 @@ describe('sessionRecordingsListLogic', () => {
             })
         })
 
-        describe('fetch static recordings list', () => {
+        describe('fetch pinned recordings', () => {
             beforeEach(() => {
                 logic = sessionRecordingsListLogic({
-                    key: 'static-tests',
-                    staticRecordings: [{ id: '1' }, { id: '2' }],
+                    playlistShortId: 'static-tests',
                 })
                 logic.mount()
             })
             it('calls list session recordings for static playlists', async () => {
                 await expectLogic(logic)
-                    .toDispatchActions(['getSessionRecordingsSuccess'])
+                    .toDispatchActions(['loadPinnedRecordingsSuccess'])
                     .toMatchValues({
-                        sessionRecordings: ['Recordings belonging to static playlist'],
+                        pinnedRecordingsResponse: {
+                            results: ['Pinned recordings'],
+                        },
                     })
             })
         })
@@ -259,7 +273,7 @@ describe('sessionRecordingsListLogic', () => {
                 router.actions.push('/recordings/recent', {}, { sessionRecordingId: 'abc' })
 
                 logic = sessionRecordingsListLogic({
-                    key: 'hash-recording-tests',
+                    playlistShortId: 'hash-recording-tests',
                 })
                 logic.mount()
 
@@ -365,7 +379,7 @@ describe('sessionRecordingsListLogic', () => {
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsListLogic({
-                key: 'cool_user_99',
+                playlistShortId: 'cool_user_99',
                 personUUID: 'cool_user_99',
                 updateSearchParams: true,
             })
