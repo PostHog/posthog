@@ -53,7 +53,7 @@ jobs:
         steps:
             - uses: actions/checkout@v3
             - name: Install pnpm
-              uses: pnpm/action-setup@v2.2.4
+              uses: pnpm/action-setup@v2
               with:
                   version: 7.x.x
             - name: Set up Node 16
@@ -89,7 +89,7 @@ jobs:
             - uses: actions/checkout@v3
 
             - name: Install pnpm
-              uses: pnpm/action-setup@v2.2.4
+              uses: pnpm/action-setup@v2
               with:
                   version: 7.x.x
 
