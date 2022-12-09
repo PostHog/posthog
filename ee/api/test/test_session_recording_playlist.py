@@ -140,5 +140,5 @@ class TestSessionRecordingPlaylist(APIBaseTest):
         result = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
         ).json()
-        assert len(["results"]) == 2
+        assert len(result["results"]) == 2
         assert result["results"][0]["id"] == "1"
