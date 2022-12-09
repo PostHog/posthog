@@ -221,6 +221,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return base_permissions
 
     def dispatch(self, request, *args: Any, **kwargs: Any) -> response.Response:
+        self.original_kwargs = {**kwargs}
         lookup_value = kwargs.get(self.lookup_field)
         if lookup_value == "@current":
             # If the lookup value if @current, we replace it with the current
@@ -232,10 +233,15 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         return super().dispatch(request, *args, **kwargs)
 
     def permission_denied(self, request, message=None, code=None):
-        if request.method in ["PATCH", "GET"] and self.action != "reset_token":
+        if (
+            request.method in ["PATCH", "GET"]
+            and self.action != "reset_token"
+            and self.original_kwargs.get(self.lookup_field) != "@current"
+        ):
             # For update and get requests without permissions, we return a 404
             # instead of a 403 to avoid leaking information about the existence
-            # of a project.
+            # of a project, but only if it's not the reset_token action, or if
+            # the id specified if '@current'.
             raise exceptions.NotFound()
         raise exceptions.PermissionDenied(detail=message, code=code)
 
