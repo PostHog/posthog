@@ -2625,7 +2625,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
     def test_action_filtering(self):
         sign_up_action, person = self._create_events()
         # TODO: This is way more than the event-based version. Doesn't seem like a bottleneck, but def not optimal
-        with self.assertNumQueries(15):
+        with self.assertNumQueries(20):
             action_response = Trends().run(Filter(data={"actions": [{"id": sign_up_action.id}]}), self.team)
         with self.assertNumQueries(4):
             event_response = Trends().run(Filter(data={"events": [{"id": "sign up"}]}), self.team)
