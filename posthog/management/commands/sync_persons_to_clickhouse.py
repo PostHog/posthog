@@ -64,22 +64,23 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
 
     for person in persons:
         ch_version = ch_persons_to_version.get(person.uuid, None)
-        if ch_version is None or ch_version < person.version:
-            logger.info(f"Updating {person.uuid} to version {person.version}")
+        pg_version = person.version or 0
+        if ch_version is None or ch_version < pg_version:
+            logger.info(f"Updating {person.uuid} to version {pg_version}")
             if live_run:
                 # Update ClickHouse via Kafka message
                 create_person(
                     team_id=team_id,
-                    version=person.version,
+                    version=pg_version,
                     uuid=str(person.uuid),
                     properties=person.properties,
                     is_identified=person.is_identified,
                     created_at=person.created_at,
                     sync=sync,
                 )
-        elif ch_version > person.version:
+        elif ch_version > pg_version:
             logger.info(
-                f"Clickhouse version ({ch_version}) for '{person.uuid}' is higher than in Postgres ({person.version}). Ignoring."
+                f"Clickhouse version ({ch_version}) for '{person.uuid}' is higher than in Postgres ({pg_version}). Ignoring."
             )
 
     if deletes:
@@ -116,23 +117,24 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
 
     for person_distinct_id in person_distinct_ids:
         ch_version = ch_distinct_id_to_version.get(person_distinct_id.distinct_id, None)
-        if ch_version is None or ch_version < person_distinct_id.version:
-            logger.info(f"Updating {person_distinct_id.distinct_id} to version {person_distinct_id.version}")
+        pg_version = person_distinct_id.version or 0
+        if ch_version is None or ch_version < pg_version:
+            logger.info(f"Updating {person_distinct_id.distinct_id} to version {pg_version}")
             if live_run:
                 # Update ClickHouse via Kafka message
                 create_person_distinct_id(
                     team_id=team_id,
                     distinct_id=person_distinct_id.distinct_id,
                     person_id=str(person_distinct_id.person.uuid),
-                    version=person_distinct_id.version,
+                    version=pg_version,
                     is_deleted=False,
                     sync=sync,
                 )
-        elif ch_version > person_distinct_id.version:
+        elif ch_version > pg_version:
             # This could be happening due to person deletions - check out fix_person_distinct_ids_after_delete management cmd.
             # Ignoring here to be safe.
             logger.info(
-                f"Clickhouse version ({ch_version}) for '{person_distinct_id.distinct_id}' is higher than in Postgres ({person_distinct_id.version}). Ignoring."
+                f"Clickhouse version ({ch_version}) for '{person_distinct_id.distinct_id}' is higher than in Postgres ({pg_version}). Ignoring."
             )
             continue
 

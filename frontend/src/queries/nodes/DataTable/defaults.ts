@@ -9,25 +9,23 @@ export const defaultDataTableEventColumns: DataTableColumn[] = [
     'timestamp',
 ]
 
-export const defaultDataTablePersonColumns: DataTableColumn[] = [
-    'person',
-    'id',
-    'created_at',
-    'properties.$geoip_country_name',
-    'properties.$browser',
-]
+export const defaultDataTablePersonColumns: DataTableColumn[] = ['person', 'id', 'created_at', 'person.$delete']
 
 export function defaultDataTableColumns(query: DataNode): DataTableColumn[] {
     return query.kind === NodeKind.PersonsNode ? defaultDataTablePersonColumns : defaultDataTableEventColumns
 }
 
-export function defaultsForDataTable(query: DataTableNode, defaultColumns?: DataTableColumn[]): DataTableColumn[] {
+export function defaultsForDataTable(
+    query: DataTableNode,
+    defaultEventsColumns?: DataTableColumn[]
+): DataTableColumn[] {
     return (
         query.columns ??
-        (isEventsNode(query.source) && Array.isArray(query.source.select) && query.source.select.length > 0
-            ? query.source.select
+        (isEventsNode(query.source)
+            ? Array.isArray(query.source.select) && query.source.select.length > 0
+                ? query.source.select
+                : defaultEventsColumns
             : null) ??
-        defaultColumns ??
         defaultDataTableColumns(query.source)
     )
 }

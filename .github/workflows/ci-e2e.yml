@@ -87,11 +87,13 @@ jobs:
                   echo "image_size=$image_size_bytes" >> $GITHUB_ENV
                   echo "image_name=$image_name" >> $GITHUB_ENV
             - name: Report image size to PostHog
+              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-docker-image-built'
                   properties: '{"imageSize": "${{ env.image_size }}", "imageName": "${{ env.image_name }}"}'
+
     posthog_cloud:
         name: PostHog Cloud image build
         # Only run on non-external PRs. We could make this work on external PR's

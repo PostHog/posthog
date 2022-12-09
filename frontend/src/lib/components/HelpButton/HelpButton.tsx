@@ -22,7 +22,6 @@ import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppProm
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
-import { activationLogic } from '../ActivationSidebar/activationLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -88,7 +87,6 @@ export function HelpButton({
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
     const { toggleActivationSideBar } = useActions(navigationLogic)
-    const { shouldShowSecondaryOnboarding } = useValues(activationLogic)
 
     return (
         <>
@@ -149,19 +147,17 @@ export function HelpButton({
                                 Read the docs
                             </LemonButton>
                         )}
-                        {shouldShowSecondaryOnboarding && (
-                            <LemonButton
-                                icon={<IconTrendingUp />}
-                                status="stealth"
-                                fullWidth
-                                onClick={() => {
-                                    toggleActivationSideBar()
-                                    hideHelp()
-                                }}
-                            >
-                                Quick Start
-                            </LemonButton>
-                        )}
+                        <LemonButton
+                            icon={<IconTrendingUp />}
+                            status="stealth"
+                            fullWidth
+                            onClick={() => {
+                                toggleActivationSideBar()
+                                hideHelp()
+                            }}
+                        >
+                            Quick Start
+                        </LemonButton>
                         {validProductTourSequences.length > 0 && (
                             <LemonButton
                                 icon={<IconMessages />}
