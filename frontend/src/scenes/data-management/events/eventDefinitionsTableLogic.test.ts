@@ -2,6 +2,10 @@ import { initKeaTests } from '~/test/init'
 import {
     EVENT_DEFINITIONS_PER_PAGE,
     eventDefinitionsTableLogic,
+    normalizeEventDefinitionEndpointUrl,
+    NormalizeEventDefinitionURLProps,
+    normalizePropertyDefinitionEndpointUrl,
+    NormalizePropertyDefinitionEndpointUrlProps,
     PROPERTY_DEFINITIONS_PER_EVENT,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
@@ -134,7 +138,139 @@ describe('eventDefinitionsTableLogic', () => {
         logic.mount()
     })
 
-    describe('normalising urls as cache keys', () => {})
+    describe('normalise urls as cache keys', () => {
+        interface NormalizeEventDefinitionURLTestCase extends NormalizeEventDefinitionURLProps {
+            expected: string | null
+        }
+
+        const testCases: NormalizeEventDefinitionURLTestCase[] = [
+            {
+                url: '',
+                full: false,
+                searchParams: undefined,
+                eventTypeFilter: undefined,
+                expected: null,
+            },
+            {
+                url: '',
+                full: true,
+                searchParams: undefined,
+                eventTypeFilter: undefined,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50`,
+            },
+            {
+                url: 'anything',
+                full: false,
+                searchParams: undefined,
+                eventTypeFilter: undefined,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event`,
+            },
+            {
+                url: 'anything',
+                full: true,
+                searchParams: undefined,
+                eventTypeFilter: undefined,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event`,
+            },
+            {
+                url: 'anything',
+                full: true,
+                searchParams: { search: '' },
+                eventTypeFilter: undefined,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event&search=`,
+            },
+            {
+                url: 'anything',
+                full: true,
+                searchParams: { search: 'tomato' },
+                eventTypeFilter: undefined,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event&search=tomato`,
+            },
+            {
+                url: 'anything?offset=5',
+                full: true,
+                searchParams: { search: 'tomato' },
+                eventTypeFilter: undefined,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&event_type=event&search=tomato`,
+            },
+            {
+                url: 'anything?offset=5',
+                full: true,
+                searchParams: { search: 'tomato', second: 'included' },
+                eventTypeFilter: undefined,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&event_type=event&search=tomato&second=included`,
+            },
+        ]
+        testCases.forEach((testCase) => {
+            it(`should normalise ${JSON.stringify(testCase)} as ${testCase.expected}`, () => {
+                expect(normalizeEventDefinitionEndpointUrl(testCase as NormalizeEventDefinitionURLProps)).toEqual(
+                    testCase.expected
+                )
+            })
+        })
+
+        interface NormalizeEventPropertyDefinitionURLTestCase extends NormalizePropertyDefinitionEndpointUrlProps {
+            expected: string | null
+        }
+
+        const propertyDefinitionsTestCases: NormalizeEventPropertyDefinitionURLTestCase[] = [
+            {
+                url: '',
+                full: false,
+                searchParams: {},
+                expected: null,
+            },
+            {
+                url: '',
+                full: true,
+                searchParams: {},
+                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50`,
+            },
+            {
+                url: 'anything',
+                full: false,
+                searchParams: {},
+                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50`,
+            },
+            {
+                url: 'anything',
+                full: true,
+                searchParams: {},
+                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50`,
+            },
+            {
+                url: 'anything',
+                full: true,
+                searchParams: { search: '' },
+                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&search=`,
+            },
+            {
+                url: 'anything',
+                full: true,
+                searchParams: { search: 'tomato' },
+                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&search=tomato`,
+            },
+            {
+                url: 'anything?offset=5',
+                full: true,
+                searchParams: { search: 'tomato' },
+                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=5&search=tomato`,
+            },
+            {
+                url: 'anything?offset=5',
+                full: true,
+                searchParams: { search: 'tomato', second: 'included' },
+                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=5&search=tomato&second=included`,
+            },
+        ]
+        propertyDefinitionsTestCases.forEach((testCase) => {
+            it(`should normalise ${JSON.stringify(testCase)} as ${testCase.expected}`, () => {
+                expect(
+                    normalizePropertyDefinitionEndpointUrl(testCase as NormalizePropertyDefinitionEndpointUrlProps)
+                ).toEqual(testCase.expected)
+            })
+        })
+    })
 
     describe('event definitions', () => {
         it('load event definitions on navigate and cache', async () => {

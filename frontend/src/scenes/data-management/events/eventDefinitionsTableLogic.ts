@@ -46,40 +46,39 @@ export function createDefinitionKey(event?: EventDefinition, property?: Property
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
 }
 
+export interface NormalizePropertyDefinitionEndpointUrlProps {
+    url: string | null | undefined
+    searchParams?: Record<string, any>
+    full?: boolean
+}
+
 export function normalizePropertyDefinitionEndpointUrl({
     url,
     searchParams = {},
     full = false,
-    order = '',
-}: {
-    url: string | null | undefined
-    searchParams?: Record<string, any>
-    full?: boolean
-    order?: string
-}): string | null {
+}: NormalizePropertyDefinitionEndpointUrlProps): string | null {
     if (!full && !url) {
         return null
     }
     return api.propertyDefinitions.determineListEndpoint({
         ...(url ? combineUrl(url).searchParams : {}),
         ...searchParams,
-        order,
     })
 }
 
-function normalizeEventDefinitionEndpointUrl({
-    url,
-    searchParams = {},
-    full = false,
-    eventTypeFilter = EventDefinitionType.Event,
-    order = '',
-}: {
+export interface NormalizeEventDefinitionURLProps {
     url?: string | null | undefined
     searchParams?: Record<string, any>
     full?: boolean
     eventTypeFilter?: EventDefinitionType
-    order: string
-}): string | null {
+}
+
+export function normalizeEventDefinitionEndpointUrl({
+    url,
+    searchParams = {},
+    full = false,
+    eventTypeFilter = EventDefinitionType.Event,
+}: NormalizeEventDefinitionURLProps): string | null {
     if (!full && !url) {
         return null
     }
@@ -88,7 +87,6 @@ function normalizeEventDefinitionEndpointUrl({
             ? {
                   ...combineUrl(url).searchParams,
                   event_type: eventTypeFilter,
-                  order,
               }
             : {}),
         ...searchParams,
@@ -145,7 +143,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     let url = normalizeEventDefinitionEndpointUrl({
                         url: _url,
                         eventTypeFilter: values.filters.event_type,
-                        order: values.filters.order,
                     })
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
@@ -169,12 +166,10 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             previous: normalizeEventDefinitionEndpointUrl({
                                 url: response.previous,
                                 eventTypeFilter: values.filters.event_type,
-                                order: values.filters.order,
                             }),
                             next: normalizeEventDefinitionEndpointUrl({
                                 url: response.next,
                                 eventTypeFilter: values.filters.event_type,
-                                order: values.filters.order,
                             }),
                             current: url,
                             page:
@@ -247,8 +242,8 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         ...(cache.apiCache ?? {}),
                         [currentUrl]: {
                             count: response.count,
-                            previous: normalizePropertyDefinitionEndpointUrl(response.previous),
-                            next: normalizePropertyDefinitionEndpointUrl(response.next),
+                            previous: normalizePropertyDefinitionEndpointUrl({ url: response.previous }),
+                            next: normalizePropertyDefinitionEndpointUrl({ url: response.next }),
                             current: currentUrl,
                             page:
                                 Math.floor(
@@ -340,7 +335,6 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     searchParams: { search: values.filters.event },
                     full: true,
                     eventTypeFilter: values.filters.event_type,
-                    order: values.filters.order,
                 })
             )
         },

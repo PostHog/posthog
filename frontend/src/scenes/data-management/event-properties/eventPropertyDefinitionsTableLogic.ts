@@ -11,17 +11,14 @@ import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
-import { Sorting } from 'lib/components/LemonTable'
 
 export interface Filters {
     property: string
-    order: string
 }
 
 function cleanFilters(filter: Partial<Filters>): Filters {
     return {
         property: '',
-        order: '',
         ...filter,
     }
 }
@@ -49,7 +46,6 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
         filters: [
             {
                 property: '',
-                order: '',
             } as Filters,
             {
                 setFilters: (state, { filters }) => ({
@@ -87,14 +83,14 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                     await breakpoint(200)
                     const response = await api.get(url)
                     breakpoint()
-                    debugger
-                    const currentUrl = normalizePropertyDefinitionEndpointUrl({ url }) ?? ''
+
+                    const currentUrl = `${normalizePropertyDefinitionEndpointUrl({ url })}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
                         [currentUrl]: {
                             ...response,
-                            previous: normalizePropertyDefinitionEndpointUrl(response.previous),
-                            next: normalizePropertyDefinitionEndpointUrl(response.next),
+                            previous: normalizePropertyDefinitionEndpointUrl({ url: response.previous }),
+                            next: normalizePropertyDefinitionEndpointUrl({ url: response.next }),
                             current: currentUrl,
                             page:
                                 Math.floor(
@@ -102,12 +98,10 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                                 ) + 1,
                         },
                     }
-
                     return cache.apiCache[url]
                 },
                 setLocalEventPropertyDefinition: ({ definition }) => {
                     if (!values.eventPropertyDefinitions.current) {
-                        debugger
                         return values.eventPropertyDefinitions
                     }
                     // Update cache as well
@@ -143,26 +137,6 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 ]
             },
         ],
-        sorting: [
-            (s) => [s.filters],
-            (filters: Filters | undefined): Sorting | null => {
-                if (!filters || !filters?.order) {
-                    return {
-                        columnKey: '',
-                        order: -1,
-                    }
-                }
-                return filters.order.startsWith('-')
-                    ? {
-                          columnKey: filters.order.slice(1),
-                          order: -1,
-                      }
-                    : {
-                          columnKey: filters.order,
-                          order: 1,
-                      }
-            },
-        ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {
@@ -173,7 +147,6 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                         search: values.filters.property,
                     },
                     full: true,
-                    order: values.filters.order || '',
                 })
             )
         },
