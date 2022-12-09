@@ -113,6 +113,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             filter = Filter(request=request, team=self.team)
 
             select: List[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
+            pivot: List[str] = json.loads(request.GET["pivot"]) if request.GET.get("pivot") else None
 
             query_result = query_events_list(
                 filter=filter,
@@ -122,6 +123,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 order_by=parse_order_by(request.GET.get("orderBy"), select),
                 action_id=request.GET.get("action_id"),
                 select=select,
+                pivot=pivot,
             )
 
             # Retry the query without the 1 day optimization
@@ -135,12 +137,17 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     order_by=parse_order_by(request.GET.get("orderBy"), select),
                     action_id=request.GET.get("action_id"),
                     select=select,
+                    pivot=pivot,
                 )
 
             # Result with selected columns
             if isinstance(query_result, dict):
                 return response.Response(
-                    {"columns": select, "types": query_result["types"], "results": query_result["results"]}
+                    {
+                        "columns": query_result["columns"],
+                        "types": query_result["types"],
+                        "results": query_result["results"],
+                    }
                 )
 
             result = ClickhouseEventSerializer(

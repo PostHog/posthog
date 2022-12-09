@@ -14,6 +14,7 @@ from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS,
+    SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PIVOT,
 )
 from posthog.models.property.util import parse_prop_grouped_clauses
 
@@ -55,6 +56,7 @@ def query_events_list(
     order_by: List[str],
     action_id: Optional[str],
     select: Optional[List[str]],
+    pivot: Optional[List[str]],
     long_date_from: bool = False,
     limit: int = 100,
 ) -> Union[List, dict]:
@@ -110,23 +112,62 @@ def query_events_list(
         else:
             order_by_list.append(selected_columns[0])
 
-        results, types = sync_execute(
-            SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS.format(
-                columns=", ".join(selected_columns),
-                conditions=conditions,
-                limit=limit_sql,
-                group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
-                order="ORDER BY {}".format(", ".join(order_by_list)),
-                filters=prop_filters,
-            ),
-            {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
-            with_column_types=True,
-        )
-        return {
-            "results": results,
-            "columns": select,
-            "types": [type for _, type in types],
-        }
+        if pivot:
+            pivot_columns = [translate_hql(pivot[0]), translate_hql(pivot[1])]
+            results, types = sync_execute(
+                SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PIVOT.format(
+                    vertical_column=pivot_columns[0],
+                    horizontal_column=pivot_columns[1],
+                    value_column=[c for c in selected_columns if c not in pivot_columns][0],
+                    conditions=conditions,
+                    limit=limit_sql,
+                    group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
+                    order="ORDER BY {}".format(", ".join(order_by_list)),
+                    filters=prop_filters,
+                ),
+                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
+                with_column_types=True,
+            )
+
+            columns = [pivot[0]]
+            columnIndex: dict[str, int] = {}
+            columnIndex[pivot[0]] = 0
+            for (_, result) in results:
+                for (horizontal_column_value, _) in result:
+                    if horizontal_column_value not in columns:
+                        columnIndex[horizontal_column_value] = len(columns)
+                        columns.append(horizontal_column_value)
+
+            new_results: List[List[Union[str, int]]] = []
+            for (vertical_column_value, result) in results:
+                result_row = [vertical_column_value] + ([0] * (len(columns) - 1))
+                for (horizontal_column_value, value_column_value) in result:
+                    result_row[columnIndex[horizontal_column_value]] = value_column_value
+                new_results.append(result_row)
+
+            return {
+                "results": new_results,
+                "columns": columns,
+                "types": [],
+            }
+        else:
+            results, types = sync_execute(
+                SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS.format(
+                    columns=", ".join(selected_columns),
+                    conditions=conditions,
+                    limit=limit_sql,
+                    group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
+                    order="ORDER BY {}".format(", ".join(order_by_list)),
+                    filters=prop_filters,
+                ),
+                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
+                with_column_types=True,
+            )
+            return {
+                "results": results,
+                "columns": select,
+                "types": [type for _, type in types],
+            }
 
     if prop_filters != "":
         return query_with_columns(

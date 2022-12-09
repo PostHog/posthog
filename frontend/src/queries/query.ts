@@ -15,6 +15,7 @@ import {
 import { toParams } from 'lib/utils'
 
 export const DEFAULT_QUERY_LIMIT = 100
+export const DEFAULT_QUERY_LIMIT_FOR_PIVOT = 1000
 
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
@@ -47,8 +48,9 @@ export function getEventsEndpoint(query: EventsNode): string {
             ...(query.before ? { before: query.before } : {}),
             ...(query.after ? { after: query.after } : {}),
             ...(query.orderBy ? { orderBy: query.orderBy } : {}),
+            ...(query.pivot ? { pivot: query.pivot } : {}),
         },
-        query.limit ?? DEFAULT_QUERY_LIMIT
+        query.limit ?? (query.pivot ? DEFAULT_QUERY_LIMIT_FOR_PIVOT : DEFAULT_QUERY_LIMIT)
     )
 }
 

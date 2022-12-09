@@ -314,6 +314,21 @@ team_id = %(team_id)s
 {order} {limit}
 """
 
+SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PIVOT = """
+select col_a, arrayZip( (sumMap( g.1, g.2 ) as x).1, x.2) r from (
+select col_a, groupArray( (col_b, col_c) ) as g from
+(SELECT {vertical_column} as col_a, {horizontal_column} as col_b, {value_column} as col_c
+FROM events
+WHERE
+team_id = %(team_id)s
+{conditions}
+{filters}
+{group}
+{order} {limit})
+group by col_a)
+group by col_a;
+"""
+
 SELECT_ONE_EVENT_SQL = """
 SELECT
     uuid,
