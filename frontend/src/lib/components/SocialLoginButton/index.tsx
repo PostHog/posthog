@@ -81,7 +81,7 @@ export function SocialLoginButtons({
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const order: string[] = ['google-oauth2', 'github', 'gitlab', 'saml']
+    const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
 
     if (
         !preflight?.available_social_auth_providers ||
