@@ -202,6 +202,15 @@ class User(AbstractUser, UUIDClassicModel):
         return self.current_organization
 
     @property
+    def team_id(self) -> Optional[Team]:
+        if self.current_team_id is None and self.organization_id is not None:
+            self.current_team_id = (
+                self.teams.values_list("id", flat=True).filter(organization=self.organization_id).first()
+            )
+            self.save()
+        return self.current_team_id
+
+    @property
     def team(self) -> Optional[Team]:
         if self.current_team is None and self.organization is not None:
             self.current_team = self.teams.filter(organization=self.current_organization).first()

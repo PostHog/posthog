@@ -3,7 +3,6 @@ from typing import Any, Dict, List, Optional, Type, cast
 from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import transaction
-from django.shortcuts import get_object_or_404
 from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
@@ -221,26 +220,18 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                 base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
 
-    def get_object(self):
+    def get_object_id(self):
         lookup_value = self.kwargs[self.lookup_field]
         if lookup_value == "@current":
-            team = getattr(self.request.user, "team", None)
-            if team is None:
+            team_id = self.request.user.team_id
+            if team_id is None:
                 raise exceptions.NotFound()
-            return team
-        queryset = self.filter_queryset(self.get_queryset())
-        filter_kwargs = {self.lookup_field: lookup_value}
-        try:
-            team = get_object_or_404(queryset, **filter_kwargs)
-        except ValueError as error:
-            raise exceptions.ValidationError(str(error))
-        self.check_object_permissions(self.request, team)
-        return team
+            return team_id
+        return lookup_value
 
-    # :KLUDGE: Exposed for compatibility reasons for permission classes.
     @property
-    def team(self):
-        return self.get_object()
+    def team_id(self):
+        return self.get_object_id()
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
