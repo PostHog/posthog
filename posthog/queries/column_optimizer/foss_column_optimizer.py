@@ -1,4 +1,5 @@
-from typing import Counter, List, Set, Union, cast
+from collections import Counter
+from typing import List, Set, Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
@@ -143,7 +144,7 @@ class FOSSColumnOptimizer:
         return counter
 
     def used_properties_with_type(self, property_type: PropertyType) -> Counter[PropertyIdentifier]:
-        return Counter[PropertyIdentifier](
+        return Counter(
             {
                 (name, type, group_type_index): count
                 for (name, type, group_type_index), count in self.properties_used_in_filter.items()
