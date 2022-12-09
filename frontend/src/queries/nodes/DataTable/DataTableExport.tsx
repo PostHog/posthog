@@ -34,9 +34,9 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
     }
 
     if (onlySelectedColumns) {
-        exportContext['columns'] = (query.columns ?? defaultDataTableColumns(query.source))?.flatMap(
-            (c) => columnMapping[c] || c
-        )
+        exportContext['columns'] = (query.columns ?? defaultDataTableColumns(query.source))
+            ?.flatMap((c) => columnMapping[c] || c)
+            .filter((c) => c !== 'person.$delete')
     }
     triggerExport({
         export_format: ExporterFormat.CSV,
