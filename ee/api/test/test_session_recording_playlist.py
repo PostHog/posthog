@@ -1,7 +1,6 @@
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import SessionRecordingPlaylistItem
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
@@ -36,7 +35,6 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "last_modified_at": "2022-01-01T00:00:00Z",
             "last_modified_by": response.json()["last_modified_by"],
             "is_static": False,
-            "playlist_items": [],
         }
 
     @freeze_time("2022-01-01")
@@ -59,7 +57,6 @@ class TestSessionRecordingPlaylist(APIBaseTest):
             "last_modified_at": "2022-01-01T00:00:00Z",
             "last_modified_by": response.json()["last_modified_by"],
             "is_static": True,
-            "playlist_items": [],
         }
 
     @freeze_time("2022-01-01")
@@ -148,44 +145,3 @@ class TestSessionRecordingPlaylist(APIBaseTest):
 
         assert len(results) == 1
         assert results[0]["short_id"] == playlist3.short_id
-
-    @freeze_time("2022-01-01")
-    def test_fetch_static_playlist_items(self):
-        playlist1 = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="playlist1", created_by=self.user, is_static=True
-        )
-        playlist2 = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="playlist2", created_by=self.user, is_static=True
-        )
-
-        SessionRecordingPlaylistItem.objects.create(session_id="1-playlist1", playlist=playlist1)
-        SessionRecordingPlaylistItem.objects.create(session_id="2-playlist1", playlist=playlist1)
-        SessionRecordingPlaylistItem.objects.create(session_id="3-playlist2", playlist=playlist2)
-
-        result = self.client.get(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}",
-        ).json()
-
-        assert result["short_id"] == playlist1.short_id
-        assert result["playlist_items"] == [
-            {
-                "id": "1-playlist1",
-                "created_at": "2022-01-01T00:00:00Z",
-            },
-            {
-                "id": "2-playlist1",
-                "created_at": "2022-01-01T00:00:00Z",
-            },
-        ]
-
-        result = self.client.get(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}",
-        ).json()
-
-        assert result["short_id"] == playlist2.short_id
-        assert result["playlist_items"] == [
-            {
-                "id": "3-playlist2",
-                "created_at": "2022-01-01T00:00:00Z",
-            },
-        ]
