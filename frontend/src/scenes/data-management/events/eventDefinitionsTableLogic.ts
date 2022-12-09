@@ -50,12 +50,14 @@ export interface NormalizePropertyDefinitionEndpointUrlProps {
     url: string | null | undefined
     searchParams?: Record<string, any>
     full?: boolean
+    order?: string
 }
 
 export function normalizePropertyDefinitionEndpointUrl({
     url,
     searchParams = {},
     full = false,
+    order = '',
 }: NormalizePropertyDefinitionEndpointUrlProps): string | null {
     if (!full && !url) {
         return null
@@ -63,6 +65,7 @@ export function normalizePropertyDefinitionEndpointUrl({
     return api.propertyDefinitions.determineListEndpoint({
         ...(url ? combineUrl(url).searchParams : {}),
         ...searchParams,
+        ...(order ? { order } : {}),
     })
 }
 
@@ -71,6 +74,7 @@ export interface NormalizeEventDefinitionURLProps {
     searchParams?: Record<string, any>
     full?: boolean
     eventTypeFilter?: EventDefinitionType
+    order?: string
 }
 
 export function normalizeEventDefinitionEndpointUrl({
@@ -78,6 +82,7 @@ export function normalizeEventDefinitionEndpointUrl({
     searchParams = {},
     full = false,
     eventTypeFilter = EventDefinitionType.Event,
+    order = '',
 }: NormalizeEventDefinitionURLProps): string | null {
     if (!full && !url) {
         return null
@@ -87,10 +92,12 @@ export function normalizeEventDefinitionEndpointUrl({
             ? {
                   ...combineUrl(url).searchParams,
                   event_type: eventTypeFilter,
+                  ...(order ? { order } : {}),
               }
             : {}),
         ...searchParams,
     }
+
     return api.eventDefinitions.determineListEndpoint(params)
 }
 
@@ -335,6 +342,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     searchParams: { search: values.filters.event },
                     full: true,
                     eventTypeFilter: values.filters.event_type,
+                    order: values.filters.order,
                 })
             )
         },

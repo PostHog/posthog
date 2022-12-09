@@ -200,6 +200,14 @@ describe('eventDefinitionsTableLogic', () => {
                 eventTypeFilter: undefined,
                 expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&event_type=event&search=tomato&second=included`,
             },
+            {
+                url: 'anything?offset=5',
+                full: true,
+                searchParams: { search: 'tomato', second: 'included' },
+                eventTypeFilter: undefined,
+                order: '-something',
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&event_type=event&order=-something&search=tomato&second=included`,
+            },
         ]
         testCases.forEach((testCase) => {
             it(`should normalise ${JSON.stringify(testCase)} as ${testCase.expected}`, () => {
@@ -260,7 +268,8 @@ describe('eventDefinitionsTableLogic', () => {
                 url: 'anything?offset=5',
                 full: true,
                 searchParams: { search: 'tomato', second: 'included' },
-                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=5&search=tomato&second=included`,
+                order: '-something',
+                expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=5&search=tomato&second=included&order=-something`,
             },
         ]
         propertyDefinitionsTestCases.forEach((testCase) => {
