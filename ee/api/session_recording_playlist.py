@@ -7,7 +7,7 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, NotAuthenticated
+from rest_framework.exceptions import NotAuthenticated, PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
@@ -230,10 +230,10 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
 
         filter = SessionRecordingsFilter(request=request)
 
-        # Copy the filter and extend with the static recordings
+        # Copy the filter and extend with the pinned recordings
         filter = filter.with_data({SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS: json.dumps(serialized.data)})
 
-        # TODO: Eveything from here on is copy-pasted from session_recordings.py - this should be unified somehow
+        # TODO: Everything from here on is copy-pasted from session_recordings.py - this should be unified somehow
         (session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=self.team).run()
 
         if not request.user.is_authenticated:  # for mypy

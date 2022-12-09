@@ -1,6 +1,7 @@
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.models import SessionRecordingPlaylistItem
 from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.models.user import User
 from posthog.test.base import APIBaseTest
@@ -122,3 +123,22 @@ class TestSessionRecordingPlaylist(APIBaseTest):
 
         assert len(results) == 1
         assert results[0]["short_id"] == playlist3.short_id
+
+    def test_get_pinned_recordings_for_playlist(self):
+        playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
+
+        # Create playlist items
+        self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/1")
+        self.client.post(f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings/2")
+
+        playlist_item_ids = list(
+            SessionRecordingPlaylistItem.objects.filter(playlist=playlist).values_list("id", flat=True)
+        )
+        assert playlist_item_ids == [1, 2]
+
+        # Test get recordings
+        result = self.client.get(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist.short_id}/recordings"
+        ).json()
+        assert len(["results"]) == 2
+        assert result["results"][0]["id"] == "1"
