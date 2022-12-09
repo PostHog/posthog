@@ -1,5 +1,5 @@
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 import pytest
@@ -141,7 +141,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         self.assertEqual(ch_group[3].strftime("%Y-%m-%d %H:%M:%S"), ts.strftime("%Y-%m-%d %H:%M:%S"))
 
     def test_group_sync_updates_group(self):
-        group = create_group(self.team.pk, 2, "group-key", {"a": 5})
+        group = create_group(self.team.pk, 2, "group-key", {"a": 5}, timestamp=datetime.utcnow() - timedelta(hours=3))
         group.group_properties = {"a": 5, "b": 3}
         group.save()
 
@@ -281,7 +281,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             group_type_index=2,
             group_key="group-key",
             group_properties={"a": 1234},
-            created_at=datetime.utcnow(),
+            created_at=datetime.utcnow() - timedelta(hours=3),
             version=5,
         )
 
@@ -314,7 +314,6 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
-        # TODO: groups at least a single one
 
         if not live_run:
             self.assertEqual(
