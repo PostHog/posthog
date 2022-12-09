@@ -75,13 +75,15 @@ class EventDefinitionViewSet(
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
+        order = self.request.GET.get("order", "")
+
         params = {"team_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
 
         if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             from ee.models.event_definition import EnterpriseEventDefinition
 
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-            sql = create_event_definitions_sql(event_type, is_enterprise=True, conditions=search_query)
+            sql = create_event_definitions_sql(event_type, is_enterprise=True, conditions=search_query, order=order)
 
             ee_event_definitions = EnterpriseEventDefinition.objects.raw(sql, params=params)
             ee_event_definitions_list = ee_event_definitions.prefetch_related(
@@ -90,7 +92,7 @@ class EventDefinitionViewSet(
 
             return ee_event_definitions_list
 
-        sql = create_event_definitions_sql(event_type, is_enterprise=False, conditions=search_query)
+        sql = create_event_definitions_sql(event_type, is_enterprise=False, conditions=search_query, order=order)
         event_definitions_list = EventDefinition.objects.raw(sql, params=params)
 
         return event_definitions_list

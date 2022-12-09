@@ -24,6 +24,8 @@ describe('eventDefinitionsTableLogic', () => {
         combineUrl('', {
             limit: EVENT_DEFINITIONS_PER_PAGE,
             event_type: EventDefinitionType.Event,
+            search: '',
+            order: '',
         }).search
     }`
 
@@ -301,7 +303,7 @@ describe('eventDefinitionsTableLogic', () => {
                         count: 50,
                         results: mockEventDefinitions.slice(0, 50),
                         previous: null,
-                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
+                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event&search=&order=`,
                     }),
                     apiCache: partial({
                         [startingUrl]: partial({
@@ -333,7 +335,7 @@ describe('eventDefinitionsTableLogic', () => {
                 .toMatchValues({
                     eventDefinitions: partial({
                         count: 50,
-                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
+                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event&search=&order=`,
                     }),
                 })
             expect(api.get).toBeCalledTimes(1)
@@ -348,7 +350,7 @@ describe('eventDefinitionsTableLogic', () => {
                 .toMatchValues({
                     eventDefinitions: partial({
                         count: 6,
-                        previous: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event`,
+                        previous: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event&search=&order=`,
                         next: null,
                     }),
                 })
@@ -361,7 +363,7 @@ describe('eventDefinitionsTableLogic', () => {
                 .toMatchValues({
                     eventDefinitions: partial({
                         count: 50,
-                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event`,
+                        next: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=50&event_type=event&search=&order=`,
                     }),
                 })
             expect(api.get).toBeCalledTimes(2)

@@ -613,6 +613,8 @@ const api = {
             limit?: number
             offset?: number
             teamId?: TeamType['id']
+            order?: string
+            search?: string
             event_type?: EventDefinitionType
         }): string {
             return new ApiRequest()

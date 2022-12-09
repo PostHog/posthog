@@ -142,7 +142,13 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url }, breakpoint) => {
+                loadEventDefinitions: async ({ url: _url }, breakpoint) => {
+                    let url = normalizeEventDefinitionEndpointUrl({
+                        url: _url,
+                        eventTypeFilter: values.filters.event_type,
+                        searchParams: { search: values.filters.event, order: values.filters.order },
+                    })
+
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
@@ -150,6 +156,8 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     if (!url) {
                         url = api.eventDefinitions.determineListEndpoint({
                             event_type: values.filters.event_type,
+                            search: values.filters.event,
+                            order: values.filters.order,
                         })
                     }
 
@@ -165,10 +173,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             previous: normalizeEventDefinitionEndpointUrl({
                                 url: response.previous,
                                 eventTypeFilter: values.filters.event_type,
+                                searchParams: { search: values.filters.event, order: values.filters.order },
                             }),
                             next: normalizeEventDefinitionEndpointUrl({
                                 url: response.next,
                                 eventTypeFilter: values.filters.event_type,
+                                searchParams: { search: values.filters.event, order: values.filters.order },
                             }),
                             current: url,
                             page:
