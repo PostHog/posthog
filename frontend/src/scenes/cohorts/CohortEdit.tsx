@@ -28,6 +28,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
+import { pluralize } from 'lib/utils'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -202,7 +203,18 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     <>
                         <Divider />
                         <div>
-                            <h3 className="l3">Persons in this cohort</h3>
+                            <h3 className="l3 mb-4">
+                                Persons in this cohort
+                                <span className="text-muted ml-2">
+                                    {!cohort.is_calculating &&
+                                        `(${cohort.count} matching ${pluralize(
+                                            cohort.count ?? 0,
+                                            'person',
+                                            'persons',
+                                            false
+                                        )})`}
+                                </span>
+                            </h3>
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
                                     <Spinner className="mr-4" />
@@ -217,13 +229,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                             kind: NodeKind.PersonsNode,
                                             cohort: cohort.id,
                                         },
-                                        columns: [
-                                            'person',
-                                            'id',
-                                            'created_at',
-                                            'properties.$geoip_country_name',
-                                            'properties.$browser',
-                                        ],
+                                        columns: undefined,
                                         showSearch: true,
                                         showPropertyFilter: true,
                                         showExport: true,

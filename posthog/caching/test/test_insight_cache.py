@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Optional, cast
+from typing import Optional
 from unittest.mock import call, patch
 
 import pytest
@@ -28,7 +28,9 @@ def create_insight_caching_state(
     with mute_selected_signals():
         insight = create_insight(team, user, filters=filters)
 
-    model = cast(InsightCachingState, upsert(team, insight))
+    upsert(team, insight)
+
+    model = insight.caching_state
     model.last_refresh = now() - last_refresh if last_refresh is not None else None
     model.last_refresh_queued_at = now() - last_refresh_queued_at if last_refresh_queued_at is not None else None
     model.target_cache_age_seconds = target_cache_age.total_seconds() if target_cache_age is not None else None

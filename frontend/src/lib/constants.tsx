@@ -132,13 +132,13 @@ export const FEATURE_FLAGS = {
     VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
-    SIGNUP_PRODUCT_BENEFITS_EXPERIMENT: 'signup-product-benefits-experiment', // owner: #team-growth
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
-    SECONDARY_ONBOARDING_EXPERIMENT: 'secondary-onboarding-experiment', // owner: #team-growth
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     BILLING_FEATURES_EXPERIMENT: 'billing-features-experiment', // owner: #team-growth
+    BILLING_PLAN_MOST_POPULAR_EXPERIMENT: 'billing-plan-most-popular-experiment', // owner: #team-growth, @raquelmsmith
     RECORDINGS_EXPORT: 'recordings-export', // owner: #team-session-recordings
+    SOCIAL_AUTH_BUTTONS_EXPERIMENT: 'social-auth-buttons-experiment', // owner: #team-growth
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

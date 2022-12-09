@@ -18,7 +18,6 @@ import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { teamLogic } from 'scenes/teamLogic'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
@@ -53,9 +52,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = useValues(dataNodeLogic(dataNodeLogicProps))
 
     const { currentTeam } = useValues(teamLogic)
-    const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableColumns(query.source)
+    const defaultEventsColumns = currentTeam?.live_events_columns ?? undefined
 
-    const dataTableLogicProps: DataTableLogicProps = { query, key, defaultColumns }
+    const dataTableLogicProps: DataTableLogicProps = { query, key, defaultEventsColumns }
     const {
         columns: dataTableQueryColumns,
         queryWithDefaults,
@@ -169,7 +168,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
-                        key={lemonColumns.join('::')}
+                        key={lemonColumns.join('::') /* Bust the LemonTable cache when columns change */}
                         dataSource={dataSource}
                         sorting={canSort && setQuery ? sorting : undefined}
                         useURLForSorting={false}
