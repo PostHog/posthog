@@ -263,7 +263,7 @@ class Property:
         # we would have passed it as a number
         try:
             # tests if string is a number & returns string if it is a number
-            int(value)
+            float(value)
             return value
         except (ValueError, TypeError):
             pass
