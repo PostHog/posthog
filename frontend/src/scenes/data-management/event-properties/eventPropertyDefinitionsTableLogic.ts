@@ -87,8 +87,8 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                     await breakpoint(200)
                     const response = await api.get(url)
                     breakpoint()
-
-                    const currentUrl = `${normalizePropertyDefinitionEndpointUrl({ url })}`
+                    debugger
+                    const currentUrl = normalizePropertyDefinitionEndpointUrl({ url }) ?? ''
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
                         [currentUrl]: {
@@ -102,10 +102,12 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                                 ) + 1,
                         },
                     }
+
                     return cache.apiCache[url]
                 },
                 setLocalEventPropertyDefinition: ({ definition }) => {
                     if (!values.eventPropertyDefinitions.current) {
+                        debugger
                         return values.eventPropertyDefinitions
                     }
                     // Update cache as well

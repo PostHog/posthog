@@ -134,6 +134,8 @@ describe('eventDefinitionsTableLogic', () => {
         logic.mount()
     })
 
+    describe('normalising urls as cache keys', () => {})
+
     describe('event definitions', () => {
         it('load event definitions on navigate and cache', async () => {
             const url = urls.eventDefinitions()

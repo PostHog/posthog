@@ -156,6 +156,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             event_type: values.filters.event_type,
                         })
                     }
+
                     await breakpoint(200)
                     cache.eventsStartTime = performance.now()
                     const response = await api.get(url)
@@ -204,6 +205,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             {} as Record<string, PropertyDefinitionsPaginatedResponse>,
             {
                 loadPropertiesForEvent: async ({ definition, url }, breakpoint) => {
+                    debugger
                     if (url && url in (cache.apiCache ?? {})) {
                         return {
                             ...values.eventPropertiesCacheMap,
