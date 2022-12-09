@@ -292,16 +292,8 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
 
         for item_filter_action in item_filters.actions:
             action = item_filter_action.get_action()
-
-            for action_step in action.steps.all():
-                if action_step.url:
-                    action_event = "$pageview"
-                elif action_step.event:
-                    action_event = action_step.event
-                else:
-                    action_event = "$autocapture"
-
-                event_usage.append(action_event)
+            events = action.get_step_events()
+            event_usage.extend(events)
 
         counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
 
