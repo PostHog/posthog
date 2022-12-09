@@ -536,6 +536,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             const response = await api.create(`api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`, {
                 condition: { properties: newProperties },
+                group_type_index: values.featureFlag?.filters?.aggregation_group_type_index ?? null,
             })
             actions.setAffectedUsers(index, response.users_affected)
             actions.setTotalUsers(response.total_users)
@@ -571,6 +572,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
                         {
                             condition,
+                            group_type_index: values.featureFlag?.filters?.aggregation_group_type_index ?? null,
                         }
                     )
 

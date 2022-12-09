@@ -695,12 +695,39 @@ def set_feature_flag_hash_key_overrides(
         FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
 
 
-def get_user_blast_radius(feature_flag_condition: dict, team: Team):
+def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_index: Optional[GroupTypeIndex] = None):
 
     from posthog.queries.person_query import PersonQuery
 
+    # No rollout % calculations here, since it makes more sense to compute that on the frontend
     properties = feature_flag_condition.get("properties") or []
-    # Removed rollout % from here, since it makes more sense to compute that on the frontend
+
+    if group_type_index is not None:
+
+        try:
+            from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+        except Exception:
+            return 0, 0
+
+        if len(properties) > 0:
+            filter = Filter(data=feature_flag_condition, team=team)
+
+            groups_query, groups_query_params = GroupsJoinQuery(filter, team.id).get_filter_query(
+                group_type_index=group_type_index
+            )
+
+            total_affected_count = sync_execute(
+                f"""
+                SELECT count(1) FROM (
+                    {groups_query}
+                )
+            """,
+                groups_query_params,
+            )[0][0]
+        else:
+            total_affected_count = team.groups_seen_so_far(group_type_index)
+
+        return total_affected_count, team.groups_seen_so_far(group_type_index)
 
     if len(properties) > 0:
         filter = Filter(data=feature_flag_condition, team=team)
