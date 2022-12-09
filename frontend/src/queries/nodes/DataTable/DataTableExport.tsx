@@ -3,7 +3,7 @@ import { IconExport } from 'lib/components/icons'
 import { Popconfirm } from 'antd'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
-import { DataTableNode } from '~/queries/schema'
+import { DataNode, DataTableNode } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
 import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
@@ -51,6 +51,12 @@ interface DataTableExportProps {
 }
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
+    const source: DataNode = query.source
+    const filterCount =
+        (isEventsNode(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
+        (isEventsNode(source) && source.event ? 1 : 0) +
+        (isPersonsNode(source) && source.search ? 1 : 0)
+
     return (
         <LemonButtonWithPopup
             popup={{
@@ -84,7 +90,7 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
             type="secondary"
             icon={<IconExport />}
         >
-            Export
+            Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
         </LemonButtonWithPopup>
     )
 }
