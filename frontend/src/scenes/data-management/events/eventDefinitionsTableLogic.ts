@@ -46,17 +46,24 @@ export function createDefinitionKey(event?: EventDefinition, property?: Property
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
 }
 
-export function normalizePropertyDefinitionEndpointUrl(
-    url: string | null | undefined,
-    searchParams: Record<string, any> = {},
-    full: boolean = false
-): string | null {
+export function normalizePropertyDefinitionEndpointUrl({
+    url,
+    searchParams = {},
+    full = false,
+    order = '',
+}: {
+    url: string | null | undefined
+    searchParams?: Record<string, any>
+    full?: boolean
+    order?: string
+}): string | null {
     if (!full && !url) {
         return null
     }
     return api.propertyDefinitions.determineListEndpoint({
         ...(url ? combineUrl(url).searchParams : {}),
         ...searchParams,
+        order,
     })
 }
 
@@ -233,7 +240,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                         }
                     }
 
-                    const currentUrl = `${normalizePropertyDefinitionEndpointUrl(url)}`
+                    const currentUrl = `${normalizePropertyDefinitionEndpointUrl({ url })}`
                     cache.apiCache = {
                         ...(cache.apiCache ?? {}),
                         [currentUrl]: {

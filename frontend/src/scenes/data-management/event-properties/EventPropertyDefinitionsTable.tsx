@@ -31,7 +31,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
         eventPropertyDefinitionsTableLogic
     )
     const { loadEventPropertyDefinitions, setFilters } = useActions(eventPropertyDefinitionsTableLogic)
-    const { hasDashboardCollaboration, hasIngestionTaxonomy } = useValues(organizationLogic)
+    const { hasDashboardCollaboration, hasIngestionTaxonomy, sorting } = useValues(organizationLogic)
 
     const columns: LemonTableColumns<PropertyDefinition> = [
         {
@@ -48,7 +48,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
             render: function Render(_, definition: PropertyDefinition) {
                 return <PropertyDefinitionHeader definition={definition} hideIcon asLink />
             },
-            sorter: (a, b) => a.name.localeCompare(b.name),
+            sorter: true,
         },
         ...(hasDashboardCollaboration
             ? [
@@ -74,7 +74,7 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                               <span className="text-muted">—</span>
                           )
                       },
-                      sorter: (a, b) => (a?.query_usage_30_day ?? 0) - (b?.query_usage_30_day ?? 0),
+                      sorter: true,
                   } as LemonTableColumn<PropertyDefinition, keyof PropertyDefinition | undefined>,
               ]
             : []),
@@ -113,6 +113,12 @@ export function EventPropertyDefinitionsTable(): JSX.Element {
                 className="event-properties-definition-table"
                 data-attr="event-properties-definition-table"
                 loading={eventPropertyDefinitionsLoading}
+                onSort={(newSorting) =>
+                    setFilters({
+                        order: newSorting ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}` : undefined,
+                    })
+                }
+                sorting={sorting}
                 rowKey="id"
                 pagination={{
                     controlled: true,

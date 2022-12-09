@@ -333,7 +333,7 @@ def safe_clickhouse_string(s: str) -> str:
 
 
 def create_event_definitions_sql(
-    event_type: EventDefinitionType, is_enterprise: bool = False, conditions: str = ""
+    event_type: EventDefinitionType, is_enterprise: bool = False, conditions: str = "", order: str = ""
 ) -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     if is_enterprise:
@@ -364,30 +364,34 @@ def create_event_definitions_sql(
 
     # Only return event definitions
     raw_event_definition_fields = ",".join(event_definition_fields)
-    ordering = (
-        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
-        if is_enterprise
-        else "ORDER BY name ASC"
-    )
+    ordering = _ordering(is_enterprise, order)
 
     if event_type == EventDefinitionType.EVENT_CUSTOM:
         shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
     if event_type == EventDefinitionType.EVENT_POSTHOG:
         shared_conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
 
-    return (
-        f"""
-            {select_ee_event_definitions(raw_event_definition_fields)}
+    return f"""
+            {select_ee_event_definitions(raw_event_definition_fields) if is_enterprise else select_event_definitions(raw_event_definition_fields)}
             {shared_conditions}
             {ordering}
         """
-        if is_enterprise
-        else f"""
-            {select_event_definitions(raw_event_definition_fields)}
-            {shared_conditions}
-            {ordering}
-        """
-    )
+
+
+def _ordering(is_enterprise: bool, order: str) -> str:
+    if not order:
+        return (
+            "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+            if is_enterprise
+            else "ORDER BY name ASC"
+        )
+    else:
+        is_desc = False
+        if order.startswith("-"):
+            order = order[1:]
+            is_desc = True
+
+        return f"ORDER BY {order} {'DESC NULLS LAST' if is_desc else 'ASC'}"
 
 
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:

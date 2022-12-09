@@ -147,7 +147,7 @@ class QueryContext:
             if order == "name":
                 order = f"{self.posthog_eventproperty_table_join_alias}.event"
 
-            order = f"{order} {'DESC' if is_desc else 'ASC'}"
+            order = f"{order} {'DESC NULLS LAST' if is_desc else 'ASC'}"
             return dataclasses.replace(self, order=order)
         else:
             return self

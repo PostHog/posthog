@@ -676,6 +676,7 @@ const api = {
             is_feature_flag?: boolean
             limit?: number
             offset?: number
+            order?: string
             teamId?: TeamType['id']
         }): string {
             return new ApiRequest()
