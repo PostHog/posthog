@@ -10,6 +10,7 @@ from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.db.models.signals import pre_delete
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from sentry_sdk.api import capture_exception
 
 from posthog.client import sync_execute
@@ -711,6 +712,10 @@ def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_i
 
         if len(properties) > 0:
             filter = Filter(data=feature_flag_condition, team=team)
+
+            for property in filter.property_groups.flat:
+                if property.group_type_index is None or (property.group_type_index != group_type_index):
+                    raise ValidationError("Invalid group type index for feature flag condition.")
 
             groups_query, groups_query_params = GroupsJoinQuery(filter, team.id).get_filter_query(
                 group_type_index=group_type_index
