@@ -1,7 +1,8 @@
 import json
 import time
+from collections import Counter
 from datetime import datetime
-from typing import Counter, Dict, List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 import structlog
 from django.utils import timezone

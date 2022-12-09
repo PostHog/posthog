@@ -1,4 +1,5 @@
-from typing import Counter, Dict, List, Tuple
+from collections import Counter
+from typing import Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 

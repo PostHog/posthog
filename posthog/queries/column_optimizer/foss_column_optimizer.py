@@ -1,4 +1,5 @@
-from typing import Counter, List, Set, Union, cast
+from collections import Counter
+from typing import List, Set, Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
