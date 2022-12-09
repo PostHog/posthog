@@ -203,17 +203,15 @@ describe('eventDefinitionsTableLogic', () => {
             {
                 url: 'anything?offset=5',
                 full: true,
-                searchParams: { search: 'tomato', second: 'included' },
+                searchParams: { search: 'tomato', second: 'included', order: '-something' },
                 eventTypeFilter: undefined,
-                order: '-something',
                 expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato&second=included&order=-something&event_type=event`,
             },
             {
                 url: '',
                 full: true,
-                searchParams: { search: '' },
+                searchParams: { search: '', order: '-something' },
                 eventTypeFilter: undefined,
-                order: '-something',
                 expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=&order=-something&event_type=event`,
             },
         ]
@@ -275,8 +273,7 @@ describe('eventDefinitionsTableLogic', () => {
             {
                 url: 'anything?offset=5',
                 full: true,
-                searchParams: { search: 'tomato', second: 'included' },
-                order: '-something',
+                searchParams: { search: 'tomato', second: 'included', order: '-something' },
                 expected: `api/projects/${MOCK_TEAM_ID}/property_definitions?limit=50&offset=5&search=tomato&second=included&order=-something`,
             },
         ]

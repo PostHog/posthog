@@ -169,9 +169,9 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                     url: values.eventPropertyDefinitions.current,
                     searchParams: {
                         search: values.filters.property,
+                        order: values.filters.order,
                     },
                     full: true,
-                    order: values.filters.order,
                 })
             )
         },

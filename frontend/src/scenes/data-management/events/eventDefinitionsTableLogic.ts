@@ -57,7 +57,6 @@ export function normalizePropertyDefinitionEndpointUrl({
     url,
     searchParams = {},
     full = false,
-    order = '',
 }: NormalizePropertyDefinitionEndpointUrlProps): string | null {
     if (!full && !url) {
         return null
@@ -65,7 +64,6 @@ export function normalizePropertyDefinitionEndpointUrl({
     return api.propertyDefinitions.determineListEndpoint({
         ...(url ? combineUrl(url).searchParams : {}),
         ...searchParams,
-        ...(order ? { order } : {}),
     })
 }
 
@@ -82,7 +80,6 @@ export function normalizeEventDefinitionEndpointUrl({
     searchParams = {},
     full = false,
     eventTypeFilter = EventDefinitionType.Event,
-    order = '',
 }: NormalizeEventDefinitionURLProps): string | null {
     if (!full && !url) {
         return null
@@ -94,7 +91,6 @@ export function normalizeEventDefinitionEndpointUrl({
               }
             : {}),
         ...searchParams,
-        ...(order ? { order } : {}),
         event_type: eventTypeFilter,
     }
 
@@ -146,12 +142,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 results: [],
             } as EventDefinitionsPaginatedResponse,
             {
-                loadEventDefinitions: async ({ url: _url }, breakpoint) => {
-                    let url = normalizeEventDefinitionEndpointUrl({
-                        url: _url,
-                        eventTypeFilter: values.filters.event_type,
-                        order: values.filters.order,
-                    })
+                loadEventDefinitions: async ({ url }, breakpoint) => {
                     if (url && url in (cache.apiCache ?? {})) {
                         return cache.apiCache[url]
                     }
@@ -339,10 +330,9 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             actions.loadEventDefinitions(
                 normalizeEventDefinitionEndpointUrl({
                     url: values.eventDefinitions.current,
-                    searchParams: { search: values.filters.event },
+                    searchParams: { search: values.filters.event, order: values.filters.order },
                     full: true,
                     eventTypeFilter: values.filters.event_type,
-                    order: values.filters.order,
                 })
             )
         },
