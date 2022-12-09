@@ -182,7 +182,8 @@ class TeamMemberLightManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
-        requesting_level = get_effective_membership_level(view.team_id, request.user.id)
+        lookup_value = view.kwargs[view.lookup_field]
+        requesting_level = get_effective_membership_level(lookup_value, request.user.id)
         if requesting_level is None:
             return False
         minimum_level = (
@@ -200,7 +201,8 @@ class TeamMemberStrictManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
-        requesting_level = get_effective_membership_level(view.team_id, request.user.id)
+        lookup_value = view.kwargs[view.lookup_field]
+        requesting_level = get_effective_membership_level(lookup_value, request.user.id)
         if requesting_level is None:
             return False
         minimum_level = (

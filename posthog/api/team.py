@@ -220,18 +220,24 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                 base_permissions.append(TeamMemberLightManagementPermission())
         return base_permissions
 
-    def get_object_id(self):
-        lookup_value = self.kwargs[self.lookup_field]
+    def dispatch(self, request, *args: Any, **kwargs: Any) -> response.Response:
+        lookup_value = kwargs.get(self.lookup_field)
         if lookup_value == "@current":
-            team_id = self.request.user.team_id
+            # If the lookup value if @current, we replace it with the current
+            # team id.
+            team_id = request.user.team_id
             if team_id is None:
                 raise exceptions.NotFound()
-            return team_id
-        return lookup_value
+            kwargs[self.lookup_field] = team_id
+        return super().dispatch(request, *args, **kwargs)
 
-    @property
-    def team_id(self):
-        return self.get_object_id()
+    def permission_denied(self, request, message=None, code=None):
+        if request.method in ["PATCH", "GET"] and self.action != "reset_token":
+            # For update and get requests without permissions, we return a 404
+            # instead of a 403 to avoid leaking information about the existence
+            # of a project.
+            raise exceptions.NotFound()
+        raise exceptions.PermissionDenied(detail=message, code=code)
 
     def perform_destroy(self, team: Team):
         team_id = team.pk
