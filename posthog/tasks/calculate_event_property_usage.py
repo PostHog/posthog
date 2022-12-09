@@ -288,6 +288,30 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
         for item_filter_event in item_filters.events:
             event_usage.append(str(item_filter_event.id))
 
+        for item_filter_action in item_filters.actions:
+            action = item_filter_action.get_action()
+
+            for action_step in action.steps.all():
+                if action_step.url:
+                    action_event = "$pageview"
+                elif action_step.event:
+                    action_event = action_step.event
+                else:
+                    action_event = "$autocapture"
+
+                event_usage.append(action_event)
+
         counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
+
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.counted_events_for_team_insights",
+        value=len(event_usage),
+        tags={"team": team_id},
+    )
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.counted_properties_for_team_insights",
+        value=sum(counted_properties.values()),
+        tags={"team": team_id},
+    )
 
     return event_usage, counted_properties
