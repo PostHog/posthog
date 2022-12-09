@@ -16,7 +16,12 @@ export function defaultDataTableColumns(query: DataNode): DataTableColumn[] {
 }
 
 export function defaultsForDataTable(query: DataTableNode, defaultColumns?: DataTableColumn[]): DataTableColumn[] {
-    return (
+    let columns =
         query.columns ?? (isEventsNode(query.source) ? defaultColumns : null) ?? defaultDataTableColumns(query.source)
-    )
+
+    if (query.hiddenColumns) {
+        columns = columns.filter((column) => !query.hiddenColumns?.includes(column))
+    }
+
+    return columns
 }
