@@ -27,7 +27,6 @@ interface SocialLoginButtonsProps extends SharedProps {
 
 export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!preflight?.available_social_auth_providers[provider]) {
         return null
@@ -38,20 +37,34 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
 
     return (
         <LemonButton
-            size={featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test' ? 'medium' : 'small'}
+            size="small"
             to={`/login/${provider}/${queryString || ''}${extraParam}`}
             disableClientSideRouting
-            icon={
-                featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test'
-                    ? SocialLoginIconTest(provider)
-                    : SocialLoginIcon(provider)
-            }
+            icon={SocialLoginIcon(provider)}
         >
-            <span
-                className={featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test' ? 'text-default' : ''}
-            >
-                {SSO_PROVIDER_NAMES[provider]}
-            </span>
+            <span>{SSO_PROVIDER_NAMES[provider]}</span>
+        </LemonButton>
+    )
+}
+
+export function SocialLoginLinkTestVersion({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
+    const { preflight } = useValues(preflightLogic)
+
+    if (!preflight?.available_social_auth_providers[provider]) {
+        return null
+    }
+
+    // SAML-based login requires an extra param as technically we can support multiple SAML backends
+    const extraParam = provider === 'saml' ? (queryString ? '&idp=posthog_custom' : '?idp=posthog_custom') : ''
+
+    return (
+        <LemonButton
+            size="medium"
+            to={`/login/${provider}/${queryString || ''}${extraParam}`}
+            disableClientSideRouting
+            icon={SocialLoginIconTest(provider)}
+        >
+            <span className={'text-default'}>{SSO_PROVIDER_NAMES[provider]}</span>
         </LemonButton>
     )
 }
@@ -64,6 +77,7 @@ export function SocialLoginButtons({
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (
         !preflight?.available_social_auth_providers ||
@@ -80,9 +94,13 @@ export function SocialLoginButtons({
                 {title && <h3>{title}</h3>}
                 {caption && <span className="text-muted">{caption}</span>}
                 <div className="flex gap-2 justify-center flex-wrap">
-                    {Object.keys(preflight.available_social_auth_providers).map((provider) => (
-                        <SocialLoginLink key={provider} provider={provider as SSOProviders} {...props} />
-                    ))}
+                    {Object.keys(preflight.available_social_auth_providers).map((provider) =>
+                        featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test' ? (
+                            <SocialLoginLinkTestVersion key={provider} provider={provider as SSOProviders} {...props} />
+                        ) : (
+                            <SocialLoginLink key={provider} provider={provider as SSOProviders} {...props} />
+                        )
+                    )}
                 </div>
             </div>
         </>
