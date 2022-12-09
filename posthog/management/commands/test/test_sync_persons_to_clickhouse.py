@@ -1,10 +1,18 @@
 import logging
+from datetime import datetime
 from uuid import UUID, uuid4
 
 import pytest
 
 from posthog.client import sync_execute
-from posthog.management.commands.sync_persons_to_clickhouse import run, run_distinct_id_sync, run_person_sync
+from posthog.management.commands.sync_persons_to_clickhouse import (
+    run,
+    run_distinct_id_sync,
+    run_group_sync,
+    run_person_sync,
+)
+from posthog.models.group.group import Group
+from posthog.models.group.util import create_group
 from posthog.models.person.person import Person, PersonDistinctId
 from posthog.models.person.sql import PERSON_DISTINCT_ID2_TABLE
 from posthog.models.person.util import create_person, create_person_distinct_id
@@ -105,6 +113,52 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             {"team_id": self.team.pk},
         )
         self.assertEqual(ch_person_distinct_ids, [(UUID(int=0), self.team.pk, "test-id-7", 107, True)])
+
+    def test_group_sync(self):
+        ts = datetime.utcnow()
+        Group.objects.create(
+            team_id=self.team.pk,
+            group_type_index=2,
+            group_key="group-key",
+            group_properties={"a": 1234},
+            created_at=ts,
+            version=5,
+        )
+
+        run_group_sync(self.team.pk, live_run=True, sync=True)
+
+        ch_groups = sync_execute(
+            """
+            SELECT group_type_index, group_key, group_properties, created_at FROM groups WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(len(ch_groups), 1)
+        ch_group = ch_groups[0]
+        self.assertEqual(ch_group[0], 2)
+        self.assertEqual(ch_group[1], "group-key")
+        self.assertEqual(ch_group[2], '{"a": 1234}')
+        self.assertEqual(ch_group[3].strftime("%Y-%m-%d %H:%M:%S"), ts.strftime("%Y-%m-%d %H:%M:%S"))
+
+    def test_group_sync_updates_group(self):
+        group = create_group(self.team.pk, 2, "group-key", {"a": 5})
+        group.group_properties = {"a": 5, "b": 3}
+        group.save()
+
+        run_group_sync(self.team.pk, live_run=True, sync=True)
+
+        ch_groups = sync_execute(
+            """
+            SELECT group_type_index, group_key, group_properties, created_at FROM groups WHERE team_id = %(team_id)s ORDER BY _timestamp DESC LIMIT 1
+            """,
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(len(ch_groups), 1)
+        ch_group = ch_groups[0]
+        self.assertEqual(ch_group[0], 2)
+        self.assertEqual(ch_group[1], "group-key")
+        self.assertEqual(ch_group[2], '{"a": 5, "b": 3}')
+        self.assertEqual(ch_group[3].strftime("%Y-%m-%d %H:%M:%S"), group.created_at.strftime("%Y-%m-%d %H:%M:%S"))
 
     def test_live_run_everything(self):
         self.everything_test_run(True)
@@ -222,12 +276,22 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             sync=True,
         )
 
+        Group.objects.create(
+            team_id=self.team.pk,
+            group_type_index=2,
+            group_key="group-key",
+            group_properties={"a": 1234},
+            created_at=datetime.utcnow(),
+            version=5,
+        )
+
         # Run the script for everything
         options = {
             "live_run": live_run,
             "team_id": self.team.pk,
             "person": True,
             "person_distinct_id": True,
+            "group": True,
             "deletes": True,
         }
         run(options, sync=True)
@@ -244,6 +308,13 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
             """,
             {"team_id": self.team.pk},
         )
+        ch_groups = sync_execute(
+            """
+            SELECT group_type_index, group_key, group_properties FROM groups WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.pk},
+        )
+        # TODO: groups at least a single one
 
         if not live_run:
             self.assertEqual(
@@ -268,6 +339,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
                     (deleted_distinct_id_2_uuid, self.team.pk, "distinct_id-18", 18, False),
                 ],
             )
+            self.assertEqual(len(ch_groups), 0)
         else:
             self.assertEqual(
                 ch_persons,
@@ -295,6 +367,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
                     (UUID(int=0), self.team.pk, "distinct_id-18", 118, True),
                 ],
             )
+            self.assertEqual(ch_groups, [(2, "group-key", '{"a": 1234}')])
 
 
 @pytest.fixture(autouse=True)
