@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
 import './index.scss'
 import clsx from 'clsx'
-import { SocialLoginIcon } from './SocialLoginIcon'
+import { SocialLoginIcon } from './control/SocialLoginIcon'
+import { SocialLoginIcon as SocialLoginIconTest } from './test/SocialLoginIcon'
 import { SSOProviders } from '~/types'
-import { SSO_PROVIDER_NAMES } from 'lib/constants'
+import { FEATURE_FLAGS, SSO_PROVIDER_NAMES } from 'lib/constants'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 interface SharedProps {
     queryString?: string
@@ -25,6 +27,7 @@ interface SocialLoginButtonsProps extends SharedProps {
 
 export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     if (!preflight?.available_social_auth_providers[provider]) {
         return null
@@ -35,12 +38,20 @@ export function SocialLoginLink({ provider, queryString }: SocialLoginButtonProp
 
     return (
         <LemonButton
-            size="small"
+            size={featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test' ? 'medium' : 'small'}
             to={`/login/${provider}/${queryString || ''}${extraParam}`}
             disableClientSideRouting
-            icon={SocialLoginIcon(provider)}
+            icon={
+                featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test'
+                    ? SocialLoginIconTest(provider)
+                    : SocialLoginIcon(provider)
+            }
         >
-            <span>{SSO_PROVIDER_NAMES[provider]}</span>
+            <span
+                className={featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test' ? 'text-default' : ''}
+            >
+                {SSO_PROVIDER_NAMES[provider]}
+            </span>
         </LemonButton>
     )
 }
