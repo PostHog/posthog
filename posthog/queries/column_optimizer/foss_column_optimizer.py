@@ -143,7 +143,7 @@ class FOSSColumnOptimizer:
         return counter
 
     def used_properties_with_type(self, property_type: PropertyType) -> Counter[PropertyIdentifier]:
-        return Counter(
+        return Counter[PropertyIdentifier](
             {
                 (name, type, group_type_index): count
                 for (name, type, group_type_index), count in self.properties_used_in_filter.items()
