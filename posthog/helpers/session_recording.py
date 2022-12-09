@@ -130,7 +130,6 @@ class RecordingMetadata(TypedDict):
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
     description: NotRequired[str]
-    s3_url: NotRequired[str]
 
 
 class DecompressedRecordingData(TypedDict):

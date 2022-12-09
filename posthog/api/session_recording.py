@@ -32,7 +32,6 @@ class SessionRecordingMetadataSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     viewed = serializers.BooleanField()
     description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    s3_url = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 class SessionRecordingSerializer(serializers.Serializer):
@@ -41,7 +40,6 @@ class SessionRecordingSerializer(serializers.Serializer):
     distinct_id = serializers.CharField()
     duration = serializers.DurationField()
     description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-    s3_url = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
     click_count = serializers.IntegerField(required=False)
@@ -54,7 +52,6 @@ class SessionRecordingSerializer(serializers.Serializer):
             "id": instance["session_id"],
             "viewed": instance["viewed"],
             "description": instance.get("description"),
-            "s3_url": instance.get("s3_url"),
             "distinct_id": instance["distinct_id"],
             "recording_duration": instance.get("duration"),
             "start_time": instance["start_time"],
@@ -259,7 +256,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 "session_id": session_id,
                 "viewed": viewed_session_recording,
                 "description": session_recording_meta_data["description"],
-                "s3_url": session_recording_meta_data["s3_url"],
             }
         )
         return session_recording_serializer, session_recording_meta_data

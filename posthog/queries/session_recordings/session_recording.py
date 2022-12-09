@@ -136,7 +136,6 @@ class SessionRecording:
                 start_and_end_times_by_window_id=start_and_end_times_by_window_id,
                 distinct_id=cast(str, distinct_id),
                 description=cast(str, recording.description),
-                s3_url=cast(str, recording.s3_url),
             )
         else:
             return RecordingMetadata(
