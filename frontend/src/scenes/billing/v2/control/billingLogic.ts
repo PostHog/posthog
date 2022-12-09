@@ -157,11 +157,12 @@ export const billingLogic = kea<billingLogicType>([
                 // lock cloud users without a subscription out if they are above the usage limit on any product
 
                 return Boolean(
-                    billingVersion === 'v2' &&
+                    ((billingVersion === 'v2' &&
                         !billing.has_active_subscription &&
                         billing.products.find((x) => {
                             return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
-                        }) &&
+                        })) ||
+                        billing.deactivated) &&
                         featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
                 )
             },
