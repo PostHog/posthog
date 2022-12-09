@@ -121,7 +121,7 @@ export interface DataTableNode extends Node {
     /** Source of the events */
     source: EventsNode | PersonsNode
     /** Columns shown in the table  */
-    columns?: DataTableStringColumn[]
+    columns?: DataTableColumn[]
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
@@ -216,7 +216,7 @@ export type InsightQueryNode =
     | LifecycleQuery
 export type InsightNodeKind = InsightQueryNode['kind']
 
-export type DataTableStringColumn = string
+export type DataTableColumn = string
 
 // Legacy queries
 

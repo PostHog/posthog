@@ -1,27 +1,22 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { DataTableNode, DataTableStringColumn } from '~/queries/schema'
-import { defaultDataTableColumns } from './defaults'
+import { DataTableNode, DataTableColumn } from '~/queries/schema'
+import { defaultsForDataTable } from './defaults'
 import { sortedKeys } from 'lib/utils'
 
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
-    defaultColumns?: DataTableStringColumn[]
+    defaultColumns?: DataTableColumn[]
 }
 
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
     key((props) => props.key),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
-    actions({ setColumns: (columns: DataTableStringColumn[]) => ({ columns }) }),
+    actions({ setColumns: (columns: DataTableColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
-        columns: [
-            (props.query.columns ??
-                props.defaultColumns ??
-                defaultDataTableColumns(props.query.source)) as DataTableStringColumn[],
-            { setColumns: (_, { columns }) => columns },
-        ],
+        columns: [defaultsForDataTable(props.query, props.defaultColumns), { setColumns: (_, { columns }) => columns }],
     })),
     selectors({
         queryWithDefaults: [
@@ -50,9 +45,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        const newColumns = props.query.columns ?? props.defaultColumns ?? defaultDataTableColumns(props.query.source)
-        const oldColumns =
-            oldProps.query.columns ?? oldProps.defaultColumns ?? defaultDataTableColumns(oldProps.query.source)
+        const newColumns = defaultsForDataTable(props.query, props.defaultColumns)
+        const oldColumns = defaultsForDataTable(oldProps.query, oldProps.defaultColumns)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
             actions.setColumns(newColumns)
         }
