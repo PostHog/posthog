@@ -1,4 +1,5 @@
 import json
+from typing import List
 
 from django.db import models
 from django.db.models import Q
@@ -44,6 +45,9 @@ class Action(models.Model):
             "has_properties": self.steps.exclude(properties=[]).exists(),
             "deleted": self.deleted,
         }
+
+    def get_step_events(self) -> List[str]:
+        return [action_step.event for action_step in self.steps.all()]
 
 
 @receiver(post_save, sender=Action)
