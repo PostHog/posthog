@@ -1,4 +1,4 @@
-from collections import Counter
+from typing import Counter as TCounter
 from typing import List, Set, cast
 
 from posthog.clickhouse.materialized_columns.column import ColumnName
@@ -39,9 +39,9 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
         return columns_to_query
 
     @cached_property
-    def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
+    def properties_used_in_filter(self) -> TCounter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
+        counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
