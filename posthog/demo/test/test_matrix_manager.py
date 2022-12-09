@@ -1,17 +1,17 @@
 import datetime as dt
 from enum import auto
-from typing import Optional, cast
+from typing import Optional
 
 import pytz
 
 from posthog.client import sync_execute
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.matrix.matrix import Cluster, Matrix
-from posthog.demo.matrix.models import SimPerson
+from posthog.demo.matrix.models import SimPerson, SimSessionIntent
 from posthog.test.base import ClickhouseDestroyTablesMixin
 
 
-class DummySessionIntent:
+class DummySessionIntent(SimSessionIntent):
     FLAIL = auto()
 
 
@@ -20,7 +20,7 @@ class DummyPerson(SimPerson):
         return self.cluster.start
 
     def determine_session_intent(self) -> Optional[DummySessionIntent]:
-        return cast(DummySessionIntent, DummySessionIntent.FLAIL)
+        return DummySessionIntent.FLAIL
 
     def simulate_session(self):
         self.active_client.capture_pageview("/", {"foo": "bar"})
