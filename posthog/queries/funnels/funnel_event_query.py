@@ -148,8 +148,7 @@ class FunnelEventQuery(EventQuery):
         for entity in entities_to_use:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                for action_step in action.steps.all():
-                    events.add(action_step.event)
+                events.update(action.get_step_events())
             else:
                 events.add(entity.id)
 

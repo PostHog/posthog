@@ -273,9 +273,8 @@ class SessionRecordingList(EventQuery):
         for index, entity in enumerate(self._filter.entities):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                for action_step in action.steps.all():
-                    if action_step.event not in event_names_to_filter:
-                        event_names_to_filter.append(action_step.event)
+                action_events = action.get_step_events()
+                event_names_to_filter.extend([ae for ae in action_events if ae not in event_names_to_filter])
             else:
                 if entity.id not in event_names_to_filter:
                     event_names_to_filter.append(entity.id)

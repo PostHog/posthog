@@ -49,12 +49,7 @@ class Action(models.Model):
     def get_step_events(self) -> List[str]:
         events = []
         for action_step in self.steps.all():
-            if action_step.url:
-                events.append("$pageview")
-            elif action_step.event:
-                events.append(action_step.event)
-            else:
-                events.append("$autocapture")
+            events.append(action_step.event)
 
         return events
 
