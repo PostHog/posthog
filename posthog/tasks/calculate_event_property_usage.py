@@ -263,7 +263,7 @@ def _get_event_properties(team_id: int, since: timezone.datetime) -> List[Tuple[
 
 def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], TCounter[PropertyIdentifier]]:
     event_usage: List[str] = []
-    counted_properties: TCounter[PropertyIdentifier] = Counter[PropertyIdentifier]()
+    counted_properties: TCounter[PropertyIdentifier] = Counter()
 
     insight_filters = [
         (id, Filter(data=filters) if filters else None)
