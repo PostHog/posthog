@@ -154,7 +154,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
-                        key={lemonColumns.join('::')}
+                        key={lemonColumns.join('::') /* Bust the LemonTable cache when columns change */}
                         dataSource={dataSource}
                         expandable={
                             expandable
