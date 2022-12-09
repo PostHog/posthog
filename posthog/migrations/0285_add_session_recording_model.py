@@ -98,7 +98,6 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
                 ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("deleted", models.BooleanField(default=False)),
-                ("s3_url", models.CharField(blank=True, max_length=65535, null=True)),
                 (
                     "created_by",
                     models.ForeignKey(

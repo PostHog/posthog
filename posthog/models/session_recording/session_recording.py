@@ -16,6 +16,5 @@ class SessionRecording(UUIDModel):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_recordings"
     )
     deleted: models.BooleanField = models.BooleanField(default=False)
-    s3_url: models.CharField = models.CharField(max_length=65535, null=True, blank=True)
 
     # TODO: add metadata field to keep minimal information on this model for quick access
