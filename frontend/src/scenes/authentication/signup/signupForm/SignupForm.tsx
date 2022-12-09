@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { signupLogic } from './signupLogic'
@@ -49,17 +48,6 @@ export function SignupForm(): JSX.Element | null {
             {panel === 0 ? (
                 <>
                     <SignupPanel1 />
-                    {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
-                        // If we're in the demo environment, login is unified with signup and it's passwordless
-                        // For now, if you're not on Cloud, you wouldn't see this page,
-                        // but future-proofing this (with `preflight.initiated`) in case this changes
-                        <div className="text-center mt-4">
-                            Already have an account?{' '}
-                            <Link to="/login" data-attr="signup-login-link" className="font-bold">
-                                Log in
-                            </Link>
-                        </div>
-                    )}
                 </>
             ) : (
                 <>

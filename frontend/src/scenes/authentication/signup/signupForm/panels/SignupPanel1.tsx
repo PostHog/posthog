@@ -7,6 +7,7 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { signupLogic } from '../signupLogic'
+import { Link } from 'lib/components/Link'
 
 export function SignupPanel1(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
@@ -66,6 +67,17 @@ export function SignupPanel1(): JSX.Element | null {
                     Continue
                 </LemonButton>
             </Form>
+            {!preflight?.demo && (preflight?.cloud || preflight?.initiated) && (
+                // If we're in the demo environment, login is unified with signup and it's passwordless
+                // For now, if you're not on Cloud, you wouldn't see this page,
+                // but future-proofing this (with `preflight.initiated`) in case this changes
+                <div className="text-center mt-4">
+                    Already have an account?{' '}
+                    <Link to="/login" data-attr="signup-login-link" className="font-bold">
+                        Log in
+                    </Link>
+                </div>
+            )}
             {!preflight?.demo && (
                 <div>
                     <SocialLoginButtons caption="Or sign up with" topDivider />
