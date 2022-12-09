@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions import EnterpriseFeatureException
-from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.team.team import get_effective_membership_level
 from posthog.utils import get_can_create_org
 
@@ -182,15 +182,7 @@ class TeamMemberLightManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
-        try:
-            if request.resolver_match.url_name.startswith("team-"):
-                # /projects/ endpoint handling
-                team = view.get_object()
-            else:
-                team = view.team
-        except Team.DoesNotExist:
-            return True  # This will be handled as a 404 in the viewset
-        requesting_level = team.get_effective_membership_level(request.user.id)
+        requesting_level = get_effective_membership_level(view.team_id, request.user.id)
         if requesting_level is None:
             return False
         minimum_level = (
@@ -208,8 +200,7 @@ class TeamMemberStrictManagementPermission(BasePermission):
     message = "You don't have sufficient permissions in the project."
 
     def has_permission(self, request, view) -> bool:
-        team = view.team
-        requesting_level = team.get_effective_membership_level(request.user.id)
+        requesting_level = get_effective_membership_level(view.team_id, request.user.id)
         if requesting_level is None:
             return False
         minimum_level = (

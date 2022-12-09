@@ -13,6 +13,7 @@ from statshog.defaults.django import statsd
 from posthog.api.decide import get_decide
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
+from posthog.models.team.team import get_effective_membership_level
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -143,7 +144,7 @@ class AutoProjectMiddleware:
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
                 actual_item_team: Team = actual_item.team
-                if actual_item_team.get_effective_membership_level(user.id) is not None:
+                if get_effective_membership_level(team_id=actual_item_team.id, user_id=user.id) is not None:
                     user.current_team = actual_item_team
                     user.current_organization_id = actual_item_team.organization_id
                     user.save()

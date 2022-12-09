@@ -4,6 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.constants import AvailableFeature
+from posthog.models.team.team import get_effective_membership_level
 from posthog.utils import absolute_uri
 
 
@@ -104,7 +105,7 @@ class Dashboard(models.Model):
         # The owner (aka creator) has full permissions
         if user_id == self.created_by_id:
             return True
-        effective_project_membership_level = self.team.get_effective_membership_level(user_id)
+        effective_project_membership_level = get_effective_membership_level(team_id=self.team.id, user_id=user_id)
         return (
             effective_project_membership_level is not None
             and effective_project_membership_level >= OrganizationMembership.Level.ADMIN

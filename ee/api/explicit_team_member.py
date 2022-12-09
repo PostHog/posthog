@@ -10,6 +10,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.team.team import get_effective_membership_level
 from posthog.models.user import User
 from posthog.permissions import TeamMemberStrictManagementPermission
 
@@ -60,7 +61,7 @@ class ExplicitTeamMemberSerializer(serializers.ModelSerializer):
         requesting_user: User = self.context["request"].user
         membership_being_accessed = cast(Optional[ExplicitTeamMembership], self.instance)
         try:
-            requesting_level = self.context["team"].get_effective_membership_level(requesting_user.id)
+            requesting_level = get_effective_membership_level(team_id=team.id, user_id=requesting_user.id)
         except OrganizationMembership.DoesNotExist:
             # Requesting user does not belong to the project's organization, so we spoof a 404 for enhanced security
             raise exceptions.NotFound("Project not found.")

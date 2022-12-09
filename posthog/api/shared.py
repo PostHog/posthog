@@ -8,6 +8,7 @@ from rest_framework import serializers
 
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.team import get_effective_membership_level
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
@@ -41,7 +42,7 @@ class TeamBasicSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user.id)
+        return get_effective_membership_level(team_id=team.id, user_id=self.context["request"].user.id)
 
 
 class OrganizationBasicSerializer(serializers.ModelSerializer):

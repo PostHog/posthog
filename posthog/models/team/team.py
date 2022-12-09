@@ -162,52 +162,6 @@ class Team(UUIDClassicModel):
 
     objects: TeamManager = TeamManager()
 
-    def get_effective_membership_level_for_parent_membership(
-        self, requesting_parent_membership: "OrganizationMembership"
-    ) -> Optional["OrganizationMembership.Level"]:
-        if (
-            not requesting_parent_membership.organization.is_feature_available(
-                AvailableFeature.PROJECT_BASED_PERMISSIONING
-            )
-            or not self.access_control
-        ):
-            return requesting_parent_membership.level
-        from posthog.models.organization import OrganizationMembership
-
-        try:
-            from ee.models import ExplicitTeamMembership
-        except ImportError:
-            # Only organizations admins and above get implicit project membership
-            if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
-                return None
-            return requesting_parent_membership.level
-        else:
-            try:
-                return (
-                    requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
-                    .get(team=self)
-                    .effective_level
-                )
-            except ExplicitTeamMembership.DoesNotExist:
-                # Only organizations admins and above get implicit project membership
-                if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
-                    return None
-                return requesting_parent_membership.level
-
-    def get_effective_membership_level(self, user_id: int) -> Optional["OrganizationMembership.Level"]:
-        """Return an effective membership level.
-        None returned if the user has no explicit membership and organization access is too low for implicit membership.
-        """
-        from posthog.models.organization import OrganizationMembership
-
-        try:
-            requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
-                "organization"
-            ).get(organization_id=self.organization_id, user_id=user_id)
-        except OrganizationMembership.DoesNotExist:
-            return None
-        return self.get_effective_membership_level_for_parent_membership(requesting_parent_membership)
-
     @property
     def actor_on_events_querying_enabled(self) -> bool:
         # on PostHog Cloud, use the feature flag

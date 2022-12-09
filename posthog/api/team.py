@@ -19,6 +19,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team.team import get_effective_membership_level
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -109,7 +110,7 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user.id)
+        return get_effective_membership_level(team_id=team.id, user_id=self.context["request"].user.id)
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
@@ -191,7 +192,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
             for team in super()
             .get_queryset()
             .filter(organization__in=cast(User, self.request.user).organizations.all())
-            if team.get_effective_membership_level(self.request.user.id) is not None
+            if get_effective_membership_level(team_id=team.id, user_id=self.request.user.id) is not None
         ]
         return super().get_queryset().filter(id__in=visible_teams_ids)
 

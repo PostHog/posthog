@@ -8,7 +8,8 @@ from rest_framework.request import Request
 from ee.models.dashboard_privilege import DashboardPrivilege
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.models import Dashboard, Team, User
+from posthog.models import Dashboard, User
+from posthog.models.team.team import get_effective_membership_level
 from posthog.permissions import TeamMemberAccessPermission
 
 
@@ -61,7 +62,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
             validated_data["user"] = User.objects.filter(is_active=True).get(uuid=user_uuid)
         except User.DoesNotExist:
             raise serializers.ValidationError("User does not exist.")
-        if cast(Team, dashboard.team).get_effective_membership_level(validated_data["user"].id) is None:
+        if get_effective_membership_level(team_id=dashboard.team_id, user_id=validated_data["user"].id) is None:
             raise exceptions.ValidationError("Cannot add collaborators that have no access to the project.")
         if dashboard.can_user_restrict(validated_data["user"].id):
             raise exceptions.ValidationError(
