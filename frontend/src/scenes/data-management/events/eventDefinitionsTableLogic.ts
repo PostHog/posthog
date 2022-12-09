@@ -1,6 +1,5 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { AnyPropertyFilter, Breadcrumb, EventDefinitionType, EventDefinition, PropertyDefinition } from '~/types'
-import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
@@ -8,6 +7,7 @@ import { convertPropertyGroupToProperties, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
+import type { eventDefinitionsTableLogicType } from './eventDefinitionsTableLogicType'
 import { Sorting } from 'lib/components/LemonTable'
 
 export interface EventDefinitionsPaginatedResponse extends PaginatedResponse<EventDefinition> {

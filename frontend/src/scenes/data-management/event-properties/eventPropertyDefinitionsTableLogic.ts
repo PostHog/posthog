@@ -6,19 +6,22 @@ import {
     normalizePropertyDefinitionEndpointUrl,
     PropertyDefinitionsPaginatedResponse,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import type { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
 import { objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { loaders } from 'kea-loaders'
 import { urls } from 'scenes/urls'
+import type { eventPropertyDefinitionsTableLogicType } from './eventPropertyDefinitionsTableLogicType'
+import { Sorting } from 'lib/components/LemonTable'
 
 export interface Filters {
     property: string
+    order: string
 }
 
 function cleanFilters(filter: Partial<Filters>): Filters {
     return {
         property: '',
+        order: '',
         ...filter,
     }
 }
@@ -46,6 +49,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
         filters: [
             {
                 property: '',
+                order: '',
             } as Filters,
             {
                 setFilters: (state, { filters }) => ({
@@ -137,6 +141,26 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                 ]
             },
         ],
+        sorting: [
+            (s) => [s.filters],
+            (filters: Filters | undefined): Sorting | null => {
+                if (!filters || !filters?.order) {
+                    return {
+                        columnKey: '',
+                        order: -1,
+                    }
+                }
+                return filters.order.startsWith('-')
+                    ? {
+                          columnKey: filters.order.slice(1),
+                          order: -1,
+                      }
+                    : {
+                          columnKey: filters.order,
+                          order: 1,
+                      }
+            },
+        ],
     })),
     listeners(({ actions, values, cache }) => ({
         setFilters: () => {
@@ -147,6 +171,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                         search: values.filters.property,
                     },
                     full: true,
+                    order: values.filters.order,
                 })
             )
         },
