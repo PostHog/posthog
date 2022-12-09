@@ -14,13 +14,14 @@ from typing import (
 
 import mimesis
 import mimesis.random
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
+from posthog.models.utils import UUIDT
 
-from ...models.utils import UUIDT
 from .models import Effect, SimPerson, SimServerClient
 
 
@@ -222,7 +223,7 @@ class Matrix(ABC):
         now: Optional[dt.datetime] = None,
         days_past: int = 180,
         days_future: int = 30,
-        n_clusters: int = 500,
+        n_clusters: int = settings.DEMO_MATRIX_N_CLUSTERS,
     ):
         if now is None:
             now = timezone.now()
