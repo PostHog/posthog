@@ -9,6 +9,7 @@ import structlog
 from django.utils import timezone
 from statshog.defaults.django import statsd
 
+from posthog.celery import calculate_event_property_usage_for_team_task
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
@@ -28,43 +29,51 @@ class CountFromZero:
         self.seen_events: Set[str] = set()
         self.seen_properties: Set[str] = set()
 
-    def incr_event(self, event: EventDefinition) -> int:
-        if event.name in self.seen_events:
-            return event.query_usage_30_day + 1
+    def incr_event(self, event: str, current_count: int = 0) -> int:
+        if event in self.seen_events:
+            return current_count + 1
         else:
-            self.seen_events.add(event.name)
+            self.seen_events.add(event)
             return 1
 
-    def incr_property(self, property: PropertyDefinition, count: int = 1) -> int:
-        if property.name in self.seen_properties:
-            return property.query_usage_30_day + count
+    def incr_property(self, property: str, current: Optional[int] = None, count: Optional[int] = None) -> int:
+        if property in self.seen_properties:
+            return (current or 0) + (count or 0)
         else:
-            self.seen_properties.add(property.name)
-            return count
+            self.seen_properties.add(property)
+            return count or 0
 
 
 @timed("calculate_event_property_usage")
 def calculate_event_property_usage() -> None:
-    teams_to_exclude = recently_calculated_teams(now_in_seconds_since_epoch=time.time())
+    """
+    We only allow one instance of calculate_event_property_usage_for_team_task to run at a time
+    And we only allow teams to be processed every three hours.
+    This means we can schedule a chunk of teams to be processed without causing a thundering herd,
+    """
+    now_in_seconds_since_epoch = time.time()
+    three_hours_ago = now_in_seconds_since_epoch - (3600 * 3)
+    teams_to_exclude = recently_calculated_teams(
+        now_in_seconds_since_epoch=now_in_seconds_since_epoch, limit_seconds=three_hours_ago
+    )
+    next_teams = Team.objects.exclude(id__in=teams_to_exclude).values_list("id", flat=True)[:300]
+    for team in next_teams:
+        calculate_event_property_usage_for_team_task.delay(team_id=team)
+        get_client().zadd(name=CALCULATED_PROPERTIES_FOR_TEAMS_KEY, mapping={str(team): time.time()})
 
-    for team_id in Team.objects.values_list("id", flat=True):
-        if team_id not in teams_to_exclude:
-            calculate_event_property_usage_for_team(team_id=team_id)
-            get_client().zadd(name=CALCULATED_PROPERTIES_FOR_TEAMS_KEY, mapping={str(team_id): time.time()})
 
-
-def recently_calculated_teams(now_in_seconds_since_epoch: float) -> Set[int]:
+def recently_calculated_teams(now_in_seconds_since_epoch: float, limit_seconds: float) -> Set[int]:
     """
     Each time a team has properties calculated it is added to the sorted set with the seconds since epoch as its score.
-    That means we can read all teams in that set whose score is within the seconds since epoch covered in the last 24 hours
-    And exclude them from recalculation
+    That means we can read all teams in that set whose score is within the seconds since epoch covered in the last
+    limit_seconds and exclude them from recalculation
     """
-    one_day_ago = now_in_seconds_since_epoch - 86400
+
     return {
         int(team_id)
         for team_id, _ in get_client().zrange(
             name=CALCULATED_PROPERTIES_FOR_TEAMS_KEY,
-            start=int(one_day_ago),
+            start=int(limit_seconds),
             end=int(now_in_seconds_since_epoch),
             withscores=True,
             byscore=True,
@@ -80,10 +89,12 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
     This is not needed in production - where the plugin server is responsible for this - but in the demo environment
     data comes preloaded, necessitating complete inference."""
 
+    logger.info("calculate_event_property_usage_for_team.started", team_id=team_id)
+
     try:
-        count_from_zero = CountFromZero()
         # django orm doesn't track if a model has been changed
         # between count from zero and these two sets we manually track which models have changed
+        count_from_zero = CountFromZero()
         altered_events: Set[str] = set()
         altered_properties: Set[str] = set()
 
@@ -137,7 +148,9 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 )
                 continue
             event_definition = event_definitions[series_event]
-            event_definition.query_usage_30_day = count_from_zero.incr_event(event_definition)
+            event_definition.query_usage_30_day = count_from_zero.incr_event(
+                event_definition.name, event_definition.query_usage_30_day
+            )
 
         for counted_property in counted_properties:
             property_name, _, _ = counted_property
@@ -152,7 +165,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
                 continue
             property_definition = property_definitions[property_name]
             property_definition.query_usage_30_day = count_from_zero.incr_property(
-                property_definition, count_for_property
+                property_definition.name, property_definition.query_usage_30_day, count_for_property
             )
 
         events_volume = _get_events_volume(team_id, since)
@@ -294,7 +307,8 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
             action = item_filter_action.get_action()
             event_usage.extend(action.get_step_events())
 
-        counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
+        event_properties = FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event")
+        counted_properties.update(event_properties)
 
     statsd.gauge(
         "calculate_event_property_usage_for_team.counted_events_for_team_insights",

@@ -1,4 +1,5 @@
 import random
+import unittest
 from datetime import timedelta
 from typing import Dict, List
 from unittest.mock import MagicMock, call, patch
@@ -8,6 +9,7 @@ from freezegun import freeze_time
 
 from posthog.models import EventDefinition, EventProperty, Insight, Organization, PropertyDefinition, Team
 from posthog.tasks.calculate_event_property_usage import (
+    CountFromZero,
     calculate_event_property_usage,
     calculate_event_property_usage_for_team,
 )
@@ -16,6 +18,35 @@ from posthog.test.base import _create_event as create_event
 from posthog.test.base import _create_person as create_person
 from posthog.test.base import flush_persons_and_events
 from posthog.test.db_context_capturing import capture_db_queries
+
+
+class TestCountFromZero(unittest.TestCase):
+    def test_count_from_zero_for_events(self) -> None:
+        """increments provided count by one,
+        "except for the first time an event is seen it always returns one
+        """
+        counter = CountFromZero()
+
+        assert counter.incr_event("b") == 1
+        assert counter.incr_event("a", 2) == 1
+        assert counter.incr_event("a", 2) == 3
+        assert counter.incr_event("c", 100) == 1  # first time is always zero
+
+        assert counter.seen_events == {"a", "b", "c"}
+
+    def test_count_from_zero_for_properties(self) -> None:
+        """properties are always provided with a count
+        The first time they are seen the count is returned
+        On subsequent calls the count is incremented by the current count
+        """
+        counter = CountFromZero()
+
+        assert counter.incr_property("b") == 0
+        assert counter.incr_property("a", 100_000, 2) == 2
+        assert counter.incr_property("a", 2, 3) == 5
+        assert counter.incr_property("c", None, 100) == 100
+
+        assert counter.seen_properties == {"a", "b", "c"}
 
 
 class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
@@ -98,7 +129,11 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
             # mock will have had three calls, one for the autocreated team from the test class, one for `team`, and one for `team_two`
             self.assertCountEqual(
                 patched_calculate_for_team.call_args_list,
-                [call(team_id=self.team.id), call(team_id=team.id), call(team_id=team_two.id)],
+                [
+                    call(self.team.id, complete_inference=False),
+                    call(team.id, complete_inference=False),
+                    call(team_two.id, complete_inference=False),
+                ],
             )
             patched_calculate_for_team.reset_mock()
 
@@ -108,20 +143,21 @@ class TestCalculateEventPropertyUsage(ClickhouseTestMixin, BaseTest):
 
             # mock will only have had one call, for `team_created_after_first_run`
             self.assertCountEqual(
-                patched_calculate_for_team.call_args_list, [call(team_id=team_created_after_first_run.id)]
+                patched_calculate_for_team.call_args_list,
+                [call(team_created_after_first_run.id, complete_inference=False)],
             )
             patched_calculate_for_team.reset_mock()
 
-            frozen_datetime.tick(delta=timedelta(days=1, minutes=1))
+            frozen_datetime.tick(delta=timedelta(hours=3, minutes=1))
 
-            calculate_event_property_usage()  # a day has passed all teams will run
+            calculate_event_property_usage()  # three hours have passed all teams will run
             self.assertCountEqual(
                 patched_calculate_for_team.call_args_list,
                 [
-                    call(team_id=self.team.id),
-                    call(team_id=team.id),
-                    call(team_id=team_two.id),
-                    call(team_id=team_created_after_first_run.id),
+                    call(self.team.id, complete_inference=False),
+                    call(team.id, complete_inference=False),
+                    call(team_two.id, complete_inference=False),
+                    call(team_created_after_first_run.id, complete_inference=False),
                 ],
             )
 

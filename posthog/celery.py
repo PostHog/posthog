@@ -1,4 +1,6 @@
+import functools
 import os
+import random
 import time
 from random import randrange
 from typing import Any, Dict, List, Optional
@@ -8,6 +10,7 @@ from celery import Celery
 from celery.schedules import crontab
 from celery.signals import setup_logging, task_postrun, task_prerun, worker_process_init
 from django.conf import settings
+from django.core.cache import cache
 from django.db import connection
 from django.dispatch import receiver
 from django.utils import timezone
@@ -175,6 +178,28 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
             check_flags_to_rollback.s(),
             name="check feature flags that should be rolled back",
         )
+
+
+def single_executing_at_once(lock_name, lock_timeout_seconds=180, jitter=(1, 20)):
+    """
+    Ensures only a single copy of a celery task is executing at once.
+    """
+
+    def decorator_fn(fn):
+        @functools.wraps(fn)
+        def inner(self, *args, **kw):
+            if not cache.add(lock_name, 1, timeout=lock_timeout_seconds):
+                retry_time = random.uniform(*jitter)
+                return self.retry(countdown=retry_time)
+
+            try:
+                return fn(self, *args, **kw)
+            finally:
+                cache.delete(lock_name)
+
+        return inner
+
+    return decorator_fn
 
 
 # Set up clickhouse query instrumentation
@@ -509,6 +534,14 @@ def update_cache_task(caching_state_id: UUID):
     from posthog.caching.insight_cache import update_cache
 
     update_cache(caching_state_id)
+
+
+@app.task(ignore_result=True, bind=True)
+@single_executing_at_once("celery_update_cache_task")
+def calculate_event_property_usage_for_team_task(self, team_id: int) -> None:
+    from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
+
+    calculate_event_property_usage_for_team(team_id, complete_inference=False)
 
 
 @app.task(ignore_result=True)
