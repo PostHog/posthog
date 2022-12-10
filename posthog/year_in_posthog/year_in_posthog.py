@@ -41,7 +41,7 @@ explanation = {
     "flag_raiser": "You've raised so many feature flags we've started to suspect that semaphore is your first language. Keep it up!",
     "popcorn_muncher": "You're addicted to reality TV. And, by reality TV, we mean session recordings. You care about the UX and we want to celebrate that!",
     "scientist": "You’ve earned this badge from your never ending curiosity and need for knowledge. One result we know for sure, you are doing amazing things. ",
-    "champion": "Unmatched. Unstoppable. You're like the Usain Bolt of hedgehogs! We're grateful to have you as a PostHog power user.",
+    "champion": "You're unmatched. Unstoppable! You're like the Usain Bolt of hedgehogs! We're grateful to have you as a PostHog power user.",
 }
 
 
