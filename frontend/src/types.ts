@@ -338,8 +338,10 @@ export type ToolbarVersion = 'toolbar'
 export interface ToolbarParams {
     apiURL?: string
     jsURL?: string
-    token?: string /** public posthog-js token */
-    temporaryToken?: string /** private temporary user token */
+    /** public posthog-js token */
+    token?: string
+    /** private temporary user token */
+    temporaryToken?: string
     actionId?: number
     userIntent?: ToolbarUserIntent
     source?: ToolbarSource
@@ -1311,6 +1313,7 @@ export interface TrendsFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
 }
+
 export interface StickinessFilterType extends FilterType {
     compare?: boolean
     show_legend?: boolean // used to show/hide legend next to insights graph
@@ -1319,6 +1322,7 @@ export interface StickinessFilterType extends FilterType {
     shown_as?: ShownAsValue
     display?: ChartDisplayType
 }
+
 export interface FunnelsFilterType extends FilterType {
     funnel_viz_type?: FunnelVizType // parameter sent to funnels API for time conversion code path
     funnel_from_step?: number // used in time to convert: initial step index to compute time to convert
@@ -1343,6 +1347,7 @@ export interface FunnelsFilterType extends FilterType {
     new_entity?: Record<string, any>[]
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
 }
+
 export interface PathsFilterType extends FilterType {
     path_type?: PathType
     include_event_types?: PathType[]
@@ -1362,6 +1367,7 @@ export interface PathsFilterType extends FilterType {
     min_edge_weight?: number | undefined // Paths
     max_edge_weight?: number | undefined // Paths
 }
+
 export interface RetentionFilterType extends FilterType {
     retention_type?: RetentionType
     retention_reference?: 'total' | 'previous' // retention wrt cohort size or previous period
@@ -1370,9 +1376,11 @@ export interface RetentionFilterType extends FilterType {
     target_entity?: Record<string, any>
     period?: string
 }
+
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
 }
+
 export type AnyFilterType =
     | TrendsFilterType
     | StickinessFilterType
@@ -1835,6 +1843,28 @@ export interface LicenseType {
     valid_until: string
     created_at: string
 }
+
+export interface DeterminePropertyDefinitionURLProps {
+    event_names?: string[]
+    excluded_properties?: string[]
+    is_event_property?: boolean
+    is_feature_flag?: boolean
+    limit?: number
+    offset?: number
+    order?: string
+    teamId?: TeamType['id']
+}
+
+export interface DetermineEventDefinitionURLProps {
+    limit?: number
+    offset?: number
+    teamId?: TeamType['id']
+    order?: string
+    search?: string
+    event_type?: EventDefinitionType
+}
+
+export type DetermineDefinitionURLProps = DetermineEventDefinitionURLProps | DeterminePropertyDefinitionURLProps
 
 export interface EventDefinition {
     id: string

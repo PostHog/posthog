@@ -3,9 +3,8 @@ import {
     EVENT_DEFINITIONS_PER_PAGE,
     eventDefinitionsTableLogic,
     normalizeEventDefinitionEndpointUrl,
-    NormalizeEventDefinitionURLProps,
+    NormalizeDefinitionURLProps,
     normalizePropertyDefinitionEndpointUrl,
-    NormalizePropertyDefinitionEndpointUrlProps,
     PROPERTY_DEFINITIONS_PER_EVENT,
 } from 'scenes/data-management/events/eventDefinitionsTableLogic'
 import { api, MOCK_TEAM_ID } from 'lib/api.mock'
@@ -141,7 +140,7 @@ describe('eventDefinitionsTableLogic', () => {
     })
 
     describe('normalise urls as cache keys', () => {
-        interface NormalizeEventDefinitionURLTestCase extends NormalizeEventDefinitionURLProps {
+        interface NormalizeEventDefinitionURLTestCase extends NormalizeDefinitionURLProps {
             expected: string | null
         }
 
@@ -150,82 +149,72 @@ describe('eventDefinitionsTableLogic', () => {
                 url: '',
                 full: false,
                 searchParams: undefined,
-                eventTypeFilter: undefined,
                 expected: null,
             },
             {
                 url: '',
                 full: true,
                 searchParams: undefined,
-                eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50`,
             },
             {
                 url: 'anything',
                 full: false,
                 searchParams: undefined,
-                eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50`,
             },
             {
                 url: 'anything',
                 full: true,
                 searchParams: undefined,
-                eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&event_type=event`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50`,
             },
             {
                 url: 'anything',
                 full: true,
                 searchParams: { search: '' },
-                eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=&event_type=event`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=`,
             },
             {
                 url: 'anything',
                 full: true,
                 searchParams: { search: 'tomato' },
-                eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=tomato&event_type=event`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=tomato`,
             },
             {
                 url: 'anything?offset=5',
                 full: true,
                 searchParams: { search: 'tomato' },
-                eventTypeFilter: undefined,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato`,
+            },
+            {
+                url: 'anything?offset=5',
+                full: true,
+                searchParams: { search: 'tomato', event_type: 'event' },
                 expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato&event_type=event`,
             },
             {
                 url: 'anything?offset=5',
                 full: true,
-                searchParams: { search: 'tomato', second: 'included' },
-                eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato&second=included&event_type=event`,
-            },
-            {
-                url: 'anything?offset=5',
-                full: true,
-                searchParams: { search: 'tomato', second: 'included', order: '-something' },
-                eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato&second=included&order=-something&event_type=event`,
+                searchParams: { search: 'tomato', event_type: 'event', order: '-something' },
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&offset=5&search=tomato&event_type=event&order=-something`,
             },
             {
                 url: '',
                 full: true,
                 searchParams: { search: '', order: '-something' },
-                eventTypeFilter: undefined,
-                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=&order=-something&event_type=event`,
+                expected: `api/projects/${MOCK_TEAM_ID}/event_definitions?limit=50&search=&order=-something`,
             },
         ]
         testCases.forEach((testCase) => {
             it(`should normalise ${JSON.stringify(testCase)} as ${testCase.expected}`, () => {
-                expect(normalizeEventDefinitionEndpointUrl(testCase as NormalizeEventDefinitionURLProps)).toEqual(
+                expect(normalizeEventDefinitionEndpointUrl(testCase as NormalizeDefinitionURLProps)).toEqual(
                     testCase.expected
                 )
             })
         })
 
-        interface NormalizeEventPropertyDefinitionURLTestCase extends NormalizePropertyDefinitionEndpointUrlProps {
+        interface NormalizeEventPropertyDefinitionURLTestCase extends NormalizeDefinitionURLProps {
             expected: string | null
         }
 
@@ -281,9 +270,9 @@ describe('eventDefinitionsTableLogic', () => {
         ]
         propertyDefinitionsTestCases.forEach((testCase) => {
             it(`should normalise ${JSON.stringify(testCase)} as ${testCase.expected}`, () => {
-                expect(
-                    normalizePropertyDefinitionEndpointUrl(testCase as NormalizePropertyDefinitionEndpointUrlProps)
-                ).toEqual(testCase.expected)
+                expect(normalizePropertyDefinitionEndpointUrl(testCase as NormalizeDefinitionURLProps)).toEqual(
+                    testCase.expected
+                )
             })
         })
     })

@@ -35,6 +35,8 @@ import {
     RolesListParams,
     FeatureFlagAssociatedRoleType,
     SessionRecordingType,
+    DetermineEventDefinitionURLProps,
+    DeterminePropertyDefinitionURLProps,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -609,14 +611,7 @@ const api = {
             limit = EVENT_DEFINITIONS_PER_PAGE,
             teamId = getCurrentTeamId(),
             ...params
-        }: {
-            limit?: number
-            offset?: number
-            teamId?: TeamType['id']
-            order?: string
-            search?: string
-            event_type?: EventDefinitionType
-        }): string {
+        }: DetermineEventDefinitionURLProps): string {
             return new ApiRequest()
                 .eventDefinitions(teamId)
                 .withQueryString(toParams({ limit, ...params }))
@@ -671,16 +666,7 @@ const api = {
             limit = EVENT_PROPERTY_DEFINITIONS_PER_PAGE,
             teamId = getCurrentTeamId(),
             ...params
-        }: {
-            event_names?: string[]
-            excluded_properties?: string[]
-            is_event_property?: boolean
-            is_feature_flag?: boolean
-            limit?: number
-            offset?: number
-            order?: string
-            teamId?: TeamType['id']
-        }): string {
+        }: DeterminePropertyDefinitionURLProps): string {
             return new ApiRequest()
                 .propertyDefinitions(teamId)
                 .withQueryString(

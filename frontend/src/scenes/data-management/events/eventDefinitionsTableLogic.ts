@@ -1,5 +1,12 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { AnyPropertyFilter, Breadcrumb, EventDefinitionType, EventDefinition, PropertyDefinition } from '~/types'
+import {
+    AnyPropertyFilter,
+    Breadcrumb,
+    EventDefinitionType,
+    EventDefinition,
+    PropertyDefinition,
+    DetermineDefinitionURLProps,
+} from '~/types'
 import api, { PaginatedResponse } from 'lib/api'
 import { keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
@@ -46,55 +53,43 @@ export function createDefinitionKey(event?: EventDefinition, property?: Property
     return `${event?.id ?? 'event'}-${property?.id ?? 'property'}`
 }
 
-export interface NormalizePropertyDefinitionEndpointUrlProps {
-    url: string | null | undefined
+export interface NormalizeDefinitionURLProps {
+    url?: string | null | undefined
     searchParams?: Record<string, any>
     full?: boolean
-    order?: string
+}
+
+function normalizeDefinitionURL(
+    full: boolean | undefined,
+    url: string | null | undefined,
+    searchParams: Record<string, any> | undefined,
+    determineListEndpoint: (props: DetermineDefinitionURLProps) => string
+): string | null {
+    if (!full && !url) {
+        return null
+    }
+    const params = {
+        ...(url ? combineUrl(url).searchParams : {}),
+        ...searchParams,
+    }
+
+    return determineListEndpoint(params)
 }
 
 export function normalizePropertyDefinitionEndpointUrl({
     url,
     searchParams = {},
     full = false,
-}: NormalizePropertyDefinitionEndpointUrlProps): string | null {
-    if (!full && !url) {
-        return null
-    }
-    return api.propertyDefinitions.determineListEndpoint({
-        ...(url ? combineUrl(url).searchParams : {}),
-        ...searchParams,
-    })
-}
-
-export interface NormalizeEventDefinitionURLProps {
-    url?: string | null | undefined
-    searchParams?: Record<string, any>
-    full?: boolean
-    eventTypeFilter?: EventDefinitionType
-    order?: string
+}: NormalizeDefinitionURLProps): string | null {
+    return normalizeDefinitionURL(full, url, searchParams, api.propertyDefinitions.determineListEndpoint)
 }
 
 export function normalizeEventDefinitionEndpointUrl({
     url,
     searchParams = {},
     full = false,
-    eventTypeFilter = EventDefinitionType.Event,
-}: NormalizeEventDefinitionURLProps): string | null {
-    if (!full && !url) {
-        return null
-    }
-    const params = {
-        ...(url
-            ? {
-                  ...combineUrl(url).searchParams,
-              }
-            : {}),
-        ...searchParams,
-        event_type: eventTypeFilter,
-    }
-
-    return api.eventDefinitions.determineListEndpoint(params)
+}: NormalizeDefinitionURLProps): string | null {
+    return normalizeDefinitionURL(full, url, searchParams, api.eventDefinitions.determineListEndpoint)
 }
 
 export interface EventDefinitionsTableLogicProps {
@@ -145,8 +140,11 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                 loadEventDefinitions: async ({ url: _url }, breakpoint) => {
                     let url = normalizeEventDefinitionEndpointUrl({
                         url: _url,
-                        eventTypeFilter: values.filters.event_type,
-                        searchParams: { search: values.filters.event, order: values.filters.order },
+                        searchParams: {
+                            search: values.filters.event,
+                            order: values.filters.order,
+                            event_type: values.filters.event_type,
+                        },
                     })
 
                     if (url && url in (cache.apiCache ?? {})) {
@@ -172,13 +170,19 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                             ...response,
                             previous: normalizeEventDefinitionEndpointUrl({
                                 url: response.previous,
-                                eventTypeFilter: values.filters.event_type,
-                                searchParams: { search: values.filters.event, order: values.filters.order },
+                                searchParams: {
+                                    search: values.filters.event,
+                                    order: values.filters.order,
+                                    event_type: values.filters.event_type,
+                                },
                             }),
                             next: normalizeEventDefinitionEndpointUrl({
                                 url: response.next,
-                                eventTypeFilter: values.filters.event_type,
-                                searchParams: { search: values.filters.event, order: values.filters.order },
+                                searchParams: {
+                                    search: values.filters.event,
+                                    order: values.filters.order,
+                                    event_type: values.filters.event_type,
+                                },
                             }),
                             current: url,
                             page:
@@ -340,9 +344,12 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             actions.loadEventDefinitions(
                 normalizeEventDefinitionEndpointUrl({
                     url: values.eventDefinitions.current,
-                    searchParams: { search: values.filters.event, order: values.filters.order },
+                    searchParams: {
+                        search: values.filters.event,
+                        order: values.filters.order,
+                        event_type: values.filters.event_type,
+                    },
                     full: true,
-                    eventTypeFilter: values.filters.event_type,
                 })
             )
         },
