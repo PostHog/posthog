@@ -89,7 +89,7 @@ def calculate_event_property_usage_for_team(team_id: int, *, complete_inference:
     This is not needed in production - where the plugin server is responsible for this - but in the demo environment
     data comes preloaded, necessitating complete inference."""
 
-    logger.info("calculate_event_property_usage_for_team.started", team_id=team_id)
+    statsd.incr("calculate_event_property_usage_for_team_started", tags={"team_id": team_id})
 
     try:
         # django orm doesn't track if a model has been changed
