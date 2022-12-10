@@ -97,6 +97,20 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(context.is_aggregation, True)
 
+    def test_hogql_logic(self):
+        self.assertEqual(
+            translate_hql("event or timestamp"),
+            "or(event, timestamp)",
+        )
+        self.assertEqual(
+            translate_hql("properties.bla and properties.bla2"),
+            "and(replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(properties, 'bla2'), '^\"|\"$', ''))",
+        )
+        self.assertEqual(
+            translate_hql("event or timestamp or true or total()"),
+            "or(event, timestamp, true, count(*))",
+        )
+
     def _assert_value_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:
             translate_hql(expr)

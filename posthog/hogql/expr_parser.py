@@ -9,8 +9,9 @@ from posthog.models.property.util import get_property_string_expr
 
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 PERSON_FIELDS = ["id", "created_at", "properties"]
-CLICKHOUSE_FUNCTIONS = ["concat", "coalesce"]
+CLICKHOUSE_FUNCTIONS = ["concat", "coalesce", "toInt64OrNull"]
 HOGQL_AGGREGATIONS = ["avg", "sum", "total"]
+KEYWORDS = ["true", "false", "null"]
 
 
 @dataclass
@@ -61,6 +62,13 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             )
         else:
             response = f"({translate_ast(node.left, stack, context)} {translate_ast(node.op, stack, context)} {translate_ast(node.right, stack, context)})"
+    elif isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            response = f"and({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
+        elif isinstance(node.op, ast.Or):
+            response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
+        else:
+            raise ValueError(f"Unknown BoolOp: {type(node.op)}")
     elif isinstance(node, ast.UnaryOp):
         response = f"{translate_ast(node.op, stack, context)}{translate_ast(node.operand, stack, context)}"
     elif isinstance(node, ast.USub):
@@ -181,6 +189,8 @@ def property_access_to_clickhouse(chain: List[str]):
             return chain[0]
         elif chain[0].startswith("person_") and chain[0][7:] in PERSON_FIELDS:
             return chain[0]
+        elif chain[0].lower() in KEYWORDS:
+            return chain[0].lower()
         else:
             raise ValueError(f"Unknown event field '{chain[0]}'")
 
