@@ -1,4 +1,4 @@
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Set, Tuple, Union
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.filters.filter import Filter
@@ -142,14 +142,13 @@ class FunnelEventQuery(EventQuery):
             self._should_join_persons = False
 
     def _get_entity_query(self, entities=None, entity_name="events") -> Tuple[str, Dict[str, Any]]:
-        events = set()
+        events: Set[Union[int, str]] = set()
         entities_to_use = entities or self._filter.entities
 
         for entity in entities_to_use:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                for action_step in action.steps.all():
-                    events.add(action_step.event)
+                events.update(action.get_step_events())
             else:
                 events.add(entity.id)
 

@@ -70,9 +70,9 @@ export function BillingPanel(): JSX.Element {
                     <div className="text-left flex flex-col space-y-4">
                         <h1 className="ingestion-title">Add payment method</h1>
                         {testExperiment ? (
-                            <BillingV2 redirectPath={urls.ingestion() + '/billing'} />
-                        ) : (
                             <BillingV2Test redirectPath={urls.ingestion() + '/billing'} showCurrentUsage={false} />
+                        ) : (
+                            <BillingV2 redirectPath={urls.ingestion() + '/billing'} />
                         )}
 
                         <LemonDivider dashed />
