@@ -38,10 +38,26 @@ class CountFromZero:
 
     def incr_property(self, property: str, current: Optional[int] = None, count: Optional[int] = None) -> int:
         if property in self.seen_properties:
-            return (current or 0) + (count or 0)
+            value_after_increment = (current or 0) + (count or 0)
+            logger.info(
+                "calculate_event_property_usage_for_team.incrementing_previously_seen_property",
+                property=property,
+                current=current,
+                count=count,
+                new_value=value_after_increment,
+            )
+            return value_after_increment
         else:
             self.seen_properties.add(property)
-            return count or 0
+            value_after_increment = count or 0
+            logger.info(
+                "calculate_event_property_usage_for_team.incrementing_property_for_the_first_time",
+                property=property,
+                current=current,
+                count=count,
+                new_value=value_after_increment,
+            )
+            return value_after_increment
 
 
 @timed("calculate_event_property_usage")
