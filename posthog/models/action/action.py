@@ -47,11 +47,7 @@ class Action(models.Model):
         }
 
     def get_step_events(self) -> List[str]:
-        events = []
-        for action_step in self.steps.all():
-            events.append(action_step.event)
-
-        return events
+        return [action_step.event for action_step in self.steps.all()]
 
 
 @receiver(post_save, sender=Action)

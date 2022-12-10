@@ -2,6 +2,7 @@ import json
 import time
 from collections import Counter
 from datetime import datetime
+from typing import Counter as TCounter
 from typing import Dict, List, Optional, Set, Tuple
 
 import structlog
@@ -260,9 +261,9 @@ def _get_event_properties(team_id: int, since: timezone.datetime) -> List[Tuple[
     return sync_execute(GET_EVENT_PROPERTIES, {"team_id": team_id, "timestamp": since})
 
 
-def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], Counter[PropertyIdentifier]]:
+def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], TCounter[PropertyIdentifier]]:
     event_usage: List[str] = []
-    counted_properties: Counter[PropertyIdentifier] = Counter()
+    counted_properties: TCounter[PropertyIdentifier] = Counter()
 
     insight_filters = [
         (id, Filter(data=filters) if filters else None)
@@ -291,8 +292,7 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
 
         for item_filter_action in item_filters.actions:
             action = item_filter_action.get_action()
-            events = action.get_step_events()
-            event_usage.extend(events)
+            event_usage.extend(action.get_step_events())
 
         counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
 

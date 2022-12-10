@@ -820,7 +820,7 @@ export interface RecordingTimeMixinType {
     playerTime: number | null
     playerPosition: PlayerPosition | null
     colonTimestamp?: string
-    isOutOfBand?: boolean // Did the event or console log not originate from the same client library as the recording
+    capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
