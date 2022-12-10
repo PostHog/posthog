@@ -73,6 +73,27 @@ class TestEventDefinitionAPI(APIBaseTest):
                 (dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds(), 0
             )
 
+    def test_ordered_list_event_definitions(self):
+        response = self.client.get("/api/projects/@current/event_definitions/?order=-name")
+        assert [r["name"] for r in response.json()["results"]] == [
+            "watched_movie",
+            "rated_app",
+            "purchase",
+            "installed_app",
+            "entered_free_trial",
+            "$pageview",
+        ]
+
+        response = self.client.get("/api/projects/@current/event_definitions/?order=name")
+        assert [r["name"] for r in response.json()["results"]] == [
+            "$pageview",
+            "entered_free_trial",
+            "installed_app",
+            "purchase",
+            "rated_app",
+            "watched_movie",
+        ]
+
     def test_pagination_of_event_definitions(self):
         EventDefinition.objects.bulk_create(
             [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]

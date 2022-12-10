@@ -61,6 +61,31 @@ class TestPropertyDefinitionAPI(APIBaseTest):
             self.assertEqual(response_item["query_usage_30_day"], item["query_usage_30_day"], item)
             self.assertEqual(response_item["is_numerical"], item["is_numerical"])
 
+    def test_ordered_list_property_definitions(self):
+        response = self.client.get("/api/projects/@current/property_definitions/?order=-name")
+        assert [r["name"] for r in response.json()["results"]] == [
+            "purchase_value",
+            "purchase",
+            "plan",
+            "is_first_movie",
+            "first_visit",
+            "app_rating",
+            "$current_url",
+            "$browser",
+        ]
+
+        response = self.client.get("/api/projects/@current/property_definitions/?order=name")
+        assert [r["name"] for r in response.json()["results"]] == [
+            "$browser",
+            "$current_url",
+            "app_rating",
+            "first_visit",
+            "is_first_movie",
+            "plan",
+            "purchase",
+            "purchase_value",
+        ]
+
     def test_list_numerical_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?is_numerical=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

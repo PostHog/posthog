@@ -137,7 +137,7 @@ class QueryContext:
             },
         )
 
-    def with_order(self, order: str) -> "QueryContext":
+    def with_order(self, order: Optional[str]) -> "QueryContext":
         if order:
             is_desc = False
             if order.startswith("-"):
