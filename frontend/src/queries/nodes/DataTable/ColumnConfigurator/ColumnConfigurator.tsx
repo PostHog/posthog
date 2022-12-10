@@ -2,7 +2,7 @@ import './ColumnConfigurator.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { IconClose, IconEdit, IconPlus, IconTuning, SortableDragIcon } from 'lib/components/icons'
+import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/components/icons'
 import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import clsx from 'clsx'
@@ -22,7 +22,10 @@ import { defaultDataTableColumns } from '../defaults'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
 import { isEventsNode } from '~/queries/utils'
-import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { PropertyFilterType } from '~/types'
 
 let uniqueNode = 0
 
@@ -68,8 +71,8 @@ function ColumnConfiguratorModal(): JSX.Element {
     // setting the container to be larger than we need
     // and adding a container with a smaller height to each row item
     // allows the new row item to set a margin around itself
-    const rowContainerHeight = 80
-    const rowItemHeight = 75
+    const rowContainerHeight = 36
+    const rowItemHeight = 32
 
     const { modalVisible, columns } = useValues(columnConfiguratorLogic)
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
@@ -79,6 +82,7 @@ function ColumnConfiguratorModal(): JSX.Element {
         return (
             <LemonCheckbox
                 label="Save as default for all project members"
+                className="mt-2"
                 data-attr="events-table-save-columns-as-default-toggle"
                 bordered
                 onChange={toggleSaveAsDefault}
@@ -92,12 +96,25 @@ function ColumnConfiguratorModal(): JSX.Element {
             <SortableDragIcon />
         </span>
     ))
-    const SelectedColumn = (props: { column: string; dataIndex: number }): JSX.Element => {
-        const { column, dataIndex } = props
+    const SelectedColumn = ({ column, dataIndex }: { column: string; dataIndex: number }): JSX.Element => {
+        let columnType: PropertyFilterType | null = null
+        let columnKey = column
+        if (column.startsWith('person.properties.')) {
+            columnType = PropertyFilterType.Person
+            columnKey = column.substring(18)
+        }
+        if (column.startsWith('properties.')) {
+            columnType = PropertyFilterType.Event
+            columnKey = column.substring(11)
+        }
+
+        // const SelectedColumn = (props: { column: string; dataIndex: number }): JSX.Element => {
+        //     const { column, dataIndex } = props
         return (
             <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>
                 <DragHandle />
-                <code>{column}</code>
+                {columnType && <PropertyFilterIcon type={columnType} />}
+                <PropertyKeyInfo className="ml-1" value={columnKey} />
                 <div className="flex-1" />
                 <Tooltip title="Edit">
                     <LemonButton
@@ -179,50 +196,53 @@ function ColumnConfiguratorModal(): JSX.Element {
                 </>
             }
         >
-            <div className="ColumnConfiguratorModal space-y-2">
-                <h4 className="secondary uppercase text-muted">Visible columns ({columns.length}) - Drag to reorder</h4>
-                <SortableColumnList
-                    helperClass="column-configurator-modal-sortable-container"
-                    onSortEnd={({ oldIndex, newIndex }) => moveColumn(oldIndex, newIndex)}
-                    distance={5}
-                    useDragHandle
-                    lockAxis="y"
-                />
-                <TaxonomicPopup
-                    fullWidth={false}
-                    groupTypes={[
-                        TaxonomicFilterGroupType.EventProperties,
-                        TaxonomicFilterGroupType.PersonProperties,
-                        TaxonomicFilterGroupType.EventFeatureFlags,
-                    ]}
-                    onChange={(value, groupType) => {
-                        if (groupType === TaxonomicFilterGroupType.EventProperties) {
-                            selectColumn(`properties['${value}']`)
-                        }
-                        if (groupType === TaxonomicFilterGroupType.PersonProperties) {
-                            selectColumn(`person.properties['${value}']`)
-                        }
-                        if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
-                            selectColumn(`properties['${value}']`)
-                        }
-                    }}
-                    value={''}
-                    groupType={TaxonomicFilterGroupType.EventProperties}
-                    placeholder={'Select a new property to display'}
-                />
-                <LemonButton
-                    type="secondary"
-                    icon={<IconPlus />}
-                    data-attr="column-config-add-custom"
-                    onClick={() => {
-                        const column = window.prompt('Enter a custom column name')
-                        if (column) {
-                            selectColumn(column)
-                        }
-                    }}
-                >
-                    Add custom column
-                </LemonButton>
+            <div className="ColumnConfiguratorModal">
+                <div className="Columns">
+                    <div className="HalfColumn">
+                        <h4 className="secondary uppercase text-muted">
+                            Visible columns ({columns.length}) - Drag to reorder
+                        </h4>
+                        <SortableColumnList
+                            helperClass="column-configurator-modal-sortable-container"
+                            onSortEnd={({ oldIndex, newIndex }) => moveColumn(oldIndex, newIndex)}
+                            distance={5}
+                            useDragHandle
+                            lockAxis="y"
+                        />
+                    </div>
+                    <div className="HalfColumn">
+                        <h4 className="secondary uppercase text-muted">Available columns</h4>
+                        <div style={{ height: 360 }}>
+                            <AutoSizer>
+                                {({ height, width }: { height: number; width: number }) => (
+                                    <TaxonomicFilter
+                                        height={height}
+                                        width={width}
+                                        taxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                        ]}
+                                        value={undefined}
+                                        onChange={(group, value) => {
+                                            if (group.type === TaxonomicFilterGroupType.EventProperties) {
+                                                selectColumn(`properties.${value}`)
+                                            }
+                                            if (group.type === TaxonomicFilterGroupType.PersonProperties) {
+                                                selectColumn(`person.properties.${value}`)
+                                            }
+                                            if (group.type === TaxonomicFilterGroupType.EventFeatureFlags) {
+                                                selectColumn(`properties.${value}`)
+                                            }
+                                        }}
+                                        popoverEnabled={false}
+                                        selectFirstItem={false}
+                                    />
+                                )}
+                            </AutoSizer>
+                        </div>
+                    </div>
+                </div>
                 <RestrictedArea
                     Component={SaveColumnsAsDefault}
                     minimumAccessLevel={TeamMembershipLevel.Admin}
