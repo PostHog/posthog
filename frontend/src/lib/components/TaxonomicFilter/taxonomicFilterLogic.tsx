@@ -409,6 +409,20 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getValue: (option) => option.value,
                         getPopupHeader: () => 'Session',
                     },
+                    {
+                        name: 'HogQL',
+                        searchPlaceholder: 'Custom HogQL',
+                        type: TaxonomicFilterGroupType.HogQLExpression,
+                        options: [
+                            {
+                                name: 'Custom HogQL expression',
+                                value: '$session_duration',
+                            },
+                        ],
+                        getName: (option) => option.name,
+                        getValue: (option) => option.value,
+                        getPopupHeader: () => 'Session',
+                    },
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]

@@ -222,6 +222,7 @@ function ColumnConfiguratorModal(): JSX.Element {
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.EventFeatureFlags,
                                             TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.HogQLExpression,
                                         ]}
                                         value={undefined}
                                         onChange={(group, value) => {
@@ -233,6 +234,12 @@ function ColumnConfiguratorModal(): JSX.Element {
                                             }
                                             if (group.type === TaxonomicFilterGroupType.EventFeatureFlags) {
                                                 selectColumn(`properties.${value}`)
+                                            }
+                                            if (group.type === TaxonomicFilterGroupType.HogQLExpression) {
+                                                const expression = window.prompt('Enter HogQL expression')
+                                                if (expression) {
+                                                    selectColumn(expression)
+                                                }
                                             }
                                         }}
                                         popoverEnabled={false}

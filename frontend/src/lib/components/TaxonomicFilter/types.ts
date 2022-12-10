@@ -75,6 +75,7 @@ export enum TaxonomicFilterGroupType {
     Dashboards = 'dashboards',
     GroupNamesPrefix = 'name_groups',
     Sessions = 'sessions',
+    HogQLExpression = 'hogql_expression',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {
