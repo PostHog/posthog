@@ -9,7 +9,6 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
-    dashboard,
     dead_letter_queue,
     event_definition,
     exports,
@@ -35,6 +34,7 @@ from . import (
     uploaded_media,
     user,
 )
+from .dashboards import dashboard
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
