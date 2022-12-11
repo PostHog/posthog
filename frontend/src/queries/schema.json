@@ -1536,6 +1536,12 @@
                         "$ref": "#/definitions/DataTableColumn"
                     },
                     "type": "array"
+                },
+                "where": {
+                    "items": {
+                        "$ref": "#/definitions/DataTableColumn"
+                    },
+                    "type": "array"
                 }
             },
             "required": ["kind"],
