@@ -9,7 +9,12 @@ from posthog.models.property.util import get_property_string_expr
 
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 PERSON_FIELDS = ["id", "created_at", "properties"]
-CLICKHOUSE_FUNCTIONS = ["concat", "coalesce", "toInt64OrNull"]
+CLICKHOUSE_FUNCTIONS = {
+    "concat": "concat",
+    "coalesce": "coalesce",
+    "toInt": "toInt64OrNull",
+    "toFloat": "toFloat64OrNull",
+}
 HOGQL_AGGREGATIONS = ["avg", "sum", "total"]
 KEYWORDS = ["true", "false", "null"]
 
@@ -76,6 +81,14 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             response = f"equals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
         elif isinstance(node.ops[0], ast.NotEq):
             response = f"notEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.Gt):
+            response = f"greater({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.GtE):
+            response = f"greaterOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.Lt):
+            response = f"less({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.LtE):
+            response = f"lessOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.USub):
@@ -151,7 +164,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                     raise ValueError(f"{call_name}(...) must be called on fields or properties, not literals.")
 
         elif node.func.id in CLICKHOUSE_FUNCTIONS:
-            response = f"{node.func.id}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
+            response = f"{CLICKHOUSE_FUNCTIONS[node.func.id]}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
     elif isinstance(node, ast.Name) and isinstance(node.id, str):
