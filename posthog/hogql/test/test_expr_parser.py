@@ -8,6 +8,7 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(translate_hql("-1 + 2"), "plus(-1, 2)")
         self.assertEqual(translate_hql("-1 - 2 / (3 + 4)"), "minus(-1, divide(2, plus(3, 4)))")
         self.assertEqual(translate_hql("1.0 * 2.66"), "multiply(1.0, 2.66)")
+        self.assertEqual(translate_hql("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(translate_hql("'string'"), "'string'")
         self.assertEqual(translate_hql('"string"'), "'string'")
 
@@ -52,6 +53,12 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
     def test_hogql_methods(self):
         self.assertEqual(translate_hql("total()"), "count(*)")
 
+    def test_hogql_functions(self):
+        self.assertEqual(translate_hql("abs(1)"), "abs(1)")
+        self.assertEqual(translate_hql("max2(1,2)"), "max2(1, 2)")
+        self.assertEqual(translate_hql("toInt('1')"), "toInt64OrNull('1')")
+        self.assertEqual(translate_hql("toFloat('1.3')"), "toFloat64OrNull('1.3')")
+
     def test_hogql_expr_parse_errors(self):
         self._assert_value_error("", "Module body must contain only one 'Expr'")
         self._assert_value_error("a = 3", "Module body must contain only one 'Expr'")
@@ -59,7 +66,8 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         self._assert_value_error("())", "SyntaxError: unmatched ')'")
         self._assert_value_error("this makes little sense", "SyntaxError: invalid syntax")
         self._assert_value_error("avg(bla)", "Unknown event field 'bla'")
-        self._assert_value_error("total(2)", "Method 'total' does not accept any arguments.")
+        self._assert_value_error("total(2)", "Aggregation 'total' does not accept any arguments.")
+        self._assert_value_error("avg(2,1)", "Aggregation 'avg' expects just one argument.")
         self._assert_value_error(
             "bla.avg(bla)", "Can only call simple functions like 'avg(properties.bla)' or 'total()'"
         )
@@ -71,7 +79,9 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         self._assert_value_error("chipotle", "Unknown event field 'chipotle'")
         self._assert_value_error("person.chipotle", "Unknown person field 'chipotle'")
         self._assert_value_error("avg(2)", "avg(...) must be called on fields or properties, not literals.")
-        self._assert_value_error("avg(avg(properties.bla))", "Method 'avg' cannot be nested inside another aggregate.")
+        self._assert_value_error(
+            "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
+        )
         self._assert_value_error("1;2", "Module body must contain only one 'Expr'")
 
     def test_hogql_returned_properties(self):
@@ -109,6 +119,10 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(
             translate_hql("event or timestamp or true or total()"),
             "or(event, timestamp, true, count(*))",
+        )
+        self.assertEqual(
+            translate_hql("event or not timestamp"),
+            "or(event, not(timestamp))",
         )
 
     def test_hogql_comparisons(self):

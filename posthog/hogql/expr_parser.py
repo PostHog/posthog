@@ -10,12 +10,86 @@ from posthog.models.property.util import get_property_string_expr
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 PERSON_FIELDS = ["id", "created_at", "properties"]
 CLICKHOUSE_FUNCTIONS = {
-    "concat": "concat",
-    "coalesce": "coalesce",
+    # arithmetic
+    "abs": "abs",
+    "max2": "max2",
+    "min2": "min2",
+    # type conversions
     "toInt": "toInt64OrNull",
     "toFloat": "toFloat64OrNull",
+    "toDecimal": "toDecimal64OrNull",
+    "toDate": "toDateOrNull",
+    "toDateTime": "parseDateTimeBestEffort",
+    "toIntervalSecond": "toIntervalSecond",
+    "toIntervalMinute": "toIntervalMinute",
+    "toIntervalHour": "toIntervalHour",
+    "toIntervalDay": "toIntervalDay",
+    "toIntervalWeek": "toIntervalWeek",
+    "toIntervalMonth": "toIntervalMonth",
+    "toIntervalQuarter": "toIntervalQuarter",
+    "toIntervalYear": "toIntervalYear",
+    "toString": "toString",
+    # date functions
+    "now": "now",
+    "toMonday": "toMonday",
+    "toStartOfYear": "toStartOfYear",
+    "toStartOfQuarter": "toStartOfQuarter",
+    "toStartOfMonth": "toStartOfMonth",
+    "toStartOfWeek": "toStartOfWeek",
+    "toStartOfDay": "toStartOfDay",
+    "toStartOfHour": "toStartOfHour",
+    "toStartOfMinute": "toStartOfMinute",
+    "toStartOfSecond": "toStartOfSecond",
+    "toStartOfFiveMinutes": "toStartOfFiveMinutes",
+    "toStartOfTenMinutes": "toStartOfTenMinutes",
+    "toStartOfFifteenMinutes": "toStartOfFifteenMinutes",
+    "toTimezone": "toTimezone",
+    "age": "age",
+    "dateDiff": "dateDiff",
+    "dateTrunc": "dateTrunc",
+    "formatDateTime": "formatDateTime",
+    # string functions
+    "length": "lengthUTF8",
+    "empty": "empty",
+    "notEmpty": "notEmpty",
+    "leftPad": "leftPad",
+    "rightPad": "rightPad",
+    "lower": "lower",
+    "upper": "upper",
+    "repeat": "repeat",
+    "format": "format",
+    "concat": "concat",
+    "coalesce": "coalesce",
+    "substring": "substringUTF8",
+    "appendTrailingCharIfAbsent": "appendTrailingCharIfAbsent",
+    "endsWith": "endsWith",
+    "startsWith": "startsWith",
+    "trim": "trimBoth",
+    "trimLeft": "trimLeft",
+    "trimRight": "trimRight",
+    "extractTextFromHTML": "extractTextFromHTML",
+    "like": "like",
+    "ilike": "ilike",
+    "notLike": "notLike",
+    "replace": "replace",
+    "replaceOne": "replaceOne",
+    # conditional
+    "if": "if",
+    "multiIf": "multiIf",
+    # rounding
+    "round": "round",
+    "floor": "floor",
+    "ceil": "ceil",
+    "trunc": "trunc",
 }
-HOGQL_AGGREGATIONS = ["avg", "sum", "total"]
+HOGQL_AGGREGATIONS = [
+    "total",
+    "min",
+    "max",
+    "sum",
+    "avg",
+    "any",
+]
 KEYWORDS = ["true", "false", "null"]
 
 
@@ -65,6 +139,10 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             response = (
                 f"divide({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
             )
+        elif isinstance(node.op, ast.Mod):
+            response = (
+                f"modulo({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
+            )
         else:
             response = f"({translate_ast(node.left, stack, context)} {translate_ast(node.op, stack, context)} {translate_ast(node.right, stack, context)})"
     elif isinstance(node, ast.BoolOp):
@@ -75,7 +153,12 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
         else:
             raise ValueError(f"Unknown BoolOp: {type(node.op)}")
     elif isinstance(node, ast.UnaryOp):
-        response = f"{translate_ast(node.op, stack, context)}{translate_ast(node.operand, stack, context)}"
+        if isinstance(node.op, ast.Not):
+            response = f"not({translate_ast(node.operand, stack, context)})"
+        elif isinstance(node.op, ast.USub):
+            response = f"-{translate_ast(node.operand, stack, context)}"
+        else:
+            raise ValueError(f"Unknown UnaryOp: {type(node.op)}")
     elif isinstance(node, ast.Compare):
         if isinstance(node.ops[0], ast.Eq):
             response = f"equals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
@@ -91,8 +174,6 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             response = f"lessOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
-    elif isinstance(node, ast.USub):
-        response = "-"
     elif isinstance(node, ast.Constant):
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
@@ -140,11 +221,11 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             context.is_aggregation = True
             if call_name == "total":
                 if len(node.args) != 0:
-                    raise ValueError(f"Method 'total' does not accept any arguments.")
+                    raise ValueError(f"Aggregation 'total' does not accept any arguments.")
                 response = "count(*)"
             else:
                 if len(node.args) != 1:
-                    raise ValueError(f"Method '{call_name}' expects just one argument.")
+                    raise ValueError(f"Aggregation '{call_name}' expects just one argument.")
 
                 # check that we're not running inside another aggregate
                 for stack_node in stack:
@@ -154,7 +235,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                         and isinstance(stack_node.func, ast.Name)
                         and stack_node.func.id in HOGQL_AGGREGATIONS
                     ):
-                        raise ValueError(f"Method '{call_name}' cannot be nested inside another aggregate.")
+                        raise ValueError(
+                            f"Aggregation '{call_name}' cannot be nested inside another aggregation '{stack_node.func.id}'."
+                        )
 
                 # check that we're running an aggregate on a property
                 properties_before = len(context.attribute_list)
