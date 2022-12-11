@@ -235,11 +235,8 @@ function ColumnConfiguratorModal(): JSX.Element {
                                             if (group.type === TaxonomicFilterGroupType.EventFeatureFlags) {
                                                 selectColumn(`properties.${value}`)
                                             }
-                                            if (group.type === TaxonomicFilterGroupType.HogQLExpression) {
-                                                const expression = window.prompt('Enter HogQL expression')
-                                                if (expression) {
-                                                    selectColumn(expression)
-                                                }
+                                            if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
+                                                selectColumn(String(value))
                                             }
                                         }}
                                         popoverEnabled={false}

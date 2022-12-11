@@ -33,6 +33,11 @@ export interface TaxonomicFilterGroup {
     name: string
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
+    /** */
+    render?: (props: {
+        value?: TaxonomicFilterValue
+        onChange: (value: TaxonomicFilterValue) => void
+    }) => JSX.Element | null
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
