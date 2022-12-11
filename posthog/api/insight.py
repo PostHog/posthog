@@ -328,9 +328,6 @@ class InsightSerializer(InsightBasicSerializer):
                 tile.save()
         if ids_to_remove:
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
-        # also update dashboards set so activity log can detect the change
-        changes_to_apply = [d for d in dashboards if not d.deleted]
-        instance.dashboards.set(changes_to_apply)
 
     def get_result(self, insight: Insight):
         if not insight.filters:
