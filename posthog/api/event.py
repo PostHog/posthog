@@ -113,6 +113,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             filter = Filter(request=request, team=self.team)
 
             select: List[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
+            where: List[str] = json.loads(request.GET["where"]) if request.GET.get("where") else None
 
             query_result = query_events_list(
                 filter=filter,
@@ -122,6 +123,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 order_by=parse_order_by(request.GET.get("orderBy"), select),
                 action_id=request.GET.get("action_id"),
                 select=select,
+                where=where,
             )
 
             # Retry the query without the 1 day optimization
@@ -135,6 +137,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     order_by=parse_order_by(request.GET.get("orderBy"), select),
                     action_id=request.GET.get("action_id"),
                     select=select,
+                    where=where,
                 )
 
             # Result with selected columns

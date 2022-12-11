@@ -42,6 +42,7 @@ export function getEventsEndpoint(query: EventsNode): string {
             properties: [...(query.fixedProperties || []), ...(query.properties || [])],
             ...(query.event ? { event: query.event } : {}),
             ...(query.select ? { select: query.select } : {}),
+            ...(query.where ? { where: query.where } : {}),
             ...(query.actionId ? { action_id: query.actionId } : {}),
             ...(query.personId ? { person_id: query.personId } : {}),
             ...(query.before ? { before: query.before } : {}),

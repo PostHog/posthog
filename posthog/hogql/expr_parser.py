@@ -71,6 +71,13 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             raise ValueError(f"Unknown BoolOp: {type(node.op)}")
     elif isinstance(node, ast.UnaryOp):
         response = f"{translate_ast(node.op, stack, context)}{translate_ast(node.operand, stack, context)}"
+    elif isinstance(node, ast.Compare):
+        if isinstance(node.ops[0], ast.Eq):
+            response = f"equals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.NotEq):
+            response = f"notEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        else:
+            raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.USub):
         response = "-"
     elif isinstance(node, ast.Constant):

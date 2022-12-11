@@ -55,6 +55,7 @@ def query_events_list(
     order_by: List[str],
     action_id: Optional[str],
     select: Optional[List[str]],
+    where: Optional[List[str]],
     long_date_from: bool = False,
     limit: int = 100,
 ) -> Union[List, dict]:
@@ -98,6 +99,14 @@ def query_events_list(
         action_query, params = format_action_filter(team_id=team.pk, action=action)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
+
+    if where:
+        for experssion in where:
+            context = ExprParserContext()
+            clickhouse_sql = translate_hql(experssion, context)
+            prop_filters += " AND {}".format(clickhouse_sql)
+            if context.is_aggregation:
+                raise ValueError("Aggregations are not allowed in where clause")
 
     if selected_columns:
         order_by_list = []

@@ -96,6 +96,7 @@ export interface EventsNode extends EntityNode {
     orderBy?: string[]
     /** Return a limited set of data */
     select?: DataTableColumn[]
+    where?: DataTableColumn[]
     response?: {
         results: EventType[]
         next?: string

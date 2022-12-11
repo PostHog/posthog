@@ -111,6 +111,16 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
             "or(event, timestamp, true, count(*))",
         )
 
+    def test_hogql_comparisons(self):
+        self.assertEqual(
+            translate_hql("event == '$pageview'"),
+            "equals(event, timestamp)",
+        )
+        self.assertEqual(
+            translate_hql("event != '$pageview'"),
+            "notEquals(event, timestamp)",
+        )
+
     def _assert_value_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:
             translate_hql(expr)
