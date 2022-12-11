@@ -397,7 +397,7 @@ class InsightSerializer(InsightBasicSerializer):
         return insight.get_effective_privilege_level(self.context["request"].user.id)
 
     def get_dashboards(self, insight: Insight) -> List[int]:
-        return [tile.dashboard_id for tile in insight.dashboard_tiles.exclude(deleted=True).all()]
+        return [id for id in insight.dashboard_tiles.exclude(deleted=True).values_list("dashboard_id", flat=True)]
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
@@ -449,9 +449,13 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                     id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
                 ),
             ),
+            Prefetch("dashboard_tiles", queryset=DashboardTile.objects.exclude(deleted=True)),
             "dashboards__created_by",
             "dashboards__team",
             "dashboards__team__organization",
+            "dashboard_tiles__dashboard__created_by",
+            "dashboard_tiles__dashboard__team",
+            "dashboard_tiles__dashboard__team__organization",
         )
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")

@@ -402,11 +402,19 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                 DashboardTile.objects.prefetch_related(
                     Prefetch(
                         "insight__dashboards",
-                        queryset=Dashboard.objects.exclude(deleted=True)
-                        .filter(
-                            id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
-                        )
-                        .select_related("team__organization"),
+                        queryset=(
+                            Dashboard.objects.exclude(deleted=True)
+                            .filter(
+                                id__in=DashboardTile.objects.exclude(deleted=True).values_list(
+                                    "dashboard_id", flat=True
+                                )
+                            )
+                            .select_related("team__organization")
+                        ),
+                    ),
+                    Prefetch(
+                        "insight__dashboard_tiles",
+                        queryset=(DashboardTile.objects.exclude(deleted=True)),
                     ),
                 )
             )

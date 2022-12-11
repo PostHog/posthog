@@ -56,24 +56,35 @@ class DashboardAPI:
         return dashboard_id, response_json
 
     def get_dashboard(
-        self, dashboard_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+        self,
+        dashboard_id: int,
+        query_params: str = "",
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
     ) -> Dict[str, Any]:
         if team_id is None:
             team_id = self.team.id
 
-        response = self.client.get(f"/api/projects/{team_id}/dashboards/{dashboard_id}")
+        response = self.client.get(f"/api/projects/{team_id}/dashboards/{dashboard_id}/{query_params}")
         self.assertEqual(response.status_code, expected_status)
 
         response_json = response.json()
         return response_json
 
     def get_insight(
-        self, insight_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+        self,
+        insight_id: int,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+        query_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         if team_id is None:
             team_id = self.team.id
 
-        response = self.client.get(f"/api/projects/{team_id}/insights/{insight_id}")
+        if query_params is None:
+            query_params = {}
+
+        response = self.client.get(f"/api/projects/{team_id}/insights/{insight_id}", query_params)
         self.assertEqual(response.status_code, expected_status)
 
         response_json = response.json()
@@ -88,14 +99,23 @@ class DashboardAPI:
         if "filters" not in data:
             data["filters"] = {"events": [{"id": "$pageview"}]}
 
+        dashboards: Optional[List[int]] = data.pop("dashboards", None)
+
         response = self.client.post(
             f"/api/projects/{team_id}/insights",
             data=data,
         )
         self.assertEqual(response.status_code, expected_status, response.json())
 
-        response_json = response.json()
-        return response_json.get("id", None), response_json
+        if not dashboards:
+            response_json = response.json()
+            return response_json.get("id", None), response_json
+        else:
+            for dashboard in dashboards:
+                self.add_insight_to_dashboard(insight_id=response.json()["id"], dashboard_id=dashboard)
+
+            insight_json = self.get_insight(response.json()["id"])
+            return insight_json["id"], insight_json
 
     def create_text_tile(
         self,
