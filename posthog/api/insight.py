@@ -158,11 +158,9 @@ class InsightSerializer(InsightBasicSerializer):
     last_modified_by = UserBasicSerializer(read_only=True)
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
-    dashboards = serializers.PrimaryKeyRelatedField(
-        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
-        many=True,
+    dashboards = serializers.SerializerMethodField(
+        help_text="the dashboards this insight is associated with",
         required=False,
-        queryset=Dashboard.objects.all(),
     )
     filters_hash = serializers.CharField(
         read_only=True,
@@ -397,6 +395,9 @@ class InsightSerializer(InsightBasicSerializer):
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
         return insight.get_effective_privilege_level(self.context["request"].user.id)
+
+    def get_dashboards(self, insight: Insight) -> List[int]:
+        return [tile.dashboard_id for tile in insight.dashboard_tiles.exclude(deleted=True).all()]
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
