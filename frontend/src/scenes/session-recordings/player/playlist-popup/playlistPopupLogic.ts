@@ -136,6 +136,8 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         },
         removeFromPlaylistSuccess: ({ payload }) => {
             if (payload?.playlist.short_id) {
+                // TODO: Change this around for the list logic to listen out for the player changing it
+                // or at least that it doesn't trigger a load...
                 sessionRecordingsListLogic
                     .findMounted({ playlistShortId: payload?.playlist.short_id })
                     ?.actions.loadPinnedRecordings({})
