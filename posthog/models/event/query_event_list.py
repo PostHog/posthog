@@ -87,6 +87,7 @@ def query_events_list(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
     )
 
+    having_filters: List[str] = []
     if action_id:
         try:
             action = Action.objects.get(pk=action_id, team_id=team.pk)
@@ -104,9 +105,10 @@ def query_events_list(
         for experssion in where:
             context = ExprParserContext()
             clickhouse_sql = translate_hql(experssion, context)
-            prop_filters += " AND {}".format(clickhouse_sql)
             if context.is_aggregation:
-                raise ValueError("Aggregations are not allowed in where clause")
+                having_filters.append(clickhouse_sql)
+            else:
+                prop_filters += " AND {}".format(clickhouse_sql)
 
     if selected_columns:
         order_by_list = []
@@ -123,10 +125,11 @@ def query_events_list(
             SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS.format(
                 columns=", ".join(selected_columns),
                 conditions=conditions,
-                limit=limit_sql,
-                group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
-                order="ORDER BY {}".format(", ".join(order_by_list)),
                 filters=prop_filters,
+                group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
+                having="HAVING {}".format(" AND ".join(having_filters)) if having_filters else "",
+                order="ORDER BY {}".format(", ".join(order_by_list)),
+                limit=limit_sql,
             ),
             {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             with_column_types=True,
