@@ -386,8 +386,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         if (tileIndex >= 0) {
                             if (insight.dashboards?.includes(props.id)) {
-                                newTiles[tileIndex] = { ...newTiles[tileIndex], insight: insight }
-                                if (updateTileOnDashboards?.includes(props.id)) {
+                                // TODO stop passing around a Partual<InsightModel>
+                                newTiles[tileIndex] = {
+                                    ...newTiles[tileIndex],
+                                    insight: { ...newTiles[tileIndex].insight, ...insight } as InsightModel,
+                                }
+                                if (updateTileOnDashboards?.includes(props.id) && insight.last_refresh) {
                                     newTiles[tileIndex].last_refresh = insight.last_refresh
                                 }
                             } else {
@@ -908,6 +912,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         [dashboardsModel.actionTypes.tileAddedToDashboard]: ({ dashboardId }) => {
             // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
+            if (dashboardId === props.id) {
+                actions.loadDashboardItems({ action: 'update' })
+            }
+        },
+        [dashboardsModel.actionTypes.insightRemovedFromDashboard]: ({ dashboardId }) => {
+            // TODO could this be on the loader?
+            // when removing an insight from a dashboard, we need to reload the dashboard to remove the tile
             if (dashboardId === props.id) {
                 actions.loadDashboardItems({ action: 'update' })
             }

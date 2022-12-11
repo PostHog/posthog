@@ -467,12 +467,14 @@ const ensureProjectIdNotInvalid = (url: string): void => {
 const api = {
     dashboardTiles: {
         async add(insightId: number, dashboardId: number): Promise<void> {
-            return new ApiRequest().dashboardTiles().create({ data: { insight: insightId, dashboard: dashboardId } })
+            return new ApiRequest()
+                .dashboardTiles()
+                .create({ data: { insight_id: insightId, dashboard_id: dashboardId } })
         },
         async remove(insightId: number, dashboardId: number): Promise<void> {
             return new ApiRequest()
                 .removeDashboardTiles()
-                .create({ data: { insight: insightId, dashboard: dashboardId } })
+                .create({ data: { insight_id: insightId, dashboard_id: dashboardId } })
         },
     },
     actions: {

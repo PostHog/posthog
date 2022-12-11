@@ -219,10 +219,6 @@ export const insightLogic = kea<insightLogicType>([
                     }
                     callback?.(updatedInsight)
 
-                    const removedDashboards = (values.insight.dashboards || []).filter(
-                        (d) => !updatedInsight.dashboards?.includes(d)
-                    )
-                    dashboardsModel.actions.updateDashboardInsight(updatedInsight, removedDashboards)
                     return updatedInsight
                 },
                 setInsightMetadata: async ({ metadata }, breakpoint) => {
@@ -463,6 +459,14 @@ export const insightLogic = kea<insightLogicType>([
             [insightsModel.actionTypes.insightsAddedToDashboard]: (state, { dashboardId, insightIds }) => {
                 if (insightIds.includes(state.id)) {
                     return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
+                } else {
+                    return state
+                }
+            },
+            [dashboardsModel.actionTypes.insightRemovedFromDashboard]: (state, { insightId, dashboardId }) => {
+                const updateIsForThisDashboard = insightId === state.id
+                if (updateIsForThisDashboard) {
+                    return { ...state, dashboards: [...(state.dashboards || []).filter((d) => d !== dashboardId)] }
                 } else {
                     return state
                 }

@@ -7,10 +7,10 @@ import FuseClass from 'fuse.js'
 import { lemonToast } from 'lib/components/lemonToast'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { insightLogic } from 'scenes/insights/insightLogic'
 
 import type { addToDashboardModalLogicType } from './addToDashboardModalLogicType'
 import api from 'lib/api'
+import { insightsModel } from '~/models/insightsModel'
 
 export interface AddToDashboardModalLogicProps {
     insight: Partial<InsightModel>
@@ -25,16 +25,14 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
     path: ['lib', 'components', 'AddToDashboard', 'saveToDashboardModalLogic'],
     props: {} as AddToDashboardModalLogicProps,
     key: ({ insight }) => {
-        if (!insight.short_id) {
+        if (!insight?.short_id) {
             throw Error('must provide an insight with a short id')
         }
         return insight.short_id
     },
-    connect: (props: AddToDashboardModalLogicProps) => ({
+    connect: () => ({
         logic: [dashboardsModel],
         actions: [
-            insightLogic({ dashboardItemId: props.insight.short_id }),
-            ['updateInsight', 'updateInsightSuccess', 'updateInsightFailure'],
             eventUsageLogic,
             ['reportSavedInsightToDashboard', 'reportRemovedInsightFromDashboard', 'reportCreatedDashboardFromModal'],
             newDashboardLogic,
@@ -49,6 +47,10 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         setScrollIndex: (index: number) => ({ index }),
         addToDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
         removeFromDashboard: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
+        addToDashboardSuccess: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
+        removeFromDashboardSuccess: (insight: Partial<InsightModel>, dashboardId: number) => ({ insight, dashboardId }),
+        addToDashboardFailure: (error: string) => ({ error }),
+        removeFromDashboardFailure: (error: string) => ({ error }),
     },
 
     reducers: {
@@ -60,8 +62,10 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
             {
                 addToDashboard: (_, { dashboardId }) => dashboardId,
                 removeFromDashboard: (_, { dashboardId }) => dashboardId,
-                updateInsightSuccess: () => null,
-                updateInsightFailure: () => null,
+                addToDashboardSuccess: () => null,
+                addToDashboardFailure: () => null,
+                removeFromDashboardSuccess: () => null,
+                removeFromDashboardFailure: () => null,
             },
         ],
     },
@@ -126,33 +130,56 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         },
 
         addToDashboard: async ({ insight, dashboardId }) => {
+            try {
+                if (!insight.id) {
+                    console.error('must provided insight with id to add it to a dashboard')
+                    return
+                }
+
+                await api.dashboardTiles.add(insight.id, dashboardId)
+
+                actions.addToDashboardSuccess(insight, dashboardId)
+            } catch (e: any) {
+                actions.addToDashboardFailure(e)
+            }
+        },
+        removeFromDashboard: async ({ insight, dashboardId }): Promise<void> => {
+            try {
+                if (!insight.id) {
+                    console.error('must provided insight with id to add it to a dashboard')
+                    return
+                }
+
+                await api.dashboardTiles.remove(insight.id, dashboardId)
+
+                actions.removeFromDashboardSuccess(insight, dashboardId)
+            } catch (e: any) {
+                actions.removeFromDashboardFailure(e)
+            }
+        },
+        removeFromDashboardSuccess: ({ insight, dashboardId }) => {
             if (!insight.id) {
-                console.error('must provided insight with id to add it to a dashboard')
+                console.error('Must have already provided insight with id to add it to a dashboard')
                 return
             }
-
-            await api.dashboardTiles.add(insight.id, dashboardId)
-
-            actions.reportSavedInsightToDashboard()
-            dashboardsModel.actions.tileAddedToDashboard(dashboardId)
-            lemonToast.success('Insight added to dashboard', {
+            actions.reportRemovedInsightFromDashboard()
+            dashboardsModel.actions.insightRemovedFromDashboard(insight.id, dashboardId)
+            lemonToast.success('Insight removed from dashboard', {
                 button: {
                     label: 'View dashboard',
                     action: () => router.actions.push(urls.dashboard(dashboardId)),
                 },
             })
         },
-        removeFromDashboard: async ({ insight, dashboardId }): Promise<void> => {
+        addToDashboardSuccess: ({ insight, dashboardId }) => {
             if (!insight.id) {
-                console.error('must provided insight with id to add it to a dashboard')
+                console.error('Must have already provided insight with id to add it to a dashboard')
                 return
             }
-
-            await api.dashboardTiles.remove(insight.id, dashboardId)
-
-            actions.reportRemovedInsightFromDashboard()
-
-            lemonToast.success('Insight removed from dashboard', {
+            actions.reportSavedInsightToDashboard()
+            dashboardsModel.actions.tileAddedToDashboard(dashboardId)
+            insightsModel.actions.insightsAddedToDashboard({ dashboardId, insightIds: [insight.id] })
+            lemonToast.success('Insight added to dashboard', {
                 button: {
                     label: 'View dashboard',
                     action: () => router.actions.push(urls.dashboard(dashboardId)),

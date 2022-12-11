@@ -14,8 +14,9 @@ import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonModal } from '../LemonModal'
+import { CSSProperties } from 'react'
 
-interface SaveToDashboardModalProps {
+interface AddToDashboardModalProps {
     isOpen: boolean
     closeModal: () => void
     insight: Partial<InsightModel>
@@ -28,7 +29,7 @@ interface DashboardRelationRowProps {
     canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
-    style: React.CSSProperties
+    style: CSSProperties
 }
 
 const DashboardRelationRow = ({
@@ -84,7 +85,7 @@ export function AddToDashboardModal({
     closeModal,
     insight,
     canEditInsight,
-}: SaveToDashboardModalProps): JSX.Element {
+}: AddToDashboardModalProps): JSX.Element {
     const logic = addToDashboardModalLogic({
         insight: insight,
         fromDashboard: insight.dashboards?.[0] || undefined,
