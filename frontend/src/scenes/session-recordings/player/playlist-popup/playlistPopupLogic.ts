@@ -144,23 +144,26 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
     })),
     selectors(() => ({
         allPlaylists: [
-            (s) => [s.playlists, s.currentPlaylists],
-            (playlists, currentPlaylists) => {
-                // TODO: When searching we probably want to hide the current playlists and just show the searched ones
+            (s) => [s.playlists, s.currentPlaylists, s.searchQuery],
+            (playlists, currentPlaylists, searchQuery) => {
+                const otherPlaylists = searchQuery
+                    ? playlists
+                    : playlists.filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
+
+                const selectedPlaylists = !searchQuery ? currentPlaylists : []
+
                 const results: {
                     selected: boolean
                     playlist: SessionRecordingPlaylistType
                 }[] = [
-                    ...currentPlaylists.map((x) => ({
+                    ...selectedPlaylists.map((x) => ({
                         selected: true,
                         playlist: x,
                     })),
-                    ...playlists
-                        .filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
-                        .map((x) => ({
-                            selected: false,
-                            playlist: x,
-                        })),
+                    ...otherPlaylists.map((x) => ({
+                        selected: !!currentPlaylists.find((y) => x.short_id === y.short_id),
+                        playlist: x,
+                    })),
                 ]
 
                 return results
