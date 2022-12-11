@@ -11,6 +11,7 @@ import {
 import type { playlistPopupLogicType } from './playlistPopupLogicType'
 import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export const playlistPopupLogic = kea<playlistPopupLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popup', 'playlistPopupLogic', key]),
@@ -124,6 +125,20 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 actions.loadPlaylists()
                 actions.loadPlaylistsForRecording()
                 actions.setPause()
+            }
+        },
+        addToPlaylistSuccess: ({ payload }) => {
+            if (payload?.playlist.short_id) {
+                sessionRecordingsListLogic
+                    .findMounted({ playlistShortId: payload?.playlist.short_id })
+                    ?.actions.loadPinnedRecordings({})
+            }
+        },
+        removeFromPlaylistSuccess: ({ payload }) => {
+            if (payload?.playlist.short_id) {
+                sessionRecordingsListLogic
+                    .findMounted({ playlistShortId: payload?.playlist.short_id })
+                    ?.actions.loadPinnedRecordings({})
             }
         },
     })),
