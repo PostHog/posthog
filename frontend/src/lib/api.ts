@@ -181,6 +181,14 @@ class ApiRequest {
         return this.insight(id, teamId).addPathComponent('sharing')
     }
 
+    public dashboardTiles(team?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(team).addPathComponent('dashboard_tiles')
+    }
+
+    public removeDashboardTiles(team?: TeamType['id']): ApiRequest {
+        return this.dashboardTiles(team).addPathComponent('remove')
+    }
+
     // # Plugins
     public plugins(): ApiRequest {
         return this.addPathComponent('plugins')
@@ -457,6 +465,16 @@ const ensureProjectIdNotInvalid = (url: string): void => {
 }
 
 const api = {
+    dashboardTiles: {
+        async add(insightId: number, dashboardId: number): Promise<void> {
+            return new ApiRequest().dashboardTiles().create({ data: { insight: insightId, dashboard: dashboardId } })
+        },
+        async remove(insightId: number, dashboardId: number): Promise<void> {
+            return new ApiRequest()
+                .removeDashboardTiles()
+                .create({ data: { insight: insightId, dashboard: dashboardId } })
+        },
+    },
     actions: {
         async get(actionId: ActionType['id']): Promise<ActionType> {
             return await new ApiRequest().actionsDetail(actionId).get()
