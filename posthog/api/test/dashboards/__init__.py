@@ -136,3 +136,40 @@ class DashboardAPI:
 
         response_json = response.json()
         return response_json.get("id", None), response_json
+
+    def add_insight_to_dashboard(
+        self,
+        insight_id: int,
+        dashboard_id: int,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_201_CREATED,
+    ) -> Tuple[int, Dict[str, Any]]:
+
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.post(
+            f"/api/projects/{team_id}/dashboard_tiles", {"insight_id": insight_id, "dashboard_id": dashboard_id}
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json
+
+    def remove_insight_from_dashboard(
+        self,
+        insight_id: int,
+        dashboard_id: int,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+    ) -> None:
+
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.post(
+            f"/api/projects/{team_id}/dashboard_tiles/remove", {"insight_id": insight_id, "dashboard_id": dashboard_id}
+        )
+
+        self.assertEqual(response.status_code, expected_status)

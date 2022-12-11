@@ -1747,6 +1747,49 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         layouts_after_save = [tile.layouts for tile in tiles_after_save]
         assert layouts_after_save == layouts
 
+    def test_saving_an_insight_with_an_added_dashboard_does_not_update_the_dashboard_tiles(self):
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard's name"})
+        dashboard_two_id, _ = self._create_dashboard({"name": "the other dashboard's name"})
+
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}}
+        )
+
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        self._set_tile_layout(dashboard_id, expected_tiles_to_update=1)
+
+        tiles = DashboardTile.objects.filter(insight_id=insight_id)
+        layouts = [tile.layouts for tile in tiles]
+        assert len(layouts) == 1
+        assert layouts[0] != {}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"name": "the new name", "dashboards": [dashboard_id, dashboard_two_id]},
+        )  # rename and add to a new dashboard
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        tiles_after_save = DashboardTile.objects.filter(insight_id=insight_id)
+        layouts_after_save = [tile.layouts for tile in tiles_after_save]
+        assert len(layouts_after_save) == 2
+        assert layouts_after_save[0] != {}
+        assert layouts_after_save[1] == {}
+
+    def test_remove_and_re_add_insight_onto_dashboard(self) -> None:
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard's name"})
+
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}}
+        )
+
+        self._add_insight_to_dashboard([dashboard_id], insight_id)
+
+        self._remove_insight_from_dashboard([dashboard_id], [dashboard_id], insight_id)
+
+        self._add_insight_to_dashboard([dashboard_id], insight_id, expected_status=status.HTTP_200_OK)
+
     def test_hard_delete_is_forbidden(self) -> None:
         insight_id, _ = self._create_insight({"name": "to be deleted"})
         api_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
@@ -1860,6 +1903,19 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.assertEqual(response.status_code, expected_status)
 
+    def _remove_insight_from_dashboard(
+        self,
+        current_dashboards: List[int],
+        dashboard_ids_to_remove: List[int],
+        insight_id: int,
+        expected_status: int = status.HTTP_200_OK,
+    ):
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"dashboards": [id for id in current_dashboards if id not in dashboard_ids_to_remove]},
+        )
+        self.assertEqual(response.status_code, expected_status)
+
     def _get_insight(
         self,
         insight_id: int,
@@ -1902,10 +1958,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.maxDiff = None
         self.assertEqual(activity, expected)
 
-    def _set_tile_layout(self, dashboard_id: int, expected_tiles_to_update: int) -> None:
+    def _set_tile_layout(self, dashboard_id: int, expected_tiles_to_update: Optional[int] = None) -> None:
         dashboard_json = self._get_dashboard(dashboard_id)
         tiles = dashboard_json["tiles"]
-        assert len(tiles) == expected_tiles_to_update
+        if expected_tiles_to_update is not None:
+            assert len(tiles) == expected_tiles_to_update
 
         x = 0
         y = 0

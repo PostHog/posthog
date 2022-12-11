@@ -70,6 +70,7 @@ project_feature_flags_router = projects_router.register(
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
+projects_router.register(r"dashboard_tiles", dashboard.DashboardTileViewSet, "project_dashboard_tles", ["team_id"])
 
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
 projects_router.register(r"integrations", integration.IntegrationViewSet, "integrations", ["team_id"])

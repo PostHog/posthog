@@ -130,6 +130,7 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecor
         "insightviewed",
         "dashboardtile",
         "caching_states",
+        "dashboards",
     ],
     "SessionRecordingPlaylist": ["id", "short_id", "created_at", "created_by", "last_modified_at", "last_modified_by"],
 }
@@ -189,10 +190,6 @@ def changes_between(
             if field == "tagged_items":
                 field = "tags"  # or the UI needs to be coupled to this internal backend naming
 
-            if field == "dashboards" and "dashboard_tiles" in filtered_fields:
-                # only process dashboard_tiles when it is present. It supersedes dashboards
-                continue
-
             if model_type == "Insight" and field == "dashboard_tiles":
                 # the api exposes this as dashboards and that's what the activity describers expect
                 field = "dashboards"
@@ -238,7 +235,7 @@ def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], ne
 
 
 def log_activity(
-    organization_id: UUIDT,
+    organization_id: Union[str, UUIDT],
     team_id: int,
     user: User,
     item_id: Optional[Union[int, str, UUIDT]],
