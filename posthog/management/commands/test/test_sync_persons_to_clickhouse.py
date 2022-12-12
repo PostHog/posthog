@@ -19,7 +19,23 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
     def test_persons_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
             person = Person.objects.create(
-                team_id=self.team.pk, properties={"a": 1234}, is_identified=True, version=0, uuid=uuid4()
+                team_id=self.team.pk, properties={"a": 1234}, is_identified=True, version=4, uuid=uuid4()
+            )
+
+        run_person_sync(self.team.pk, live_run=True, deletes=False, sync=True)
+
+        ch_persons = sync_execute(
+            """
+            SELECT id, team_id, properties, is_identified, version, is_deleted FROM person WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(ch_persons, [(person.uuid, self.team.pk, '{"a": 1234}', True, 4, False)])
+
+    def test_persons_sync_with_null_version(self):
+        with mute_selected_signals():  # without creating/updating in clickhouse
+            person = Person.objects.create(
+                team_id=self.team.pk, properties={"a": 1234}, is_identified=True, version=None, uuid=uuid4()
             )
 
         run_person_sync(self.team.pk, live_run=True, deletes=False, sync=True)
@@ -48,7 +64,22 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
     def test_distinct_ids_sync(self):
         with mute_selected_signals():  # without creating/updating in clickhouse
             person = Person.objects.create(team_id=self.team.pk, version=0, uuid=uuid4())
-            PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=0)
+            PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=4)
+
+        run_distinct_id_sync(self.team.pk, live_run=True, deletes=False, sync=True)
+
+        ch_person_distinct_ids = sync_execute(
+            f"""
+            SELECT person_id, team_id, distinct_id, version, is_deleted FROM {PERSON_DISTINCT_ID2_TABLE} WHERE team_id = %(team_id)s
+            """,
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(ch_person_distinct_ids, [(person.uuid, self.team.pk, "test-id", 4, False)])
+
+    def test_distinct_ids_sync_with_null_version(self):
+        with mute_selected_signals():  # without creating/updating in clickhouse
+            person = Person.objects.create(team_id=self.team.pk, version=0, uuid=uuid4())
+            PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="test-id", version=None)
 
         run_distinct_id_sync(self.team.pk, live_run=True, deletes=False, sync=True)
 

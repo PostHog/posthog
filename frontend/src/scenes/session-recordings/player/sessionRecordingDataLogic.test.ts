@@ -136,6 +136,7 @@ describe('sessionRecordingDataLogic', () => {
 
     describe('loading session events', () => {
         const expectedEvents = [
+            expect.objectContaining(recordingEventsJson[0]),
             expect.objectContaining(recordingEventsJson[1]),
             expect.objectContaining(recordingEventsJson[2]),
             expect.objectContaining(recordingEventsJson[4]),
@@ -154,6 +155,33 @@ describe('sessionRecordingDataLogic', () => {
                         before: '2021-12-09T20:23:24Z',
                         person_id: 1,
                         orderBy: ['timestamp'],
+                        properties: {
+                            type: 'OR',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            key: '$session_id',
+                                            operator: 'is_not_set',
+                                            type: 'event',
+                                            value: 'is_not_set',
+                                        },
+                                    ],
+                                },
+                                {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            key: '$session_id',
+                                            operator: 'exact',
+                                            type: 'event',
+                                            value: ['2'],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
                     },
                 })
         })
@@ -189,24 +217,26 @@ describe('sessionRecordingDataLogic', () => {
                     },
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsSuccess'])
-                .toMatchValues({
-                    sessionEventsData: {
-                        next: undefined,
-                        events: [
-                            expect.objectContaining(recordingEventsJson[1]),
-                            expect.objectContaining(recordingEventsJson[1]),
-                            expect.objectContaining(recordingEventsJson[2]),
-                            expect.objectContaining(recordingEventsJson[2]),
-                            expect.objectContaining(recordingEventsJson[4]),
-                            expect.objectContaining(recordingEventsJson[4]),
-                            expect.objectContaining(recordingEventsJson[5]),
-                            expect.objectContaining(recordingEventsJson[5]),
-                            expect.objectContaining(recordingEventsJson[6]),
-                            expect.objectContaining(recordingEventsJson[6]),
-                        ],
-                    },
-                })
                 .toNotHaveDispatchedActions(['loadEvents'])
+
+            expect(logic.values.sessionEventsData).toMatchObject({
+                next: undefined,
+                events: [
+                    expect.objectContaining(recordingEventsJson[0]),
+                    expect.objectContaining(recordingEventsJson[1]),
+                    expect.objectContaining(recordingEventsJson[0]),
+                    expect.objectContaining(recordingEventsJson[1]),
+                    expect.objectContaining(recordingEventsJson[2]),
+                    expect.objectContaining(recordingEventsJson[2]),
+                    expect.objectContaining(recordingEventsJson[4]),
+                    expect.objectContaining(recordingEventsJson[4]),
+                    expect.objectContaining(recordingEventsJson[5]),
+                    expect.objectContaining(recordingEventsJson[5]),
+                    expect.objectContaining(recordingEventsJson[6]),
+                    expect.objectContaining(recordingEventsJson[6]),
+                ],
+            })
+
             expect(api.get).toBeCalledTimes(3)
         })
         it('server error mid-fetch', async () => {
