@@ -6,6 +6,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import clsx from 'clsx'
+import { ResizeHeight } from 'lib/components/ResizableHeight'
 
 export interface QueryEditorProps {
     query: string
@@ -37,7 +38,10 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
     }, [monaco])
 
     return (
-        <div className={clsx('flex flex-col p-2 bg-border space-y-2 h-full min-h-80', props.className)}>
+        <ResizeHeight
+            defaultHeight={300}
+            className={clsx('flex flex-col p-2 bg-border space-y-2 h-full', props.className)}
+        >
             <div className="flex-1">
                 <AutoSizer disableWidth>
                     {({ height }) => (
@@ -67,6 +71,6 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
             >
                 {!props.setQuery ? 'No permission to update' : 'Update'}
             </LemonButton>
-        </div>
+        </ResizeHeight>
     )
 }
