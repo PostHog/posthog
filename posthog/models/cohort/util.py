@@ -15,6 +15,7 @@ from posthog.models.action.util import format_action_filter
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
+    CLEAR_STALE_COHORTPEOPLE,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
@@ -279,7 +280,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
 
 def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
     sync_execute(
-        clear_stale_cohortpeople,
+        CLEAR_STALE_COHORTPEOPLE,
         {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": current_version},
     )
 

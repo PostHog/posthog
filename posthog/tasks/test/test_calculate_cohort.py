@@ -3,7 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
+from posthog.client import sync_execute
 from posthog.models.cohort import Cohort
+from posthog.models.cohort.sql import CLEAR_STALE_COHORTPEOPLE
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.person import Person
 from posthog.tasks.calculate_cohort import calculate_cohort_from_list, calculate_cohorts
@@ -96,5 +98,17 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
             )
 
             calculate_cohorts()
+
+        def test_clear_cohortpeople(self):
+            sync_execute(
+                """
+            INSERT INTO cohortpeople
+            SELECT generateUUIDv4(), 1, 1, 1, 1
+            """
+            )
+
+            sync_execute(CLEAR_STALE_COHORTPEOPLE, {"team_id": 1, "cohort_id": 1, "version": 2})
+
+            self.assertEqual(sync_execute("SELECT * FROM cohortpeople FINAL"), [])
 
     return TestCalculateCohort
