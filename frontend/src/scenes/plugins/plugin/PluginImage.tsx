@@ -43,6 +43,7 @@ export function PluginImage({
                 backgroundSize: 'contain',
                 backgroundRepeat: 'no-repeat',
             }}
+            // eslint-disable-next-line react/no-unknown-property
             onError={() => setState({ ...state, image: imgPluginDefault })}
         />
     )

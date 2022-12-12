@@ -40,10 +40,10 @@ We're using Playwright to run visual regression tests against Storybook. To crea
 3. Generate the reference images with (you need to have Storybook running locally, i.e. on the Docker host machine):
 
     ```
-    docker compose -f docker-compose.playwright.yml run -it -e STORYBOOK_URL=http://host.docker.internal:6006 playwright npx playwright test -u
+    docker compose -f docker-compose.playwright.yml run -it -e STORYBOOK_URL=http://host.docker.internal:6006 playwright pnpm dlx playwright test -u
     ```
 
-Open the generated report locally with `npx playwright show-report` to see test results (they are mounted local in docker volume)
+Open the generated report locally with `pnpm dlx playwright show-report` to see test results (they are mounted local in docker volume)
 
 ### Renaming or deleting tests
 
@@ -53,7 +53,7 @@ When deleting or renaming a test, (re-)move the respective reference images as w
 
 ### The CI run on GitHub fails for any reason
 
-Troubleshoot by viewing the Playwright report: Click on "Details" next to the failing workflow, click on "Summary" and download the artifact file. Extract this file and navigate to it in a terminal to then run `npx playwright show-report`.
+Troubleshoot by viewing the Playwright report: Click on "Details" next to the failing workflow, click on "Summary" and download the artifact file. Extract this file and navigate to it in a terminal to then run `pnpm dlx playwright show-report`.
 
 ### Your locally generated images, don't verify CI checks
 
