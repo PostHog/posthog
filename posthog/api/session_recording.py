@@ -255,7 +255,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 "start_and_end_times_by_window_id": session_recording_meta_data["start_and_end_times_by_window_id"],
                 "session_id": session_id,
                 "viewed": viewed_session_recording,
-                "description": session_recording_meta_data["description"],
+                "description": session_recording_meta_data.get("description", None),
             }
         )
         return session_recording_serializer, session_recording_meta_data
