@@ -515,10 +515,6 @@ def _annotate_tagged_query(query, args):
     return query, tags
 
 
-def _notify_of_slow_query_failure():
-    statsd.incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": "timeout"})
-
-
 def format_sql(rendered_sql, colorize=True):
     formatted_sql = sqlparse.format(rendered_sql, reindent_aligned=True)
     if colorize:
