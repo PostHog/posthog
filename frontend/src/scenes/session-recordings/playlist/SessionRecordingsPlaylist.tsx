@@ -36,17 +36,16 @@ export function SessionRecordingsPlaylist({
     updateSearchParams,
     onFiltersChange,
 }: SessionRecordingsPlaylistProps): JSX.Element {
-    const logic = sessionRecordingsListLogic({
+    const logicProps = {
         playlistShortId,
         personUUID,
         filters: defaultFilters,
         updateSearchParams,
-    })
+    }
+    const logic = sessionRecordingsListLogic(logicProps)
     const {
         sessionRecordings,
-        sessionRecordingIdToProperties,
         sessionRecordingsResponseLoading,
-        sessionRecordingsPropertiesResponseLoading,
         hasNext,
         hasPrev,
         activeSessionRecording,
@@ -195,37 +194,36 @@ export function SessionRecordingsPlaylist({
 
                             {/* Pinned recordings */}
                             {!!playlistShortId && !showFilters ? (
-                                <>
-                                    <SessionRecordingsList
-                                        title="Pinned Recordings"
-                                        titleRight={
-                                            pinnedRecordingsResponse?.results?.length ? (
-                                                <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold">
-                                                    {pinnedRecordingsResponse?.results?.length}
-                                                </span>
-                                            ) : null
-                                        }
-                                        onRecordingClick={onRecordingClick}
-                                        onPropertyClick={onPropertyClick}
-                                        collapsable
-                                        recordings={pinnedRecordingsResponse?.results}
-                                        loading={pinnedRecordingsResponseLoading}
-                                        info={
-                                            <>
-                                                You can pin recordings to a playlist to easily keep track of relevant
-                                                recordings for the task at hand. Pinned recordings are always shown,
-                                                regardless of filters and are not deleted.
-                                            </>
-                                        }
-                                        activeRecordingId={activeSessionRecording?.id}
-                                    />
-                                    {/* <LemonDivider dashed className="my-0" /> */}
-                                </>
+                                <SessionRecordingsList
+                                    listKey="pinned"
+                                    title="Pinned Recordings"
+                                    titleRight={
+                                        pinnedRecordingsResponse?.results?.length ? (
+                                            <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold">
+                                                {pinnedRecordingsResponse?.results?.length}
+                                            </span>
+                                        ) : null
+                                    }
+                                    onRecordingClick={onRecordingClick}
+                                    onPropertyClick={onPropertyClick}
+                                    collapsable
+                                    recordings={pinnedRecordingsResponse?.results}
+                                    loading={pinnedRecordingsResponseLoading}
+                                    info={
+                                        <>
+                                            You can pin recordings to a playlist to easily keep track of relevant
+                                            recordings for the task at hand. Pinned recordings are always shown,
+                                            regardless of filters and are not deleted.
+                                        </>
+                                    }
+                                    activeRecordingId={activeSessionRecording?.id}
+                                />
                             ) : null}
 
                             {/* Other recordings */}
 
                             <SessionRecordingsList
+                                listKey="other"
                                 title={!playlistShortId ? 'Recent recordings' : 'Other recordings'}
                                 titleRight={paginationControls}
                                 onRecordingClick={onRecordingClick}

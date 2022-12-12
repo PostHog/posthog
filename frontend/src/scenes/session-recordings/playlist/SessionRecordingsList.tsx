@@ -10,8 +10,11 @@ import {
     SessionRecordingPlaylistItemProps,
     SessionRecordingPlaylistItemSkeleton,
 } from './SessionRecordingsPlaylistItem'
+import { useValues } from 'kea'
+import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 
 export type SessionRecordingsListProps = {
+    listKey: string
     title: React.ReactNode
     titleRight?: React.ReactNode
     info?: React.ReactNode
@@ -26,6 +29,7 @@ export type SessionRecordingsListProps = {
 }
 
 export function SessionRecordingsList({
+    listKey,
     titleRight,
     recordings,
     collapsable,
@@ -39,6 +43,11 @@ export function SessionRecordingsList({
     activeRecordingId,
 }: SessionRecordingsListProps): JSX.Element {
     const [collapsed, setCollapsed] = useState(false)
+    const logic = sessionRecordingsListPropertiesLogic({
+        key: listKey,
+        sessionIds: recordings?.map((r) => r.id) ?? [],
+    })
+    const { sessionRecordingIdToProperties, sessionRecordingsPropertiesResponseLoading } = useValues(logic)
 
     const titleContent = (
         <span className="font-bold uppercase text-xs my-1 tracking-wide flex-1 flex gap-1 items-center">
@@ -84,8 +93,8 @@ export function SessionRecordingsList({
                                 {i > 0 && <div className="border-t" />}
                                 <SessionRecordingPlaylistItem
                                     recording={rec}
-                                    recordingProperties={{}}
-                                    recordingPropertiesLoading={false}
+                                    recordingProperties={sessionRecordingIdToProperties[rec.id]}
+                                    recordingPropertiesLoading={sessionRecordingsPropertiesResponseLoading}
                                     onClick={() => onRecordingClick(rec)}
                                     onPropertyClick={onPropertyClick}
                                     isActive={activeRecordingId === rec.id}
