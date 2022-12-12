@@ -99,7 +99,7 @@ def calculate_cohort_test_factory(event_factory: Callable, person_factory: Calla
 
             calculate_cohorts()
 
-        def test_clear_cohortpeople(self):
+        def test_clear_cohortpeople(self) -> None:
             sync_execute(
                 """
             INSERT INTO cohortpeople
