@@ -17,24 +17,24 @@ class Command(BaseCommand):
         try:
             from multi_tenancy.tasks.migrate_billing import migrate_billing
         except ImportError:
-            pass
+            return
+
+        dry_run = options["dry_run"]
+        events_price_map = json.loads(options["events_price_map"])
+        recordings_free_price_id = options["recordings_free_price_id"]
+        limit = options["limit"]
+        organization_id = options["organization_id"]
+
+        migrated_orgs = migrate_billing(
+            events_price_map,
+            recordings_free_price_id,
+            dry_run=dry_run,
+            limit=limit,
+            only_organization_id=organization_id,
+        )
+
+        if dry_run:
+            print("Dry run so not migrated.")  # noqa T201
         else:
-            dry_run = options["dry_run"]
-            events_price_map = json.loads(options["events_price_map"])
-            recordings_free_price_id = options["recordings_free_price_id"]
-            limit = options["limit"]
-            organization_id = options["organization_id"]
-
-            migrated_orgs = migrate_billing(
-                events_price_map,
-                recordings_free_price_id,
-                dry_run=dry_run,
-                limit=limit,
-                only_organization_id=organization_id,
-            )
-
-            if dry_run:
-                print("Dry run so not migrated.")  # noqa T201
-            else:
-                print(f"{migrated_orgs} orgs migrated!")  # noqa T201
-                print("Done!")  # noqa T201
+            print(f"{migrated_orgs} orgs migrated!")  # noqa T201
+            print("Done!")  # noqa T201
