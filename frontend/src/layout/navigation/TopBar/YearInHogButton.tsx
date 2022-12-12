@@ -20,7 +20,7 @@ export function YearInHogButton({ url }: { url: string | null }): JSX.Element | 
             <LemonButton
                 icon={<XmasTree />}
                 type={'secondary'}
-                status={'primary-alt'}
+                status={'orange'}
                 to={url}
                 targetBlank={true}
                 size={'small'}
