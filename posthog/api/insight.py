@@ -397,7 +397,12 @@ class InsightSerializer(InsightBasicSerializer):
         return insight.get_effective_privilege_level(self.context["request"].user.id)
 
     def get_dashboards(self, insight: Insight) -> List[int]:
-        return [id for id in insight.dashboard_tiles.exclude(deleted=True).values_list("dashboard_id", flat=True)]
+        return [
+            id
+            for id in insight.dashboard_tiles.exclude(deleted=True)
+            .exclude(dashboard__deleted=True)
+            .values_list("dashboard_id", flat=True)
+        ]
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)

@@ -288,11 +288,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             queries.append(capture_query_context.captured_queries)
             query_counts.append(query_count_for_create_and_read)
 
-        # adding more insights doesn't change the query count
-        self.assertTrue(
-            all(x == query_counts[0] for x in query_counts),
-            f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
-        )
+        # asserts that each element in query_count increases by one more than the previous
+        # each insight has to reload DashboardTiles to return `get_dashboards` property
+        self.assertEqual(query_counts, list(range(query_counts[0], query_counts[-1] + 1)))
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(
@@ -429,10 +427,19 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert insight_json["dashboards"] == [dashboard_id]
 
         new_dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        # accidentally include a deleted dashboard
-        _, update_response = self._update_insight(
-            insight_id, {"dashboards": [dashboard_id, deleted_dashboard_id, new_dashboard_id]}
+        # the user doesn't care if the relation already exists. report success
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id, dashboard_id=dashboard_id, expected_status=status.HTTP_201_CREATED
         )
+        # accidentally include a deleted dashboard
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id, dashboard_id=deleted_dashboard_id, expected_status=status.HTTP_400_BAD_REQUEST
+        )
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id, dashboard_id=new_dashboard_id, expected_status=status.HTTP_201_CREATED
+        )
+
+        update_response = self.dashboard_api.get_insight(insight_id)
         assert sorted(update_response["dashboards"]) == [dashboard_id, new_dashboard_id]
 
     def test_can_update_insight_with_inconsistent_dashboards(self):
@@ -463,14 +470,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]
-
-        # accidentally include a deleted dashboard
-        _, update_response = self._update_insight(insight_id, {"dashboards": [deleted_dashboard_id]})
-        assert update_response["dashboards"] == []
-
-        # confirm it's gone when reloaded
-        insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == []
 
     def test_adding_insight_to_a_dashboard_sets_filters_hash(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
@@ -776,7 +775,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_insight_refreshing(self, spy_update_insight_cache):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
-        with freeze_time("2012-01-14T03:21:34.000Z"):
+        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
             _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"prop": "val"})
             _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"prop": "another_val"})
             _create_event(
@@ -786,26 +785,28 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 properties={"prop": "val", "another": "never_return_this"},
             )
 
-        with freeze_time("2012-01-15T04:01:34.000Z"):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/insights",
+            frozen_time.tick(timedelta(days=1, minutes=40))
+            _, response = self.dashboard_api.create_insight(
                 data={
                     "filters": {
                         "events": [{"id": "$pageview"}],
                         "properties": [{"key": "another", "value": "never_return_this", "operator": "is_not"}],
                     },
                     "dashboards": [dashboard_id],
-                },
-            ).json()
+                }
+            )
+
             self.assertEqual(response["last_refresh"], None)
 
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
             self.assertEqual(spy_update_insight_cache.call_count, 1)
+            self.assertEqual(response["dashboards"], [dashboard_id])
             self.assertEqual(response["result"][0]["data"], [0, 0, 0, 0, 0, 0, 2, 0])
             self.assertEqual(response["last_refresh"], "2012-01-15T04:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")
 
-        with freeze_time("2012-01-15T05:01:34.000Z"):
+            frozen_time.tick(timedelta(hours=1))
+
             _create_event(team=self.team, event="$pageview", distinct_id="1")
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true").json()
             self.assertEqual(spy_update_insight_cache.call_count, 2)
@@ -813,7 +814,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response["last_refresh"], "2012-01-15T05:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
-        with freeze_time("2012-01-16T05:01:34.000Z"):
+            frozen_time.tick(timedelta(days=1))
+
             # load it in the context of the dashboard, so has last 14 days as filter
             response = self.client.get(
                 f"/api/projects/{self.team.id}/insights/{response['id']}/?refresh=true&from_dashboard={dashboard_id}"
@@ -826,7 +828,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             self.assertEqual(response["last_refresh"], "2012-01-16T05:01:34Z")
             self.assertEqual(response["last_modified_at"], "2012-01-15T04:01:34Z")  # did not change
 
-        with freeze_time("2012-01-25T05:01:34.000Z"):
+            frozen_time.tick(timedelta(days=9))
             response = self.client.get(f"/api/projects/{self.team.id}/insights/{response['id']}/").json()
             self.assertEqual(spy_update_insight_cache.call_count, 3)
             self.assertEqual(response["last_refresh"], None)
@@ -1448,16 +1450,20 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         another_team = Team.objects.create(organization=self.organization)
         dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
 
-        self.dashboard_api.create_insight(
+        insight_id, _ = self.dashboard_api.create_insight(
             data={
                 "filters": {
                     "events": [{"id": "$pageview"}],
                     "properties": [{"key": "$browser", "value": "Mac OS X"}],
                     "date_from": "-90d",
                 },
-                "dashboards": [dashboard_own_team.pk, dashboard_other_team.pk],
             },
-            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id=insight_id, dashboard_id=dashboard_own_team.pk, expected_status=status.HTTP_201_CREATED
+        )
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id=insight_id, dashboard_id=dashboard_other_team.pk, expected_status=status.HTTP_403_FORBIDDEN
         )
 
     def test_cannot_update_insight_with_dashboard_from_another_team(self):
@@ -1476,11 +1482,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             }
         )
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"dashboards": [dashboard_own_team.pk, dashboard_other_team.pk]},
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id, dashboard_own_team.pk, expected_status=status.HTTP_201_CREATED
         )
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id, dashboard_other_team.pk, expected_status=status.HTTP_403_FORBIDDEN
+        )
 
     def test_an_insight_on_no_dashboard_has_no_restrictions(self):
         _, response_data = self.dashboard_api.create_insight(data={"name": "not on a dashboard"})
@@ -1500,34 +1507,45 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
     def test_an_insight_on_restricted_dashboard_has_restrictions_cannot_edit_without_explicit_privilege(self):
-        dashboard: Dashboard = Dashboard.objects.create(
-            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        )
-        _, response_data = self.dashboard_api.create_insight(
+        dashboard: Dashboard = Dashboard.objects.create(team=self.team)
+        insight_id, _ = self.dashboard_api.create_insight(
             data={"name": "on a restricted dashboard", "dashboards": [dashboard.pk]}
         )
+
+        dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        dashboard.save()
+
+        insight_json = self.dashboard_api.get_insight(insight_id)
+
         self.assertEqual(
-            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            insight_json["effective_restriction_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         )
-        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_VIEW)
+        self.assertEqual(insight_json["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_VIEW)
 
     def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_no_restrictions(self):
         dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
         dashboard_unrestricted: Dashboard = Dashboard.objects.create(
             team=self.team, restriction_level=Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
-        _, response_data = self.dashboard_api.create_insight(
+        insight_id, response_data = self.dashboard_api.create_insight(
             data={
                 "name": "on a restricted and unrestricted dashboard",
-                "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
+                "dashboards": [dashboard_unrestricted.pk],
             }
         )
+        _, response_data = self.dashboard_api.add_insight_to_dashboard(insight_id, dashboard_restricted.pk)
+
+        dashboard_restricted.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        dashboard_restricted.save()
+
+        insight_json = self.dashboard_api.get_insight(insight_id)
+
         self.assertEqual(
-            response_data["effective_restriction_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+            insight_json["effective_restriction_level"], Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         )
-        self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+        self.assertEqual(insight_json["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
     def test_an_insight_on_restricted_dashboard_does_not_restrict_admin(self):
         dashboard_restricted: Dashboard = Dashboard.objects.create(
@@ -1564,13 +1582,14 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(response_data["effective_privilege_level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
     def test_cannot_update_an_insight_if_on_restricted_dashboard(self):
-        dashboard_restricted: Dashboard = Dashboard.objects.create(
-            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        )
+        dashboard_restricted: Dashboard = Dashboard.objects.create(team=self.team)
 
         insight_id, response_data = self.dashboard_api.create_insight(
             data={"name": "on a restricted and unrestricted dashboard", "dashboards": [dashboard_restricted.pk]}
         )
+
+        dashboard_restricted.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        dashboard_restricted.save()
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}", {"name": "changing when restricted"}
@@ -1591,17 +1610,19 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
         self.client.force_login(user_without_permissions)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_restricted_id]}
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id,
+            dashboard_restricted_id,
+            expected_status=status.HTTP_403_FORBIDDEN,
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         self.client.force_login(self.user)
 
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_restricted_id]}
+        self.dashboard_api.add_insight_to_dashboard(
+            insight_id,
+            dashboard_restricted_id,
+            expected_status=status.HTTP_201_CREATED,
         )
-        assert response.status_code == status.HTTP_200_OK
 
     def test_non_admin_user_with_privilege_can_add_an_insight_to_a_restricted_dashboard(self):
         # create insight and dashboard separately with default user
@@ -1774,7 +1795,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}}
         )
 
-        self._add_insight_to_dashboard([dashboard_id], insight_id)
+        self.dashboard_api.add_insight_to_dashboard(insight_id, dashboard_id)
 
         self._set_tile_layout(dashboard_id, expected_tiles_to_update=1)
 
@@ -1786,7 +1807,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "the new name", "dashboards": [dashboard_id, dashboard_two_id]},
-        )  # rename and add to a new dashboard
+        )  # dashboards are now ignored here
+
+        self.dashboard_api.add_insight_to_dashboard(insight_id, dashboard_two_id)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

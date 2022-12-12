@@ -3,7 +3,7 @@ from typing import Any, Callable, Dict, List, Optional
 import structlog
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -28,6 +28,9 @@ class SimpleDashboardTileSerializer(serializers.Serializer):
         if insight.team_id != team_id:
             raise PermissionDenied("You cannot access this insight")
 
+        if insight.deleted:
+            raise ValidationError("You cannot use deleted insights in a dashboard tile")
+
         return value
 
     def validate_dashboard_id(self, value: int) -> int:
@@ -36,6 +39,15 @@ class SimpleDashboardTileSerializer(serializers.Serializer):
 
         if dashboard.team_id != team_id:
             raise PermissionDenied("You cannot access this dashboard")
+
+        if dashboard.deleted:
+            raise ValidationError("You add tiles to deleted dashboards")
+
+        if (
+            dashboard.get_effective_privilege_level(self.context["request"].user.id)
+            == Dashboard.PrivilegeLevel.CAN_VIEW
+        ):
+            raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
 
         return value
 
