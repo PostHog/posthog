@@ -1,9 +1,10 @@
 import json
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from rest_framework import status
 
-from posthog.demo import create_demo_team
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
@@ -56,7 +57,7 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.json(), self.not_found_response())
 
     def test_cant_create_team_without_license_on_selfhosted(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.count(), 1)
@@ -123,11 +124,13 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["name"], self.team.name)
         self.assertEqual(response_data["test_account_filters"], [{"key": "$current_url", "value": "test"}])
 
-    def test_delete_team_own_second(self):
+    @patch("posthog.api.team.delete_bulky_postgres_data")
+    @patch("posthoganalytics.capture")
+    def test_delete_team_own_second(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        team = create_demo_team(organization=self.organization)
+        team: Team = Team.objects.create_with_data(organization=self.organization)
 
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
@@ -135,6 +138,16 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
+        self.assertEqual(
+            AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count(), 1
+        )
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "team deleted",
+            properties={},
+            groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
+        )
+        mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN

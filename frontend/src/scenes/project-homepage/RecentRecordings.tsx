@@ -1,61 +1,59 @@
-import React from 'react'
 import { dayjs } from 'lib/dayjs'
 import { useActions, useValues } from 'kea'
 
 import './ProjectHomepage.scss'
 import { CompactList } from 'lib/components/CompactList/CompactList'
-import { LemonButton } from 'lib/components/LemonButton'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { asDisplay } from 'scenes/persons/PersonHeader'
-import { sessionRecordingsTableLogic } from 'scenes/session-recordings/sessionRecordingsTableLogic'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { urls } from 'scenes/urls'
 import { SessionRecordingType } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { humanFriendlyDuration } from 'lib/utils'
 import { IconPlayCircle } from 'lib/components/icons'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { teamLogic } from 'scenes/teamLogic'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { ProjectHomePageCompactListItem } from './ProjectHomePageCompactListItem'
 
 interface RecordingRowProps {
     recording: SessionRecordingType
 }
 
-function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
-    const { openSessionPlayer } = useActions(sessionRecordingsTableLogicInstance)
+export function RecordingRow({ recording }: RecordingRowProps): JSX.Element {
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { reportRecordingOpenedFromRecentRecordingList } = useActions(eventUsageLogic)
 
     return (
-        <LemonButton
-            fullWidth
+        <ProjectHomePageCompactListItem
+            title={asDisplay(recording.person)}
+            subtitle={`Recorded ${dayjs(recording.start_time).fromNow()}`}
+            prefix={<ProfilePicture name={asDisplay(recording.person)} />}
+            suffix={
+                <div className="flex items-center justify-end text-default">
+                    <span>{humanFriendlyDuration(recording.recording_duration)}</span>
+                    <IconPlayCircle className="text-2xl ml-2" />
+                </div>
+            }
             onClick={() => {
-                openSessionPlayer(recording)
+                openSessionPlayer({
+                    id: recording.id,
+                    matching_events: recording.matching_events,
+                })
                 reportRecordingOpenedFromRecentRecordingList()
             }}
-        >
-            <div className="ProjectHomePage__listrow">
-                <ProfilePicture name={asDisplay(recording.person)} />
-
-                <div className="ProjectHomePage__listrow__details">
-                    <div>{asDisplay(recording.person)}</div>
-                    <div>Recorded {dayjs(recording.start_time).fromNow()}</div>
-                </div>
-
-                <span>{humanFriendlyDuration(recording.recording_duration)}</span>
-                <IconPlayCircle className="text-2xl ml-2" />
-            </div>
-        </LemonButton>
+        />
     )
 }
 
 export function RecentRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ key: 'projectHomepage' })
-    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsTableLogicInstance)
+    const sessionRecordingsListLogicInstance = sessionRecordingsListLogic({ key: 'projectHomepage' })
+    const { sessionRecordings, sessionRecordingsResponseLoading } = useValues(sessionRecordingsListLogicInstance)
 
     return (
         <>
-            <SessionPlayerDrawer />
+            <SessionPlayerModal />
             <CompactList
                 title="Recent recordings"
                 viewAllURL={urls.sessionRecordings()}

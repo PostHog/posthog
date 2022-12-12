@@ -18,6 +18,7 @@ from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
 class FunnelCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
         self._base_uri = base_uri
@@ -52,6 +53,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
 
 class _FunnelEventsCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_events_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
@@ -79,11 +81,11 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         prop_query, prop_params = event_query._get_prop_groups(
             prop_filters,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._team.actor_on_events_querying_enabled
+            if self._team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias=f"""{
                 event_query.DISTINCT_ID_TABLE_ALIAS
-                if not self._team.actor_on_events_querying_enabled
+                if not self._team.person_on_events_querying_enabled
                 else event_query.EVENT_TABLE_ALIAS}.person_id""",
         )
 
@@ -102,8 +104,8 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         query = f"""
             WITH
                 funnel_actors as ({funnel_persons_query}),
-                toDateTime(%(date_to)s) AS date_to,
-                toDateTime(%(date_from)s) AS date_from,
+                toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+                toDateTime(%(date_from)s, %(timezone)s) AS date_from,
                 %(target_step)s AS target_step,
                 %(funnel_step_names)s as funnel_step_names
             SELECT
@@ -135,6 +137,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
 
 class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_property_correlation_actors"
 
     def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
         # Filtering on persons / groups properties can be pushed down to funnel_actors CTE

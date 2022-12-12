@@ -10,7 +10,7 @@ from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.person import Person
-from posthog.queries.trends.trend_event_query import TrendsEventQuery
+from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -47,7 +47,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             filter=filter,
             entity=entity,
             team=self.team,
-            using_person_on_events=self.team.actor_on_events_querying_enabled,
+            using_person_on_events=self.team.person_on_events_querying_enabled,
         ).get_query()
 
         result = sync_execute(query, params)

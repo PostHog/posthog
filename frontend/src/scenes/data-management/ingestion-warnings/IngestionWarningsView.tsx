@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -6,7 +5,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
 import { IngestionWarning, ingestionWarningsLogic, IngestionWarningSummary } from './ingestionWarningsLogic'
 import { LemonTable } from 'lib/components/LemonTable'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/components/Link'
 import { WarningEventsGraph } from './WarningEventsGraph'
 
@@ -89,7 +88,7 @@ export function IngestionWarningsView(): JSX.Element {
                                 <>
                                     {type} (
                                     <Link
-                                        to={`https://posthog.com/docs/manual/data-management#${type
+                                        to={`https://posthog.com/manual/data-management#${type
                                             .toLowerCase()
                                             .split(' ')
                                             .join('-')}`}

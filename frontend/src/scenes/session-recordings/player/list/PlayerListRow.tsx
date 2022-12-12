@@ -7,13 +7,9 @@ import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { boxToSections } from 'lib/components/LemonSelect'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { PlayerListExpandableConfig } from 'scenes/session-recordings/player/list/PlayerList'
+import { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
-export interface ListRowOption<T> {
-    value: T
-    label: string | JSX.Element
-    disabled?: boolean
-    tooltip?: string
-    'data-attr'?: string
+export interface ListRowOption<T> extends Pick<LemonSelectOptionLeaf<T>, 'value' | 'label' | 'tooltip' | 'data-attr'> {
     onClick?: (record: T) => void
 }
 
@@ -38,6 +34,7 @@ export interface PlayerListRowProps<T extends Record<string, any>> {
     sideContentDetermined: ReactElement | null | undefined
     onClick: (record: T) => void
     optionsDetermined: ListRowOptions<T>
+    windowNumber?: number | null
     /** Used to pause any interactions while player list is still loading **/
     loading?: boolean
 }
@@ -57,6 +54,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
     optionsDetermined,
     onClick,
     loading,
+    windowNumber,
 }: PlayerListRowProps<T>): JSX.Element {
     const [sections, allOptions] = useMemo(() => boxToSections(optionsDetermined), [optionsDetermined])
     const isExpanded = expandable && expandedDetermined
@@ -82,7 +80,7 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                 <div
                     className={clsx(
                         'PlayerList__item__content__header',
-                        'cursor-pointer shrink-0 flex gap-3 items-start justify-between p-2',
+                        'cursor-pointer shrink-0 flex gap-1 items-start justify-between p-2',
                         {
                             'text-warning-dark bg-warning-highlight': statusDetermined === RowStatus.Warning,
                             'text-danger-dark bg-danger-highlight': statusDetermined === RowStatus.Error,
@@ -92,33 +90,29 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                         !isExpanded && 'h-10'
                     )}
                 >
-                    <div className="flex flex-row items-center">
-                        {!!expandable ? (
-                            <LemonButton
-                                noPadding
-                                disabled={!!loading}
-                                className="shrink-0 mr-1"
-                                icon={expandedDetermined ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                size="small"
-                                active={!!expandedDetermined}
-                                status="stealth"
-                                onClick={(event) => {
-                                    event.stopPropagation()
-                                    if (expandedDetermined) {
-                                        expandable?.onRowCollapse?.(record, recordIndex)
-                                    } else {
-                                        expandable?.onRowExpand?.(record, recordIndex)
-                                    }
-                                }}
-                                title={expandedDetermined ? 'Show less' : 'Show more'}
-                            />
-                        ) : (
-                            <LemonButton size="small" />
-                        )}
-                        <div>
-                            <IconWindow value="1" className="text-muted shrink-0" />
-                        </div>
-                    </div>
+                    {!!expandable ? (
+                        <LemonButton
+                            noPadding
+                            disabled={!!loading}
+                            className="shrink-0"
+                            icon={expandedDetermined ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                            size="small"
+                            active={!!expandedDetermined}
+                            status="stealth"
+                            onClick={(event) => {
+                                event.stopPropagation()
+                                if (expandedDetermined) {
+                                    expandable?.onRowCollapse?.(record, recordIndex)
+                                } else {
+                                    expandable?.onRowExpand?.(record, recordIndex)
+                                }
+                            }}
+                            title={expandedDetermined ? 'Show less' : 'Show more'}
+                        />
+                    ) : (
+                        <LemonButton size="small" />
+                    )}
+                    {windowNumber ? <IconWindow value={windowNumber} className="text-muted shrink-0 mr-1" /> : null}
                     <div className={clsx('grow h-full', !isExpanded && 'overflow-hidden')}>{contentDetermined}</div>
                     <div className="flex shrink-0 flex-row gap-3 items-center leading-6">
                         {sideContentDetermined}
@@ -137,16 +131,15 @@ function PlayerListRowRaw<T extends Record<string, any>>({
                                     placement: 'bottom-end',
                                     overlay: sections.map((section, i) => (
                                         <React.Fragment key={i}>
-                                            {section.options.map((option: ListRowOption<T>, index) => (
+                                            {section.options.map((option, index) => (
                                                 <LemonButton
                                                     key={index}
                                                     tooltip={option.tooltip}
                                                     onClick={(event) => {
                                                         event.stopPropagation()
-                                                        option?.onClick?.(record)
+                                                        ;(option as ListRowOption<T> | undefined)?.onClick?.(record)
                                                     }}
                                                     status="stealth"
-                                                    disabled={option.disabled}
                                                     fullWidth
                                                     data-attr={option['data-attr']}
                                                 >

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { SitePopover } from './SitePopover'
 import { Announcement } from './Announcement'
@@ -20,6 +19,8 @@ import { BillingAlerts } from 'lib/components/BillingAlerts'
 import { NotificationBell } from '~/layout/navigation/TopBar/NotificationBell'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { FeedbackButton } from './FeedbackButton'
+import ActivationSidebarToggle from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -66,8 +67,10 @@ export function TopBar(): JSX.Element {
                             ]}
                         />
                     </div>
+                    <ActivationSidebarToggle />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
+                    {!!featureFlags[FEATURE_FLAGS.FEEDBACK_BUTTON] && <FeedbackButton />}
                     {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
                     <HelpButton />
                     <SitePopover />

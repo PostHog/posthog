@@ -1,8 +1,7 @@
-import React from 'react'
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AnyPropertyFilter, EventsTableRowItem, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, EventsTableRowItem, PropertyFilterType, PropertyOperator } from '~/types'
 import { webPerformanceLogic, WebPerformancePage } from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -11,6 +10,10 @@ import { useActions, useValues } from 'kea'
 import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceWaterfallChart'
 import { IconPlay } from 'lib/components/icons'
 import { LemonButton } from '@posthog/lemon-ui'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { Query } from '~/queries/Query/Query'
+import { EventsNode, NodeKind } from '~/queries/schema'
 
 /*
  * link to SessionRecording from table and chart
@@ -22,59 +25,112 @@ export const webPerformancePropertyFilters: AnyPropertyFilter[] = [
         key: '$performance_raw',
         value: 'is_set',
         operator: PropertyOperator.IsSet,
-        type: 'event',
+        type: PropertyFilterType.Event,
     },
 ]
 
 const EventsWithPerformanceTable = (): JSX.Element => {
     const { setEventToDisplay } = useActions(webPerformanceLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     return (
         <>
             <div className="pt-4 border-t" />
-            <EventsTable
-                fixedFilters={{
-                    properties: webPerformancePropertyFilters,
-                }}
-                sceneUrl={urls.webPerformance()}
-                fetchMonths={1}
-                pageKey={`webperformance-${JSON.stringify(webPerformancePropertyFilters)}`}
-                showPersonColumn={false}
-                showCustomizeColumns={false}
-                showExport={false}
-                showAutoload={false}
-                showEventFilter={false}
-                showPropertyFilter={true}
-                showRowExpanders={false}
-                showActionsButton={false}
-                linkPropertiesToFilters={false}
-                data-attr="waterfall-events-table"
-                startingColumns={['$current_url', '$performance_page_loaded']}
-                fixedColumns={[
-                    {
-                        render: function RenderViewButton(_: any, { event }: EventsTableRowItem) {
-                            if (!event) {
-                                return { props: { colSpan: 0 } }
-                            }
-                            return (
-                                <div>
-                                    <LemonButton
-                                        data-attr={`view-waterfall-button-${event?.id}`}
-                                        icon={<IconPlay />}
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() => {
-                                            setEventToDisplay(event)
-                                        }}
-                                    >
-                                        View waterfall chart
-                                    </LemonButton>
-                                </div>
-                            )
+            {featureDataExploration ? (
+                <Query
+                    query={{
+                        kind: NodeKind.DataTableNode,
+                        source: {
+                            kind: NodeKind.EventsNode,
+                            fixedProperties: webPerformancePropertyFilters,
                         },
-                    },
-                ]}
-            />
+                        columns: [
+                            'properties.$current_url',
+                            'properties.$lib',
+                            'timestamp',
+                            'context.columns.waterfallButton',
+                        ],
+                        showReload: true,
+                        showColumnConfigurator: false,
+                        showExport: true,
+                        showEventFilter: false,
+                        showPropertyFilter: true,
+                        showActions: false,
+                        expandable: false,
+                    }}
+                    context={{
+                        columns: {
+                            waterfallButton: {
+                                title: '',
+                                render: function RenderWaterfallButton({
+                                    record: event,
+                                }: {
+                                    record: Required<EventsNode>['response']['results'][0]
+                                }) {
+                                    return (
+                                        <div>
+                                            <LemonButton
+                                                data-attr={`view-waterfall-button-${event?.id}`}
+                                                icon={<IconPlay />}
+                                                type="secondary"
+                                                size="small"
+                                                onClick={() => setEventToDisplay(event)}
+                                            >
+                                                View waterfall chart
+                                            </LemonButton>
+                                        </div>
+                                    )
+                                },
+                            },
+                        },
+                    }}
+                />
+            ) : (
+                <EventsTable
+                    fixedFilters={{
+                        properties: webPerformancePropertyFilters,
+                    }}
+                    sceneUrl={urls.webPerformance()}
+                    fetchMonths={1}
+                    pageKey={`webperformance-${JSON.stringify(webPerformancePropertyFilters)}`}
+                    showPersonColumn={false}
+                    showCustomizeColumns={false}
+                    showExport={false}
+                    showAutoload={false}
+                    showEventFilter={false}
+                    showPropertyFilter={true}
+                    showRowExpanders={false}
+                    showActionsButton={false}
+                    linkPropertiesToFilters={false}
+                    data-attr="waterfall-events-table"
+                    startingColumns={['$current_url', '$performance_page_loaded']}
+                    fixedColumns={[
+                        {
+                            render: function RenderViewButton(_: any, { event }: EventsTableRowItem) {
+                                if (!event) {
+                                    return { props: { colSpan: 0 } }
+                                }
+                                return (
+                                    <div>
+                                        <LemonButton
+                                            data-attr={`view-waterfall-button-${event?.id}`}
+                                            icon={<IconPlay />}
+                                            type="secondary"
+                                            size="small"
+                                            onClick={() => {
+                                                setEventToDisplay(event)
+                                            }}
+                                        >
+                                            View waterfall chart
+                                        </LemonButton>
+                                    </div>
+                                )
+                            },
+                        },
+                    ]}
+                />
+            )}
         </>
     )
 }

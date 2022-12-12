@@ -12,6 +12,7 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
+from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.models import (
     Cohort,
     Dashboard,
@@ -24,7 +25,6 @@ from posthog.models import (
     User,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.tasks.update_cache import synchronously_update_insight_cache
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, _create_event, _create_person
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.test_journeys import journeys_for
@@ -285,6 +285,31 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
         )
 
+    def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
+        insight_one_id, _ = self._create_insight({"name": "insight 1", "filters": {"events": [{"id": "$pageview"}]}})
+        insight_two_id, _ = self._create_insight({"name": "insight 2", "filters": {"events": [{"id": "$pageview"}]}})
+        insight_three_id, _ = self._create_insight({"name": "insight 3", "filters": {"events": [{"id": "$pageview"}]}})
+
+        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard 1", "filters": {"date_from": "-180d"}})
+        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard 1", "filters": {"date_from": "-180d"}})
+        self._add_insight_to_dashboard([dashboard_one_id], insight_one_id)
+        self._add_insight_to_dashboard([dashboard_one_id, dashboard_two_id], insight_two_id)
+
+        any_on_dashboard_one = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?dashboards=[{dashboard_one_id}]"
+        )
+        self.assertEqual(any_on_dashboard_one.status_code, status.HTTP_200_OK)
+        matched_insights = [insight["id"] for insight in any_on_dashboard_one.json()["results"]]
+        assert sorted(matched_insights) == [insight_one_id, insight_two_id]
+
+        # match is AND, not OR
+        any_on_dashboard_one_and_two = self.client.get(
+            f"/api/projects/{self.team.id}/insights/?dashboards=[{dashboard_one_id}, {dashboard_two_id}]"
+        )
+        self.assertEqual(any_on_dashboard_one_and_two.status_code, status.HTTP_200_OK)
+        matched_insights = [insight["id"] for insight in any_on_dashboard_one_and_two.json()["results"]]
+        assert matched_insights == [insight_two_id]
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self):
         response = self.client.post(
@@ -320,7 +345,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "item_id": str(response_data["id"]),
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "name": "a created dashboard",
                         "short_id": response_data["short_id"],
@@ -390,7 +414,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         _, update_response = self._update_insight(
             insight_id, {"dashboards": [dashboard_id, deleted_dashboard_id, new_dashboard_id]}
         )
-        assert update_response["dashboards"] == [dashboard_id, new_dashboard_id]
+        assert sorted(update_response["dashboards"]) == [dashboard_id, new_dashboard_id]
 
     def test_can_update_insight_with_inconsistent_dashboards(self):
         """
@@ -419,7 +443,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert DashboardTile.objects.filter(dashboard_id=deleted_dashboard_id).exists()
 
         insight_json = self._get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id, deleted_dashboard_id]
+        assert insight_json["dashboards"] == [dashboard_id]
 
         # accidentally include a deleted dashboard
         _, update_response = self._update_insight(insight_id, {"dashboards": [deleted_dashboard_id]})
@@ -475,7 +499,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "item_id": str(response_data["id"]),
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "name": "pageview unique users",
                         "short_id": response_data["short_id"],
@@ -535,7 +558,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                     "after": "insight new name",
                                 },
                             ],
-                            "merge": None,
                             "trigger": None,
                             "name": "insight new name",
                             "short_id": short_id,
@@ -549,7 +571,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                         "item_id": str(insight_id),
                         "detail": {
                             "changes": None,
-                            "merge": None,
                             "trigger": None,
                             "name": "insight name",
                             "short_id": short_id,
@@ -607,7 +628,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "item_id": str(insight_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
@@ -629,7 +649,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 "after": ["1", "2", "3"],
                             }
                         ],
-                        "merge": None,
                         "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
@@ -651,7 +670,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                                 "after": ["3"],
                             }
                         ],
-                        "merge": None,
                         "trigger": None,
                         "name": "a created dashboard",
                         "short_id": insight_short_id,
@@ -735,7 +753,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    @patch("posthog.api.insight.synchronously_update_insight_cache", wraps=synchronously_update_insight_cache)
+    @patch("posthog.api.insight.synchronously_update_cache", wraps=synchronously_update_cache)
     def test_insight_refreshing(self, spy_update_insight_cache):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
 
@@ -1694,6 +1712,41 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertIsNotNone(after_save)
         self.assertEqual(before_save, after_save)
 
+    def test_saving_an_insight_without_changing_dashboards_does_not_update_the_dashboard_tiles(self):
+        """
+        Regression test. Sending an unchanged dashboard list to the API should not update the dashboard tiles.
+        Previously it was resetting the tiles which was removing their layouts and making dashboard tiles move about :/
+        """
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard's name"})
+        dashboard_two_id, _ = self._create_dashboard({"name": "the other dashboard's name"})
+
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}}
+        )
+
+        self._add_insight_to_dashboard([dashboard_id, dashboard_two_id], insight_id)
+
+        self._set_tile_layout(dashboard_id, expected_tiles_to_update=1)
+        self._set_tile_layout(dashboard_two_id, expected_tiles_to_update=1)
+
+        tiles = DashboardTile.objects.filter(insight_id=insight_id)
+        layouts = [tile.layouts for tile in tiles]
+        assert len(layouts) == 2
+        for layout in layouts:
+            assert layout != {}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"name": "the new name", "dashboards": [dashboard_id, dashboard_two_id]},
+        )  # the UI sends entire insight objects, where these tests send individual fields
+        # here we send unchanged dashboards list to trigger the bug
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        tiles_after_save = DashboardTile.objects.filter(insight_id=insight_id)
+        layouts_after_save = [tile.layouts for tile in tiles_after_save]
+        assert layouts_after_save == layouts
+
     def test_hard_delete_is_forbidden(self) -> None:
         insight_id, _ = self._create_insight({"name": "to be deleted"})
         api_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
@@ -1733,6 +1786,22 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         #  Just verify it doesn't throw an error
         response = self.client.post(f"/api/projects/{self.team.id}/insights/cancel", {"client_query_id": f"testid"})
         self.assertEqual(response.status_code, 201, response.content)
+
+    @patch("posthog.decorators.get_safe_cache")
+    def test_including_query_id_does_not_affect_cache_key(self, patched_get_safe_cache) -> None:
+        """
+        regression test, by introducing a query_id we were changing the cache key
+        so, if you made the same query twice, the second one would not be cached, only because the query id had changed
+        """
+        self._get_insight_with_client_query_id("b3ef3987-b8e7-4339-b9b8-fa2b65606692")
+        self._get_insight_with_client_query_id("00000000-b8e7-4339-b9b8-fa2b65606692")
+
+        assert patched_get_safe_cache.call_count == 2
+        assert patched_get_safe_cache.call_args_list[0] == patched_get_safe_cache.call_args_list[1]
+
+    def _get_insight_with_client_query_id(self, client_query_id: str) -> None:
+        query_params = f"?events={json.dumps([{'id': '$pageview', }])}&client_query_id={client_query_id}"
+        self.client.get(f"/api/projects/{self.team.id}/insights/trend/{query_params}").json()
 
     def _create_insight(
         self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
@@ -1832,3 +1901,45 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
+
+    def _set_tile_layout(self, dashboard_id: int, expected_tiles_to_update: int) -> None:
+        dashboard_json = self._get_dashboard(dashboard_id)
+        tiles = dashboard_json["tiles"]
+        assert len(tiles) == expected_tiles_to_update
+
+        x = 0
+        y = 0
+        for tile in tiles:
+            x += 1
+            y += 1
+
+            tile_id = tile["id"]
+            # layouts used to live on insights, but moved onto the relation from a dashboard to its insights
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+                {
+                    "tiles": [
+                        {
+                            "id": tile_id,
+                            "layouts": {
+                                "sm": {
+                                    "w": "7",
+                                    "h": "5",
+                                    "x": str(x),
+                                    "y": str(y),
+                                    "moved": "False",
+                                    "static": "False",
+                                },
+                                "xs": {"x": "0", "y": "0", "w": "6", "h": "5"},
+                            },
+                        }
+                    ]
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def _get_dashboard(self, dashboard_id: int, query_params: str = "") -> Dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/{query_params}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()

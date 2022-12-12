@@ -1,37 +1,39 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
-import { StatsD } from 'hot-shots'
 import { DateTime, Duration } from 'luxon'
 
 import { status } from '../../utils/status'
 
-export function parseEventTimestamp(data: PluginEvent, statsd?: StatsD | undefined): DateTime {
+type InvalidTimestampCallback = () => void
+
+export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimestampCallback): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC()
     const sentAt = data['sent_at'] ? DateTime.fromISO(data['sent_at']).toUTC() : null
 
     const parsedTs = handleTimestamp(data, now, sentAt)
     const ts = parsedTs.isValid ? parsedTs : DateTime.utc()
     if (!parsedTs.isValid) {
-        statsd?.increment('process_event_invalid_timestamp', { teamId: String(data['team_id']) })
+        callback?.()
     }
     return ts
 }
 
 function handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | null): DateTime {
     if (data['timestamp']) {
-        if (sentAt) {
+        const timestamp = parseDate(data['timestamp'])
+        if (sentAt && sentAt.isValid && timestamp.isValid) {
             // sent_at - timestamp == now - x
             // x = now + (timestamp - sent_at)
             try {
                 // timestamp and sent_at must both be in the same format: either both with or both without timezones
                 // otherwise we can't get a diff to add to now
-                return now.plus(parseDate(data['timestamp']).diff(sentAt))
+                return now.plus(timestamp.diff(sentAt))
             } catch (error) {
-                status.error('⚠️', 'Error when handling timestamp:', error)
+                status.error('⚠️', 'Error when handling timestamp:', { error: error.message })
                 Sentry.captureException(error, { extra: { data, now, sentAt } })
             }
         }
-        return parseDate(data['timestamp'])
+        return timestamp
     }
     if (data['offset']) {
         return now.minus(Duration.fromMillis(data['offset']))

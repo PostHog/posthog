@@ -12,19 +12,11 @@ max-complexity = 10
 ignore=
     B001, # Do not use bare `except:`.
     B006, # Do not use mutable data structures for argument defaults.
-    B008, # Do not perform function calls in argument defaults.
-    B009, # Do not call getattr with a constant attribute value, it is not any safer than normal property access.
-    B007, # Loop control variable 'i' not used within the loop body. If this is intended, start the name with an underscore
     B011, # Do not call assert False since python -O removes these calls
-    B010, # Do not call setattr with a constant attribute value, it is not any safer than normal property access.
     B017, # assertRaises(Exception): should be considered evil
     B019, # Use of `functools.lru_cache` or `functools.cache` on methods can lead to memory leaks.
     B024, # ClickhouseFunnelBase is an abstract base class, but it has no abstract methods. Remember to use @abstractmethod, @abstractclassmethod and/or @abstractproperty decorators.
-    C400, # Unnecessary generator - rewrite as a list comprehension
     C401, # Unnecessary generator - rewrite as a set comprehension.
-    C403, # Unnecessary list comprehension - rewrite as a set comprehension.
-    C405, # Unnecessary list literal - rewrite as a set literal.
-    C407, # Unnecessary list comprehension - 'any' can take a generator.
     C408, # Unnecessary dict call - rewrite as a literal.
     C413, # Unnecessary list call around sorted()
     C414, # Unnecessary list call within sorted().
@@ -33,7 +25,6 @@ ignore=
     C901, # function complexity
     E203, # whitespace before ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E231, # missing whitespace after ‘,’, ‘;’, or ‘:’. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
-    E262, # inline comment should start with '# '
     E302, # expected 2 blank lines, found 0. -- Do not enable. we've disabled all formatting-related errors as 'black' takes care of them for us
     E501, # line too long. -- Do not enable. We've disabled all formatting-related errors as 'black' takes care of them for us
     E722, # do not use bare except, specify exception instead
@@ -62,19 +53,18 @@ exclude =
 
 per-file-ignores =
     __init__.py:F401
-    ./posthog/queries/column_optimizer/column_optimizer.py:F401
-    ./posthog/queries/cohort_query.py:F401
+    ./bin/hobby-ci.py: T201
     ./cypress/wait.py: T201
     ./docker-compose-config.py: T201
-    ./posthog/client.py: T201
     ./ee/clickhouse/generate_local.py: T201
+    ./gunicorn.config.py: T201
     ./posthog/management/commands/migrate_clickhouse.py: T201
     ./posthog/management/commands/run_async_migrations.py: T201
     ./posthog/management/commands/backfill_persons_and_groups_on_events.py: T201
-    ./gunicorn.config.py: T201
     ./posthog/api/capture.py: T201
     ./posthog/apps.py: T201
     ./posthog/celery.py: T201
+    ./posthog/client.py: T201
     ./posthog/demo/matrix/manager.py: T201
     ./posthog/demo/matrix/matrix.py: T201
     ./posthog/email.py: T201
@@ -88,6 +78,8 @@ per-file-ignores =
     ./posthog/management/commands/test_migrations_are_safe.py: T201
     ./posthog/migrations/0027_move_elements_to_group.py: T201
     ./posthog/migrations/0038_migrate_actions_to_precalculate_events.py: T201
+    ./posthog/queries/column_optimizer/column_optimizer.py:F401
+    ./posthog/queries/cohort_query.py:F401
     ./posthog/models/plugin.py: T201
     ./posthog/settings/overrides.py: T201
     ./posthog/utils.py: T201

@@ -22,10 +22,10 @@ import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyG
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Persons } from 'scenes/persons/Persons'
-import React from 'react'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
+import { pluralize } from 'lib/utils'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -131,7 +131,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 <>
                                     <span>
                                         Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID.
+                                        single column with the user’s distinct ID. The very first row (the header) will
+                                        be skipped during import.
                                     </span>
                                     <Dragger
                                         name="file"
@@ -197,7 +198,18 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     <>
                         <Divider />
                         <div>
-                            <h3 className="l3">Persons in this cohort</h3>
+                            <h3 className="l3 mb-4">
+                                Persons in this cohort
+                                <span className="text-muted ml-2">
+                                    {!cohort.is_calculating &&
+                                        `(${cohort.count} matching ${pluralize(
+                                            cohort.count ?? 0,
+                                            'person',
+                                            'persons',
+                                            false
+                                        )})`}
+                                </span>
+                            </h3>
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
                                     <Spinner className="mr-4" />

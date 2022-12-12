@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union, cast
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.materialized_columns import ColumnName
-from posthog.client import sync_execute
 from posthog.constants import (
     FUNNEL_WINDOW_INTERVAL,
     FUNNEL_WINDOW_INTERVAL_UNIT,
@@ -25,6 +24,7 @@ from posthog.models.property.util import (
     get_single_or_multi_property_string_expr,
     parse_prop_grouped_clauses,
 )
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.breakdown_props import (
     format_breakdown_cohort_join_query,
@@ -33,10 +33,13 @@ from posthog.queries.breakdown_props import (
 )
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.funnels.sql import FUNNEL_INNER_EVENT_STEPS_QUERY
+from posthog.queries.insight import insight_sync_execute
 from posthog.utils import relative_date_parse
 
 
 class ClickhouseFunnelBase(ABC):
+    QUERY_TYPE = "funnel_base"  # should be overridden in subclasses
+
     _filter: Filter
     _team: Team
     _include_timestamp: Optional[bool]
@@ -229,7 +232,7 @@ class ClickhouseFunnelBase(ABC):
 
             steps.append(serialized_result)
 
-        return steps[::-1]  #  reverse
+        return steps[::-1]  # reverse
 
     def _format_results(self, results):
         if not results or len(results) == 0:
@@ -242,8 +245,11 @@ class ClickhouseFunnelBase(ABC):
 
     def _exec_query(self) -> List[Tuple]:
         query = self.get_query()
-        return sync_execute(
-            query, self.params, client_query_id=self._filter.client_query_id, client_query_team_id=self._team.pk
+        return insight_sync_execute(
+            query,
+            self.params,
+            query_type=self.QUERY_TYPE,
+            filter=self._filter,
         )
 
     def _get_timestamp_outer_select(self) -> str:
@@ -399,7 +405,7 @@ class ClickhouseFunnelBase(ABC):
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.actor_on_events_querying_enabled,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -510,16 +516,16 @@ class ClickhouseFunnelBase(ABC):
         filters = self._build_filters(entity, index)
         if entity.type == TREND_FILTER_TYPE_ACTIONS:
             action = entity.get_action()
-            for action_step in action.steps.all():
+            for action_step_event in action.get_step_events():
                 if entity_name not in self.params[entity_name]:
-                    self.params[entity_name].append(action_step.event)
+                    self.params[entity_name].append(action_step_event)
 
             action_query, action_params = format_action_filter(
                 team_id=self._team.pk,
                 action=action,
                 prepend=f"{entity_name}_{step_prefix}step_{index}",
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-                if self._team.actor_on_events_querying_enabled
+                if self._team.person_on_events_querying_enabled
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
                 person_id_joined_alias="person_id",
             )
@@ -542,7 +548,7 @@ class ClickhouseFunnelBase(ABC):
             property_group=entity.property_groups,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._team.actor_on_events_querying_enabled
+            if self._team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="person_id",
         )
@@ -688,7 +694,7 @@ class ClickhouseFunnelBase(ABC):
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
 
-            if self._team.actor_on_events_querying_enabled:
+            if self._team.person_on_events_querying_enabled:
                 basic_prop_selector = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
@@ -703,7 +709,11 @@ class ClickhouseFunnelBase(ABC):
                 )
         elif self._filter.breakdown_type == "event":
             basic_prop_selector = get_single_or_multi_property_string_expr(
-                self._filter.breakdown, table="events", query_alias="prop_basic", column="properties"
+                self._filter.breakdown,
+                table="events",
+                query_alias="prop_basic",
+                column="properties",
+                normalize_url=self._filter.breakdown_normalize_url,
             )
         elif self._filter.breakdown_type == "cohort":
             basic_prop_selector = "value AS prop_basic"
@@ -711,7 +721,7 @@ class ClickhouseFunnelBase(ABC):
             # :TRICKY: We only support string breakdown for group properties
             assert isinstance(self._filter.breakdown, str)
 
-            if self._team.actor_on_events_querying_enabled:
+            if self._team.person_on_events_querying_enabled and groups_on_events_querying_enabled():
                 properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
                 expression, _ = get_property_string_expr(
                     table="events",
@@ -811,7 +821,7 @@ class ClickhouseFunnelBase(ABC):
                 extra_params={"offset": 0},
                 use_all_funnel_entities=use_all_funnel_entities,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-                if self._team.actor_on_events_querying_enabled
+                if self._team.person_on_events_querying_enabled
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             )
 

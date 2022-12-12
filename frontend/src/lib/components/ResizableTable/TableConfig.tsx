@@ -1,5 +1,4 @@
 import { Button, Col, Row, Space } from 'antd'
-import React from 'react'
 import { CloseOutlined, LockOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
@@ -22,7 +21,7 @@ import {
     SortableHandle as sortableHandle,
 } from 'react-sortable-hoc'
 import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from '../RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 
 const DragHandle = sortableHandle(() => (
     <span className="drag-handle">
@@ -32,7 +31,7 @@ const DragHandle = sortableHandle(() => (
 
 interface TableConfigProps {
     immutableColumns?: string[] //the titles of the columns that are always displayed
-    defaultColumns: string[] // the titles of the set of columns to show when there is no user choice
+    defaultColumns: string[] // the keys of the set of columns to show when there is no user choice
 }
 
 export function LemonTableConfig(props: TableConfigProps): JSX.Element {
@@ -91,7 +90,15 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                 style={{ height: `${rowItemHeight}px` }}
             >
                 {!disabled && <DragHandle />}
-                <PropertyKeyInfo value={column} />
+                <PropertyKeyInfo
+                    value={
+                        column.startsWith('properties.')
+                            ? column.substring(11)
+                            : column.startsWith('person.properties.')
+                            ? column.substring(18)
+                            : column
+                    }
+                />
                 <div className="text-right" style={{ flex: 1 }}>
                     <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
                         {disabled ? (
@@ -230,7 +237,7 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                 </Row>
                 <RestrictedArea
                     Component={SaveColumnsAsDefault}
-                    minimumAccessLevel={OrganizationMembershipLevel.Owner}
+                    minimumAccessLevel={TeamMembershipLevel.Admin}
                     scope={RestrictionScope.Project}
                 />
             </div>

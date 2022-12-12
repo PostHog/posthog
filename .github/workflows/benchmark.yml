@@ -34,13 +34,13 @@ jobs:
             BENCHMARK: '1'
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
               with:
                   # Checkout repo with full history
                   fetch-depth: 0
 
             - name: Check out PostHog/benchmarks-results repo
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
               with:
                   path: ee/benchmarks/results
                   repository: PostHog/benchmark-results
@@ -48,15 +48,15 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-benchmark-tests
 
             - uses: syphar/restore-pip-download-cache@v1
@@ -113,7 +113,7 @@ jobs:
                   commit_author: PostHog Bot <hey@posthog.com>
 
             - name: Upload results as artifacts
-              uses: actions/upload-artifact@v2
+              uses: actions/upload-artifact@v3
               with:
                   name: benchmarks
                   path: |

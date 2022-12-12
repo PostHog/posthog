@@ -11,7 +11,7 @@
             countIf(steps_completed >= 3) AS reached_to_step_count
      FROM
        (SELECT aggregation_target,
-               toStartOfDay(toDateTime(timestamp, 'UTC')) AS entrance_period_start,
+               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS entrance_period_start,
                max(steps) AS steps_completed
         FROM
           (SELECT *,
@@ -80,19 +80,19 @@
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
-                            AND timestamp >= toDateTime('2021-04-30 00:00:00')
-                            AND timestamp <= toDateTime('2021-05-07 00:00:00') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 )
+           WHERE step_0 = 1 )
         GROUP BY aggregation_target,
                  entrance_period_start)
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
-    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00') + toIntervalDay(number), 'UTC') AS entrance_period_start
-     FROM numbers(dateDiff('day', toDateTime('2021-04-30 00:00:00'), toDateTime('2021-05-07 00:00:00')) + 1) AS period_offsets) fill USING (entrance_period_start)
-  ORDER BY entrance_period_start ASC SETTINGS allow_experimental_window_functions = 1
+    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'UTC') + toIntervalDay(number)) AS entrance_period_start
+     FROM numbers(dateDiff('day', toDateTime('2021-04-30 00:00:00', 'UTC'), toDateTime('2021-05-07 00:00:00', 'UTC')) + 1) AS period_offsets) fill USING (entrance_period_start)
+  ORDER BY entrance_period_start ASC
   '
 ---
 # name: TestFunnelTrends.test_timezones_trends.1
@@ -108,7 +108,7 @@
             countIf(steps_completed >= 3) AS reached_to_step_count
      FROM
        (SELECT aggregation_target,
-               toStartOfDay(toDateTime(timestamp, 'US/Pacific')) AS entrance_period_start,
+               toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) AS entrance_period_start,
                max(steps) AS steps_completed
         FROM
           (SELECT *,
@@ -177,18 +177,18 @@
                              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                           WHERE team_id = 2
                             AND event IN ['step one', 'step three', 'step two']
-                            AND timestamp >= toDateTime('2021-04-30 07:00:00')
-                            AND timestamp <= toDateTime('2021-05-07 07:00:00') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-04-30 00:00:00', 'US/Pacific')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'US/Pacific') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 )
+           WHERE step_0 = 1 )
         GROUP BY aggregation_target,
                  entrance_period_start)
      GROUP BY entrance_period_start) data
   RIGHT OUTER JOIN
-    (SELECT toStartOfDay(toDateTime('2021-04-30 07:00:00') + toIntervalDay(number), 'US/Pacific') AS entrance_period_start
-     FROM numbers(dateDiff('day', toDateTime('2021-04-30 07:00:00'), toDateTime('2021-05-07 07:00:00')) + 1) AS period_offsets) fill USING (entrance_period_start)
-  ORDER BY entrance_period_start ASC SETTINGS allow_experimental_window_functions = 1
+    (SELECT toStartOfDay(toDateTime('2021-04-30 00:00:00', 'US/Pacific') + toIntervalDay(number)) AS entrance_period_start
+     FROM numbers(dateDiff('day', toDateTime('2021-04-30 00:00:00', 'US/Pacific'), toDateTime('2021-05-07 00:00:00', 'US/Pacific')) + 1) AS period_offsets) fill USING (entrance_period_start)
+  ORDER BY entrance_period_start ASC
   '
 ---

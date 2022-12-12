@@ -142,6 +142,11 @@ KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
 )
 
+# Topic to write events to between clickhouse
+KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
+    "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
+)
+
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.
 if TEST or DEBUG or IS_COLLECT_STATIC:
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost/")

@@ -1,4 +1,13 @@
-from typing import Any, Callable, Dict, List, Optional, Tuple, TypedDict
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    TypedDict,
+)
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.db import models, transaction
@@ -8,6 +17,7 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
+from posthog.settings import SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
@@ -25,6 +35,8 @@ NOTIFICATION_DEFAULTS: Notifications = {"plugin_disabled": True}
 
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
+
+    model: Type["User"]
 
     use_in_migrations = True
 
@@ -257,6 +269,7 @@ class User(AbstractUser, UUIDClassicModel):
             "has_password_set": self.has_usable_password(),
             "has_social_auth": self.social_auth.exists(),  # type: ignore
             "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
+            "instance_url": SITE_URL,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

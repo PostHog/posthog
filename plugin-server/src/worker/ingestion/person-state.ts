@@ -128,6 +128,7 @@ export class PersonState {
                     // :NOTE: This should never be set in this branch, but adding this for logical consistency
                     this.updateIsIdentified,
                     this.newUuid,
+                    this.event.uuid,
                     [this.distinctId]
                 )
                 // :TRICKY: Avoid subsequent queries re-fetching person
@@ -161,9 +162,10 @@ export class PersonState {
         isUserId: number | null,
         isIdentified: boolean,
         uuid: string,
+        creatorEventUuid: string,
         distinctIds?: string[]
     ): Promise<Person> {
-        const props = { ...propertiesOnce, ...properties }
+        const props = { ...propertiesOnce, ...properties, ...{ $creator_event_uuid: creatorEventUuid } }
         const propertiesLastOperation: Record<string, any> = {}
         const propertiesLastUpdatedAt: Record<string, any> = {}
         Object.keys(propertiesOnce).forEach((key) => {
@@ -260,6 +262,17 @@ export class PersonState {
     // Alias & merge
 
     async handleIdentifyOrAlias(): Promise<void> {
+        /**
+         * strategy:
+         *   - if the two distinct ids passed don't match and aren't illegal, then mark `is_identified` to be true for the `distinct_id` person
+         *   - if a person doesn't exist for either distinct id passed we create the person with both ids
+         *   - if only one person exists we add the other distinct id
+         *   - if the distinct ids belong to different already existing persons we try to merge them:
+         *     - the merge is blocked if the other distinct id (`anon_distinct_id` or `alias` event property) person has `is_identified` true.
+         *     - we merge into `distinct_id` person:
+         *       - both distinct ids used in the future will map to the person id that was associated with `distinct_id` before
+         *       - if person property was defined for both we'll use `distinct_id` person's property going forward
+         */
         const timeout = timeoutGuard('Still running "handleIdentifyOrAlias". Timeout warning after 30 sec!')
         try {
             if (this.event.event === '$create_alias' && this.eventProperties['alias']) {
@@ -330,6 +343,8 @@ export class PersonState {
             return
         }
 
+        this.updateIsIdentified = true
+
         const oldPerson = await this.db.fetchPerson(teamId, previousDistinctId)
         // :TRICKY: Reduce needless lookups for person
         const newPerson = await this.personContainer.get()
@@ -338,7 +353,6 @@ export class PersonState {
             try {
                 await this.db.addDistinctId(oldPerson, distinctId)
                 this.personContainer = this.personContainer.with(oldPerson)
-                this.updateIsIdentified = isIdentifyCall
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -350,7 +364,6 @@ export class PersonState {
         } else if (!oldPerson && newPerson) {
             try {
                 await this.db.addDistinctId(newPerson, previousDistinctId)
-                this.updateIsIdentified = isIdentifyCall
                 // Catch race case when somebody already added this distinct_id between .get and .addDistinctId
             } catch {
                 // integrity error
@@ -367,8 +380,9 @@ export class PersonState {
                     this.eventProperties['$set_once'] || {},
                     teamId,
                     null,
-                    isIdentifyCall,
+                    true,
                     this.newUuid,
+                    this.event.uuid,
                     [distinctId, previousDistinctId]
                 )
                 // :KLUDGE: Avoid unneeded fetches in updateProperties()
@@ -382,9 +396,8 @@ export class PersonState {
                 }
             }
         } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
-            // $create_alias is an explicit call to merge 2 users, so we'll merge anything
-            // for $identify, we'll not merge a user who's already identified into anyone else
-            const isIdentifyCallToMergeAnIdentifiedUser = isIdentifyCall && oldPerson.is_identified
+            // $create_alias and $identify will not merge a user who's already identified into anyone else
+            const isCallToMergeAnIdentifiedUser = oldPerson.is_identified
 
             this.statsd?.increment('merge_users', {
                 call: isIdentifyCall ? 'identify' : 'alias',
@@ -392,13 +405,12 @@ export class PersonState {
                 oldPersonIdentified: String(oldPerson.is_identified),
                 newPersonIdentified: String(newPerson.is_identified),
             })
-            if (isIdentifyCallToMergeAnIdentifiedUser) {
-                status.warn('🤔', 'refused to merge an already identified user via an $identify call')
-                this.updateIsIdentified = isIdentifyCall
+            if (isCallToMergeAnIdentifiedUser) {
                 captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
                     sourcePersonDistinctId: previousDistinctId,
                     targetPersonDistinctId: distinctId,
                 })
+                status.warn('🤔', 'refused to merge an already identified user via an $identify call')
             } else {
                 await this.mergePeople({
                     totalMergeAttempts,
@@ -410,8 +422,6 @@ export class PersonState {
                     timestamp: timestamp,
                 })
             }
-        } else {
-            this.updateIsIdentified = isIdentifyCall
         }
     }
 
@@ -464,7 +474,7 @@ export class PersonState {
                     {
                         created_at: firstSeen,
                         properties: this.updatedPersonProperties(mergeInto.properties),
-                        is_identified: mergeInto.is_identified || otherPerson.is_identified || shouldIdentifyPerson,
+                        is_identified: true,
                     },
                     client
                 )

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { LineGraph } from '../../insights/views/LineGraph/LineGraph'
 import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'
@@ -11,10 +11,11 @@ import { SeriesLetter } from 'lib/components/SeriesGlyph'
 import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 type DataSet = any
 
-export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsHorizontalBar({ inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<DataSet[] | null>(null)
     const [total, setTotal] = useState(0)
     const { insightProps, insight, hiddenLegendKeys } = useValues(insightLogic)
@@ -81,9 +82,10 @@ export function ActionsHorizontalBar({ showPersonsModal = true }: ChartParams): 
             labels={data[0].labels}
             hiddenLegendKeys={hiddenLegendKeys}
             showPersonsModal={showPersonsModal}
-            aggregationAxisFormat={insight.filters?.aggregation_axis_format}
+            filters={insight.filters}
+            inCardView={inCardView}
             onClick={
-                !showPersonsModal || insight.filters?.formula
+                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters.formula)
                     ? undefined
                     : (point) => {
                           const { index, points, crossDataset } = point

@@ -1,7 +1,6 @@
 import { Col, Row } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React from 'react'
 import { Form } from 'kea-forms'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'

@@ -1,17 +1,18 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
-from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from sentry_sdk import capture_exception
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
+from posthog.demo.matrix.manager import MatrixManager
+from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Insight, Organization, Team, User
+from posthog.models import InsightCachingState, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
@@ -38,8 +39,19 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
         if request.method in CREATE_METHODS and (
             (user.organization is None)
             or (
-                user.organization.teams.exclude(is_demo=True).count() >= 1
+                # if we're not requesting to make a demo project
+                # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
+                # and the org isn't allowed to make multiple projects
+                "is_demo" not in request.data
+                and user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+            )
+            or (
+                # if we ARE requesting to make a demo project
+                # but the org already has a demo project
+                "is_demo" in request.data
+                and request.data["is_demo"]
+                and user.organization.teams.exclude(is_demo=False).count() > 0
             )
         ):
             return False
@@ -87,7 +99,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "uuid",
             "organization",
             "api_token",
-            "is_demo",
             "created_at",
             "updated_at",
             "ingested_event",
@@ -122,28 +133,29 @@ class TeamSerializer(serializers.ModelSerializer):
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
-        serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        request = self.context["request"]
-        organization = self.context["view"].organization  # Use the org we used to validate permissions
-        with transaction.atomic():
-            team = Team.objects.create_with_data(**validated_data, organization=organization)
-            request.user.current_team = team
-            request.user.save()
+        try:
+            serializers.raise_errors_on_nested_writes("create", self, validated_data)
+            request = self.context["request"]
+            organization = self.context["view"].organization  # Use the org we used to validate permissions
+            with transaction.atomic():
+                team = Team.objects.create_with_data(**validated_data, organization=organization)
+                request.user.current_team = team
+                request.user.save()
+                if validated_data.get("is_demo", False):
+                    MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
+        except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
+            capture_exception()
+            raise e
         return team
 
-    def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
-        hashes = (
-            Insight.objects.filter(team=team, last_refresh__gt=now() - relativedelta(days=7))
-            .exclude(filters_hash=None)
-            .values_list("filters_hash", flat=True)
-        )
+    def _handle_timezone_update(self, team: Team) -> None:
+        # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
+        hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
-
-        return
 
     def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance, validated_data["timezone"])
+            self._handle_timezone_update(instance)
 
         return super().update(instance, validated_data)
 
@@ -225,11 +237,20 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     def perform_destroy(self, team: Team):
         team_id = team.pk
         delete_bulky_postgres_data(team_ids=[team_id])
-        AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=cast(User, self.request.user)
-        )
         with mute_selected_signals():
             super().perform_destroy(team)
+        # Once the project is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(
+                    deletion_type=DeletionType.Team,
+                    team_id=team_id,
+                    key=str(team_id),
+                    created_by=cast(User, self.request.user),
+                )
+            ],
+            ignore_conflicts=True,
+        )
 
     @action(
         methods=["PATCH"],

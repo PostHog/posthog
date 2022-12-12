@@ -19,8 +19,8 @@ class TestDemoSignupAPI(APIBaseTest):
         # Do not set up any test data
         pass
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_jobs")
-    @patch("posthog.demo.matrix.manager.copy_graphile_jobs_between_teams")
+    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
+    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     def test_demo_signup(self, *args):
         assert not User.objects.exists()
         assert not Organization.objects.exists()
@@ -28,7 +28,12 @@ class TestDemoSignupAPI(APIBaseTest):
         # Password not needed
         response = self.client.post(
             "/api/signup/",
-            {"email": "charlie@tech-r-us.com", "first_name": "Charlie", "organization_name": "Tech R Us"},
+            {
+                "email": "charlie@tech-r-us.com",
+                "first_name": "Charlie",
+                "organization_name": "Tech R Us",
+                "role_at_organization": "product",
+            },
         )
         user = auth.get_user(self.client)
         master_organization = Organization.objects.filter(id=0).first()
@@ -75,8 +80,8 @@ class TestDemoSignupAPI(APIBaseTest):
         assert user.is_staff is False
         self.tearDown()
 
-    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_jobs")
-    @patch("posthog.demo.matrix.manager.copy_graphile_jobs_between_teams")
+    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
+    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
     def test_social_signup_give_staff_privileges(self, *args):
         assert not User.objects.exists()
         assert not Organization.objects.exists()
@@ -89,7 +94,12 @@ class TestDemoSignupAPI(APIBaseTest):
         # Staff sign up for demo securely via Google, which should grant is_staff privileges
         response = self.client.post(
             "/api/social_signup/",
-            {"first_name": "Charlie", "email": "charlie@tech-r-us.com", "organization_name": "Tech R Us"},
+            {
+                "first_name": "Charlie",
+                "email": "charlie@tech-r-us.com",
+                "organization_name": "Tech R Us",
+                "role_at_organization": "other",
+            },
         )
 
         user = auth.get_user(self.client)
@@ -125,7 +135,13 @@ class TestDemoSignupAPI(APIBaseTest):
 
         # Staff log into demo securely via Google, which should grant is_staff privileges
         response = self.client.post(
-            "/api/social_signup/", {"first_name": "X", "email": "charlie@tech-r-us.com", "organization_name": "Y"}
+            "/api/social_signup/",
+            {
+                "first_name": "X",
+                "email": "charlie@tech-r-us.com",
+                "organization_name": "Y",
+                "role_at_organization": "other",
+            },
         )
 
         user = auth.get_user(self.client)

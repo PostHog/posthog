@@ -1,4 +1,5 @@
-from typing import Counter, List, Set, cast
+from typing import Counter as TCounter
+from typing import List, Set, cast
 
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
@@ -10,6 +11,7 @@ from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
 from posthog.models.property.util import box_value, extract_tables_and_properties
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
+from posthog.queries.trends.util import is_series_group_based
 
 
 class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
@@ -29,7 +31,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
             columns_to_query = columns_to_query.union(
                 self.columns_to_query(
                     "events",
-                    set([property for property in used_properties if property[2] == group_type_index]),
+                    {property for property in used_properties if property[2] == group_type_index},
                     f"group{group_type_index}_properties",
                 )
             )
@@ -37,9 +39,9 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
         return columns_to_query
 
     @cached_property
-    def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
+    def properties_used_in_filter(self) -> TCounter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
+        counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
@@ -69,14 +71,14 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
 
             # Math properties are also implicitly used.
             #
-            # See ee/clickhouse/queries/trends/util.py#process_math
+            # See posthog/queries/trends/util.py#process_math
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
 
             # If groups are involved, they're also used
             #
-            # See ee/clickhouse/queries/trends/util.py#process_math
-            if entity.math == "unique_group":
+            # See posthog/queries/trends/util.py#process_math
+            if is_series_group_based(entity):
                 counter[(f"$group_{entity.math_group_type_index}", "event", None)] += 1
 
             if entity.math == "unique_session":

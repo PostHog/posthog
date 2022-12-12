@@ -9,19 +9,19 @@ POSTHOG_SECRET=$(head -c 28 /dev/urandom | sha224sum -b | head -c 56)
 export POSTHOG_SECRET
 
 # Talk to the user
-echo "Welcome to the single instance PostHog installer 🦔"
+echo "Welcome to the single instance Posthog installer 🦔"
 echo ""
 echo "⚠️  You really need 4gb or more of memory to run this stack ⚠️"
 echo ""
 echo "Power user or aspiring power user?"
-echo "Check out our docs on hobby deploy! https://posthog.com/docs/self-host/deploy/hobby"
+echo "Check out our docs on deploying Posthog! https://posthog.com/docs/self-host/deploy/hobby"
 echo ""
 
 if ! [ -z "$1" ]
 then
 export POSTHOG_APP_TAG=$1
 else
-echo "What version of PostHog would you like to install? (We default to 'latest-release')"
+echo "What version of Posthog would you like to install? (We default to 'latest-release')"
 echo "You can check out available versions here: https://hub.docker.com/r/posthog/posthog/tags"
 read -r POSTHOG_APP_TAG_READ
 if [ -z "$POSTHOG_APP_TAG_READ" ]
@@ -37,7 +37,7 @@ if ! [ -z "$2" ]
 then
 export DOMAIN=$2
 else
-echo "Let's get the exact domain PostHog will be installed on"
+echo "Let's get the exact domain Posthog will be installed on"
 echo "Make sure that you have a Host A DNS record pointing to this instance!"
 echo "This will be used for TLS 🔐"
 echo "ie: test.posthog.net (NOT an IP address)"
@@ -70,7 +70,7 @@ echo "Grabbing latest apt caches"
 sudo apt update
 
 # clone posthog
-echo "Installing PostHog 🦔 from Github"
+echo "Installing Posthog 🦔 from Github"
 sudo apt install -y git
 # try to clone - if folder is already there pull latest for that branch
 git clone https://github.com/PostHog/posthog.git &> /dev/null || true
@@ -78,11 +78,18 @@ cd posthog
 git pull
 cd ..
 
+if [ -n "$3" ]
+then
+export TLS_BLOCK="acme_ca https://acme-staging-v02.api.letsencrypt.org/directory"
+fi
+
 # rewrite caddyfile
 rm -f Caddyfile
 envsubst > Caddyfile <<EOF
-$DOMAIN, :80, :443 {
+{
 $TLS_BLOCK
+}
+$DOMAIN, :80, :443 {
 reverse_proxy http://web:8000
 }
 EOF
@@ -143,7 +150,7 @@ sudo apt install -y docker-ce
 
 # setup docker-compose
 echo "Setting up Docker Compose"
-sudo curl -L "https://github.com/docker/compose/releases/download/1.27.4/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.13.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
 sudo chmod +x /usr/local/bin/docker-compose
 
 # enable docker without sudo
@@ -152,6 +159,7 @@ sudo usermod -aG docker "${USER}" || true
 # start up the stack
 echo "Configuring Docker Compose...."
 rm -f docker-compose.yml
+cp posthog/docker-compose.base.yml docker-compose.base.yml
 cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
 envsubst < docker-compose.yml.tmpl > docker-compose.yml
 rm docker-compose.yml.tmpl
@@ -160,9 +168,9 @@ sudo -E docker-compose -f docker-compose.yml up -d
 
 echo "We will need to wait ~5-10 minutes for things to settle down, migrations to finish, and TLS certs to be issued"
 echo ""
-echo "⏳ Waiting for PostHog web to boot (this will take a few minutes)"
+echo "⏳ Waiting for Posthog web to boot (this will take a few minutes)"
 bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' localhost/_health)" != "200" ]]; do sleep 5; done'
-echo "⌛️ PostHog looks up!"
+echo "⌛️ Posthog looks up!"
 echo ""
 echo "🎉🎉🎉  Done! 🎉🎉🎉"
 # send log of this install for continued support!
@@ -180,7 +188,7 @@ echo "If you have any issues at all delete everything in this directory and run 
 echo ""
 echo 'To upgrade: run /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/posthog/posthog/HEAD/bin/upgrade-hobby)"'
 echo ""
-echo "PostHog will be up at the location you provided!"
+echo "Posthog will be up at the location you provided!"
 echo "https://${DOMAIN}"
 echo ""
 echo "It's dangerous to go alone! Take this: 🦔"

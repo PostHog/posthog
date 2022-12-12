@@ -4,19 +4,6 @@
     .dashboard-items-action-icon {
         margin-right: 6px;
     }
-
-    .dashboard-items-action-refresh-text {
-        visibility: visible;
-
-        &.hidden {
-            visibility: hidden;
-        }
-
-        &.completed {
-            position: absolute;
-            left: 30px;
-        }
-    }
 }
 
 .dashboard-header {

@@ -1,4 +1,3 @@
-import React from 'react'
 import { Fade } from 'lib/components/Fade/Fade'
 import Draggable from 'react-draggable'
 import { CloseOutlined } from '@ant-design/icons'

@@ -1,4 +1,3 @@
-import React from 'react'
 import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/components/icons'
 import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
 import { useActions, useValues } from 'kea'
@@ -49,7 +48,7 @@ export function NotificationBell(): JSX.Element {
             className="NotificationsBell-Popup"
         >
             <div
-                className={clsx('h-10 items-center cursor-pointer flex color-primary-alt text-2xl')}
+                className={clsx('h-10 items-center cursor-pointer flex text-primary-alt text-2xl')}
                 onClick={toggleNotificationsPopover}
                 data-attr="notifications-button"
             >

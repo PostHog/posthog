@@ -1,39 +1,73 @@
 VOLUME_SQL = """
-SELECT {aggregate_operation} as data, {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) as date FROM ({event_query}) GROUP BY date
+SELECT {aggregate_operation} as data, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date FROM ({event_query}) GROUP BY date
 """
 
-VOLUME_TOTAL_AGGREGATE_SQL = """
+VOLUME_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM ({event_query}) events
 """
 
-SESSION_VOLUME_TOTAL_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data FROM (
-    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
-)
+VOLUME_PER_ACTOR_SQL = """
+SELECT {aggregate_operation} AS data, date FROM (
+    SELECT COUNT(*) AS intermediate_count, {aggregator}, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS date
+    FROM ({event_query})
+    GROUP BY {aggregator}, date
+) GROUP BY date
 """
 
-SESSION_DURATION_VOLUME_SQL = """
+VOLUME_PER_ACTOR_AGGREGATE_SQL = """
+SELECT {aggregate_operation} as data FROM (
+    SELECT COUNT(*) AS intermediate_count, {aggregator}
+    FROM ({event_query})
+    GROUP BY {aggregator}
+) events
+"""
+
+SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} as data, date FROM (
-    SELECT {interval}(toDateTime(timestamp), {start_of_week_fix} %(timezone)s) as date, any(session_duration) as session_duration
+    SELECT {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date, any(session_duration) as session_duration
     FROM ({event_query})
     GROUP BY $session_id, date
 ) GROUP BY date
 """
 
-ACTIVE_USER_SQL = """
-SELECT counts as total, timestamp as day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) counts FROM (
-        SELECT toStartOfDay(toDateTime(timestamp, %(timezone)s)) as timestamp FROM events WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+SESSION_DURATION_AGGREGATE_SQL = """
+SELECT {aggregate_operation} as data FROM (
+    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
+)
+"""
+
+ACTIVE_USERS_SQL = """
+SELECT counts AS total, timestamp AS day_start FROM (
+    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) AS counts FROM (
+        /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
+           and not `events`, because we cannot rely on there being an event for each period (this assumption previously
+           caused active user counts to be off for sparse events). */
+        SELECT {interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number) {start_of_week_fix}) AS timestamp
+        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s) {start_of_week_fix}), toDateTime(%(date_to)s, %(timezone)s)))
     ) d
+    /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
+       but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
     CROSS JOIN (
-        SELECT toStartOfDay(toDateTime(timestamp, %(timezone)s)) as timestamp, {aggregator} FROM ({event_query}) events WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp, {aggregator}
-    ) e WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
+        SELECT
+            toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
+            {aggregator}
+        FROM ({event_query}) events
+        WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to}
+        GROUP BY timestamp, {aggregator}
+    ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
 """
 
-AGGREGATE_SQL = """
+ACTIVE_USERS_AGGREGATE_SQL = """
+SELECT
+    {aggregate_operation} AS total
+FROM ({event_query}) events
+WHERE 1 = 1 {parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+"""
+
+FINAL_TIME_SERIES_SQL = """
 SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     SELECT {smoothing_operation} AS count, day_start
     from (
@@ -43,7 +77,6 @@ SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     )
     group by day_start
     order by day_start
-    SETTINGS allow_experimental_window_functions = 1
 )
 SETTINGS timeout_before_checking_execution_speed = 60
 """
@@ -152,7 +185,7 @@ ORDER BY breakdown_value
 BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as day_start,
     {breakdown_value} as breakdown_value
 FROM events e
 {person_join}
@@ -163,21 +196,58 @@ FROM events e
 GROUP BY day_start, breakdown_value
 """
 
-SESSION_MATH_BREAKDOWN_INNER_SQL = """
+VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL = """
+SELECT
+    {aggregate_operation} AS total, day_start, breakdown_value
+FROM (
+    SELECT
+        COUNT(*) AS intermediate_count,
+        {aggregator},
+        {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS day_start,
+        {breakdown_value} as breakdown_value
+    FROM events AS e
+    {person_join}
+    {groups_join}
+    {sessions_join}
+    {breakdown_filter}
+    {null_person_filter}
+    GROUP BY {aggregator}, day_start, breakdown_value
+)
+GROUP BY day_start, breakdown_value
+"""
+
+VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL = """
+SELECT {aggregate_operation} AS total, breakdown_value
+FROM (
+    SELECT
+        COUNT(*) AS intermediate_count,
+        {aggregator}, {breakdown_value} AS breakdown_value
+    FROM events AS e
+    {person_join}
+    {groups_join}
+    {sessions_join_condition}
+    {breakdown_filter}
+    GROUP BY {aggregator}, breakdown_value
+)
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
+
+SESSION_DURATION_BREAKDOWN_INNER_SQL = """
 SELECT
     {aggregate_operation} as total, day_start, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, day_start, breakdown_value FROM (
-        SELECT $session_id, session_duration, {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+        SELECT {event_sessions_table_alias}.$session_id, session_duration, {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as day_start,
             {breakdown_value} as breakdown_value
-        FROM events e
+        FROM events AS e
         {person_join}
         {groups_join}
         {sessions_join}
         {breakdown_filter}
         {null_person_filter}
     )
-    GROUP BY $session_id, day_start, breakdown_value
+    GROUP BY {event_sessions_table_alias}.$session_id, day_start, breakdown_value
 )
 GROUP BY day_start, breakdown_value
 """
@@ -185,7 +255,7 @@ GROUP BY day_start, breakdown_value
 BREAKDOWN_CUMULATIVE_INNER_SQL = """
 SELECT
     {aggregate_operation} as total,
-    {interval_annotation}(timestamp, {start_of_week_fix} %(timezone)s) as day_start,
+    {interval_annotation}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as day_start,
     breakdown_value
 FROM (
     SELECT
@@ -211,13 +281,16 @@ GROUP BY day_start, breakdown_value
 """
 
 BREAKDOWN_ACTIVE_USER_INNER_SQL = """
-SELECT counts as total, timestamp as day_start, breakdown_value
+SELECT counts AS total, timestamp AS day_start, breakdown_value
 FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
-        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
-        SELECT toStartOfDay(toDateTime(timestamp), %(timezone)s) as timestamp, {person_id_alias}.person_id AS person_id, {breakdown_value} as breakdown_value
+        SELECT
+            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp,
+            {person_id_alias}.person_id AS person_id,
+            {breakdown_value} AS breakdown_value
         FROM events e
         {person_join}
         {groups_join}
@@ -232,6 +305,19 @@ FROM (
 ) WHERE 11111 = 11111 {parsed_date_from} {parsed_date_to}
 """
 
+BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL = """
+SELECT
+    {aggregate_operation} AS total, {breakdown_value} as breakdown_value
+FROM events AS e
+{person_join}
+{groups_join}
+{sessions_join}
+{conditions}
+{null_person_filter}
+{parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
 
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
@@ -245,18 +331,18 @@ ORDER BY breakdown_value
 """
 
 
-SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL = """
+SESSION_DURATION_BREAKDOWN_AGGREGATE_SQL = """
 SELECT {aggregate_operation} AS total, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (
-        SELECT $session_id, session_duration, {breakdown_value} AS breakdown_value FROM
+        SELECT {event_sessions_table_alias}.$session_id, session_duration, {breakdown_value} AS breakdown_value FROM
             events e
             {person_join}
             {groups_join}
             {sessions_join_condition}
             {breakdown_filter}
         )
-    GROUP BY $session_id, breakdown_value
+    GROUP BY {event_sessions_table_alias}.$session_id, breakdown_value
 )
 GROUP BY breakdown_value
 ORDER BY breakdown_value
@@ -315,7 +401,7 @@ FROM (
         period,
         created_at,
         if(
-            dateTrunc(%(interval)s, toDateTime(created_at, %(timezone)s)) = period,
+            dateTrunc(%(interval)s, toTimeZone(toDateTime(created_at, 'UTC'), %(timezone)s)) = period,
             'new',
             if(
                 previous_activity + INTERVAL 1 {interval_expr} = period,
@@ -337,7 +423,6 @@ FROM (
     )
 )
 WHERE period_status_pairs.2 != ''
-SETTINGS allow_experimental_window_functions = 1
 """
 
 LIFECYCLE_SQL = f"""
@@ -356,8 +441,8 @@ WITH
         FROM numbers(
             dateDiff(
                 %(interval)s,
-                dateTrunc(%(interval)s, toDateTime(%(date_from)s)),
-                dateTrunc(%(interval)s, toDateTime(%(date_to)s) + INTERVAL 1 {{interval_expr}})
+                dateTrunc(%(interval)s, toDateTime(%(date_from)s, %(timezone)s)),
+                dateTrunc(%(interval)s, toDateTime(%(date_to)s, %(timezone)s) + INTERVAL 1 {{interval_expr}})
             )
         )
     )

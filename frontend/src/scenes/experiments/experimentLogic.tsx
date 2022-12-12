@@ -1,4 +1,5 @@
-import React, { ReactElement } from 'react'
+import { kea } from 'kea'
+import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -15,7 +16,6 @@ import {
     InsightType,
     InsightShortId,
     MultivariateFlagVariant,
-    ChartDisplayType,
     TrendResult,
     FunnelStep,
     SecondaryExperimentMetric,
@@ -282,7 +282,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
-                    display: ChartDisplayType.FunnelViz,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DDTHH:mm'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,
@@ -332,12 +331,12 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         launchExperiment: async () => {
             const startDate = dayjs()
-            actions.updateExperiment({ start_date: startDate.format('YYYY-MM-DDTHH:mm') })
-            values.experimentData && actions.reportExperimentLaunched(values.experimentData, startDate)
+            actions.updateExperiment({ start_date: startDate.toISOString() })
+            values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
         },
         endExperiment: async () => {
             const endDate = dayjs()
-            actions.updateExperiment({ end_date: endDate.format('YYYY-MM-DDTHH:mm') })
+            actions.updateExperiment({ end_date: endDate.toISOString() })
             const duration = endDate.diff(values.experimentData?.start_date, 'second')
             values.experimentData &&
                 actions.reportExperimentCompleted(
@@ -616,7 +615,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const errorResult = "Can't find variant"
+                    const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
                     }
@@ -666,7 +665,7 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const errorResult = "Can't find variant"
+                    const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
                     }
@@ -710,6 +709,24 @@ export const experimentLogic = kea<experimentLogicType>([
                 }
 
                 return variantResults.breakdown_value !== highestProbabilityVariant
+            },
+        ],
+        sortedExperimentResultVariants: [
+            (s) => [s.experimentResults, s.experimentData],
+            (experimentResults, experimentData): string[] => {
+                if (experimentResults) {
+                    const sortedResults = Object.keys(experimentResults.probability).sort(
+                        (a, b) => experimentResults.probability[b] - experimentResults.probability[a]
+                    )
+
+                    experimentData?.parameters?.feature_flag_variants?.forEach((variant) => {
+                        if (!sortedResults.includes(variant.key)) {
+                            sortedResults.push(variant.key)
+                        }
+                    })
+                    return sortedResults
+                }
+                return []
             },
         ],
     }),

@@ -1,6 +1,6 @@
 import './Animation.scss'
 import { Player } from '@lottiefiles/react-lottie-player'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import clsx from 'clsx'
 import { AnimationType, getAnimationSource, animations } from 'lib/animations/animations'
 import { Spinner } from 'lib/components/Spinner/Spinner'

@@ -4,6 +4,17 @@ import { captureException } from '@sentry/node'
 import { Hub, PluginConfig, PluginError } from '../../types'
 import { setError } from './sql'
 
+export class DependencyUnavailableError extends Error {
+    constructor(message: string, dependencyName: string, error: Error) {
+        super(message)
+        this.name = 'DependencyUnavailableError'
+        this.dependencyName = dependencyName
+        this.error = error
+    }
+    readonly dependencyName: string
+    readonly error: Error
+}
+
 export async function processError(
     server: Hub,
     pluginConfig: PluginConfig | null,
@@ -14,6 +25,15 @@ export async function processError(
         captureException(new Error('Tried to process error for nonexistent plugin config!'))
         return
     }
+
+    if (error instanceof DependencyUnavailableError) {
+        // For errors relating to PostHog dependencies that are unavailable,
+        // e.g. Postgres, Kafka, Redis, we don't want to log the error to Sentry
+        // but rather bubble this up the stack for someone else to decide on
+        // what to do with it.
+        throw error
+    }
+
     const errorJson: PluginError =
         typeof error === 'string'
             ? {
@@ -38,7 +58,7 @@ export async function clearError(server: Hub, pluginConfig: PluginConfig): Promi
     }
 }
 
-function cleanErrorStackTrace(stack: string | undefined): string | undefined {
+export function cleanErrorStackTrace(stack: string | undefined): string | undefined {
     if (!stack) {
         return stack
     }

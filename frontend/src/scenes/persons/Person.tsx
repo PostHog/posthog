@@ -1,8 +1,6 @@
-import React from 'react'
 import { Dropdown, Menu, Tabs, Tag } from 'antd'
 import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
-import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
@@ -11,7 +9,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PersonsTabType, PersonType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -21,16 +19,18 @@ import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const { TabPane } = Tabs
 
@@ -89,13 +89,20 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
+    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId, distinctId } =
         useValues(personsLogic)
-    const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, showPersonDeleteModal } =
-        useActions(personsLogic)
+    const {
+        editProperty,
+        deleteProperty,
+        navigateToTab,
+        setSplitMergeModalShown,
+        showPersonDeleteModal,
+        setDistinctId,
+    } = useActions(personsLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (!person) {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
@@ -119,13 +126,15 @@ export function Person(): JSX.Element | null {
                             Delete person
                         </LemonButton>
 
-                        <LemonButton
-                            onClick={() => setSplitMergeModalShown(true)}
-                            data-attr="merge-person-button"
-                            type="secondary"
-                        >
-                            Split or merge IDs
-                        </LemonButton>
+                        {person.distinct_ids.length > 1 && (
+                            <LemonButton
+                                onClick={() => setSplitMergeModalShown(true)}
+                                data-attr="merge-person-button"
+                                type="secondary"
+                            >
+                                Split IDs
+                            </LemonButton>
+                        )}
                     </div>
                 }
             />
@@ -154,12 +163,29 @@ export function Person(): JSX.Element | null {
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    <EventsTable
-                        pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                        fixedFilters={{ person_id: person.id }}
-                        showPersonColumn={false}
-                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
-                    />
+                    {featureDataExploration ? (
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                source: {
+                                    kind: NodeKind.EventsNode,
+                                    personId: person.id,
+                                },
+                                showReload: true,
+                                showColumnConfigurator: true,
+                                showExport: true,
+                                showEventFilter: true,
+                                showPropertyFilter: true,
+                            }}
+                        />
+                    ) : (
+                        <EventsTable
+                            pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                            fixedFilters={{ person_id: person.id }}
+                            showPersonColumn={false}
+                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                        />
+                    )}
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
@@ -174,19 +200,11 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3] ? (
-                        <SessionRecordingsPlaylist
-                            key={person.uuid} // force refresh if user changes
-                            personUUID={person.uuid}
-                            isPersonPage
-                        />
-                    ) : (
-                        <SessionRecordingsTable
-                            key={person.uuid} // force refresh if user changes
-                            personUUID={person.uuid}
-                            isPersonPage
-                        />
-                    )}
+                    <SessionRecordingsPlaylist
+                        logicKey={person.uuid || 'persons'} // force refresh if user changes
+                        personUUID={person.uuid}
+                        updateSearchParams
+                    />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
@@ -212,7 +230,25 @@ export function Person(): JSX.Element | null {
                         tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
                         key={PersonsTabType.FEATURE_FLAGS}
                     >
-                        <RelatedFeatureFlags distinctId={person.distinct_ids[0]} />
+                        <div className="flex space-x-4 items-center mb-2">
+                            <div>
+                                Choose ID:
+                                <Tooltip title="Feature flags can have different values based on the persons IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
+                                    <InfoCircleOutlined style={{ marginLeft: 6, marginRight: 0 }} />
+                                </Tooltip>
+                            </div>
+                            <LemonSelect
+                                value={person.distinct_ids[0]}
+                                onChange={(value) => value && setDistinctId(value)}
+                                options={person.distinct_ids.map((distinct_id) => ({
+                                    label: distinct_id,
+                                    value: distinct_id,
+                                }))}
+                                data-attr="person-feature-flags-select"
+                            />
+                        </div>
+                        <LemonDivider className="mb-4" />
+                        <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
                     </TabPane>
                 )}
 

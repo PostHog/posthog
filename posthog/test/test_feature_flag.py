@@ -15,7 +15,7 @@ from posthog.models.feature_flag import (
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 
 
 class TestFeatureFlagCohortExpansion(BaseTest):
@@ -455,6 +455,75 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
         )
 
+    def test_coercion_of_strings_and_numbers(self):
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["307"],
+            properties={
+                "Distinct Id": 307,
+                "Organizer Id": "307",
+            },
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {"properties": [{"key": "Organizer Id", "value": ["307"], "operator": "exact", "type": "person"}]}
+                ]
+            }
+        )
+        feature_flag2 = self.create_feature_flag(
+            key="random",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "Distinct Id", "value": ["307"], "operator": "exact", "type": "person"}]},
+                    {"properties": [{"key": "Distinct Id", "value": [307], "operator": "exact", "type": "person"}]},
+                ]
+            },
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "307").get_match(feature_flag),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Organizer Id": "307"}).get_match(
+                feature_flag
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "307", property_value_overrides={"Organizer Id": 307}).get_match(
+                feature_flag
+            ),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.NO_CONDITION_MATCH, 0),
+        )
+
+        # test with a flag where the property is a number
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag2], "307").get_match(feature_flag2),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+
+        # confirm it works with overrides as well, which are computed locally
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"Distinct Id": "307"}).get_match(
+                feature_flag2
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag2], "307", property_value_overrides={"Distinct Id": 307}).get_match(
+                feature_flag2
+            ),
+            FeatureFlagMatch(True, None, FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+
     def test_rollout_percentage(self):
         feature_flag = self.create_feature_flag(filters={"groups": [{"rollout_percentage": 50}]})
         self.assertEqual(
@@ -521,7 +590,176 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
         )
 
-    @snapshot_postgres_queries
+    def test_flag_with_variant_overrides(self):
+        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": "second-variant",
+                    },
+                    {"rollout_percentage": 50, "variant": "first-variant"},
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            }
+        )
+
+        # would've been `third-variant` if not for the override
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        # would've been `second-variant` if not for the override
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "first-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
+        )
+
+    def test_flag_with_clashing_variant_overrides(self):
+        Person.objects.create(
+            team=self.team, distinct_ids=["test_id", "example_id"], properties={"email": "test@posthog.com"}
+        )
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": "second-variant",
+                    },
+                    # since second-variant comes first in the list, it will be the one that gets picked
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": "first-variant",
+                    },
+                    {"rollout_percentage": 50},
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            }
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 2),
+        )
+
+    def test_flag_with_invalid_variant_overrides(self):
+        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": "second???",
+                    },
+                    {"rollout_percentage": 50, "variant": "first???"},
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            }
+        )
+
+        # would've been `third-variant` if not for the override
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+        # would've been `second-variant` if not for the override
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(False, None, FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, 1),
+        )
+
+    def test_flag_with_multiple_variant_overrides(self):
+        Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
+
+        feature_flag = self.create_feature_flag(
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        # The override applies even if the first condition matches all and gives everyone their default group
+                    },
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@posthog.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                        "variant": "second-variant",
+                    },
+                    {"rollout_percentage": 50, "variant": "third-variant"},
+                ],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            }
+        )
+
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "test_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 1),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "example_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "third-variant", FeatureFlagMatchReason.CONDITION_MATCH, 2),
+        )
+        self.assertEqual(
+            FeatureFlagMatcher([feature_flag], "another_id").get_match(feature_flag),
+            FeatureFlagMatch(True, "second-variant", FeatureFlagMatchReason.CONDITION_MATCH, 0),
+        )
+
     def test_multiple_flags(self):
         Person.objects.create(team=self.team, distinct_ids=["test_id"], properties={"email": "test@posthog.com"})
         self.create_groups()
@@ -605,10 +843,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             key="variant",
         )
 
-        with self.assertNumQueries(
-            4
+        with self.assertNumQueries(4), snapshot_postgres_queries_context(
+            self
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-
             matches, reasons = FeatureFlagMatcher(
                 [
                     feature_flag_one,
@@ -625,40 +862,39 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FlagsMatcherCache(self.team.id),
             ).get_matches()
 
-            self.assertEqual(
-                matches,
-                {
-                    "one": True,
-                    "always_match": True,
-                    "group_match": True,
-                    "variant": "first-variant",
-                    "group_property_match": True,
-                    # never_match and group_no_match don't match
-                    # group_property_different_match doesn't match because we're dealing with a different group key
-                },
-            )
+        self.assertEqual(
+            matches,
+            {
+                "one": True,
+                "always_match": True,
+                "group_match": True,
+                "variant": "first-variant",
+                "group_property_match": True,
+                # never_match and group_no_match don't match
+                # group_property_different_match doesn't match because we're dealing with a different group key
+            },
+        )
 
-            self.assertEqual(
-                reasons,
-                {
-                    "one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                    "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                    "group_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                    "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                    "group_property_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                    "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
-                    "group_no_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
-                    "group_property_different_match": {
-                        "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
-                        "condition_index": 0,
-                    },
+        self.assertEqual(
+            reasons,
+            {
+                "one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "group_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "group_property_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
+                "group_no_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
+                "group_property_different_match": {
+                    "reason": FeatureFlagMatchReason.NO_CONDITION_MATCH,
+                    "condition_index": 0,
                 },
-            )
+            },
+        )
 
-        with self.assertNumQueries(
-            3
+        with self.assertNumQueries(3), snapshot_postgres_queries_context(
+            self
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-
             matches, reasons = FeatureFlagMatcher(
                 [
                     feature_flag_one,
@@ -675,35 +911,35 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 FlagsMatcherCache(self.team.id),
             ).get_matches()
 
-            self.assertEqual(
-                matches,
-                {
-                    "one": True,
-                    "always_match": True,
-                    "variant": "first-variant",
-                    "group_property_different_match": True,
-                    # never_match and group_no_match don't match
-                    # group_match doesn't match because no project (group type index 1) given.
-                    # group_property_match doesn't match because we're dealing with a different group key
-                },
-            )
+        self.assertEqual(
+            matches,
+            {
+                "one": True,
+                "always_match": True,
+                "variant": "first-variant",
+                "group_property_different_match": True,
+                # never_match and group_no_match don't match
+                # group_match doesn't match because no project (group type index 1) given.
+                # group_property_match doesn't match because we're dealing with a different group key
+            },
+        )
 
-            self.assertEqual(
-                reasons,
-                {
-                    "one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                    "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                    "group_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None},
-                    "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
-                    "group_property_different_match": {
-                        "reason": FeatureFlagMatchReason.CONDITION_MATCH,
-                        "condition_index": 0,
-                    },
-                    "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
-                    "group_no_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None},
-                    "group_property_match": {"reason": FeatureFlagMatchReason.NO_CONDITION_MATCH, "condition_index": 0},
+        self.assertEqual(
+            reasons,
+            {
+                "one": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "always_match": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "group_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None},
+                "variant": {"reason": FeatureFlagMatchReason.CONDITION_MATCH, "condition_index": 0},
+                "group_property_different_match": {
+                    "reason": FeatureFlagMatchReason.CONDITION_MATCH,
+                    "condition_index": 0,
                 },
-            )
+                "never_match": {"reason": FeatureFlagMatchReason.OUT_OF_ROLLOUT_BOUND, "condition_index": 0},
+                "group_no_match": {"reason": FeatureFlagMatchReason.NO_GROUP_TYPE, "condition_index": None},
+                "group_property_match": {"reason": FeatureFlagMatchReason.NO_CONDITION_MATCH, "condition_index": 0},
+            },
+        )
 
     def test_multi_property_filters(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
@@ -1372,7 +1608,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             )
             res = cursor.fetchall()
             self.assertEqual(len(res), 2)
-            self.assertEqual(set([var[0] for var in res]), set(["other_id"]))
+            self.assertEqual({var[0] for var in res}, {"other_id"})
 
     def test_retrieving_hash_key_overrides(self):
 
@@ -1412,7 +1648,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             )
             res = cursor.fetchall()
             self.assertEqual(len(res), 3)
-            self.assertEqual(set([var[0] for var in res]), set([hash_key]))
+            self.assertEqual({var[0] for var in res}, {hash_key})
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'

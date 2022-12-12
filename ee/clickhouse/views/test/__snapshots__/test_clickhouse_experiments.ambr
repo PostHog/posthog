@@ -8,8 +8,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['$pageleave', '$pageview']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-06 00:00:00')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -85,16 +85,115 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-06 00:00:00') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(value)
+  FROM
+    (SELECT array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event IN ['$pageleave', '$pageview']
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam')
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_and_events_out_of_time_range_timezones.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT countIf(steps = 1) step_1,
+         countIf(steps = 2) step_2,
+         avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
+         median(step_1_median_conversion_time_inner) step_1_median_conversion_time,
+         prop
+  FROM
+    (SELECT aggregation_target,
+            steps,
+            avg(step_1_conversion_time) step_1_average_conversion_time_inner,
+            median(step_1_conversion_time) step_1_median_conversion_time_inner ,
+            prop
+     FROM
+       (SELECT aggregation_target,
+               steps,
+               max(steps) over (PARTITION BY aggregation_target,
+                                             prop) as max_steps,
+                               step_1_conversion_time ,
+                               prop
+        FROM
+          (SELECT *,
+                  if(latest_0 <= latest_1
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, 2, 1) AS steps ,
+                  if(isNotNull(latest_1)
+                     AND latest_1 <= latest_0 + INTERVAL 14 DAY, dateDiff('second', toDateTime(latest_0), toDateTime(latest_1)), NULL) step_1_conversion_time,
+                  prop
+           FROM
+             (SELECT aggregation_target,
+                     timestamp,
+                     step_0,
+                     latest_0,
+                     step_1,
+                     min(latest_1) over (PARTITION by aggregation_target,
+                                                      prop
+                                         ORDER BY timestamp DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 0 PRECEDING) latest_1 ,
+                                        if(has([['test'], ['control']], prop), prop, ['Other']) as prop
+              FROM
+                (SELECT *,
+                        if(notEmpty(arrayFilter(x -> notEmpty(x), prop_vals)), prop_vals, ['']) as prop
+                 FROM
+                   (SELECT aggregation_target,
+                           timestamp,
+                           if(event = '$pageview', 1, 0) as step_0,
+                           if(step_0 = 1, timestamp, null) as latest_0,
+                           if(event = '$pageleave', 1, 0) as step_1,
+                           if(step_1 = 1, timestamp, null) as latest_1,
+                           array(replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '')) AS prop_basic,
+                           prop_basic as prop,
+                           argMinIf(prop, timestamp, notEmpty(arrayFilter(x -> notEmpty(x), prop))) over (PARTITION by aggregation_target) as prop_vals
+                    FROM
+                      (SELECT e.event as event,
+                              e.team_id as team_id,
+                              e.distinct_id as distinct_id,
+                              e.timestamp as timestamp,
+                              pdi.person_id as aggregation_target,
+                              e."properties" as "properties",
+                              pdi.person_id as person_id
+                       FROM events e
+                       INNER JOIN
+                         (SELECT distinct_id,
+                                 argMax(person_id, version) as person_id
+                          FROM person_distinct_id2
+                          WHERE team_id = 2
+                          GROUP BY distinct_id
+                          HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                       WHERE team_id = 2
+                         AND event IN ['$pageleave', '$pageview']
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 14:20:21', 'Europe/Amsterdam')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 10:00:00', 'Europe/Amsterdam') ) events
+                    WHERE (step_0 = 1
+                           OR step_1 = 1) )))
+           WHERE step_0 = 1 ))
+     GROUP BY aggregation_target,
+              steps,
+              prop
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: ClickhouseTestFunnelExperimentResults.test_experiment_flow_with_event_results_for_three_test_variants
@@ -107,8 +206,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['$pageleave', '$pageview']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-06 00:00:00')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -184,16 +283,16 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['$pageleave', '$pageview']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-06 00:00:00') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results
@@ -206,8 +305,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-06 00:00:00')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -243,14 +342,14 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-06 00:00:00')
+             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['test', 'control'])
            GROUP BY day_start,
                     breakdown_value))
@@ -272,8 +371,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-06 00:00:00')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
@@ -310,7 +409,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             breakdown_value
            FROM
              (SELECT person_id,
@@ -332,8 +431,8 @@
                    AND event = '$feature_flag_called'
                    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
                         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
-                   AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-                   AND timestamp <= toDateTime('2020-01-06 00:00:00')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test']) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
@@ -357,8 +456,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview1'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-06 00:00:00')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -394,14 +493,14 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview1'
              AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-06 00:00:00')
+             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['control', 'test_1', 'test_2'])
            GROUP BY day_start,
                     breakdown_value))
@@ -423,8 +522,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-06 00:00:00')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 00:00:00', 'UTC')
        AND (has(['control', 'test_1', 'test_2', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
      GROUP BY value
@@ -440,5 +539,156 @@
          [0] AS data,
          '' AS breakdown_value
   LIMIT 0
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = '$pageview'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+       AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-06 07:00:00', 'US/Pacific') - number * 86400) as day_start
+              FROM numbers(6)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 02:10:00', 'US/Pacific')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['test', 'control'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(*) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as day_start,
+                            replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') as breakdown_value
+           FROM events e
+           WHERE e.team_id = 2
+             AND event = '$pageview'
+             AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature/a-b-test'), '^"|"$', '')))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+             AND replaceRegexpAll(JSONExtractRaw(properties, '$feature/a-b-test'), '^"|"$', '') in (['test', 'control'])
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.2
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(value)
+  FROM
+    (SELECT replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') AS value,
+            count(*) as count
+     FROM events e
+     WHERE team_id = 2
+       AND event = '$feature_flag_called'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+       AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
+            AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+     GROUP BY value
+     ORDER BY count DESC, value DESC
+     LIMIT 25
+     OFFSET 0)
+  '
+---
+# name: ClickhouseTestTrendExperimentResults.test_experiment_flow_with_event_results_out_of_timerange_timezone.3
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data,
+         breakdown_value
+  FROM
+    (SELECT SUM(total) as count,
+            day_start,
+            breakdown_value
+     FROM
+       (SELECT *
+        FROM
+          (SELECT toUInt16(0) AS total,
+                  ticks.day_start as day_start,
+                  breakdown_value
+           FROM
+             (SELECT toStartOfDay(toDateTime('2020-01-06 07:00:00', 'US/Pacific') - number * 86400) as day_start
+              FROM numbers(6)
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 02:10:00', 'US/Pacific')) as day_start) as ticks
+           CROSS JOIN
+             (SELECT breakdown_value
+              FROM
+                (SELECT ['control', 'test'] as breakdown_value) ARRAY
+              JOIN breakdown_value) as sec
+           ORDER BY breakdown_value,
+                    day_start
+           UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as day_start,
+                            breakdown_value
+           FROM
+             (SELECT person_id,
+                     min(timestamp) as timestamp,
+                     breakdown_value
+              FROM
+                (SELECT pdi.person_id as person_id,
+                        timestamp,
+                        replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') as breakdown_value
+                 FROM events e
+                 INNER JOIN
+                   (SELECT distinct_id,
+                           argMax(person_id, version) as person_id
+                    FROM person_distinct_id2
+                    WHERE team_id = 2
+                    GROUP BY distinct_id
+                    HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
+                 WHERE e.team_id = 2
+                   AND event = '$feature_flag_called'
+                   AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
+                        AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
+                   AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test']) )
+              GROUP BY person_id,
+                       breakdown_value) AS pdi
+           GROUP BY day_start,
+                    breakdown_value))
+     GROUP BY day_start,
+              breakdown_value
+     ORDER BY breakdown_value,
+              day_start)
+  GROUP BY breakdown_value
+  ORDER BY breakdown_value
   '
 ---

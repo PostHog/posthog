@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
 import { CompactList } from './CompactList'
@@ -9,6 +8,7 @@ import { PersonHeader } from 'scenes/persons/PersonHeader'
 export default {
     title: 'Components/Compact List',
     component: CompactList,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         loading: {
             control: {

@@ -8,7 +8,6 @@ import {
     MOCK_DEFAULT_USER,
     MOCK_DEFAULT_COHORT,
     MOCK_PERSON_PROPERTIES,
-    MOCK_DECIDE,
 } from 'lib/api.mock'
 import { getAvailableFeatures } from '~/mocks/features'
 
@@ -44,13 +43,13 @@ export const handlers = mocksToHandlers({
             },
         ],
         '/api/projects/@current/': MOCK_DEFAULT_TEAM,
+        '/api/billing-v2/': () => [200, {}],
         '/_preflight': require('./fixtures/_preflight.json'),
         '/_system_status': require('./fixtures/_system_status.json'),
         '/api/instance_status': require('./fixtures/_instance_status.json'),
     },
     post: {
         '/e/': () => [200, 'ok'],
-        '/decide/': MOCK_DECIDE,
         'https://app.posthog.com/decide/': () => [200, 'ok'],
         'https://app.posthog.com/engage/': () => [200, 'ok'],
         'https://app.posthog.com/e/': () => [200, 'ok'],

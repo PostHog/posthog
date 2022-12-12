@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Row, Spin, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
@@ -23,7 +23,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const {
-        stepsWithCount,
+        steps,
         correlationValues,
         correlationTypes,
         eventHasPropertyCorrelations,
@@ -197,7 +197,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         )
     }
 
-    return stepsWithCount.length > 1 ? (
+    return steps.length > 1 ? (
         <VisibilitySensor id={correlationPropKey} offset={152}>
             <div className="funnel-correlation-table">
                 <span className="funnel-correlation-header">

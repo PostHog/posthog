@@ -4,7 +4,7 @@ import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -74,6 +74,7 @@ export function Experiment(): JSX.Element {
         flagAvailabilityWarning,
         experiment,
         props,
+        sortedExperimentResultVariants,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -144,6 +145,8 @@ export function Experiment(): JSX.Element {
         }
         return 'complete'
     }
+
+    const maxVariants = 10
 
     const variantLabelColors = [
         { background: '#35416b', color: '#fff' },
@@ -250,12 +253,23 @@ export function Experiment(): JSX.Element {
                                                     >
                                                         <Row
                                                             key={`${variant}-${index}`}
-                                                            className={`feature-flag-variant ${index === 0 ? 'border-t' : index >= 3 ? 'border-b' : ''
-                                                                }`}
+                                                            className={`feature-flag-variant ${
+                                                                index === 0
+                                                                    ? 'border-t'
+                                                                    : index >= maxVariants
+                                                                    ? 'border-b'
+                                                                    : ''
+                                                            }`}
                                                         >
                                                             <div
                                                                 className="variant-label"
-                                                                style={{ ...variantLabelColors[index] }}
+                                                                style={
+                                                                    index === 0
+                                                                        ? { ...variantLabelColors[index] }
+                                                                        : {
+                                                                              ...variantLabelColors[(index % 3) + 1],
+                                                                          }
+                                                                }
                                                             >
                                                                 {index === 0 ? 'Control' : 'Test'}
                                                             </div>
@@ -293,7 +307,8 @@ export function Experiment(): JSX.Element {
                                                     </Group>
                                                 ))}
 
-                                                {(experiment.parameters.feature_flag_variants.length ?? 0) < 4 &&
+                                                {(experiment.parameters.feature_flag_variants.length ?? 0) <
+                                                    maxVariants &&
                                                     experimentId === 'new' && (
                                                         <div className="feature-flag-variant border-b">
                                                             <LemonButton
@@ -367,11 +382,11 @@ export function Experiment(): JSX.Element {
                                                             propertyFilters={
                                                                 experimentInsightType === InsightType.FUNNELS
                                                                     ? convertPropertyGroupToProperties(
-                                                                        funnelsFilters.properties
-                                                                    )
+                                                                          funnelsFilters.properties
+                                                                      )
                                                                     : convertPropertyGroupToProperties(
-                                                                        trendsFilters.properties
-                                                                    )
+                                                                          trendsFilters.properties
+                                                                      )
                                                             }
                                                             onChange={(anyProperties) => {
                                                                 onChange({
@@ -763,8 +778,79 @@ export function Experiment(): JSX.Element {
                                             <ExperimentImplementationDetails experiment={experimentData} />
                                         </Col>
                                     )}
-                                    {(experimentResults || experimentData.secondary_metrics?.length > 0) && (
-                                        <Col className="secondary-progress" span={experimentData?.start_date ? 12 : 24}>
+                                    {experimentResults && (
+                                        <Col span={12} className="mt-4">
+                                            <div className="mb-2">
+                                                <b>Experiment progress</b>
+                                            </div>
+                                            <Progress
+                                                strokeWidth={20}
+                                                showInfo={false}
+                                                percent={experimentProgressPercent}
+                                                strokeColor="var(--success)"
+                                            />
+                                            {experimentInsightType === InsightType.TRENDS && experimentData.start_date && (
+                                                <Row justify="space-between" className="mt-2">
+                                                    {experimentData.end_date ? (
+                                                        <div>
+                                                            Ran for{' '}
+                                                            <b>
+                                                                {dayjs(experimentData.end_date).diff(
+                                                                    experimentData.start_date,
+                                                                    'day'
+                                                                )}
+                                                            </b>{' '}
+                                                            days
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <b>{dayjs().diff(experimentData.start_date, 'day')}</b> days
+                                                            running
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        Goal:{' '}
+                                                        <b>{experimentData?.parameters?.recommended_running_time}</b>{' '}
+                                                        days
+                                                    </div>
+                                                </Row>
+                                            )}
+                                            {experimentInsightType === InsightType.FUNNELS && (
+                                                <Row justify="space-between" className="mt-2">
+                                                    {experimentData.end_date ? (
+                                                        <div>
+                                                            Saw <b>{humanFriendlyNumber(funnelResultsPersonsTotal)}</b>{' '}
+                                                            participants
+                                                        </div>
+                                                    ) : (
+                                                        <div>
+                                                            <b>{humanFriendlyNumber(funnelResultsPersonsTotal)}</b>{' '}
+                                                            participants seen
+                                                        </div>
+                                                    )}
+                                                    <div>
+                                                        Goal:{' '}
+                                                        <b>
+                                                            {humanFriendlyNumber(
+                                                                experimentData?.parameters?.recommended_sample_size || 0
+                                                            )}
+                                                        </b>{' '}
+                                                        participants
+                                                    </div>
+                                                </Row>
+                                            )}
+                                        </Col>
+                                    )}
+                                    {experimentData.secondary_metrics?.length > 0 && (
+                                        <Col
+                                            className="secondary-progress"
+                                            span={
+                                                experimentData?.start_date &&
+                                                (experimentData?.parameters?.feature_flag_variants?.length || 0) <= 5
+                                                    ? 12
+                                                    : 24
+                                            }
+                                        >
                                             {!!experimentData?.secondary_metrics.length && (
                                                 <Col className="border-b">
                                                     <Row align="middle" justify="space-between" className="mb-2">
@@ -821,11 +907,11 @@ export function Experiment(): JSX.Element {
                                                                                         variant.key
                                                                                     ] ? (
                                                                                         metric.filters.insight ===
-                                                                                            InsightType.FUNNELS ? (
+                                                                                        InsightType.FUNNELS ? (
                                                                                             <>
                                                                                                 {(
                                                                                                     secondaryMetricResults?.[
-                                                                                                    idx
+                                                                                                        idx
                                                                                                     ][variant.key] * 100
                                                                                                 ).toFixed(1)}
                                                                                                 %
@@ -834,7 +920,7 @@ export function Experiment(): JSX.Element {
                                                                                             <>
                                                                                                 {humanFriendlyNumber(
                                                                                                     secondaryMetricResults?.[
-                                                                                                    idx
+                                                                                                        idx
                                                                                                     ][variant.key]
                                                                                                 )}
                                                                                             </>
@@ -877,86 +963,6 @@ export function Experiment(): JSX.Element {
                                                     )}
                                                 </Col>
                                             )}
-                                            {experimentResults && (
-                                                <Col className="mt-4">
-                                                    <div className="mb-2">
-                                                        <b>Experiment progress</b>
-                                                    </div>
-                                                    <Progress
-                                                        strokeWidth={20}
-                                                        showInfo={false}
-                                                        percent={experimentProgressPercent}
-                                                        strokeColor="var(--success)"
-                                                    />
-                                                    {experimentInsightType === InsightType.TRENDS &&
-                                                        experimentData.start_date && (
-                                                            <Row justify="space-between" className="mt-2">
-                                                                {experimentData.end_date ? (
-                                                                    <div>
-                                                                        Ran for{' '}
-                                                                        <b>
-                                                                            {dayjs(experimentData.end_date).diff(
-                                                                                experimentData.start_date,
-                                                                                'day'
-                                                                            )}
-                                                                        </b>{' '}
-                                                                        days
-                                                                    </div>
-                                                                ) : (
-                                                                    <div>
-                                                                        <b>
-                                                                            {dayjs().diff(
-                                                                                experimentData.start_date,
-                                                                                'day'
-                                                                            )}
-                                                                        </b>{' '}
-                                                                        days running
-                                                                    </div>
-                                                                )}
-                                                                <div>
-                                                                    Goal:{' '}
-                                                                    <b>
-                                                                        {
-                                                                            experimentData?.parameters
-                                                                                ?.recommended_running_time
-                                                                        }
-                                                                    </b>{' '}
-                                                                    days
-                                                                </div>
-                                                            </Row>
-                                                        )}
-                                                    {experimentInsightType === InsightType.FUNNELS && (
-                                                        <Row justify="space-between" className="mt-2">
-                                                            {experimentData.end_date ? (
-                                                                <div>
-                                                                    Saw{' '}
-                                                                    <b>
-                                                                        {humanFriendlyNumber(funnelResultsPersonsTotal)}
-                                                                    </b>{' '}
-                                                                    participants
-                                                                </div>
-                                                            ) : (
-                                                                <div>
-                                                                    <b>
-                                                                        {humanFriendlyNumber(funnelResultsPersonsTotal)}
-                                                                    </b>{' '}
-                                                                    participants seen
-                                                                </div>
-                                                            )}
-                                                            <div>
-                                                                Goal:{' '}
-                                                                <b>
-                                                                    {humanFriendlyNumber(
-                                                                        experimentData.parameters
-                                                                            ?.recommended_sample_size || 0
-                                                                    )}
-                                                                </b>{' '}
-                                                                participants
-                                                            </div>
-                                                        </Row>
-                                                    )}
-                                                </Col>
-                                            )}
                                         </Col>
                                     )}
                                 </Row>
@@ -970,7 +976,73 @@ export function Experiment(): JSX.Element {
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
-                            <>
+                            (experimentData?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
+                                <>
+                                    <Row
+                                        className="border-t"
+                                        justify="space-between"
+                                        style={{
+                                            paddingTop: 8,
+                                            paddingBottom: 8,
+                                        }}
+                                    >
+                                        <Col span={2 * secondaryColumnSpan}>Variant</Col>
+                                        {sortedExperimentResultVariants.map((variant, idx) => (
+                                            <Col
+                                                key={idx}
+                                                span={secondaryColumnSpan}
+                                                style={{
+                                                    color: getSeriesColor(
+                                                        getIndexForVariant(variant, experimentInsightType)
+                                                    ),
+                                                }}
+                                            >
+                                                <b>{capitalizeFirstLetter(variant)}</b>
+                                            </Col>
+                                        ))}
+                                    </Row>
+                                    <Row
+                                        className="border-t"
+                                        justify="space-between"
+                                        style={{
+                                            paddingTop: 8,
+                                            paddingBottom: 8,
+                                        }}
+                                    >
+                                        <Col span={2 * secondaryColumnSpan}>
+                                            {experimentInsightType === InsightType.TRENDS ? 'Count' : 'Conversion Rate'}
+                                        </Col>
+                                        {sortedExperimentResultVariants.map((variant, idx) => (
+                                            <Col key={idx} span={secondaryColumnSpan}>
+                                                {experimentInsightType === InsightType.TRENDS
+                                                    ? countDataForVariant(variant)
+                                                    : `${conversionRateForVariant(variant)}%`}
+                                            </Col>
+                                        ))}
+                                    </Row>
+                                    <Row
+                                        className="border-t"
+                                        justify="space-between"
+                                        style={{
+                                            paddingTop: 8,
+                                            paddingBottom: 8,
+                                        }}
+                                    >
+                                        <Col span={2 * secondaryColumnSpan}>Probability to be the best</Col>
+                                        {sortedExperimentResultVariants.map((variant, idx) => (
+                                            <Col key={idx} span={secondaryColumnSpan}>
+                                                <b>
+                                                    {experimentResults.probability[variant]
+                                                        ? `${(experimentResults.probability[variant] * 100).toFixed(
+                                                              1
+                                                          )}%`
+                                                        : '--'}
+                                                </b>
+                                            </Col>
+                                        ))}
+                                    </Row>
+                                </>
+                            ) : (
                                 <Row justify="space-around" style={{ flexFlow: 'nowrap' }}>
                                     {
                                         //sort by decreasing probability
@@ -1034,7 +1106,7 @@ export function Experiment(): JSX.Element {
                                             ))
                                     }
                                 </Row>
-                            </>
+                            )
                         ) : (
                             experimentResultsLoading && (
                                 <div className="text-center">
@@ -1052,7 +1124,6 @@ export function Experiment(): JSX.Element {
                                         filters: {
                                             ...experimentResults.filters,
                                             insight: experimentInsightType,
-                                            display: experimentData.filters.display,
                                             ...(experimentInsightType === InsightType.FUNNELS && {
                                                 layout: FunnelLayout.vertical,
                                                 funnel_viz_type: FunnelVizType.Steps,

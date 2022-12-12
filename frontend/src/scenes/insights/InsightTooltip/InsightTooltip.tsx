@@ -1,5 +1,5 @@
 import './InsightTooltip.scss'
-import React, { ReactNode } from 'react'
+import { ReactNode } from 'react'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import {
     COL_CUTOFF,
@@ -44,13 +44,28 @@ export function ClickToInspectActors({
 
 function renderDatumToTableCell(
     datumMathProperty: string | undefined,
-    datumValue: number,
+    datumValue: number | undefined,
     formatPropertyValueForDisplay: FormatPropertyValueForDisplayFunction,
-    renderCount: (value: number) => React.ReactNode
-): ReactNode {
+    renderCount: (value: number) => React.ReactNode,
+    /** Optional hexadecimal color string.
+     * Usually the color is shown on the datum row level, but in case of breakdowns where there are multiple columns,
+     * we need to show the color separately for each cell.
+     */
+    color?: string
+): JSX.Element {
+    // Value can be undefined if the datum's series doesn't have ANY value for the breakdown value being rendered
     return (
         <div className="series-data-cell">
-            {formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)}
+            {
+                color && (
+                    <span className="mr-2" style={{ color }}>
+                        ●
+                    </span>
+                ) /* eslint-disable-line react/forbid-dom-props */
+            }
+            {datumValue !== undefined
+                ? formatAggregationValue(datumMathProperty, datumValue, renderCount, formatPropertyValueForDisplay)
+                : '–'}
         </div>
     )
 }
@@ -101,6 +116,7 @@ export function InsightTooltip({
     const rightTitle: ReactNode | null = getTooltipTitle(seriesData, altRightTitle, date) || null
 
     if (itemizeEntitiesAsColumns) {
+        hideColorCol = true
         const dataSource = invertDataSource(seriesData)
         const columns: LemonTableColumns<InvertedSeriesDatum> = [
             {
@@ -122,9 +138,10 @@ export function InsightTooltip({
                 0,
                 colCutoff
             )
+            const dataColumns: LemonTableColumn<InvertedSeriesDatum, keyof InvertedSeriesDatum | undefined>[] = []
             truncatedCols.forEach((seriesColumn, colIdx) => {
-                columns.push({
-                    key: `series-column-data-${colIdx}`,
+                dataColumns.push({
+                    key: colIdx.toString(),
                     className: 'datum-counts-column',
                     align: 'right',
                     title:
@@ -144,15 +161,23 @@ export function InsightTooltip({
                                 colIdx
                             )),
                     render: function renderSeriesColumnData(_, datum) {
+                        const seriesColumnData = datum.seriesData?.[colIdx]
                         return renderDatumToTableCell(
-                            datum.seriesData?.[colIdx]?.action?.math_property,
-                            datum.seriesData?.[colIdx]?.count,
+                            seriesColumnData?.action?.math_property,
+                            seriesColumnData?.count,
                             formatPropertyValueForDisplay,
-                            renderCount
+                            renderCount,
+                            seriesColumnData.color
                         )
                     },
                 })
             })
+            dataColumns.sort(
+                (a, b) =>
+                    (truncatedCols[parseInt(a.key as string)]?.action?.order || 0) -
+                    (truncatedCols[parseInt(b.key as string)]?.action?.order || 0)
+            )
+            columns.push(...dataColumns)
         }
 
         return (

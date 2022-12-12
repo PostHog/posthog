@@ -7,11 +7,6 @@ import { PersonType } from '~/types'
 import type { mergeSplitPersonLogicType } from './mergeSplitPersonLogicType'
 import { personsLogic } from './personsLogic'
 
-export enum ActivityType {
-    SPLIT = 'split',
-    MERGE = 'merge',
-}
-
 export interface SplitPersonLogicProps {
     person: PersonType
 }
@@ -30,25 +25,11 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
         values: [personsLogic({ syncWithUrl: true }), ['persons']],
     }),
     actions: {
-        setActivity: (activity: ActivityType) => ({ activity }),
-        setSelectedPersonsToMerge: (persons: PersonUuids) => ({ persons }),
         setSelectedPersonToAssignSplit: (id: string) => ({ id }),
         cancel: true,
     },
     reducers: ({ props }) => ({
-        activity: [
-            ActivityType.MERGE as ActivityType,
-            {
-                setActivity: (_, { activity }) => activity,
-            },
-        ],
         person: [props.person, {}],
-        selectedPersonsToMerge: [
-            [] as PersonUuids,
-            {
-                setSelectedPersonsToMerge: (_, { persons }) => persons,
-            },
-        ],
         selectedPersonsToAssignSplit: [
             null as null | string,
             {
@@ -71,32 +52,19 @@ export const mergeSplitPersonLogic = kea<mergeSplitPersonLogicType>({
             false,
             {
                 execute: async () => {
-                    if (values.activity === ActivityType.MERGE) {
-                        const newPerson = await api.create('api/person/' + values.person.id + '/merge/', {
-                            uuids: values.selectedPersonsToMerge,
-                        })
-                        if (newPerson.id) {
-                            lemonToast.success('Persons have been merged')
-                            eventUsageLogic.actions.reportPersonMerged(values.selectedPersonsToMerge.length)
-                            actions.setSplitMergeModalShown(false)
-                            actions.setPerson(newPerson)
-                            return true
-                        }
-                    } else {
-                        const splitAction = await api.create('api/person/' + values.person.id + '/split/', {
-                            ...(values.selectedPersonsToAssignSplit
-                                ? { main_distinct_id: values.selectedPersonsToAssignSplit }
-                                : {}),
-                        })
-                        if (splitAction.success) {
-                            lemonToast.success(
-                                'Person succesfully split. This may take up to a couple of minutes to complete'
-                            )
-                            eventUsageLogic.actions.reportPersonSplit(values.person.distinct_ids.length)
-                            actions.setSplitMergeModalShown(false)
-                            router.actions.push('/persons')
-                            return true
-                        }
+                    const splitAction = await api.create('api/person/' + values.person.id + '/split/', {
+                        ...(values.selectedPersonsToAssignSplit
+                            ? { main_distinct_id: values.selectedPersonsToAssignSplit }
+                            : {}),
+                    })
+                    if (splitAction.success) {
+                        lemonToast.success(
+                            'Person succesfully split. This may take up to a couple of minutes to complete.'
+                        )
+                        eventUsageLogic.actions.reportPersonSplit(values.person.distinct_ids.length)
+                        actions.setSplitMergeModalShown(false)
+                        router.actions.push('/persons')
+                        return true
                     }
                     return false
                 },

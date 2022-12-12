@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -14,7 +14,8 @@ from posthog.models.person.sql import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
-from posthog.queries.trends.trend_event_query import TrendsEventQuery
+from posthog.queries.trends.trends_event_query import TrendsEventQuery
+from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group_based, process_math
 
 
 def _handle_date_interval(filter: Filter) -> Filter:
@@ -28,11 +29,14 @@ def _handle_date_interval(filter: Filter) -> Filter:
     elif filter.interval == "day":
         data.update({"date_to": (date_from).strftime("%Y-%m-%d 23:59:59")})
     elif filter.interval == "hour":
-        data.update({"date_to": date_from + timedelta(hours=1)})
+        data.update({"date_to": (date_from + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")})
     return filter.with_data(data)
 
 
 class TrendsActors(ActorBaseQuery):
+    ACTOR_VALUES_INCLUDED = True
+    QUERY_TYPE = "trends_actors"
+
     entity: Entity
     _filter: Filter
 
@@ -47,7 +51,7 @@ class TrendsActors(ActorBaseQuery):
 
     @cached_property
     def aggregation_group_type_index(self):
-        if self.entity.math == "unique_group":
+        if is_series_group_based(self.entity):
             return self.entity.math_group_type_index
         return None
 
@@ -117,10 +121,10 @@ class TrendsActors(ActorBaseQuery):
             team=self._team,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
-            and not self._team.actor_on_events_querying_enabled,
+            and not self._team.person_on_events_querying_enabled,
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
-            using_person_on_events=self._team.actor_on_events_querying_enabled,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
         ).get_query()
 
         matching_events_select_statement = (
@@ -129,15 +133,18 @@ class TrendsActors(ActorBaseQuery):
             else ""
         )
 
+        actor_value_expression, actor_value_params = self._aggregation_actor_value_expression_with_params
+
         return (
             GET_ACTORS_FROM_EVENT_QUERY.format(
                 id_field=self._aggregation_actor_field,
+                actor_value_expression=actor_value_expression,
                 matching_events_select_statement=matching_events_select_statement,
                 events_query=events_query,
                 limit="LIMIT %(limit)s" if limit_actors else "",
                 offset="OFFSET %(offset)s" if limit_actors else "",
             ),
-            {**params, "offset": self._filter.offset, "limit": self._filter.limit or 100},
+            {**params, **actor_value_params, "offset": self._filter.offset, "limit": self._filter.limit or 100},
         )
 
     @cached_property
@@ -147,3 +154,10 @@ class TrendsActors(ActorBaseQuery):
             return f"$group_{group_type_index}"
         else:
             return "person_id"
+
+    @cached_property
+    def _aggregation_actor_value_expression_with_params(self) -> Tuple[str, Dict[str, Any]]:
+        if self.entity.math in PROPERTY_MATH_FUNCTIONS:
+            math_aggregate_operation, _, math_params = process_math(self.entity, self._team, event_table_alias="e")
+            return math_aggregate_operation, math_params
+        return "count()", {}

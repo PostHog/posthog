@@ -8,9 +8,10 @@ from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
+from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
-from posthog.internal_metrics import incr
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 
 from .auth import PersonalAPIKeyAuthentication
@@ -147,7 +148,7 @@ class AutoProjectMiddleware:
                     user.current_organization_id = actual_item_team.organization_id
                     user.save()
                     # Information for POSTHOG_APP_CONTEXT
-                    setattr(request, "switched_team", current_team.id)
+                    request.switched_team = current_team.id  # type: ignore
 
 
 class CHQueries:
@@ -159,20 +160,30 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        from posthog import client
-
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
-        client._request_information = {"user_id": request.user.pk, "kind": "request", "id": request.path}
 
-        response: HttpResponse = self.get_response(request)
+        user = cast(User, request.user)
 
-        if "api/" in request.path and "capture" not in request.path:
-            incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
+        tag_queries(
+            user_id=user.pk,
+            kind="request",
+            id=request.path,
+            route_id=route.route,
+        )
 
-        client._request_information = None
+        if hasattr(user, "current_team_id") and user.current_team_id:
+            tag_queries(team_id=user.current_team_id)
 
-        return response
+        try:
+            response: HttpResponse = self.get_response(request)
+
+            if "api/" in request.path and "capture" not in request.path:
+                statsd.incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
+
+            return response
+        finally:
+            reset_query_tags()
 
 
 def shortcircuitmiddleware(f):

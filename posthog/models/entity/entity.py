@@ -1,5 +1,6 @@
 import inspect
-from typing import Any, Counter, Dict, Literal, Optional, Union
+from collections import Counter
+from typing import Any, Dict, Literal, Optional, Union
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -12,20 +13,30 @@ from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property import GroupTypeIndex
 from posthog.models.utils import sane_repr
 
-MATH_TYPE = Literal[
+MathType = Literal[
     "total",
     "dau",
     "weekly_active",
     "monthly_active",
     "unique_group",
     "unique_session",
+    # TODO: When we are finally on Python 3.11+, inline the below as *PROPERTY_MATH_FUNCTIONS.keys()
     "sum",
     "min",
     "max",
+    "avg",
     "median",
     "p90",
     "p95",
     "p99",
+    # TODO: When we are finally on Python 3.11+, inline the below as *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
+    "min_count_per_actor",
+    "max_count_per_actor",
+    "avg_count_per_actor",
+    "median_count_per_actor",
+    "p90_count_per_actor",
+    "p95_count_per_actor",
+    "p99_count_per_actor",
 ]
 
 
@@ -41,7 +52,7 @@ class Entity(PropertyMixin):
     order: Optional[int]
     name: Optional[str]
     custom_name: Optional[str]
-    math: Optional[MATH_TYPE]
+    math: Optional[MathType]
     math_property: Optional[str]
     math_group_type_index: Optional[GroupTypeIndex]
     # Index is not set at all by default (meaning: access = AttributeError) - it's populated in EntitiesMixin.entities

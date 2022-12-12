@@ -35,7 +35,7 @@ class PersonalAPIKeySerializerCreateOnly(serializers.ModelSerializer):
         value = generate_random_token_personal()
         secure_value = hash_key_value(value)
         personal_api_key = PersonalAPIKey.objects.create(user=user, secure_value=secure_value, **validated_data)
-        setattr(personal_api_key, "_value", value)
+        personal_api_key._value = value  # type: ignore
         return personal_api_key
 
 

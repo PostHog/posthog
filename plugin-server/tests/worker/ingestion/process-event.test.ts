@@ -1,7 +1,7 @@
 import * as IORedis from 'ioredis'
 import { DateTime } from 'luxon'
 
-import { Hub, PreIngestionEvent } from '../../../src/types'
+import { Hub, ISOTimestamp, PreIngestionEvent } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
@@ -30,7 +30,6 @@ beforeEach(async () => {
     await redis.flushdb()
 
     eventsProcessor = new EventsProcessor(hub)
-    eventsProcessor.db.personAndGroupsCachingEnabledTeams = new Set([2])
 })
 
 afterEach(async () => {
@@ -43,14 +42,14 @@ describe('EventsProcessor#createEvent()', () => {
 
     const eventUuid = new UUIDT().toString()
     const personUuid = new UUIDT().toString()
-    const timestamp = '2020-02-23T02:15:00.000Z'
+    const timestamp = '2020-02-23T02:15:00.000Z' as ISOTimestamp
 
     const preIngestionEvent: PreIngestionEvent = {
         eventUuid,
+        timestamp,
         distinctId: 'my_id',
         ip: '127.0.0.1',
         teamId: 2,
-        timestamp: DateTime.fromISO(timestamp),
         event: '$pageview',
         properties: { event: 'property' },
         elementsList: [],

@@ -1,4 +1,3 @@
-import React from 'react'
 import { Placement } from '@floating-ui/react-dom-interactions'
 import { Popup } from 'lib/components/Popup/Popup'
 import { IconOpenInNew } from 'lib/components/icons'
@@ -7,6 +6,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import './LemonActionableTooltip.scss'
 
 export type LemonActionableTooltipProps = {
+    title?: string
     text: string
     placement: Placement
     step: number
@@ -21,6 +21,7 @@ export type LemonActionableTooltipProps = {
 }
 
 export const LemonActionableTooltip = ({
+    title,
     text,
     element,
     placement,
@@ -33,6 +34,8 @@ export const LemonActionableTooltip = ({
     buttons,
     icon,
 }: LemonActionableTooltipProps): JSX.Element | null => {
+    const actionButtons = buttons?.filter((button) => button.action) ?? []
+    const urlButtons = buttons?.filter((button) => button.url) ?? []
     return (
         <Popup
             visible={visible}
@@ -41,13 +44,12 @@ export const LemonActionableTooltip = ({
             overlay={
                 <div className="LemonActionableTooltip">
                     <div className="LemonActionableTooltip__header">
-                        {icon && <div className="LemonActionableTooltip__icon">{icon}</div>}
-                        <LemonButton size="small" status="stealth" onClick={close}>
-                            <IconClose />
-                        </LemonButton>
-                    </div>
-                    <div className="LemonActionableTooltip__body">{text}</div>
-                    <div className="LemonActionableTooltip__footer">
+                        {maxSteps === 1 && (
+                            <div className="flex space-x-4">
+                                {icon && <div className="LemonActionableTooltip__icon">{icon}</div>}
+                                <div className="LemonActionableTooltip__title">{title ?? ''}</div>
+                            </div>
+                        )}
                         <div className="LemonActionableTooltip__navigation">
                             {maxSteps > 1 && (
                                 <>
@@ -56,7 +58,8 @@ export const LemonActionableTooltip = ({
                                         onClick={previous}
                                         disabled={step === 0}
                                         size="small"
-                                        status="stealth"
+                                        status="muted"
+                                        type="secondary"
                                         icon={<IconChevronLeft />}
                                     />
                                     <div>
@@ -67,34 +70,60 @@ export const LemonActionableTooltip = ({
                                         onClick={next}
                                         disabled={step === maxSteps - 1}
                                         size="small"
-                                        status="stealth"
+                                        status="muted"
+                                        type="secondary"
                                         icon={<IconChevronRight />}
                                     />
                                 </>
                             )}
                         </div>
-                        {buttons && (
-                            <div className="LemonActionableTooltip__buttons">
-                                {buttons.map((button, index) => {
-                                    if (button.url) {
-                                        return (
-                                            <LemonButton
-                                                key={index}
-                                                type="secondary"
-                                                icon={<IconOpenInNew />}
-                                                onClick={() => window.open(button.url, '_noblank')}
-                                            >
-                                                {button.label}
-                                            </LemonButton>
-                                        )
-                                    }
-                                    if (button.action) {
-                                        return (
-                                            <LemonButton key={index} type="secondary" onClick={button.action}>
-                                                {button.label}
-                                            </LemonButton>
-                                        )
-                                    }
+                        <div>
+                            <LemonButton size="small" status="stealth" onClick={close}>
+                                <IconClose />
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <div className="LemonActionableTooltip__body">
+                        {maxSteps > 1 && (
+                            <div className="flex space-x-4">
+                                {icon && <div className="LemonActionableTooltip__icon">{icon}</div>}
+                                <div className="LemonActionableTooltip__title">{title ?? ''}</div>
+                            </div>
+                        )}
+                        <div>{text}</div>
+                    </div>
+                    <div className="LemonActionableTooltip__footer">
+                        {urlButtons.length > 0 && (
+                            <div className="LemonActionableTooltip__url-buttons">
+                                {urlButtons.map((button, index) => (
+                                    <LemonButton
+                                        key={index}
+                                        type="secondary"
+                                        icon={<IconOpenInNew />}
+                                        onClick={() => window.open(button.url, '_noblank')}
+                                        className="max-w-full"
+                                        fullWidth
+                                        center
+                                    >
+                                        {button.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        )}
+                        {actionButtons.length > 0 && (
+                            <div className="LemonActionableTooltip__action-buttons">
+                                {actionButtons.map((button, index) => {
+                                    return (
+                                        <LemonButton
+                                            key={index}
+                                            type="primary"
+                                            onClick={button.action}
+                                            fullWidth
+                                            center
+                                        >
+                                            {button.label}
+                                        </LemonButton>
+                                    )
                                 })}
                             </div>
                         )}

@@ -1,5 +1,5 @@
 import { LemonCalendar } from 'lib/components/LemonCalendar/LemonCalendar'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
@@ -18,7 +18,7 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
     return (
         <div className="LemonCalendarSelect" data-attr="lemon-calendar-select">
             <div className="flex justify-between border-b p-2 pb-4">
-                <h3 className="mb-0">Select a date</h3>
+                <h3 className="text-base mb-0">Select a date</h3>
                 {onClose && (
                     <LemonButton
                         icon={<IconClose />}

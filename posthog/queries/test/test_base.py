@@ -1,4 +1,6 @@
 import datetime
+import re
+from unittest.mock import patch
 
 from dateutil import parser, tz
 from django.test import TestCase
@@ -14,11 +16,14 @@ class TestBase(APIBaseTest):
     def test_determine_compared_filter(self):
         from posthog.queries.base import determine_compared_filter
 
-        filter = PathFilter(data={"date_from": "2020-05-22", "date_to": "2020-05-29"})
+        filter = PathFilter(data={"date_from": "2020-05-23", "date_to": "2020-05-29"})
         compared_filter = determine_compared_filter(filter)
 
         self.assertIsInstance(compared_filter, PathFilter)
-        self.assertDictContainsSubset({"date_from": "2020-05-15", "date_to": "2020-05-22"}, compared_filter.to_dict())
+        self.assertDictContainsSubset(
+            {"date_from": "2020-05-16T00:00:00+00:00", "date_to": "2020-05-22T23:59:59.999999+00:00"},
+            compared_filter.to_dict(),
+        )
 
 
 class TestMatchProperties(TestCase):
@@ -127,6 +132,17 @@ class TestMatchProperties(TestCase):
         self.assertTrue(match_property(property_d, {"key": 4}))
 
         self.assertFalse(match_property(property_d, {"key": "value"}))
+
+        # ensure regex compilation happens only once. to do this, we mock out re.compile,
+        # and make the return value of the mock match what the actual function would return.
+        # this allows us to intercept the call and assert that it was called exactly once.
+        property_e = Property(key="key", value=5, operator="regex")
+        pattern = re.compile("5")
+        with patch("re.compile") as mock_compile:
+            mock_compile.return_value = pattern
+            self.assertTrue(match_property(property_e, {"key": "5"}))
+
+        mock_compile.assert_called_once_with("5")
 
     def test_match_properties_math_operators(self):
         property_a = Property(key="key", value=1, operator="gt")

@@ -1,10 +1,10 @@
 import { dayjs } from 'lib/dayjs'
-import React from 'react'
 import { ActionFilter, CompareLabelType, FilterType, IntervalType } from '~/types'
 import { capitalizeFirstLetter, midEllipsis, pluralize } from 'lib/utils'
 import { cohortsModel } from '~/models/cohortsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from '../utils'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export interface SeriesDatum {
     id: number // determines order that series will be displayed in
@@ -104,7 +104,7 @@ export function invertDataSource(seriesData: SeriesDatum[]): InvertedSeriesDatum
                     s.breakdown_value,
                     s.filter?.breakdown,
                     s.filter?.breakdown_type,
-                    s.filter?.breakdown_histogram_bin_count !== undefined
+                    s.filter && isTrendsFilter(s.filter) && s.filter?.breakdown_histogram_bin_count !== undefined
                 )
             )
         }

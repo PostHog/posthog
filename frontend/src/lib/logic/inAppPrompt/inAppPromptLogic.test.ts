@@ -8,7 +8,7 @@ import { useMocks } from '~/mocks/jest'
 import api from 'lib/api'
 import { inAppPromptEventCaptureLogic } from './inAppPromptEventCaptureLogic'
 
-const config: PromptConfig & { state: PromptUserState } = {
+const configProductTours: PromptConfig & { state: PromptUserState } = {
     sequences: [
         {
             key: 'experiment-events-product-tour',
@@ -40,11 +40,8 @@ const config: PromptConfig & { state: PromptUserState } = {
                     reference: 'tooltip-test',
                 },
             ],
-            rule: {
-                path: {
-                    must_match: ['/events'],
-                },
-            },
+            path_match: ['/events'],
+            path_exclude: [],
             type: 'product-tour',
         },
         {
@@ -58,13 +55,17 @@ const config: PromptConfig & { state: PromptUserState } = {
                     icon: 'dashboard',
                     reference: 'tooltip-test',
                 },
-            ],
-            rule: {
-                path: {
-                    must_match: ['/dashboard'],
-                    exclude: ['/dashboard/*'],
+                {
+                    step: 1,
+                    type: 'tooltip',
+                    text: "In PostHog, you analyse data with Insights which can be added to Dashboards to aid collaboration. Let's create a new Dashboard by selecting 'New Dashboard'. ",
+                    placement: 'top-start',
+                    icon: 'dashboard',
+                    reference: 'tooltip-test',
                 },
-            },
+            ],
+            path_match: ['/dashboard'],
+            path_exclude: ['/dashboard/*'],
             type: 'product-tour',
         },
     ],
@@ -76,192 +77,323 @@ const config: PromptConfig & { state: PromptUserState } = {
             dismissed: false,
             last_updated_at: '2022-07-26T16:32:55.153Z',
         },
+        'experiment-dashboards-product-tour': {
+            key: 'experiment-dashboards-product-tour',
+            step: null,
+            completed: false,
+            dismissed: false,
+            last_updated_at: '2022-07-26T16:32:55.153Z',
+        },
+    },
+}
+
+const configOptIn: PromptConfig & { state: PromptUserState } = {
+    sequences: [
+        {
+            key: 'experiment-one-off-intro',
+            prompts: [
+                {
+                    step: 0,
+                    type: 'tooltip',
+                    text: 'This is welcome message to ask users to opt-in',
+                    placement: 'top-start',
+                    icon: 'dashboard',
+                    reference: 'tooltip-test',
+                },
+            ],
+            path_match: ['/*'],
+            path_exclude: [],
+            type: 'one-off',
+        },
+        {
+            key: 'experiment-one-off',
+            prompts: [
+                {
+                    step: 0,
+                    type: 'tooltip',
+                    text: 'This is a one off prompt that requires opt-in',
+                    placement: 'top-start',
+                    icon: 'dashboard',
+                    reference: 'tooltip-test',
+                },
+            ],
+            path_match: ['/*'],
+            path_exclude: [],
+            requires_opt_in: true,
+            type: 'one-off',
+        },
+    ],
+    state: {
+        'experiment-one-off-intro': {
+            key: 'experiment-one-off-intro',
+            step: null,
+            completed: false,
+            dismissed: false,
+            last_updated_at: '2022-07-26T16:32:55.153Z',
+        },
+        'experiment-one-off': {
+            key: 'experiment-one-off',
+            step: null,
+            completed: false,
+            dismissed: false,
+            last_updated_at: '2022-07-26T16:32:55.153Z',
+        },
     },
 }
 
 describe('inAppPromptLogic', () => {
     let logic: ReturnType<typeof inAppPromptLogic.build>
 
-    beforeEach(async () => {
-        const div = document.createElement('div')
-        div['data-attr'] = 'tooltip-test'
-        const spy = jest.spyOn(document, 'querySelector')
-        spy.mockReturnValue(div)
-        jest.spyOn(api, 'update')
-        useMocks({
-            patch: {
-                '/api/prompts/my_prompts/': config,
-            },
-        })
-        localStorage.clear()
-        initKeaTests()
-        featureFlagLogic.mount()
-        logic = inAppPromptLogic()
-        logic.mount()
-        await expectLogic(logic).toMount([inAppPromptEventCaptureLogic])
-        await expectLogic(logic, () => {
-            logic.actions.syncState({ forceRun: true })
-        })
-            .toDispatchActions(['setUserState', 'setSequences', 'findValidSequences', 'setValidSequences'])
-            .toMatchValues({
-                sequences: config.sequences,
-                userState: config.state,
-                validSequences: [],
+    describe('opt-in prompts', () => {
+        beforeEach(async () => {
+            const div = document.createElement('div')
+            div['data-attr'] = 'tooltip-test'
+            const spy = jest.spyOn(document, 'querySelector')
+            spy.mockReturnValue(div)
+            jest.spyOn(api, 'update')
+            useMocks({
+                patch: {
+                    '/api/prompts/my_prompts/': configOptIn,
+                },
             })
-    })
+            localStorage.clear()
+            initKeaTests()
+            featureFlagLogic.mount()
+            logic = inAppPromptLogic()
+            logic.mount()
+            await expectLogic(logic).toMount([inAppPromptEventCaptureLogic])
+        })
 
-    afterEach(() => logic.unmount())
+        afterEach(() => logic.unmount())
 
-    it('changes route and dismissed the sequence in an excluded path', async () => {
-        router.actions.push(urls.dashboard('my-dashboard'))
-        await expectLogic(logic)
-            .toDispatchActions(['closePrompts', 'findValidSequences', 'setValidSequences', 'runFirstValidSequence'])
-            .toNotHaveDispatchedActions(['runSequence'])
-    })
+        it('correctly opts in', async () => {
+            logic.actions.optInProductTour()
+            await expectLogic(logic).toMatchValues({
+                canShowProductTour: true,
+            })
+        })
 
-    it('changes route and correctly triggers an unseen sequence', async () => {
-        router.actions.push(urls.dashboards())
-        await expectLogic(logic)
-            .toDispatchActions(['closePrompts', 'findValidSequences', 'setValidSequences'])
-            .toMatchValues({
+        it('correctly opts out when skipping', async () => {
+            logic.actions.optInProductTour()
+            await expectLogic(logic, () => {
+                logic.actions.promptAction('skip')
+            })
+                .toDispatchActions([
+                    'closePrompts',
+                    'optOutProductTour',
+                    inAppPromptEventCaptureLogic.actionCreators.reportProductTourSkipped(),
+                ])
+                .toMatchValues({
+                    canShowProductTour: false,
+                })
+        })
+
+        it('correctly sets valid sequences respecting opt-out and opt-in', async () => {
+            logic.actions.optOutProductTour()
+            await expectLogic(logic, () => {
+                logic.actions.syncState({ forceRun: true })
+            })
+                .toDispatchActions(['setSequences', 'findValidSequences', 'setValidSequences'])
+                .toMatchValues({
+                    sequences: configOptIn.sequences,
+                    userState: configOptIn.state,
+                    canShowProductTour: false,
+                    validSequences: [
+                        {
+                            sequence: configOptIn.sequences[0],
+                            state: {
+                                step: 0,
+                                completed: false,
+                            },
+                        },
+                    ],
+                })
+
+            logic.actions.optInProductTour()
+            logic.actions.findValidSequences()
+            await expectLogic(logic).toMatchValues({
+                canShowProductTour: true,
                 validSequences: [
                     {
-                        sequence: config.sequences[1],
+                        sequence: configOptIn.sequences[0],
                         state: {
                             step: 0,
-                            dismissed: false,
+                            completed: false,
+                        },
+                    },
+                    {
+                        sequence: configOptIn.sequences[1],
+                        state: {
+                            step: 0,
+                            completed: false,
                         },
                     },
                 ],
             })
-        await expectLogic(logic)
-            .toDispatchActions([
-                'runFirstValidSequence',
-                'closePrompts',
-                logic.actionCreators.runSequence(config.sequences[1] as PromptSequence, 0),
-                inAppPromptEventCaptureLogic.actionCreators.reportPromptShown('tooltip', config.sequences[1].key, 0, 1),
-                'promptShownSuccessfully',
-            ])
-            .toMatchValues({
-                currentSequence: config.sequences[1],
-                currentStep: 0,
-                isPromptVisible: true,
-            })
+        })
     })
 
-    describe('runs a sequence left unfinished', () => {
+    describe('product tours', () => {
         beforeEach(async () => {
-            router.actions.push(urls.events())
+            const div = document.createElement('div')
+            div['data-attr'] = 'tooltip-test'
+            const spy = jest.spyOn(document, 'querySelector')
+            spy.mockReturnValue(div)
+            jest.spyOn(api, 'update')
+            useMocks({
+                patch: {
+                    '/api/prompts/my_prompts/': configProductTours,
+                },
+            })
+            localStorage.clear()
+            initKeaTests()
+            featureFlagLogic.mount()
+            logic = inAppPromptLogic()
+            logic.mount()
+            logic.actions.optInProductTour()
+            await expectLogic(logic).toMount([inAppPromptEventCaptureLogic])
+            await expectLogic(logic, () => {
+                logic.actions.syncState({ forceRun: true })
+            })
+                .toDispatchActions(['setUserState', 'setSequences', 'findValidSequences', 'setValidSequences'])
+                .toMatchValues({
+                    sequences: configProductTours.sequences,
+                    userState: configProductTours.state,
+                    validSequences: [],
+                })
+        })
+
+        afterEach(() => logic.unmount())
+
+        it('changes route and dismissed the sequence in an excluded path', async () => {
+            router.actions.push(urls.dashboard('my-dashboard'))
+            await expectLogic(logic)
+                .toDispatchActions(['closePrompts', 'findValidSequences', 'setValidSequences', 'runFirstValidSequence'])
+                .toNotHaveDispatchedActions(['runSequence'])
+        })
+
+        it('changes route and correctly triggers an unseen sequence', async () => {
+            router.actions.push(urls.dashboards())
             await expectLogic(logic)
                 .toDispatchActions(['closePrompts', 'findValidSequences', 'setValidSequences'])
                 .toMatchValues({
                     validSequences: [
                         {
-                            sequence: config.sequences[0],
+                            sequence: configProductTours.sequences[1],
                             state: {
-                                step: 1,
+                                step: 0,
                                 completed: false,
-                                dismissed: false,
                             },
                         },
                     ],
                 })
-            await expectLogic(logic)
                 .toDispatchActions([
-                    'runFirstValidSequence',
                     'closePrompts',
-                    logic.actionCreators.runSequence(config.sequences[0] as PromptSequence, 1),
+                    logic.actionCreators.runSequence(configProductTours.sequences[1] as PromptSequence, 0),
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptShown(
                         'tooltip',
-                        config.sequences[0].key,
-                        1,
-                        3
+                        configProductTours.sequences[1].key,
+                        0,
+                        2
                     ),
                     'promptShownSuccessfully',
                 ])
                 .toMatchValues({
-                    currentSequence: config.sequences[0],
-                    currentStep: 1,
-                    isPromptVisible: true,
+                    currentSequence: configProductTours.sequences[1],
+                    currentStep: 0,
                 })
         })
+
         it('can dismiss a sequence', async () => {
+            router.actions.push(urls.dashboards())
+            await expectLogic(logic).toDispatchActions(['promptShownSuccessfully']).toMatchValues({
+                isPromptVisible: true,
+            })
             await expectLogic(logic, () => {
                 logic.actions.dismissSequence()
             })
                 .toDispatchActions([
-                    logic.actionCreators.updatePromptState({ dismissed: true }),
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptSequenceDismissed(
-                        config.sequences[0].key,
-                        1,
-                        3
+                        configProductTours.sequences[1].key,
+                        0,
+                        2
                     ),
                 ])
                 .toMatchValues({
                     isPromptVisible: false,
                 })
         })
-        it('can complete a sequence then dismiss it', async () => {
+
+        it('can complete sequence, then go back, then dismiss it', async () => {
+            router.actions.push(urls.dashboards())
+            await expectLogic(logic).toDispatchActions(['promptShownSuccessfully']).toMatchValues({
+                isPromptVisible: true,
+            })
             await expectLogic(logic, () => {
                 logic.actions.nextPrompt()
             })
                 .toDispatchActions([
-                    logic.actionCreators.runSequence(config.sequences[0] as PromptSequence, 2),
-                    inAppPromptEventCaptureLogic.actionCreators.reportPromptForward(config.sequences[0].key, 2, 3),
-                    inAppPromptEventCaptureLogic.actionCreators.reportPromptSequenceCompleted(
-                        config.sequences[0].key,
-                        2,
-                        3
+                    logic.actionCreators.runSequence(configProductTours.sequences[1] as PromptSequence, 1),
+                    inAppPromptEventCaptureLogic.actionCreators.reportPromptForward(
+                        configProductTours.sequences[1].key,
+                        1,
+                        2
                     ),
-                    logic.actionCreators.updatePromptState({ step: 2, completed: true }),
+                    inAppPromptEventCaptureLogic.actionCreators.reportPromptSequenceCompleted(
+                        configProductTours.sequences[1].key,
+                        1,
+                        2
+                    ),
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptShown(
                         'tooltip',
-                        config.sequences[0].key,
-                        2,
-                        3
+                        configProductTours.sequences[1].key,
+                        1,
+                        2
                     ),
                     'promptShownSuccessfully',
                 ])
                 .toMatchValues({
-                    currentStep: 2,
+                    currentStep: 1,
+                })
+            await expectLogic(logic, () => {
+                logic.actions.previousPrompt()
+            })
+                .toDispatchActions([
+                    logic.actionCreators.runSequence(configProductTours.sequences[1] as PromptSequence, 0),
+                    inAppPromptEventCaptureLogic.actionCreators.reportPromptBackward(
+                        configProductTours.sequences[1].key,
+                        0,
+                        2
+                    ),
+                    inAppPromptEventCaptureLogic.actionCreators.reportPromptShown(
+                        'tooltip',
+                        configProductTours.sequences[1].key,
+                        0,
+                        2
+                    ),
+                    'promptShownSuccessfully',
+                ])
+                .toMatchValues({
+                    currentStep: 0,
                 })
             await expectLogic(logic, () => {
                 logic.actions.dismissSequence()
             })
                 .toDispatchActions(['clearSequence'])
                 .toNotHaveDispatchedActions([
-                    logic.actionCreators.updatePromptState({ dismissed: true }),
                     inAppPromptEventCaptureLogic.actionCreators.reportPromptSequenceDismissed(
-                        config.sequences[0].key,
-                        2,
-                        3
+                        configProductTours.sequences[0].key,
+                        1,
+                        2
                     ),
                 ])
         })
-        it('can skip the tutorials', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.promptAction('skip')
+
+        it('does not run a sequence left unfinished', async () => {
+            router.actions.push(urls.events())
+            await expectLogic(logic).toNotHaveDispatchedActions(['promptShownSuccessfully']).toMatchValues({
+                isPromptVisible: false,
             })
-                .toDispatchActions([
-                    'closePrompts',
-                    'skipTutorial',
-                    inAppPromptEventCaptureLogic.actionCreators.reportTutorialSkipped(),
-                ])
-                .toMatchValues({
-                    hasSkippedTutorial: true,
-                })
-        })
-        it('can go to previous prompt', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.previousPrompt()
-            })
-                .toDispatchActions([logic.actionCreators.runSequence(config.sequences[0] as PromptSequence, 0)])
-                .toDispatchActionsInAnyOrder([
-                    inAppPromptEventCaptureLogic.actionCreators.reportPromptBackward(config.sequences[0].key, 0, 3),
-                ])
-                .toMatchValues({
-                    currentStep: 0,
-                })
         })
     })
 })

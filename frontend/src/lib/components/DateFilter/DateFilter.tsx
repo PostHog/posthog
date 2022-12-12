@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import { dateMapping, dateFilterToText, uuid } from 'lib/utils'
 import { DateMappingOption } from '~/types'
 import { dayjs } from 'lib/dayjs'
@@ -17,7 +17,7 @@ export interface DateFilterProps {
     showRollingRangePicker?: boolean
     makeLabel?: (key: React.ReactNode) => React.ReactNode
     className?: string
-    onChange?: (fromDate: string, toDate: string | null) => void
+    onChange?: (fromDate: string | null, toDate: string | null) => void
     disabled?: boolean
     getPopupContainer?: () => HTMLElement
     dateOptions?: DateMappingOption[]
@@ -105,7 +105,7 @@ export function DateFilter({
                         <Tooltip key={key} title={makeLabel ? makeLabel(dateValue) : undefined}>
                             <LemonButton
                                 key={key}
-                                onClick={() => setDate(values[0], values[1])}
+                                onClick={() => setDate(values[0] || null, values[1] || null)}
                                 active={isActive}
                                 status="stealth"
                                 fullWidth
@@ -115,9 +115,6 @@ export function DateFilter({
                         </Tooltip>
                     )
                 })}
-                <LemonButton onClick={openDateToNow} active={isDateToNow} status="stealth" fullWidth>
-                    {'Date to Now'}
-                </LemonButton>
                 {showRollingRangePicker && (
                     <RollingDateRangeFilter
                         dateFrom={dateFrom}
@@ -132,8 +129,11 @@ export function DateFilter({
                     />
                 )}
                 <LemonDivider />
+                <LemonButton onClick={openDateToNow} active={isDateToNow} status="stealth" fullWidth>
+                    From custom date until now…
+                </LemonButton>
                 <LemonButton onClick={openFixedRange} active={isFixedRange} status="stealth" fullWidth>
-                    {'Custom fixed time period'}
+                    Custom fixed date range…
                 </LemonButton>
             </div>
         )

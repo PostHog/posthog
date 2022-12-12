@@ -1,4 +1,3 @@
-import React from 'react'
 import './HelpButton.scss'
 import { kea, useActions, useValues } from 'kea'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -15,12 +14,14 @@ import {
     IconQuestionAnswer,
     IconMessages,
     IconFlare,
+    IconTrendingUp,
 } from '../icons'
 import clsx from 'clsx'
 import { Placement } from '@floating-ui/react-dom-interactions'
-import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { DefaultAction, inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
 import { hedgehogbuddyLogic } from '../HedgehogBuddy/hedgehogbuddyLogic'
 import { HedgehogBuddyWithLogic } from '../HedgehogBuddy/HedgehogBuddy'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
 
 const HELP_UTM_TAGS = '?utm_medium=in-product&utm_campaign=help-button-top'
 
@@ -80,11 +81,12 @@ export function HelpButton({
     const { reportHelpButtonUsed } = useActions(eventUsageLogic)
     const { isHelpVisible } = useValues(helpButtonLogic({ key: customKey }))
     const { toggleHelp, hideHelp } = useActions(helpButtonLogic({ key: customKey }))
-    const { validSequences } = useValues(inAppPromptLogic)
+    const { validProductTourSequences } = useValues(inAppPromptLogic)
     const { runFirstValidSequence, promptAction } = useActions(inAppPromptLogic)
     const { isPromptVisible } = useValues(inAppPromptLogic)
     const { hedgehogModeEnabled } = useValues(hedgehogbuddyLogic)
     const { setHedgehogModeEnabled } = useActions(hedgehogbuddyLogic)
+    const { toggleActivationSideBar } = useActions(navigationLogic)
 
     return (
         <>
@@ -145,16 +147,27 @@ export function HelpButton({
                                 Read the docs
                             </LemonButton>
                         )}
-                        {validSequences.length > 0 && (
+                        <LemonButton
+                            icon={<IconTrendingUp />}
+                            status="stealth"
+                            fullWidth
+                            onClick={() => {
+                                toggleActivationSideBar()
+                                hideHelp()
+                            }}
+                        >
+                            Quick Start
+                        </LemonButton>
+                        {validProductTourSequences.length > 0 && (
                             <LemonButton
                                 icon={<IconMessages />}
                                 status="stealth"
                                 fullWidth
                                 onClick={() => {
                                     if (isPromptVisible) {
-                                        promptAction('skip')
+                                        promptAction(DefaultAction.SKIP)
                                     } else {
-                                        runFirstValidSequence({ runDismissedOrCompleted: true, restart: true })
+                                        runFirstValidSequence({ runDismissedOrCompleted: true })
                                     }
                                     hideHelp()
                                 }}
@@ -162,7 +175,6 @@ export function HelpButton({
                                 {isPromptVisible ? 'Stop tutorial' : 'Explain this page'}
                             </LemonButton>
                         )}
-
                         <LemonButton
                             icon={<IconFlare />}
                             status="stealth"

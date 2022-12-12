@@ -19,9 +19,16 @@ class MergeTreeEngine:
     ENGINE = "MergeTree()"
     REPLICATED_ENGINE = "ReplicatedMergeTree('{zk_path}', '{replica_key}')"
 
-    def __init__(self, table: str, replication_scheme: ReplicationScheme = ReplicationScheme.REPLICATED, **kwargs):
+    def __init__(
+        self,
+        table: str,
+        replication_scheme: ReplicationScheme = ReplicationScheme.REPLICATED,
+        force_unique_zk_path=False,
+        **kwargs,
+    ):
         self.table = table
         self.replication_scheme = replication_scheme
+        self.force_unique_zk_path = force_unique_zk_path
         self.kwargs = kwargs
 
         self.zookeeper_path_key: Optional[str] = None
@@ -45,7 +52,7 @@ class MergeTreeEngine:
             shard_key, replica_key = "noshard", "{replica}-{shard}"
 
         # ZK is not automatically cleaned up after DROP TABLE. Avoid zk path conflicts in tests by generating unique paths.
-        if settings.TEST and self.zookeeper_path_key is None:
+        if settings.TEST and self.zookeeper_path_key is None or self.force_unique_zk_path:
             self.set_zookeeper_path_key(str(uuid.uuid4()))
 
         if self.zookeeper_path_key is not None:
@@ -65,15 +72,15 @@ class CollapsingMergeTree(MergeTreeEngine):
     REPLICATED_ENGINE = "ReplicatedCollapsingMergeTree('{zk_path}', '{replica_key}', {ver})"
 
 
+class AggregatingMergeTree(MergeTreeEngine):
+    ENGINE = "AggregatingMergeTree()"
+    REPLICATED_ENGINE = "ReplicatedAggregatingMergeTree('{zk_path}', '{replica_key}')"
+
+
 class Distributed:
-    def __init__(self, data_table: str, sharding_key: Optional[str]):
+    def __init__(self, data_table: str, sharding_key: str):
         self.data_table = data_table
         self.sharding_key = sharding_key
 
     def __str__(self):
-        if self.sharding_key is None:
-            return (
-                f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}')"
-            )
-        else:
-            return f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"
+        return f"Distributed('{settings.CLICKHOUSE_CLUSTER}', '{settings.CLICKHOUSE_DATABASE}', '{self.data_table}', {self.sharding_key})"

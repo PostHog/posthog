@@ -1,7 +1,7 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`parseEntry() miscellaneous 1`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -9,6 +9,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": "record",
   "size": -1,
   "traceUrl": null,
   "type": "string",
@@ -16,7 +17,7 @@ Object {
 `;
 
 exports[`parseEntry() miscellaneous 2`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -244,6 +245,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": " in Fragment in Grid5 (created by List6) in List6 (created by AutoSizer2) in div (created by AutoSizer2) in AutoSizer2 (created by PlayerList)",
   "size": -1,
   "traceUrl": null,
   "type": "string",
@@ -251,7 +253,7 @@ Object {
 `;
 
 exports[`parseEntry() miscellaneous 3`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -279,6 +281,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": " in Fragment",
   "size": -1,
   "traceUrl": null,
   "type": "string",
@@ -286,7 +289,7 @@ Object {
 `;
 
 exports[`parseEntry() miscellaneous 4`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -454,6 +457,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": "Warning: Each child in a list should have a unique "key" prop.%s%s See https://fb.me/react-warning-keys for more information.%s",
   "size": -1,
   "traceUrl": null,
   "type": "string",
@@ -461,20 +465,21 @@ Object {
 `;
 
 exports[`parseEntry() object or array strings 1`] = `
-Object {
-  "parsed": Object {
+{
+  "parsed": {
     "message": "TypeError: Failed to fetch
     at Object.getRaw (http://localhost:8234/static/chunk-6MCQJ7Y6.js:208552:24)
     End of stack for Error object",
     "status": 0,
   },
+  "rawString": "{"status":0,"message":"TypeError: Failed to fetch\\n    at Object.getRaw (http://localhost:8234/static/chunk-6MCQJ7Y6.js:208552:24)\\n    End of stack for Error object"}",
   "size": 2,
   "type": "object",
 }
 `;
 
 exports[`parseEntry() strings containing urls 1`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -497,6 +502,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": "rowRenderer (https://example.com/path/to/file.js:123:456)",
   "size": -1,
   "traceUrl": <Link
     target="_blank"
@@ -509,7 +515,7 @@ Object {
 `;
 
 exports[`parseEntry() strings containing urls 2`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -562,6 +568,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": "ENTRY Object.createElementWithValidation [as createElement] (https://example.com/path/to/file.js:123:456)",
   "size": -1,
   "traceUrl": <Link
     target="_blank"
@@ -574,7 +581,7 @@ Object {
 `;
 
 exports[`parseEntry() strings containing urls 3`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -622,6 +629,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": "ENTRY Object.createElementWithValidation [as createElement] (https://example.com/path/to/file.js)",
   "size": -1,
   "traceUrl": null,
   "type": "string",
@@ -629,7 +637,7 @@ Object {
 `;
 
 exports[`parseEntry() strings containing urls 4`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -637,6 +645,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": ":1223:12",
   "size": -1,
   "traceUrl": null,
   "type": "string",
@@ -644,7 +653,7 @@ Object {
 `;
 
 exports[`parseEntry() strings containing urls 5`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -657,6 +666,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": "https://example.com/path/to/file.js:123:456",
   "size": -1,
   "traceUrl": <Link
     target="_blank"
@@ -669,7 +679,7 @@ Object {
 `;
 
 exports[`parseEntry() strings containing urls 6`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -712,6 +722,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": "https://example.com/path/to/file.js:123:456 End of object",
   "size": -1,
   "traceUrl": <Link
     target="_blank"
@@ -724,7 +735,7 @@ Object {
 `;
 
 exports[`parseEntry() strings containing urls 7`] = `
-Object {
+{
   "parsed": <React.Fragment>
     <React.Fragment>
       <React.Fragment>
@@ -767,6 +778,7 @@ Object {
       </React.Fragment>
     </React.Fragment>
   </React.Fragment>,
+  "rawString": "https://example.com/path/to/file.js:123:456 https://example.com/path/to/file.js:123:456 https://example.com/path/to/file.js:123:456",
   "size": -1,
   "traceUrl": <Link
     target="_blank"

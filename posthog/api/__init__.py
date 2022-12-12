@@ -6,9 +6,9 @@ from posthog.settings import EE_AVAILABLE
 from . import (
     activity_log,
     annotation,
+    app_metrics,
     async_migration,
     authentication,
-    dashboard,
     dead_letter_queue,
     event_definition,
     exports,
@@ -28,10 +28,13 @@ from . import (
     prompt,
     property_definition,
     sharing,
+    site_app,
+    tagged_item,
     team,
+    uploaded_media,
     user,
-    web_js,
 )
+from .dashboards import dashboard
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -49,7 +52,7 @@ router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be dele
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"prompts", prompt.PromptSequenceStateViewSet, "user_prompts")  # User prompts
+router.register(r"prompts", prompt.PromptSequenceViewSet, "user_prompts")  # User prompts
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)
@@ -61,7 +64,9 @@ project_plugins_configs_router.register(
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
 projects_router.register(r"activity_log", activity_log.ActivityLogViewSet, "project_activity_log", ["team_id"])
-projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
+project_feature_flags_router = projects_router.register(
+    r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"]
+)
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
@@ -70,6 +75,13 @@ projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["
 projects_router.register(r"integrations", integration.IntegrationViewSet, "integrations", ["team_id"])
 projects_router.register(
     r"ingestion_warnings", ingestion_warnings.IngestionWarningsViewSet, "ingestion_warnings", ["team_id"]
+)
+app_metrics_router = projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
+app_metrics_router.register(
+    r"historical_exports",
+    app_metrics.HistoricalExportsAppMetricsViewSet,
+    "historical_exports",
+    ["team_id", "plugin_config_id"],
 )
 
 # Organizations nested endpoints
@@ -97,6 +109,9 @@ projects_router.register(
     r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"]
 )
 
+projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["team_id"])
+
+projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)

@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { LoadingOutlined } from '@ant-design/icons'
 import { PreflightCheckStatus, PreflightItem, preflightLogic } from './preflightLogic'
@@ -71,7 +70,6 @@ export function PreflightCheck(): JSX.Element {
     return (
         <BridgePage
             view="preflight-check"
-            noHedgehog
             footer={
                 <p className="text-center mt-4 mb-0">
                     Need help? Take a look at our{' '}
@@ -134,7 +132,7 @@ export function PreflightCheck(): JSX.Element {
                                     troubleshooting guide
                                 </a>{' '}
                                 or our{' '}
-                                <a href="https://posthog.com/docs/self-host/runbook" target="_blank">
+                                <a href="https://posthog.com/docs/runbook" target="_blank">
                                     self host runbook
                                 </a>
                                 .

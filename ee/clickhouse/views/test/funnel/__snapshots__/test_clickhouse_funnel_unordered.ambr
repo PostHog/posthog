@@ -47,8 +47,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (NOT has([''], "$group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
@@ -84,15 +84,15 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND (NOT has([''], "$group_0")) ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: ClickhouseTestUnorderedFunnelGroups.test_unordered_funnel_with_groups.1
@@ -141,8 +141,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND ((NOT has([''], "$group_0"))
                            AND (NOT has([''], "$group_0"))) ) events
                  WHERE (step_0 = 1
@@ -179,8 +179,8 @@
                     FROM events e
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59')
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC')
                       AND ((NOT has([''], "$group_0"))
                            AND (NOT has([''], "$group_0"))) ) events
                  WHERE (step_0 = 1
@@ -192,6 +192,6 @@
   WHERE steps IN [1, 2]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---

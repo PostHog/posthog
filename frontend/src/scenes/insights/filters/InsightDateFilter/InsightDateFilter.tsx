@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { insightDateFilterLogic } from './insightDateFilterLogic'
 import { DateFilterProps, DateFilter } from 'lib/components/DateFilter/DateFilter'

@@ -1,4 +1,4 @@
-import React, { useRef } from 'react'
+import { useRef } from 'react'
 import { Col, Row, Select } from 'antd'
 import { useActions, useValues } from 'kea'
 import useSize from '@react-hook/size'

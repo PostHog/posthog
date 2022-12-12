@@ -61,7 +61,7 @@ export class Status implements StatusBlueprint {
 
     buildMethod(type: keyof StatusBlueprint): StatusMethod {
         return (icon: string, message: string, extra: object) => {
-            const logMessage = `(${this.mode}) ${icon} ${message}`
+            const logMessage = `[${this.prompt}] ${icon} ${message}`
             if (extra instanceof Object) {
                 this.logger[type]({ ...extra, msg: logMessage })
             } else {
@@ -88,6 +88,12 @@ function promptForMode(mode: PluginsServerConfig['PLUGIN_SERVER_MODE']): string 
             return 'INGESTION'
         case 'async':
             return 'ASYNC'
+        case 'exports':
+            return 'EXPORTS'
+        case 'jobs':
+            return 'JOBS'
+        case 'scheduler':
+            return 'SCHEDULER'
     }
 }
 

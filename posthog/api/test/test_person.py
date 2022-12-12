@@ -1,5 +1,4 @@
 import json
-import unittest
 from typing import Dict, List, Optional, cast
 from unittest import mock
 
@@ -7,7 +6,6 @@ from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 
-from posthog.api.person import PersonSerializer
 from posthog.client import sync_execute
 from posthog.models import Cohort, Organization, Person, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -251,9 +249,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     # don't store deleted person's name, so user primary key
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
-                        "name": str(person.pk),
+                        "name": str(person.uuid),
                         "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
@@ -267,7 +264,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([(100, 1, "{}")], ch_persons)
         # No async deletion is scheduled
-        self.assertEqual(AsyncDeletion.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
         ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
             0
         ][0]
@@ -294,103 +291,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([(100, 1, "{}")], ch_persons)
 
         # async deletion scheduled and executed
-        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team=self.team).first())
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
         self.assertIsNone(async_deletion.delete_verified_at)
-
-    @freeze_time("2021-08-25T22:09:14.252Z")
-    @mock.patch("posthog.api.capture.capture_internal")
-    def test_merge_people(self, mock_capture_internal) -> None:
-
-        # created first
-        person3 = _create_person(team=self.team, distinct_ids=["distinct_id_3"], properties={"oh": "hello"})
-        person1 = _create_person(
-            team=self.team, distinct_ids=["1"], properties={"$browser": "whatever", "$os": "Mac OS X"}
-        )
-        person2 = _create_person(team=self.team, distinct_ids=["2"], properties={"random_prop": "asdf"})
-
-        response = self.client.post("/api/person/%s/merge/" % person1.uuid, {"uuids": [person2.uuid, person3.uuid]})
-        mock_capture_internal.assert_has_calls(
-            [
-                mock.call(
-                    {"event": "$create_alias", "properties": {"alias": "2"}},
-                    "1",
-                    None,
-                    None,
-                    unittest.mock.ANY,
-                    unittest.mock.ANY,
-                    self.team.id,
-                ),
-                mock.call(
-                    {"event": "$create_alias", "properties": {"alias": "distinct_id_3"}},
-                    "1",
-                    None,
-                    None,
-                    unittest.mock.ANY,
-                    unittest.mock.ANY,
-                    self.team.id,
-                ),
-            ],
-            any_order=True,
-        )
-        self.assertEqual(response.status_code, 201)
-        self.assertCountEqual(response.json()["distinct_ids"], ["1", "2", "distinct_id_3"])
-
-        person_one_dict = PersonSerializer(person1).data
-        person_two_dict = PersonSerializer(person2).data
-        person_three_dict = PersonSerializer(person3).data
-
-        person_three_log = {
-            "user": {"first_name": "", "email": "user1@posthog.com"},
-            "activity": "was_merged_into_person",
-            "scope": "Person",
-            "item_id": str(person3.pk),
-            "detail": {
-                "changes": None,
-                "name": None,
-                "merge": {"type": "Person", "source": person_three_dict, "target": person_one_dict},
-                "trigger": None,
-                "short_id": None,
-            },
-            "created_at": "2021-08-25T22:09:14.252000Z",
-        }
-        person_one_log = {
-            "user": {"first_name": "", "email": "user1@posthog.com"},
-            "activity": "people_merged_into",
-            "scope": "Person",
-            # don't store deleted person's name, so user primary key
-            "item_id": str(person1.pk),
-            "detail": {
-                "changes": None,
-                "name": None,
-                "merge": {"type": "Person", "source": [person_three_dict, person_two_dict], "target": person_one_dict},
-                "trigger": None,
-                "short_id": None,
-            },
-            "created_at": "2021-08-25T22:09:14.252000Z",
-        }
-        person_two_log = {
-            "user": {"first_name": "", "email": "user1@posthog.com"},
-            "activity": "was_merged_into_person",
-            "scope": "Person",
-            "item_id": str(person2.pk),
-            "detail": {
-                "changes": None,
-                "name": None,
-                "merge": {"type": "Person", "source": person_two_dict, "target": person_one_dict},
-                "trigger": None,
-                "short_id": None,
-            },
-            "created_at": "2021-08-25T22:09:14.252000Z",
-        }
-
-        self._assert_person_activity(
-            person_id=None, expected=[person_three_log, person_one_log, person_two_log]  # changes for all three people
-        )
-        self._assert_person_activity(person_id=person1.uuid, expected=[person_one_log])
-        self._assert_person_activity(person_id=person2.uuid, expected=[person_two_log])
-        self._assert_person_activity(person_id=person3.uuid, expected=[person_three_log])
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_split_people_keep_props(self) -> None:
@@ -426,8 +330,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                                 "after": {"distinct_ids": ["1", "2", "3"]},
                             }
                         ],
-                        "name": None,
-                        "merge": None,
+                        "name": str(person1.uuid),
                         "trigger": None,
                         "short_id": None,
                     },
@@ -463,7 +366,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        self.client.patch(f"/api/person/{person.uuid}", {"properties": {"foo": "bar"}})
+        self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
 
         mock_capture.assert_called_once_with(
             distinct_id="some_distinct_id",
@@ -626,7 +529,6 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                                 "after": None,
                             }
                         ],
-                        "merge": None,
                         "trigger": None,
                         "name": None,
                         "short_id": None,

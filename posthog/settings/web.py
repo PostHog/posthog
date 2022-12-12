@@ -200,6 +200,7 @@ REST_FRAMEWORK = {
     "EXCEPTION_HANDLER": "exceptions_hog.exception_handler",
     "TEST_REQUEST_DEFAULT_FORMAT": "json",
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
+    "STRICT_JSON": False,
 }
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
@@ -250,7 +251,11 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/session_recordings/?$",
                 "^/?api/projects/\\d+/exports/\\d+/content/?$",
                 "^/?api/projects/\\d+/activity_log/important_changes/?$",
+                "^/?api/projects/\\d+/uploaded_media/?$",
+                "^/uploaded_media/.*$",
             ]
         ),
     )
 )
+
+KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS", None) or 10)

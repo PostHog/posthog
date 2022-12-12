@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import ReactDOM from 'react-dom'
 import { funnelLogic } from './funnelLogic'
 import { FilterType, FunnelStepWithConversionMetrics } from '~/types'
@@ -17,7 +17,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
-const FUNNEL_TOOLTIP_OFFSET_PX = 2
+const FUNNEL_TOOLTIP_OFFSET_PX = 4
 
 interface FunnelTooltipProps {
     showPersonsModal: boolean
@@ -37,7 +37,7 @@ function FunnelTooltip({
     const { cohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
-        <div className="FunnelTooltip InsightTooltip mx-2 mt-1 mb-2 p-2">
+        <div className="FunnelTooltip InsightTooltip p-2">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
                 <strong>
                     <EntityFilterInfo

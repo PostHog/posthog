@@ -4,7 +4,7 @@ import { IconArrowDropDown, IconChevronRight } from '../icons'
 import { Link } from '../Link'
 import { Popup, PopupProps, PopupContext } from '../Popup/Popup'
 import { Spinner } from '../Spinner/Spinner'
-import { Tooltip } from '../Tooltip'
+import { Tooltip, TooltipProps } from '../Tooltip'
 import './LemonButton.scss'
 
 export interface LemonButtonPopup extends Omit<PopupProps, 'children'> {
@@ -19,7 +19,7 @@ export interface LemonButtonPropsBase
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
     /** What color scheme the button should follow */
-    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'stealth'
+    status?: 'primary' | 'danger' | 'primary-alt' | 'muted' | 'muted-alt' | 'stealth'
     /** Whether hover style should be applied, signaling that the button is held active in some way. */
     active?: boolean
     /** URL to link to. */
@@ -36,7 +36,8 @@ export interface LemonButtonPropsBase
     htmlType?: 'button' | 'submit' | 'reset'
     loading?: boolean
     /** Tooltip to display on hover. */
-    tooltip?: any
+    tooltip?: TooltipProps['title']
+    tooltipPlacement?: TooltipProps['placement']
     /** Whether the row should take up the parent's full width. */
     fullWidth?: boolean
     center?: boolean
@@ -68,6 +69,7 @@ function LemonButtonInternal(
         center,
         size,
         tooltip,
+        tooltipPlacement,
         htmlType = 'button',
         noPadding,
         to,
@@ -109,7 +111,7 @@ function LemonButtonInternal(
                 className
             )}
             disabled={disabled || loading}
-            to={to}
+            to={disabled ? undefined : to}
             target={targetBlank ? '_blank' : undefined}
             {...linkOnlyProps}
             {...buttonProps}
@@ -121,7 +123,12 @@ function LemonButtonInternal(
     )
 
     if (tooltip) {
-        workingButton = <Tooltip title={tooltip}>{workingButton}</Tooltip>
+        workingButton = (
+            <Tooltip title={tooltip} placement={tooltipPlacement}>
+                {/* If the button is disabled, wrap it in a div so that the tooltip can still work */}
+                {disabled ? <div>{workingButton}</div> : workingButton}
+            </Tooltip>
+        )
     }
 
     return workingButton
@@ -131,7 +138,7 @@ export const LemonButton = React.forwardRef(LemonButtonInternal)
 
 export type SideAction = Pick<
     LemonButtonProps,
-    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label'
+    'onClick' | 'to' | 'disabled' | 'icon' | 'type' | 'tooltip' | 'data-attr' | 'aria-label' | 'status'
 > & {
     popup?: LemonButtonPopup
 }

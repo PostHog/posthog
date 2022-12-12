@@ -1,4 +1,3 @@
-import React from 'react'
 import { IconClose } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import Modal from 'react-modal'
@@ -27,6 +26,12 @@ export interface LemonModalProps {
     /** When enabled, the modal content will only include children allowing greater customisation */
     simple?: boolean
     closable?: boolean
+    /** Expands the modal to fill the entire screen */
+    fullScreen?: boolean
+    /**
+     * A modal launched from a popup can appear behind the popup. This allows you to force the modal to appear above the popup.
+     * */
+    forceAbovePopups?: boolean
     contentRef?: React.RefCallback<HTMLDivElement>
     overlayRef?: React.RefCallback<HTMLDivElement>
 }
@@ -59,6 +64,8 @@ export function LemonModal({
     inline,
     simple,
     closable = true,
+    fullScreen = false,
+    forceAbovePopups = false,
     contentRef,
     overlayRef,
 }: LemonModalProps): JSX.Element {
@@ -101,6 +108,9 @@ export function LemonModal({
             </div>
         </>
     )
+
+    width = !fullScreen ? width : undefined
+
     return inline ? (
         // eslint-disable-next-line react/forbid-dom-props
         <div className="LemonModal ReactModal__Content--after-open" style={{ width }}>
@@ -114,8 +124,11 @@ export function LemonModal({
             shouldCloseOnEsc={closable}
             onAfterClose={onAfterClose}
             closeTimeoutMS={250}
-            className="LemonModal"
-            overlayClassName="LemonModal__overlay"
+            className={clsx('LemonModal', fullScreen && 'LemonModal--fullscreen')}
+            overlayClassName={clsx(
+                'LemonModal__overlay',
+                forceAbovePopups && 'LemonModal__overlay--force-modal-above-popups'
+            )}
             style={{
                 content: {
                     width: width,

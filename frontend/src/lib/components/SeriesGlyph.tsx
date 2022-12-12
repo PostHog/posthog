@@ -1,6 +1,5 @@
 import { getSeriesColor } from 'lib/colors'
 import { alphabet, hexToRGBA } from 'lib/utils'
-import React from 'react'
 
 interface SeriesGlyphProps {
     className?: string

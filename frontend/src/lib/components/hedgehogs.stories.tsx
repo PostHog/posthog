@@ -1,4 +1,3 @@
-import React from 'react'
 import { Meta } from '@storybook/react'
 import { LemonTable } from '@posthog/lemon-ui'
 import * as hedgehogs from './hedgehogs'
@@ -16,6 +15,7 @@ const allHedgehogs: HedgehogDefinition[] = Object.entries(hedgehogs).map(([key, 
 export default {
     title: 'Lemon UI/Hog illustrations',
     parameters: {
+        chromatic: { disableSnapshot: false },
         options: { showPanel: false },
         docs: {
             description: {

@@ -1,4 +1,3 @@
-import React from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { ActionsPie, ActionsLineGraph, ActionsHorizontalBar } from './viz'
 import { trendsLogic } from './trendsLogic'
@@ -9,6 +8,7 @@ import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { BoldNumber } from 'scenes/insights/views/BoldNumber'
 import { LemonButton } from '@posthog/lemon-ui'
+import { isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface Props {
     view: InsightType
@@ -19,20 +19,22 @@ export function TrendInsight({ view }: Props): JSX.Element {
     const { insightProps } = useValues(insightLogic)
     const { filters: _filters, loadMoreBreakdownUrl, breakdownValuesLoading } = useValues(trendsLogic(insightProps))
     const { loadMoreBreakdownValues } = useActions(trendsLogic(insightProps))
+    const display = isTrendsFilter(_filters) || isStickinessFilter(_filters) ? _filters.display : null
 
     const renderViz = (): JSX.Element | undefined => {
         if (
-            !_filters.display ||
-            _filters.display === ChartDisplayType.ActionsLineGraph ||
-            _filters.display === ChartDisplayType.ActionsLineGraphCumulative ||
-            _filters.display === ChartDisplayType.ActionsBar
+            !display ||
+            display === ChartDisplayType.ActionsLineGraph ||
+            display === ChartDisplayType.ActionsLineGraphCumulative ||
+            display === ChartDisplayType.ActionsAreaGraph ||
+            display === ChartDisplayType.ActionsBar
         ) {
             return <ActionsLineGraph />
         }
-        if (_filters.display === ChartDisplayType.BoldNumber) {
+        if (display === ChartDisplayType.BoldNumber) {
             return <BoldNumber />
         }
-        if (_filters.display === ChartDisplayType.ActionsTable) {
+        if (display === ChartDisplayType.ActionsTable) {
             return (
                 <BindLogic logic={trendsLogic} props={{ dashboardItemId: null, view, filters: null }}>
                     <InsightsTable
@@ -44,13 +46,13 @@ export function TrendInsight({ view }: Props): JSX.Element {
                 </BindLogic>
             )
         }
-        if (_filters.display === ChartDisplayType.ActionsPie) {
+        if (display === ChartDisplayType.ActionsPie) {
             return <ActionsPie />
         }
-        if (_filters.display === ChartDisplayType.ActionsBarValue) {
+        if (display === ChartDisplayType.ActionsBarValue) {
             return <ActionsHorizontalBar />
         }
-        if (_filters.display === ChartDisplayType.WorldMap) {
+        if (display === ChartDisplayType.WorldMap) {
             return <WorldMap />
         }
     }
@@ -60,9 +62,9 @@ export function TrendInsight({ view }: Props): JSX.Element {
             {(_filters.actions || _filters.events) && (
                 <div
                     className={
-                        _filters.display !== ChartDisplayType.ActionsTable &&
-                        _filters.display !== ChartDisplayType.WorldMap &&
-                        _filters.display !== ChartDisplayType.BoldNumber
+                        display !== ChartDisplayType.ActionsTable &&
+                        display !== ChartDisplayType.WorldMap &&
+                        display !== ChartDisplayType.BoldNumber
                             ? 'trends-insights-container'
                             : undefined /* Tables, numbers, and world map don't need this padding, but graphs do */
                     }

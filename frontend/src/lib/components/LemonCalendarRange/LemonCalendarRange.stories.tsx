@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonCalendarRange, LemonCalendarRangeProps } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -9,6 +9,7 @@ import { formatDateRange } from 'lib/utils'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Range',
     component: LemonCalendarRange,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonCalendarRange>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCalendarRangeProps) => {

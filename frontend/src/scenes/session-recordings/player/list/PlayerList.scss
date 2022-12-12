@@ -1,10 +1,11 @@
 .PlayerList {
+    position: relative;
     display: flex;
     flex-direction: column;
     background-color: var(--side);
-    min-height: 20rem;
     height: 100%;
     width: 100%;
+    flex: 1;
 
     .ReactVirtualized__Grid__innerScrollContainer {
         margin: 8px;

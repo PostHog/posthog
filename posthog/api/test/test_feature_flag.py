@@ -11,7 +11,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 from posthog.test.db_context_capturing import capture_db_queries
 
 
@@ -173,7 +173,6 @@ class TestFeatureFlag(APIBaseTest):
                     "item_id": str(flag_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "name": "alpha-feature",
                         "short_id": None,
@@ -312,6 +311,72 @@ class TestFeatureFlag(APIBaseTest):
         )
         self.assertEqual(FeatureFlag.objects.count(), count)
 
+    def test_cant_create_multivariate_feature_flag_with_invalid_variant_overrides(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+
+    def test_cant_update_multivariate_feature_flag_with_invalid_variant_overrides(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Multivariate feature",
+                "key": "multivariate-feature",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "second-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        feature_flag_id = response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag_id}",
+            {
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": None, "variant": "unknown-variant"}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 0},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("type"), "validation_error")
+        self.assertEqual(response.json().get("detail"), "Filters are not valid (variant override does not exist)")
+
     @patch("posthog.api.feature_flag.report_user_action")
     def test_updating_feature_flag(self, mock_capture):
         with freeze_time("2021-08-25T22:09:14.252Z") as frozen_datetime:
@@ -404,7 +469,6 @@ class TestFeatureFlag(APIBaseTest):
                                 },
                             },
                         ],
-                        "merge": None,
                         "trigger": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
@@ -418,7 +482,6 @@ class TestFeatureFlag(APIBaseTest):
                     "item_id": str(flag_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "name": "a-feature-flag-that-is-updated",
                         "short_id": None,
@@ -488,7 +551,6 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
-                        "merge": None,
                         "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
@@ -502,7 +564,6 @@ class TestFeatureFlag(APIBaseTest):
                     "item_id": str(flag_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
@@ -559,7 +620,7 @@ class TestFeatureFlag(APIBaseTest):
                     "created_at": "2021-08-25T22:29:14.252000Z",
                     "scope": "FeatureFlag",
                     "item_id": str(second_flag_id),
-                    "detail": {"changes": None, "merge": None, "trigger": None, "name": "flag-two", "short_id": None},
+                    "detail": {"changes": None, "trigger": None, "name": "flag-two", "short_id": None},
                 },
                 {
                     "user": {"first_name": new_user.first_name, "email": new_user.email},
@@ -577,7 +638,6 @@ class TestFeatureFlag(APIBaseTest):
                                 "after": {"groups": [{"properties": [], "rollout_percentage": 74}]},
                             }
                         ],
-                        "merge": None,
                         "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
@@ -591,7 +651,6 @@ class TestFeatureFlag(APIBaseTest):
                     "item_id": str(flag_id),
                     "detail": {
                         "changes": None,
-                        "merge": None,
                         "trigger": None,
                         "name": "feature_with_activity",
                         "short_id": None,
@@ -1642,3 +1701,111 @@ class TestFeatureFlag(APIBaseTest):
         self.assertEqual(
             updated_flag.filters, {"groups": [{"properties": [], "rollout_percentage": 100}], "multivariate": None}
         )
+
+    def test_feature_flag_threshold(self):
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+                "rollback_conditions": [
+                    {
+                        "threshold": 5000,
+                        "threshold_metric": {
+                            "insight": "trends",
+                            "events": [{"order": 0, "id": "$pageview"}],
+                            "properties": [
+                                {
+                                    "key": "$geoip_country_name",
+                                    "type": "person",
+                                    "value": ["france"],
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                        "operator": "lt",
+                        "threshold_type": "insight",
+                    }
+                ],
+                "auto-rollback": True,
+            },
+            format="json",
+        ).json()
+
+        self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
+
+
+class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
+    @snapshot_clickhouse_queries
+    def test_user_blast_radius(self):
+
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "group", "type": "person", "value": [0, 1, 2, 3], "operator": "exact"}],
+                    "rollout_percentage": 25,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
+
+    def test_user_blast_radius_with_zero_users(self):
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "group", "type": "person", "value": [0, 1, 2, 3], "operator": "exact"}],
+                    "rollout_percentage": 25,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 0, "total_users": 0}, response_json)
+
+    def test_user_blast_radius_with_zero_selected_users(self):
+
+        for i in range(5):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "group", "type": "person", "value": [8], "operator": "exact"}],
+                    "rollout_percentage": 25,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
+
+    def test_user_blast_radius_with_all_selected_users(self):
+
+        for i in range(5):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {"condition": {"properties": [], "rollout_percentage": 100}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 5, "total_users": 5}, response_json)

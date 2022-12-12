@@ -1,13 +1,23 @@
 .LemonActionableTooltip {
     max-width: var(--in-app-prompts-width);
+    padding: 0.5rem;
+    > * + * {
+        margin-top: 0.5rem;
+    }
     .LemonActionableTooltip__header {
         display: flex;
-        align-items: center;
         justify-content: space-between;
+        > * + * {
+            margin-left: 0.5rem;
+        }
+    }
+    .LemonActionableTooltip__title {
+        font-size: 1.125rem;
+        font-weight: 500;
+        line-height: 1.75rem;
     }
     .LemonActionableTooltip__icon {
         color: var(--primary);
-        margin-left: 0.5rem;
         display: flex;
         align-items: center;
         width: 1.5rem;
@@ -18,17 +28,29 @@
         }
     }
     .LemonActionableTooltip__body {
-        padding: 0.5rem;
+        > * + * {
+            margin-top: 0.5rem;
+        }
     }
     .LemonActionableTooltip__footer {
         display: flex;
         justify-content: space-between;
+        margin-top: 1rem;
     }
-    .LemonActionableTooltip__buttons {
+    .LemonActionableTooltip__url-buttons {
         display: flex;
-        justify-content: space-between;
+        width: 100%;
+        flex-direction: column;
         > * + * {
-            margin-left: 0.25rem;
+            margin-top: 0.25rem;
+        }
+    }
+    .LemonActionableTooltip__action-buttons {
+        display: flex;
+        width: 100%;
+        flex-direction: column;
+        > * + * {
+            margin-top: 0.25rem;
         }
     }
     .LemonActionableTooltip__navigation {

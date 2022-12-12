@@ -1,5 +1,4 @@
-import React from 'react'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PersonType } from '~/types'
 import './Persons.scss'
@@ -46,7 +45,7 @@ export function PersonsTable({
             key: 'id',
             render: function Render(_, person: PersonType) {
                 return (
-                    <div style={{ overflow: 'hidden' }}>
+                    <div className={'overflow-hidden'}>
                         {person.distinct_ids.length && (
                             <CopyToClipboardInline
                                 explicitValue={person.distinct_ids[0]}

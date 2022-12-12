@@ -3,11 +3,17 @@ from unittest.mock import patch
 from freezegun import freeze_time
 from rest_framework import status
 
-from posthog.models import Action, ActionStep, Organization, Tag
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
+from posthog.models import Action, ActionStep, Organization, Tag, User
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_event,
+    snapshot_postgres_queries_context,
+)
 
 
-class TestActionApi(ClickhouseTestMixin, APIBaseTest):
+class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @patch("posthog.api.action.report_user_action")
     def test_create_action(self, patch_capture, *args):
         response = self.client.post(
@@ -249,6 +255,25 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{action.id}/count").json()
         self.assertEqual(response, {"count": 1})
+
+    @freeze_time("2021-12-12")
+    def test_listing_actions_is_not_nplus1(self) -> None:
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+            self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+        Action.objects.create(
+            team=self.team, name="first", created_by=User.objects.create_and_join(self.organization, "a", "")
+        )
+
+        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+            self.client.get(f"/api/projects/{self.team.id}/actions/")
+
+        Action.objects.create(
+            team=self.team, name="second", created_by=User.objects.create_and_join(self.organization, "b", "")
+        )
+
+        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+            self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     def test_get_tags_on_non_ee_returns_empty_list(self):
         action = Action.objects.create(team=self.team, name="bla")

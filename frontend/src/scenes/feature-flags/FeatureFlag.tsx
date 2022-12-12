@@ -1,15 +1,24 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Button, Slider, Card, Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton } from 'antd'
+import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { DeleteOutlined, MergeCellsOutlined, LockOutlined } from '@ant-design/icons'
-import { featureFlagLogic } from './featureFlagLogic'
+import { LockOutlined } from '@ant-design/icons'
+import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
+import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconCopy, IconDelete, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/components/icons'
+import {
+    IconOpenInNew,
+    IconCopy,
+    IconDelete,
+    IconPlus,
+    IconPlusMini,
+    IconSubArrowRight,
+    IconErrorOutline,
+} from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -17,10 +26,9 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature } from '~/types'
+import { AnyPropertyFilter, AvailableFeature, Resource } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
-import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
@@ -28,12 +36,11 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { urls } from 'scenes/urls'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
 import { FEATURE_FLAGS, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
-import { featureFlagLogic as featureFlagLibLogic } from 'lib/logic/featureFlagLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
@@ -42,6 +49,17 @@ import { allOperatorsToHumanName } from 'lib/components/DefinitionPopup/utils'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 import { NotFound } from 'lib/components/NotFound'
 import { cohortsModel } from '~/models/cohortsModel'
+import { FeatureFlagAutoRollback } from './FeatureFlagAutoRollout'
+import { FeatureFlagRecordings } from './FeatureFlagRecordingsCard'
+import { billingLogic } from 'scenes/billing/billingLogic'
+import { LemonSelect } from '@posthog/lemon-ui'
+import { EventsTable } from 'scenes/events'
+import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
+import { ResourcePermission } from 'scenes/ResourcePermissionModal'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -59,47 +77,22 @@ function focusVariantKeyField(index: number): void {
 }
 
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLibLogic)
-    const {
-        props,
-        featureFlag,
-        multivariateEnabled,
-        variants,
-        nonEmptyVariants,
-        areVariantRolloutsValid,
-        variantRolloutSum,
-        groupTypes,
-        aggregationTargetName,
-        taxonomicGroupTypes,
-        featureFlagLoading,
-        featureFlagMissing,
-        isEditingFlag,
-    } = useValues(featureFlagLogic)
-    const {
-        addConditionSet,
-        updateConditionSet,
-        removeConditionSet,
-        duplicateConditionSet,
-        deleteFeatureFlag,
-        setMultivariateEnabled,
-        addVariant,
-        removeVariant,
-        distributeVariantsEqually,
-        setAggregationGroupTypeIndex,
-        editFeatureFlag,
-        loadFeatureFlag,
-    } = useActions(featureFlagLogic)
-    const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
-    const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
+    const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
+
+    const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
+    const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
+        featureFlagPermissionsLogic({ flagId: featureFlag.id })
+    )
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
-    // whether to warn the user that their variants will be lost
-    const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
+
     const [activeTab, setActiveTab] = useState(FeatureFlagsTabs.OVERVIEW)
 
-    // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
-    const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
     const isNewFeatureFlag = id === 'new' || id === undefined
 
     if (featureFlagMissing) {
@@ -114,217 +107,243 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 
     return (
         <>
-            {featureFlags[FEATURE_FLAGS.FEATURE_FLAGS_UX] ? (
-                <div className="feature-flag">
-                    {isNewFeatureFlag || isEditingFlag ? (
-                        <Form
-                            logic={featureFlagLogic}
-                            props={props}
-                            formKey="featureFlag"
-                            enableFormOnSubmit
-                            className="space-y-4"
-                        >
-                            <PageHeader
-                                title={isNewFeatureFlag ? 'New feature flag' : featureFlag.key || 'Untitled'}
-                                buttons={
-                                    <div className="flex items-center gap-2">
-                                        <LemonButton
-                                            data-attr="cancel-feature-flag"
-                                            type="secondary"
-                                            onClick={() => {
-                                                if (isEditingFlag) {
-                                                    editFeatureFlag(false)
-                                                    loadFeatureFlag()
-                                                } else {
-                                                    router.actions.push(urls.featureFlags())
-                                                }
-                                            }}
-                                            disabled={featureFlagLoading}
-                                        >
-                                            Cancel
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="primary"
-                                            data-attr="save-feature-flag"
-                                            htmlType="submit"
-                                            loading={featureFlagLoading}
-                                            disabled={featureFlagLoading}
-                                        >
-                                            Save
-                                        </LemonButton>
-                                    </div>
-                                }
-                            />
-                            <Divider />
-                            {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
-                                <AlertMessage type="warning">
-                                    This feature flag is linked to an experiment. It's recommended to only make changes
-                                    to this flag{' '}
-                                    <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                        using the experiment creation screen.
-                                    </Link>
-                                </AlertMessage>
-                            )}
-                            <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag." />
-                            <Row gutter={16} style={{ marginBottom: 32 }}>
-                                <Col span={12} className="space-y-4">
-                                    <Field
-                                        name="key"
-                                        label="Key"
-                                        help={
-                                            hasKeyChanged && id !== 'new' ? (
-                                                <span className="text-warning">
-                                                    <b>Warning! </b>Changing this key will
-                                                    <a
-                                                        href={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
-                                                        target="_blank"
-                                                        rel="noopener"
-                                                    >
-                                                        {' '}
-                                                        affect the persistence of your flag <IconOpenInNew />
-                                                    </a>
-                                                </span>
-                                            ) : undefined
-                                        }
+            <div className="feature-flag">
+                {isNewFeatureFlag || isEditingFlag ? (
+                    <Form
+                        logic={featureFlagLogic}
+                        props={props}
+                        formKey="featureFlag"
+                        enableFormOnSubmit
+                        className="space-y-4"
+                    >
+                        <PageHeader
+                            title={isNewFeatureFlag ? 'New feature flag' : featureFlag.key || 'Untitled'}
+                            buttons={
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        data-attr="cancel-feature-flag"
+                                        type="secondary"
+                                        onClick={() => {
+                                            if (isEditingFlag) {
+                                                editFeatureFlag(false)
+                                                loadFeatureFlag()
+                                            } else {
+                                                router.actions.push(urls.featureFlags())
+                                            }
+                                        }}
+                                        disabled={featureFlagLoading}
                                     >
-                                        {({ value, onChange }) => (
-                                            <>
-                                                <LemonInput
-                                                    value={value}
-                                                    onChange={(v) => {
-                                                        if (v !== value) {
-                                                            setHasKeyChanged(true)
-                                                        }
-                                                        onChange(v)
-                                                    }}
-                                                    data-attr="feature-flag-key"
-                                                    className="ph-ignore-input"
-                                                    autoFocus
-                                                    placeholder="examples: new-landing-page, betaFeature, ab_test_1"
-                                                    autoComplete="off"
-                                                    autoCapitalize="off"
-                                                    autoCorrect="off"
-                                                    spellCheck={false}
-                                                />
-                                                <span style={{ fontSize: 13 }} className="text-muted">
-                                                    Feature flag keys must be unique
-                                                </span>
-                                            </>
-                                        )}
-                                    </Field>
+                                        Cancel
+                                    </LemonButton>
+                                    <LemonButton
+                                        type="primary"
+                                        data-attr="save-feature-flag"
+                                        htmlType="submit"
+                                        loading={featureFlagLoading}
+                                        disabled={featureFlagLoading}
+                                    >
+                                        Save
+                                    </LemonButton>
+                                </div>
+                            }
+                        />
+                        <Divider />
+                        {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
+                            <AlertMessage type="warning">
+                                This feature flag is linked to an experiment. It's recommended to only make changes to
+                                this flag{' '}
+                                <Link to={urls.experiment(featureFlag.experiment_set[0])}>
+                                    using the experiment creation screen.
+                                </Link>
+                            </AlertMessage>
+                        )}
+                        <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons. To sidestep this, you can choose to override server properties when requesting the feature flag" />
+                        <Row gutter={16} style={{ marginBottom: 32 }}>
+                            <Col span={12} className="space-y-4">
+                                <Field
+                                    name="key"
+                                    label="Key"
+                                    help={
+                                        hasKeyChanged && id !== 'new' ? (
+                                            <span className="text-warning">
+                                                <b>Warning! </b>Changing this key will
+                                                <a
+                                                    href={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
+                                                    target="_blank"
+                                                    rel="noopener"
+                                                >
+                                                    {' '}
+                                                    affect the persistence of your flag <IconOpenInNew />
+                                                </a>
+                                            </span>
+                                        ) : undefined
+                                    }
+                                >
+                                    {({ value, onChange }) => (
+                                        <>
+                                            <LemonInput
+                                                value={value}
+                                                onChange={(v) => {
+                                                    if (v !== value) {
+                                                        setHasKeyChanged(true)
+                                                    }
+                                                    onChange(v)
+                                                }}
+                                                data-attr="feature-flag-key"
+                                                className="ph-ignore-input"
+                                                autoFocus
+                                                placeholder="examples: new-landing-page, betaFeature, ab_test_1"
+                                                autoComplete="off"
+                                                autoCapitalize="off"
+                                                autoCorrect="off"
+                                                spellCheck={false}
+                                            />
+                                            <span style={{ fontSize: 13 }} className="text-muted">
+                                                Feature flag keys must be unique
+                                            </span>
+                                        </>
+                                    )}
+                                </Field>
 
-                                    <Field name="name" label="Description">
-                                        <LemonTextArea
-                                            className="ph-ignore-input"
-                                            data-attr="feature-flag-description"
-                                            defaultValue={featureFlag.name || ''}
-                                        />
-                                    </Field>
-                                    <Field name="ensure_experience_continuity">
-                                        {({ value, onChange }) => (
-                                            <div className="border rounded p-4">
-                                                <LemonCheckbox
-                                                    id="continuity-checkbox"
-                                                    label="Persist flag across authentication steps"
-                                                    onChange={() => onChange(!value)}
-                                                    fullWidth
-                                                    checked={value}
-                                                />
-                                                <div className="text-muted text-sm pl-7">
-                                                    If your feature flag is applied prior to an identify or
-                                                    authentication event, use this to ensure that feature flags are not
-                                                    reset after a person is identified. This ensures the experience for
-                                                    the anonymous person is carried forward to the authenticated person.
-                                                </div>
+                                <Field name="name" label="Description">
+                                    <LemonTextArea
+                                        className="ph-ignore-input"
+                                        data-attr="feature-flag-description"
+                                        defaultValue={featureFlag.name || ''}
+                                    />
+                                </Field>
+                                <Field name="ensure_experience_continuity">
+                                    {({ value, onChange }) => (
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="continuity-checkbox"
+                                                label="Persist flag across authentication steps"
+                                                onChange={() => onChange(!value)}
+                                                fullWidth
+                                                checked={value}
+                                            />
+                                            <div className="text-muted text-sm pl-7">
+                                                If your feature flag is applied prior to an identify or authentication
+                                                event, use this to ensure that feature flags are not reset after a
+                                                person is identified. This ensures the experience for the anonymous
+                                                person is carried forward to the authenticated person.{' '}
+                                                <Link
+                                                    to="https://posthog.com/manual/feature-flags#persisting-feature-flags-across-authentication-steps"
+                                                    target="_blank"
+                                                >
+                                                    Learn more <IconOpenInNew />
+                                                </Link>
                                             </div>
-                                        )}
-                                    </Field>
-                                    <Field name="active">
-                                        {({ value, onChange }) => (
-                                            <div className="border rounded p-4">
-                                                <LemonCheckbox
-                                                    id="flag-enabled-checkbox"
-                                                    label="Enable feature flag"
-                                                    onChange={() => onChange(!value)}
-                                                    checked={value}
-                                                />
-                                            </div>
-                                        )}
-                                    </Field>
-                                </Col>
-                                <Col span={12}>
-                                    <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                                </Col>
-                            </Row>
-                            <Divider />
-                            <FeatureFlagRollout />
-                            <Divider />
-                            <FeatureFlagReleaseConditions />
-                            <LemonDivider className="mt-8" />
-                            <div className="flex items-center gap-2 justify-end">
-                                <LemonButton
-                                    data-attr="cancel-feature-flag"
-                                    type="secondary"
-                                    onClick={() => {
-                                        if (isEditingFlag) {
-                                            editFeatureFlag(false)
-                                            loadFeatureFlag()
-                                        } else {
-                                            router.actions.push(urls.featureFlags())
-                                        }
-                                    }}
-                                    disabled={featureFlagLoading}
-                                >
-                                    Cancel
-                                </LemonButton>
-                                <LemonButton
-                                    type="primary"
-                                    data-attr="save-feature-flag"
-                                    htmlType="submit"
-                                    loading={featureFlagLoading}
-                                    disabled={featureFlagLoading}
-                                >
-                                    Save
-                                </LemonButton>
-                            </div>
-                        </Form>
-                    ) : (
-                        <>
-                            {featureFlagLoading ? (
-                                <Skeleton active />
-                            ) : (
-                                <>
-                                    <PageHeader
-                                        title={
-                                            <div className="flex items-center gap-2 mb-2">
-                                                {featureFlag.key || 'Untitled'}
-                                                <CopyToClipboardInline
-                                                    explicitValue={featureFlag.key}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
-                                                />
-                                                <div className="flex">
-                                                    {featureFlag.active ? (
-                                                        <LemonTag type="success" className="uppercase">
-                                                            Enabled
-                                                        </LemonTag>
-                                                    ) : (
-                                                        <LemonTag type="default" className="uppercase">
-                                                            Disabled
-                                                        </LemonTag>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        }
-                                        description={
-                                            <>
-                                                {featureFlag.name ? (
-                                                    <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
+                                        </div>
+                                    )}
+                                </Field>
+                                <Field name="active">
+                                    {({ value, onChange }) => (
+                                        <div className="border rounded p-4">
+                                            <LemonCheckbox
+                                                id="flag-enabled-checkbox"
+                                                label="Enable feature flag"
+                                                onChange={() => onChange(!value)}
+                                                checked={value}
+                                            />
+                                        </div>
+                                    )}
+                                </Field>
+                            </Col>
+                            <Col span={12}>
+                                {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                    <Card title="Permissions" className="mb-4">
+                                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                            <ResourcePermission
+                                                resourceType={Resource.FEATURE_FLAGS}
+                                                isNewResource={id === 'new'}
+                                                onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                rolesToAdd={rolesToAdd}
+                                                addableRoles={addableRoles}
+                                                addableRolesLoading={unfilteredAddableRolesLoading}
+                                                onAdd={() => addAssociatedRoles()}
+                                                roles={derivedRoles}
+                                                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                canEdit={featureFlag.can_edit}
+                                            />
+                                        </PayGateMini>
+                                    </Card>
+                                )}
+                                <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
+                            </Col>
+                        </Row>
+                        <Divider />
+                        <FeatureFlagRollout />
+                        <Divider />
+                        <FeatureFlagReleaseConditions />
+                        <Divider />
+                        {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
+                        <LemonDivider className="mt-8" />
+                        <div className="flex items-center gap-2 justify-end">
+                            <LemonButton
+                                data-attr="cancel-feature-flag"
+                                type="secondary"
+                                onClick={() => {
+                                    if (isEditingFlag) {
+                                        editFeatureFlag(false)
+                                        loadFeatureFlag()
+                                    } else {
+                                        router.actions.push(urls.featureFlags())
+                                    }
+                                }}
+                                disabled={featureFlagLoading}
+                            >
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                data-attr="save-feature-flag"
+                                htmlType="submit"
+                                loading={featureFlagLoading}
+                                disabled={featureFlagLoading}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </Form>
+                ) : (
+                    <>
+                        {featureFlagLoading ? (
+                            <Skeleton active />
+                        ) : (
+                            <>
+                                <PageHeader
+                                    title={
+                                        <div className="flex items-center gap-2 mb-2">
+                                            {featureFlag.key || 'Untitled'}
+                                            <CopyToClipboardInline
+                                                explicitValue={featureFlag.key}
+                                                iconStyle={{ color: 'var(--muted-alt)' }}
+                                            />
+                                            <div className="flex">
+                                                {featureFlag.active ? (
+                                                    <LemonTag type="success" className="uppercase">
+                                                        Enabled
+                                                    </LemonTag>
                                                 ) : (
-                                                    'There is no description for this feature flag.'
+                                                    <LemonTag type="default" className="uppercase">
+                                                        Disabled
+                                                    </LemonTag>
                                                 )}
-                                            </>
-                                        }
-                                        buttons={
+                                            </div>
+                                        </div>
+                                    }
+                                    description={
+                                        <>
+                                            {featureFlag.name ? (
+                                                <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
+                                            ) : (
+                                                'There is no description for this feature flag.'
+                                            )}
+                                        </>
+                                    }
+                                    buttons={
+                                        <>
                                             <div className="flex items-center gap-2 mb-2">
                                                 <LemonButton
                                                     data-attr="delete-feature-flag"
@@ -333,523 +352,124 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     onClick={() => {
                                                         deleteFeatureFlag(featureFlag)
                                                     }}
-                                                    disabled={featureFlagLoading}
+                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
                                                 >
                                                     Delete feature flag
                                                 </LemonButton>
                                                 <LemonButton
                                                     data-attr="edit-feature-flag"
                                                     type="secondary"
+                                                    tooltip={
+                                                        featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
+                                                        !featureFlag.can_edit &&
+                                                        "You have only 'View' access for this feature flag. To make changes, please contact the flag's creator."
+                                                    }
                                                     onClick={() => {
                                                         editFeatureFlag(true)
                                                     }}
-                                                    disabled={featureFlagLoading}
+                                                    disabled={featureFlagLoading || !featureFlag.can_edit}
                                                 >
                                                     Edit
                                                 </LemonButton>
                                             </div>
-                                        }
-                                    />
-                                    <Tabs
-                                        activeKey={activeTab}
-                                        destroyInactiveTabPane
-                                        onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
-                                    >
-                                        <Tabs.TabPane tab="Overview" key="overview">
-                                            <Row>
-                                                <Col span={13}>
-                                                    <FeatureFlagRollout readOnly />
-                                                    <FeatureFlagReleaseConditions readOnly />
-                                                </Col>
-                                                <Col span={11} className="pl-4">
-                                                    <RecentFeatureFlagInsights />
-                                                    <div className="my-4" />
+                                        </>
+                                    }
+                                />
+                                <Tabs
+                                    activeKey={activeTab}
+                                    destroyInactiveTabPane
+                                    onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
+                                >
+                                    <Tabs.TabPane tab="Overview" key="overview">
+                                        <Row>
+                                            <Col span={13}>
+                                                <FeatureFlagRollout readOnly />
+                                                <FeatureFlagReleaseConditions readOnly />
+                                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                                    <FeatureFlagAutoRollback readOnly />
+                                                )}
+                                            </Col>
+                                            <Col span={11} className="pl-4">
+                                                <RecentFeatureFlagInsights />
+                                                <div className="my-4" />
+                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] ? (
+                                                    <FeatureFlagRecordings flagKey={featureFlag.key || 'my-flag'} />
+                                                ) : (
                                                     <FeatureFlagInstructions
                                                         featureFlagKey={featureFlag.key || 'my-flag'}
                                                     />
-                                                </Col>
-                                            </Row>
+                                                )}
+                                            </Col>
+                                        </Row>
+                                    </Tabs.TabPane>
+                                    {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
+                                        <Tabs.TabPane tab="Exposures" key="exposure">
+                                            <ExposureTab id={id} featureFlagKey={featureFlag.key} />
                                         </Tabs.TabPane>
-                                        {featureFlag.id && (
-                                            <Tabs.TabPane tab="History" key="history">
-                                                <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
-                                            </Tabs.TabPane>
-                                        )}
-                                    </Tabs>
-                                </>
-                            )}
-                        </>
-                    )}
-                </div>
-            ) : (
-                <Form
-                    logic={featureFlagLogic}
-                    props={props}
-                    formKey="featureFlag"
-                    enableFormOnSubmit
-                    className="space-y-4"
-                >
-                    <PageHeader
-                        title="Feature Flag"
-                        buttons={
-                            <div className="flex items-center gap-2">
-                                <Field name="active">
-                                    {({ value, onChange }) => (
-                                        <LemonSwitch
-                                            data-attr="feature-flag-enabled-toggle"
-                                            checked={value}
-                                            onChange={onChange}
-                                            label={
-                                                value ? (
-                                                    <span className="text-success">Enabled</span>
-                                                ) : (
-                                                    <span className="text-danger">Disabled</span>
-                                                )
-                                            }
-                                        />
                                     )}
-                                </Field>
-                                {featureFlag?.id && (
-                                    <LemonButton
-                                        data-attr="delete-flag"
-                                        status="danger"
-                                        type="secondary"
-                                        onClick={() => {
-                                            deleteFeatureFlag(featureFlag)
-                                        }}
-                                    >
-                                        Delete
-                                    </LemonButton>
-                                )}
-                                <LemonButton
-                                    type="primary"
-                                    data-attr="feature-flag-submit"
-                                    loading={featureFlagLoading}
-                                    htmlType="submit"
-                                >
-                                    Save changes
-                                </LemonButton>
-                            </div>
-                        }
-                    />
-                    {featureFlag.experiment_set && featureFlag.experiment_set?.length > 0 && (
-                        <AlertMessage type="warning">
-                            This feature flag is linked to an experiment. It's recommended to only make changes to this
-                            flag{' '}
-                            <Link to={urls.experiment(featureFlag.experiment_set[0])}>
-                                using the experiment creation screen.
-                            </Link>
-                        </AlertMessage>
-                    )}
-                    <EventBufferNotice additionalInfo=", meaning it can take around 60 seconds for some flags to update for recently-identified persons" />
-                    <h3 className="l3 mt-4">General configuration</h3>
-                    <div className="text-muted mb-4">
-                        General settings for your feature flag and integration instructions.
-                    </div>
-                    <Row gutter={16} style={{ marginBottom: 32 }}>
-                        <Col span={12} className="space-y-4">
-                            <Field
-                                name="key"
-                                label="Key (must be unique)"
-                                help={
-                                    hasKeyChanged && id !== 'new' ? (
-                                        <span className="text-warning">
-                                            <b>Warning! </b>Changing this key will
-                                            <a
-                                                href={`https://posthog.com/docs/features/feature-flags${UTM_TAGS}#feature-flag-persistence`}
-                                                target="_blank"
-                                                rel="noopener"
-                                            >
-                                                {' '}
-                                                affect the persistence of your flag <IconOpenInNew />
-                                            </a>
-                                        </span>
-                                    ) : undefined
-                                }
-                            >
-                                {({ value, onChange }) => (
-                                    <LemonInput
-                                        value={value}
-                                        onChange={(v) => {
-                                            if (v !== value) {
-                                                setHasKeyChanged(true)
-                                            }
-                                            onChange(v)
-                                        }}
-                                        data-attr="feature-flag-key"
-                                        className="ph-ignore-input"
-                                        autoFocus
-                                        placeholder="examples: new-landing-page, betaFeature, ab_test_1"
-                                        autoComplete="off"
-                                        autoCapitalize="off"
-                                        autoCorrect="off"
-                                        spellCheck={false}
-                                    />
-                                )}
-                            </Field>
-
-                            <Field name="name" label="Description">
-                                <LemonTextArea
-                                    className="ph-ignore-input"
-                                    data-attr="feature-flag-description"
-                                    placeholder="Adding a helpful description can ensure others know what this feature is for."
-                                />
-                            </Field>
-                            <Field name="ensure_experience_continuity">
-                                {({ value, onChange }) => (
-                                    <div className="border rounded p-4">
-                                        <LemonCheckbox
-                                            id="continuity-checkbox"
-                                            label="Persist flag across authentication steps"
-                                            onChange={() => onChange(!value)}
-                                            fullWidth
-                                            checked={value}
-                                        />
-                                        <div className="text-muted text-sm pl-7">
-                                            If your feature flag is applied prior to an identify or authentication
-                                            event, use this to ensure that feature flags are not reset after a person is
-                                            identified. This ensures the experience for the anonymous person is carried
-                                            forward to the authenticated person.
-                                        </div>
-                                    </div>
-                                )}
-                            </Field>
-                        </Col>
-                        <Col span={12}>
-                            <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
-                        </Col>
-                    </Row>
-
-                    <div className="mb-8">
-                        <h3 className="l3">Served value</h3>
-                        <div className="mb-2">
-                            <Popconfirm
-                                placement="top"
-                                title="Change value type? The variants below will be lost."
-                                visible={showVariantDiscardWarning}
-                                onConfirm={() => {
-                                    setMultivariateEnabled(false)
-                                    setShowVariantDiscardWarning(false)
-                                }}
-                                onCancel={() => setShowVariantDiscardWarning(false)}
-                                okText="OK"
-                                cancelText="Cancel"
-                            >
-                                <Radio.Group
-                                    options={[
-                                        {
-                                            label: 'Boolean value (A/B test)',
-                                            value: false,
-                                        },
-                                        {
-                                            label: (
-                                                <Tooltip
-                                                    title={
-                                                        hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
-                                                            ? ''
-                                                            : 'This feature is not available on your current plan.'
-                                                    }
-                                                >
-                                                    <div>
-                                                        {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                                                            <Link to={upgradeLink} target="_blank">
-                                                                <LockOutlined
-                                                                    style={{ marginRight: 4, color: 'var(--warning)' }}
-                                                                />
-                                                            </Link>
-                                                        )}
-                                                        String value (Multivariate test){' '}
-                                                    </div>
-                                                </Tooltip>
-                                            ),
-                                            value: true,
-                                            disabled: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS),
-                                        },
-                                    ]}
-                                    onChange={(e) => {
-                                        const { value } = e.target
-                                        if (value === false && nonEmptyVariants.length) {
-                                            setShowVariantDiscardWarning(true)
-                                        } else {
-                                            setMultivariateEnabled(value)
-                                            focusVariantKeyField(0)
-                                        }
-                                    }}
-                                    value={multivariateEnabled}
-                                    optionType="button"
-                                />
-                            </Popconfirm>
-                        </div>
-                        <div className="text-muted mb-4">
-                            {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                            {multivariateEnabled ? (
-                                <>
-                                    <strong>a variant key</strong> according to the below distribution
-                                </>
-                            ) : (
-                                <strong>
-                                    <code>true</code>
-                                </strong>
-                            )}{' '}
-                            if they match one or more release condition groups.
-                        </div>
-                        {multivariateEnabled && (
-                            <div className="variant-form-list space-y-2">
-                                <Row gutter={8} className="label-row">
-                                    <Col span={7}>Variant key</Col>
-                                    <Col span={7}>Description</Col>
-                                    <Col span={9}>
-                                        <span>Rollout percentage</span>
-                                        <Button
-                                            type="link"
-                                            onClick={distributeVariantsEqually}
-                                            icon={<MergeCellsOutlined />}
-                                            style={{ padding: '0 0 0 0.5em' }}
-                                            title="Distribute variants equally"
-                                        >
-                                            Distribute
-                                        </Button>
-                                    </Col>
-                                </Row>
-                                {variants.map((_, index) => (
-                                    <Group key={index} name={['filters', 'multivariate', 'variants', index]}>
-                                        <Row gutter={8}>
-                                            <Col span={7}>
-                                                <Field name="key">
-                                                    <LemonInput
-                                                        data-attr="feature-flag-variant-key"
-                                                        data-key-index={index.toString()}
-                                                        className="ph-ignore-input"
-                                                        placeholder={`example-variant-${index + 1}`}
-                                                        autoComplete="off"
-                                                        autoCapitalize="off"
-                                                        autoCorrect="off"
-                                                        spellCheck={false}
-                                                    />
-                                                </Field>
-                                            </Col>
-                                            <Col span={7}>
-                                                <Field name="name">
-                                                    <LemonInput
-                                                        data-attr="feature-flag-variant-name"
-                                                        className="ph-ignore-input"
-                                                        placeholder="Description"
-                                                    />
-                                                </Field>
-                                            </Col>
-                                            <Col span={7}>
-                                                <Field name="rollout_percentage">
-                                                    <Slider tooltipPlacement="top" />
-                                                </Field>
-                                            </Col>
-                                            <Col span={2}>
-                                                <Field name="rollout_percentage">
-                                                    {({ value, onChange }) => (
-                                                        <InputNumber
-                                                            min={0}
-                                                            max={100}
-                                                            value={value}
-                                                            onChange={(changedValue) => {
-                                                                if (
-                                                                    changedValue !== null &&
-                                                                    changedValue !== undefined
-                                                                ) {
-                                                                    const valueInt = parseInt(changedValue.toString())
-                                                                    if (!isNaN(valueInt)) {
-                                                                        onChange(valueInt)
-                                                                    }
-                                                                }
-                                                            }}
-                                                            style={{
-                                                                width: '100%',
-                                                                borderColor: areVariantRolloutsValid
-                                                                    ? undefined
-                                                                    : 'var(--danger)',
-                                                            }}
-                                                        />
-                                                    )}
-                                                </Field>
-                                            </Col>
-                                            {variants.length > 1 && (
-                                                <Col span={1}>
-                                                    <Tooltip title="Delete this variant" placement="bottomLeft">
-                                                        <Button
-                                                            type="link"
-                                                            icon={<DeleteOutlined />}
-                                                            onClick={() => removeVariant(index)}
-                                                            style={{ color: 'var(--danger)' }}
-                                                        />
-                                                    </Tooltip>
-                                                </Col>
-                                            )}
-                                        </Row>
-                                    </Group>
-                                ))}
-                                {variants.length > 0 && !areVariantRolloutsValid && (
-                                    <p className="text-danger">
-                                        Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}
-                                        ).
-                                    </p>
-                                )}
-                                <LemonButton
-                                    type="secondary"
-                                    onClick={() => {
-                                        const newIndex = variants.length
-                                        addVariant()
-                                        focusVariantKeyField(newIndex)
-                                    }}
-                                    fullWidth
-                                    center
-                                >
-                                    Add variant
-                                </LemonButton>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="feature-flag-form-row">
-                        <div data-attr="feature-flag-release-conditions">
-                            <h3 className="l3">Release conditions</h3>
-                            <div className="text-muted mb-4">
-                                Specify the {aggregationTargetName} to which you want to release this flag. Note that
-                                condition sets are rolled out independently of each other.
-                            </div>
-                        </div>
-                        {showGroupsOptions && (
-                            <div className="centered">
-                                Match by
-                                <Select
-                                    value={
-                                        featureFlag.filters?.aggregation_group_type_index != null
-                                            ? featureFlag.filters?.aggregation_group_type_index
-                                            : -1
-                                    }
-                                    onChange={(value) => {
-                                        const groupTypeIndex = value !== -1 ? value : null
-                                        setAggregationGroupTypeIndex(groupTypeIndex)
-                                    }}
-                                    style={{ marginLeft: 8 }}
-                                    data-attr="feature-flag-aggregation-filter"
-                                    dropdownMatchSelectWidth={false}
-                                    dropdownAlign={{
-                                        // Align this dropdown by the right-hand-side of button
-                                        points: ['tr', 'br'],
-                                    }}
-                                >
-                                    <Select.Option key={-1} value={-1}>
-                                        Users
-                                    </Select.Option>
-                                    {groupTypes.map((groupType) => (
-                                        <Select.Option
-                                            key={groupType.group_type_index}
-                                            value={groupType.group_type_index}
-                                        >
-                                            {capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural)}
-                                        </Select.Option>
-                                    ))}
-                                    {matchByGroupsIntroductionOption}
-                                </Select>
-                            </div>
-                        )}
-                    </div>
-                    <Row gutter={16}>
-                        {featureFlag.filters.groups.map((group, index) => (
-                            <Col span={24} md={24} key={`${index}-${featureFlag.filters.groups.length}`}>
-                                {index > 0 && (
-                                    <div style={{ display: 'flex', marginLeft: 16 }}>
-                                        <div className="stateful-badge or-light-grey mb-4">OR</div>
-                                    </div>
-                                )}
-                                <Card style={{ marginBottom: 16 }}>
-                                    <div className="feature-flag-form-row" style={{ height: 24 }}>
-                                        <div>
-                                            <span className="simple-tag tag-light-blue" style={{ marginRight: 8 }}>
-                                                Set {index + 1}
-                                            </span>
-                                            {group.properties?.length ? (
-                                                <>
-                                                    Matching <b>{aggregationTargetName}</b> with filters
-                                                </>
-                                            ) : (
-                                                <>
-                                                    Condition set will match <b>all {aggregationTargetName}</b>
-                                                </>
-                                            )}
-                                        </div>
-                                        <Row align="middle">
-                                            <Tooltip title="Duplicate this condition set" placement="bottomLeft">
-                                                <LemonButton
-                                                    icon={<IconCopy />}
-                                                    size="small"
-                                                    onClick={() => duplicateConditionSet(index)}
+                                    {featureFlag.id && (
+                                        <Tabs.TabPane tab="History" key="history">
+                                            <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
+                                        </Tabs.TabPane>
+                                    )}
+                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit && (
+                                        <Tabs.TabPane tab="Permissions" key="permissions">
+                                            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                                <ResourcePermission
+                                                    resourceType={Resource.FEATURE_FLAGS}
+                                                    isNewResource={id === 'new'}
+                                                    onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                    rolesToAdd={rolesToAdd}
+                                                    addableRoles={addableRoles}
+                                                    addableRolesLoading={unfilteredAddableRolesLoading}
+                                                    onAdd={() => addAssociatedRoles()}
+                                                    roles={derivedRoles}
+                                                    deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                    canEdit={featureFlag.can_edit}
                                                 />
-                                            </Tooltip>
-                                            {featureFlag.filters.groups.length > 1 && (
-                                                <Tooltip title="Delete this condition set" placement="bottomLeft">
-                                                    <LemonButton
-                                                        icon={<IconDelete />}
-                                                        size="small"
-                                                        onClick={() => removeConditionSet(index)}
-                                                    />
-                                                </Tooltip>
-                                            )}
-                                        </Row>
-                                    </div>
-
-                                    <LemonDivider className="my-4" />
-                                    <div className="ml-4">
-                                        <PropertyFilters
-                                            pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
-                                                }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
-                                            propertyFilters={group?.properties}
-                                            onChange={(properties) => updateConditionSet(index, undefined, properties)}
-                                            taxonomicGroupTypes={taxonomicGroupTypes}
-                                            showConditionBadge
-                                        />
-                                    </div>
-
-                                    <LemonDivider className="my-4" />
-
-                                    <div className="feature-flag-form-row">
-                                        <div className="centered">
-                                            Roll out to{' '}
-                                            <InputNumber
-                                                style={{ width: 100, marginLeft: 8, marginRight: 8 }}
-                                                onChange={(value): void => {
-                                                    updateConditionSet(index, value as number)
-                                                }}
-                                                value={
-                                                    group.rollout_percentage != null ? group.rollout_percentage : 100
-                                                }
-                                                min={0}
-                                                max={100}
-                                                addonAfter="%"
-                                            />{' '}
-                                            of <b>{aggregationTargetName}</b> in this set
-                                        </div>
-                                    </div>
-                                </Card>
-                            </Col>
-                        ))}
-                    </Row>
-                    <Card size="small" style={{ marginBottom: 16 }}>
-                        <LemonButton onClick={addConditionSet} fullWidth>
-                            Add condition set
-                        </LemonButton>
-                    </Card>
-                    <div className="text-right">
-                        <LemonButton
-                            htmlType="submit"
-                            loading={featureFlagLoading}
-                            type="primary"
-                            data-attr="feature-flag-submit-bottom"
-                        >
-                            Save changes
-                        </LemonButton>
-                    </div>
-                </Form>
-            )}
+                                            </PayGateMini>
+                                        </Tabs.TabPane>
+                                    )}
+                                </Tabs>
+                            </>
+                        )}
+                    </>
+                )}
+            </div>
         </>
+    )
+}
+
+function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+
+    return featureDataExploration ? (
+        <Query
+            query={{
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                    properties: defaultPropertyOnFlag(featureFlagKey),
+                },
+                showReload: true,
+                showColumnConfigurator: true,
+                showExport: true,
+            }}
+        />
+    ) : (
+        <EventsTable
+            fixedFilters={{
+                event_filter: '$feature_flag_called',
+                properties: defaultPropertyOnFlag(featureFlagKey),
+            }}
+            sceneUrl={urls.featureFlag(id)}
+            fetchMonths={3}
+            pageKey={`feature-flag-${featureFlagKey}}`}
+            showEventFilter={false}
+            showPropertyFilter={false}
+        />
     )
 }
 
@@ -871,7 +491,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const { distributeVariantsEqually, addVariant, removeVariant, setMultivariateEnabled } =
         useActions(featureFlagLogic)
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
-    const { hasAvailableFeature, upgradeLink } = useValues(userLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { upgradeLink } = useValues(billingLogic)
 
     return (
         <>
@@ -906,7 +527,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                 </Row>
                                 <LemonDivider className="my-3" />
                                 {variants.map((variant, index) => (
-                                    <>
+                                    <div key={index}>
                                         <Row>
                                             <Col span={10}>
                                                 <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
@@ -927,7 +548,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                             <Col span={2}>{variant.rollout_percentage}%</Col>
                                         </Row>
                                         {index !== variants.length - 1 && <LemonDivider className="my-3" />}
-                                    </>
+                                    </div>
                                 ))}
                             </div>
                         </>
@@ -1123,7 +744,17 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
 
 function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
-    const { aggregationTargetName, featureFlag, groupTypes, taxonomicGroupTypes } = useValues(featureFlagLogic)
+    const {
+        aggregationTargetName,
+        featureFlag,
+        groupTypes,
+        taxonomicGroupTypes,
+        nonEmptyVariants,
+        propertySelectErrors,
+        computeBlastRadiusPercentage,
+        affectedUsers,
+        totalUsers,
+    } = useValues(featureFlagLogic)
     const {
         setAggregationGroupTypeIndex,
         updateConditionSet,
@@ -1132,6 +763,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
         addConditionSet,
     } = useActions(featureFlagLogic)
     const { cohortsById } = useValues(cohortsModel)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     // :KLUDGE: Match by select only allows Select.Option as children, so render groups option directly rather than as a child
     const matchByGroupsIntroductionOption = GroupsIntroductionOption({ value: -2 })
@@ -1259,7 +891,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <>
                                     {group.properties.map((property, idx) => (
                                         <>
-                                            <div className="feature-flag-property-display">
+                                            <div className="feature-flag-property-display" key={idx}>
                                                 {idx === 0 ? (
                                                     <LemonButton
                                                         icon={<IconSubArrowRight className="arrow-right" />}
@@ -1276,7 +908,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 <span className="simple-tag tag-light-blue text-primary-alt">
                                                     {property.type === 'cohort' ? 'Cohort' : property.key}{' '}
                                                 </span>
-                                                <span>{allOperatorsToHumanName(property.operator)} </span>
+                                                {isPropertyFilterWithOperator(property) ? (
+                                                    <span>{allOperatorsToHumanName(property.operator)} </span>
+                                                ) : null}
                                                 {[
                                                     ...(Array.isArray(property.value)
                                                         ? property.value
@@ -1299,8 +933,9 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <div>
                                     <PropertyFilters
                                         orFiltering={true}
-                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${featureFlag.filters.groups.length
-                                            }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
+                                        pageKey={`feature-flag-${featureFlag.id}-${index}-${
+                                            featureFlag.filters.groups.length
+                                        }-${featureFlag.filters.aggregation_group_type_index ?? ''}`}
                                         propertyFilters={group?.properties}
                                         logicalRowDivider
                                         addButton={
@@ -1311,6 +946,25 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
                                         hasRowOperator={false}
+                                        sendAllKeyUpdates
+                                        errorMessages={
+                                            propertySelectErrors?.[index]?.properties?.some(
+                                                (message) => !!message.value
+                                            )
+                                                ? propertySelectErrors[index].properties.map((message, index) => {
+                                                      return message.value ? (
+                                                          <div
+                                                              key={index}
+                                                              className="text-danger flex items-center gap-1 text-sm"
+                                                          >
+                                                              <IconErrorOutline className="text-xl" /> {message.value}
+                                                          </div>
+                                                      ) : (
+                                                          <></>
+                                                      )
+                                                  })
+                                                : null
+                                        }
                                     />
                                 </div>
                             )}
@@ -1321,7 +975,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <div>
                                     Rolled out to{' '}
                                     <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                    <b>{aggregationTargetName}</b> in this set
+                                    <b>{aggregationTargetName}</b> in this set.{' '}
                                 </div>
                             ) : (
                                 <div className="feature-flag-form-row">
@@ -1337,9 +991,76 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             max={100}
                                             addonAfter="%"
                                         />{' '}
-                                        of <b>{aggregationTargetName}</b> in this set
+                                        of <b>{aggregationTargetName}</b> in this set.{' '}
+                                        {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
+                                            <>
+                                                Will match approximately{' '}
+                                                {affectedUsers[index] !== undefined ? (
+                                                    <b>
+                                                        {`${humanFriendlyNumber(
+                                                            computeBlastRadiusPercentage(
+                                                                group.rollout_percentage,
+                                                                index
+                                                            )
+                                                        )}% `}
+                                                    </b>
+                                                ) : (
+                                                    <Spinner className="mr-1" />
+                                                )}{' '}
+                                                {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
+                                                    ? `(${humanFriendlyNumber(
+                                                          Math.floor(
+                                                              (affectedUsers[index] *
+                                                                  (group.rollout_percentage ?? 100)) /
+                                                                  100
+                                                          )
+                                                      )} / ${humanFriendlyNumber(totalUsers)})`
+                                                    : ''}{' '}
+                                                of total {aggregationTargetName}.
+                                            </>
+                                        )}
                                     </div>
                                 </div>
+                            )}
+                            {featureFlags[FEATURE_FLAGS.VARIANT_OVERRIDES] && nonEmptyVariants.length > 0 && (
+                                <>
+                                    {(!readOnly || (readOnly && group.properties?.length > 0)) && (
+                                        <LemonDivider className="my-3" />
+                                    )}
+                                    {readOnly ? (
+                                        <div>
+                                            All <b>{aggregationTargetName}</b> in this set{' '}
+                                            {group.variant ? (
+                                                <>
+                                                    {' '}
+                                                    will be in variant <b>{group.variant}</b>
+                                                </>
+                                            ) : (
+                                                <>have no variant override</>
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <div className="feature-flag-form-row">
+                                            <div className="centered">
+                                                <b>Optional override:</b> Set variant for all{' '}
+                                                <b>{aggregationTargetName}</b> in this set to{' '}
+                                                <LemonSelect
+                                                    placeholder="Select variant"
+                                                    allowClear={true}
+                                                    value={group.variant}
+                                                    onChange={(value) =>
+                                                        updateConditionSet(index, undefined, undefined, value)
+                                                    }
+                                                    options={nonEmptyVariants.map((variant) => ({
+                                                        label: variant.key,
+                                                        value: variant.key,
+                                                    }))}
+                                                    data-attr="feature-flags-variant-override-select"
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </Col>

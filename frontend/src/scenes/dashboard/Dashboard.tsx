@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -8,7 +8,6 @@ import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
@@ -46,7 +45,7 @@ function DashboardScene(): JSX.Element {
         placement,
         dashboard,
         canEditDashboard,
-        items,
+        tiles,
         itemsLoading,
         filters: dashboardFilters,
         dashboardMode,
@@ -97,19 +96,14 @@ function DashboardScene(): JSX.Element {
 
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
-            ) : !items || items.length === 0 ? (
+            ) : !tiles || tiles.length === 0 ? (
                 <EmptyDashboardComponent loading={itemsLoading} />
             ) : (
                 <div>
-                    {![
-                        DashboardPlacement.Public,
-                        DashboardPlacement.Export,
-                        DashboardPlacement.InternalMetrics,
-                    ].includes(placement) && (
-                        <>
+                    <div className="flex space-x-4 justify-between">
+                        {![DashboardPlacement.Public, DashboardPlacement.Export].includes(placement) && (
                             <div className="flex space-x-4">
-                                <div className="flex items-center" style={{ height: '2rem' }}>
-                                    <TZIndicator style={{ marginRight: '0.5rem' }} />
+                                <div className="flex items-center h-8">
                                     <DateFilter
                                         showCustom
                                         dateFrom={dashboardFilters?.date_from ?? undefined}
@@ -130,23 +124,23 @@ function DashboardScene(): JSX.Element {
                                     propertyFilters={dashboard?.filters.properties}
                                 />
                             </div>
-                            <LemonDivider className="my-4" />
-                        </>
-                    )}
-                    {placement !== DashboardPlacement.Export && (
-                        <div className="flex pb-4 space-x-4 dashoard-items-actions">
-                            <div
-                                className="left-item"
-                                style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
-                            >
-                                {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement) ? (
-                                    <LastRefreshText />
-                                ) : (
-                                    <DashboardReloadAction />
-                                )}
+                        )}
+                        {placement !== DashboardPlacement.Export && (
+                            <div className="flex space-x-4 dashoard-items-actions">
+                                <div
+                                    className="left-item"
+                                    style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                                >
+                                    {[DashboardPlacement.Public].includes(placement) ? (
+                                        <LastRefreshText />
+                                    ) : (
+                                        <DashboardReloadAction />
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
+                    {placement !== DashboardPlacement.Export && <LemonDivider className="my-4" />}
                     <DashboardItems />
                 </div>
             )}

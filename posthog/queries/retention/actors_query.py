@@ -1,10 +1,11 @@
 import dataclasses
 from typing import List, Optional
 
-from posthog.client import substitute_params, sync_execute
+from posthog.client import substitute_params
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.retention.event_query import RetentionEventsQuery
 from posthog.queries.retention.sql import RETENTION_BREAKDOWN_ACTOR_SQL
 from posthog.queries.retention.types import BreakdownValues
@@ -26,6 +27,8 @@ class AppearanceRow:
 class RetentionActorsByPeriod(ActorBaseQuery):
     _filter: RetentionFilter
     _retention_events_query = RetentionEventsQuery
+
+    QUERY_TYPE = "retention_actors_by_period"
 
     def __init__(self, team: Team, filter: RetentionFilter):
         super().__init__(team, filter)
@@ -59,9 +62,9 @@ class RetentionActorsByPeriod(ActorBaseQuery):
             retention_events_query=self._retention_events_query,
         )
 
+        results = insight_sync_execute(actor_query, query_type="retention_actors", filter=self._filter)
         actor_appearances = [
-            AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1])
-            for row in sync_execute(actor_query)
+            AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1]) for row in results
         ]
 
         _, serialized_actors = self.get_actors_from_result(
@@ -105,7 +108,7 @@ def build_actor_activity_query(
         filter=filter,
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
-        using_person_on_events=team.actor_on_events_querying_enabled,
+        using_person_on_events=team.person_on_events_querying_enabled,
         retention_events_query=retention_events_query,
     )
 
@@ -113,7 +116,7 @@ def build_actor_activity_query(
         filter=filter,
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
-        using_person_on_events=team.actor_on_events_querying_enabled,
+        using_person_on_events=team.person_on_events_querying_enabled,
         retention_events_query=retention_events_query,
     )
 

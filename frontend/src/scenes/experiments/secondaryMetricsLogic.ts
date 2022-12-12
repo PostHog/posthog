@@ -2,7 +2,6 @@ import { actions, connect, events, kea, listeners, path, props, reducers } from 
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import {
-    ChartDisplayType,
     Experiment,
     FilterType,
     FunnelVizType,
@@ -149,7 +148,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 newInsightFilters = cleanFilters({
                     insight: InsightType.FUNNELS,
                     funnel_viz_type: FunnelVizType.Steps,
-                    display: ChartDisplayType.FunnelViz,
                     date_from: dayjs().subtract(DEFAULT_DURATION, 'day').format('YYYY-MM-DD'),
                     date_to: dayjs().endOf('d').format('YYYY-MM-DDTHH:mm'),
                     layout: FunnelLayout.horizontal,

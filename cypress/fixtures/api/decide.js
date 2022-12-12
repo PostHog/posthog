@@ -3,7 +3,7 @@ export function decideResponse(featureFlags) {
         config: {
             enable_collect_everything: true,
         },
-        editorParams: {
+        toolbarParams: {
             toolbarVersion: 'toolbar',
             jsURL: 'http://localhost:8234/',
         },

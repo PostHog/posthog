@@ -1,9 +1,10 @@
 import { kea } from 'kea'
 import { objectsEqual } from 'lib/utils'
-import { ChartDisplayType, InsightLogicProps, InsightType } from '~/types'
+import { ChartDisplayType, InsightLogicProps, InsightType, TrendsFilterType } from '~/types'
 import type { compareFilterLogicType } from './compareFilterLogicType'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { isStickinessFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
     props: {} as InsightLogicProps,
@@ -11,7 +12,7 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
     path: (key) => ['lib', 'components', 'CompareFilter', 'compareFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
         actions: [insightLogic(props), ['setFilters']],
-        values: [insightLogic(props), ['filters', 'canEditInsight']],
+        values: [insightLogic(props), ['filters as inflightFilters', 'canEditInsight']],
     }),
 
     actions: () => ({
@@ -20,7 +21,17 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
     }),
 
     selectors: {
-        compare: [(s) => [s.filters], (filters) => !!filters?.compare],
+        filters: [
+            (s) => [s.inflightFilters],
+            (inflightFilters): Partial<TrendsFilterType> =>
+                inflightFilters && (isTrendsFilter(inflightFilters) || isStickinessFilter(inflightFilters))
+                    ? inflightFilters
+                    : {},
+        ],
+        compare: [
+            (s) => [s.filters],
+            (filters) => filters && (isTrendsFilter(filters) || isStickinessFilter(filters)) && !!filters.compare,
+        ],
         disabled: [
             (s) => [s.filters, s.canEditInsight],
             ({ insight, date_from, display }, canEditInsight) =>
@@ -34,7 +45,8 @@ export const compareFilterLogic = kea<compareFilterLogicType>({
     listeners: ({ values, actions }) => ({
         setCompare: ({ compare }) => {
             if (!objectsEqual(compare, values.compare)) {
-                actions.setFilters({ ...values.filters, compare })
+                const newFilters: Partial<TrendsFilterType> = { ...values.filters, compare }
+                actions.setFilters(newFilters)
             }
         },
         toggleCompare: () => {

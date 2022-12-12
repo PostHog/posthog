@@ -69,7 +69,7 @@ class AnnotationsViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     search_fields = ["content"]
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
+        queryset = super().get_queryset().select_related("created_by")
         if self.action == "list":
             queryset = queryset.order_by("-date_marker")
         if self.action != "partial_update":

@@ -73,7 +73,7 @@ class TestDecide(BaseTest):
         self.team.save()
         response = self.client.get("/decide/", HTTP_ORIGIN="https://evilsite.com").json()
         self.assertEqual(response["isAuthenticated"], False)
-        self.assertIsNone(response["editorParams"].get("toolbarVersion", None))
+        self.assertIsNone(response["toolbarParams"].get("toolbarVersion", None))
 
     def test_user_session_recording_opt_in(self):
         # :TRICKY: Test for regression around caching
@@ -147,11 +147,11 @@ class TestDecide(BaseTest):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_web_app_injection(self):
+    def test_site_app_injection(self):
         plugin = Plugin.objects.create(organization=self.team.organization, name="My Plugin", plugin_type="source")
         PluginSourceFile.objects.create(
             plugin=plugin,
-            filename="web.ts",
+            filename="site.ts",
             source="export function inject (){}",
             transpiled="function inject(){}",
             status=PluginSourceFile.Status.TRANSPILED,
@@ -164,9 +164,9 @@ class TestDecide(BaseTest):
         with self.assertNumQueries(3):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            injected = response.json()["inject"]
+            injected = response.json()["siteApps"]
             self.assertEqual(len(injected), 1)
-            self.assertEqual(injected[0]["url"], f"/web_js/{plugin_config.id}/{plugin_config.web_token}/")
+            self.assertTrue(injected[0]["url"].startswith(f"/site_app/{plugin_config.id}/{plugin_config.web_token}/"))
 
     def test_feature_flags(self):
         self.team.app_urls = ["https://example.com"]

@@ -12,15 +12,18 @@ from django.db.models.signals import pre_delete
 from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
+from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.group import Group
 from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.organization import OrganizationMembership
 from posthog.models.property import GroupTypeIndex, GroupTypeName
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
+from posthog.models.team.team import Team
 from posthog.queries.base import match_property, properties_to_Q
 
 from .filters import Filter
@@ -79,6 +82,9 @@ class FeatureFlag(models.Model):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
     deleted: models.BooleanField = models.BooleanField(default=False)
     active: models.BooleanField = models.BooleanField(default=True)
+
+    rollback_conditions: models.JSONField = models.JSONField(null=True, blank=True)
+    performed_rollback: models.BooleanField = models.BooleanField(null=True, blank=True)
 
     ensure_experience_continuity: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
 
@@ -304,8 +310,8 @@ class FeatureFlagMatcher:
         groups: Dict[GroupTypeName, str] = {},
         cache: Optional[FlagsMatcherCache] = None,
         hash_key_overrides: Dict[str, str] = {},
-        property_value_overrides: Dict[str, str] = {},
-        group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+        property_value_overrides: Dict[str, Union[str, int]] = {},
+        group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -322,12 +328,24 @@ class FeatureFlagMatcher:
 
         highest_priority_evaluation_reason = FeatureFlagMatchReason.NO_CONDITION_MATCH
         highest_priority_index = 0
-        for index, condition in enumerate(feature_flag.conditions):
+        # Stable sort conditions with variant overrides to the top. This ensures that if overrides are present, they are
+        # evaluated first, and the variant override is applied to the first matching condition.
+        # :TRICKY: We need to include the enumeration index before the sort so the flag evaluation reason gets the right condition index.
+        sorted_flag_conditions = sorted(
+            enumerate(feature_flag.conditions),
+            key=lambda condition_tuple: 0 if condition_tuple[1].get("variant") else 1,
+        )
+        for index, condition in sorted_flag_conditions:
             is_match, evaluation_reason = self.is_condition_match(feature_flag, condition, index)
             if is_match:
+                variant_override = condition.get("variant")
+                if variant_override in [variant["key"] for variant in feature_flag.variants]:
+                    variant = variant_override
+                else:
+                    variant = self.get_matching_variant(feature_flag)
                 return FeatureFlagMatch(
                     match=True,
-                    variant=self.get_matching_variant(feature_flag),
+                    variant=variant,
                     reason=evaluation_reason,
                     condition_index=index,
                 )
@@ -413,6 +431,7 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
+
         team_id = self.feature_flags[0].team_id
         person_query: QuerySet = Person.objects.filter(
             team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
@@ -560,8 +579,8 @@ def _get_active_feature_flags(
     distinct_id: str,
     person_id: Optional[int] = None,
     groups: Dict[GroupTypeName, str] = {},
-    property_value_overrides: Dict[str, str] = {},
-    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+    property_value_overrides: Dict[str, Union[str, int]] = {},
+    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
     cache = FlagsMatcherCache(team_id)
 
@@ -590,8 +609,8 @@ def get_active_feature_flags(
     distinct_id: str,
     groups: Dict[GroupTypeName, str] = {},
     hash_key_override: Optional[str] = None,
-    property_value_overrides: Dict[str, str] = {},
-    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+    property_value_overrides: Dict[str, Union[str, int]] = {},
+    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
 
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
@@ -675,6 +694,77 @@ def set_feature_flag_hash_key_overrides(
 
     if new_overrides:
         FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
+
+
+def get_user_blast_radius(feature_flag_condition: dict, team: Team):
+
+    from posthog.queries.person_query import PersonQuery
+
+    properties = feature_flag_condition.get("properties") or []
+
+    # Removed rollout % from here, since it makes more sense to do that on the frontend
+
+    if len(properties) > 0:
+        filter = Filter(data=feature_flag_condition)
+        person_query, person_query_params = PersonQuery(filter, team.id).get_query()
+
+        total_count = sync_execute(
+            f"""
+            SELECT count(1) FROM (
+                {person_query}
+            )
+        """,
+            person_query_params,
+        )[0][0]
+
+    else:
+        total_count = team.persons_seen_so_far
+
+    blast_radius = total_count
+    total_users = team.persons_seen_so_far
+
+    return blast_radius, total_users
+
+
+def can_user_edit_feature_flag(request, feature_flag):
+    try:
+        from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+        from ee.models.organization_resource_access import OrganizationResourceAccess
+    except:
+        return True
+    else:
+        if feature_flag.created_by == request.user:
+            return True
+        if (
+            request.user.organization_memberships.get(organization=request.user.organization).level
+            >= OrganizationMembership.Level.ADMIN
+        ):
+            return True
+        all_role_memberships = request.user.role_memberships.select_related("role").all()
+        try:
+            feature_flag_resource_access = OrganizationResourceAccess.objects.get(
+                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+            )
+            org_level = feature_flag_resource_access.access_level
+        except OrganizationResourceAccess.DoesNotExist:
+            org_level = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
+
+        role_level = max([membership.role.feature_flags_access_level for membership in all_role_memberships], default=0)
+
+        if role_level == 0:
+            final_level = org_level
+        else:
+            final_level = role_level
+        if OrganizationResourceAccess.objects.filter(organization=request.user.organization).exists() is False:
+            return True
+        if final_level == OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW:
+            can_edit = FeatureFlagRoleAccess.objects.filter(
+                feature_flag__id=feature_flag.pk,
+                role__id__in=[membership.role.pk for membership in all_role_memberships],
+            ).exists()
+            return can_edit
+        else:
+            return final_level == OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
 
 
 # DEPRECATED: This model is no longer used, but it's not deleted to avoid downtime

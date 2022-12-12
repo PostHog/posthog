@@ -1,14 +1,14 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 
 import pytz
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from posthog.client import sync_execute
+from posthog.cache_utils import cache_for
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
-from posthog.models.filters.filter import Filter
+from posthog.queries.insight import insight_sync_execute
 
 EARLIEST_TIMESTAMP = "2015-01-01"
 
@@ -37,7 +37,7 @@ PERIOD_TO_INTERVAL_FUNC: Dict[str, str] = {
     "month": "toIntervalMonth",
 }
 
-
+# TODO: refactor since this is only used in one spot now
 def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] = None):
     if convert_to_timezone:
         # Here we probably get a timestamp set to the beginning of the day (00:00), in UTC
@@ -50,8 +50,13 @@ def format_ch_timestamp(timestamp: datetime, convert_to_timezone: Optional[str] 
     return timestamp.strftime("%Y-%m-%d %H:%M:%S")
 
 
+@cache_for(timedelta(seconds=2))
 def get_earliest_timestamp(team_id: int) -> datetime:
-    results = sync_execute(GET_EARLIEST_TIMESTAMP_SQL, {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP})
+    results = insight_sync_execute(
+        GET_EARLIEST_TIMESTAMP_SQL,
+        {"team_id": team_id, "earliest_timestamp": EARLIEST_TIMESTAMP},
+        query_type="get_earliest_timestamp",
+    )
     if len(results) > 0:
         return results[0][0]
     else:
@@ -83,14 +88,14 @@ def deep_dump_object(params: Dict[str, Any]) -> Dict[str, Any]:
     return params
 
 
-def start_of_week_fix(filter: Filter) -> str:
+def start_of_week_fix(interval: Optional[str]) -> str:
     """
     toStartOfWeek is the only trunc function that takes three arguments:
       toStartOfWeek(timestamp, mode, timezone)
     Mode is whether the week starts on sunday or monday, with 0 being sunday.
     This function adds mode to the trunc_func, but only if the interval is week
     """
-    return "0," if filter.interval == "week" else ""
+    return ", 0" if interval and interval.lower() == "week" else ""
 
 
 def convert_to_datetime_aware(date_obj):

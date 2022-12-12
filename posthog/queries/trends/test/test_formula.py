@@ -90,19 +90,6 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             data,
             [
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
                 1200.0,
                 0.0,
                 0.0,
@@ -315,8 +302,10 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     def test_compare(self):
         response = self._run({"date_from": "-1dStart", "compare": True})
+        self.assertEqual(response[0]["days"], ["2020-01-03", "2020-01-04"])
+        self.assertEqual(response[1]["days"], ["2020-01-01", "2020-01-02"])
         self.assertEqual(response[0]["data"], [1350.0, 0.0])
-        self.assertEqual(response[1]["data"], [1200.0, 1350.0])
+        self.assertEqual(response[1]["data"], [0.0, 1200.0])
 
     def test_pie(self):
         self.assertEqual(self._run({"display": TRENDS_PIE})[0]["aggregated_value"], 2160.0)

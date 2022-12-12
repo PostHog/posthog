@@ -1,6 +1,5 @@
-import React from 'react'
 import { useValues } from 'kea'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 
 export const UTM_TAGS = '?utm_medium=in-product&utm_campaign=feature-flag'
@@ -79,7 +78,7 @@ export function PythonSnippet({ flagKey }: { flagKey: string }): JSX.Element {
     return (
         <>
             <CodeSnippet language={Language.Python} wrap>
-                {`if posthog.feature_enabled("${flagKey}", "user_distinct_id"):
+                {`if posthog.feature_enabled("${flagKey}", "user_distinct_id"):
     runAwesomeFeature()
 `}
             </CodeSnippet>

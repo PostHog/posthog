@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import funnelOneStep from './funnelOneStep.json'
 import { useStorybookMocks } from '~/mocks/browser'
@@ -71,4 +71,4 @@ export function TimeoutState(): JSX.Element {
     return <App />
 }
 
-export const FunelSingleStep = createInsightScene(funnelOneStep as any)
+export const FunnelSingleStep = createInsightScene(funnelOneStep as any)

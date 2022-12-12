@@ -93,6 +93,19 @@ class SimEvent:
     distinct_id: str
     properties: Properties
     timestamp: dt.datetime
+    person_id: UUID
+    person_properties: Properties
+    person_created_at: dt.datetime
+    group0_properties: Optional[Properties] = None
+    group1_properties: Optional[Properties] = None
+    group2_properties: Optional[Properties] = None
+    group3_properties: Optional[Properties] = None
+    group4_properties: Optional[Properties] = None
+    group0_created_at: Optional[dt.datetime] = None
+    group1_created_at: Optional[dt.datetime] = None
+    group2_created_at: Optional[dt.datetime] = None
+    group3_created_at: Optional[dt.datetime] = None
+    group4_created_at: Optional[dt.datetime] = None
 
     def __str__(self) -> str:
         separator = (
@@ -125,14 +138,6 @@ class SimClient(ABC):
         }
         if properties:
             combined_properties.update(properties or {})
-        if person._groups:
-            combined_properties["$groups"] = deepcopy(person._groups)
-            for group_type, group_key in person._groups.items():
-                group_type_index = self.matrix._get_group_type_index(group_type)
-                combined_properties[f"$group_{group_type_index}"] = group_key
-        if feature_flags := person.decide_feature_flags():
-            for flag_key, flag_value in feature_flags.items():
-                combined_properties[f"$feature/{flag_key}"] = flag_value
         # Saving
         person._append_event(event, combined_properties, distinct_id=distinct_id, timestamp=timestamp)
 
@@ -289,7 +294,8 @@ class SimPerson(ABC):
     y: int
 
     # Constant properties
-    person_id: str
+    in_product_id: str  # User ID within the product being simulated (freeform string)
+    in_posthog_id: Optional[UUID]  # PostHog person ID (must be a UUID)
     country_code: str
     timezone: str
 
@@ -300,6 +306,8 @@ class SimPerson(ABC):
     # Exposed state - at `now`
     distinct_ids_at_now: Set[str]
     properties_at_now: Properties
+    first_seen_at: Optional[dt.datetime]
+    last_seen_at: Optional[dt.datetime]
 
     # Internal state
     active_client: SimBrowserClient  # Client being used by person
@@ -311,7 +319,6 @@ class SimPerson(ABC):
     _distinct_ids: Set[str]
     _properties: Properties
 
-    @abstractmethod
     def __init__(self, *, kernel: bool, cluster: "Cluster", x: int, y: int):
         self.past_events = []
         self.future_events = []
@@ -319,11 +326,15 @@ class SimPerson(ABC):
         self.cluster = cluster
         self.x = x
         self.y = y
-        self.person_id = self.cluster.random.randstr(False, 16)
+        self.in_product_id = self.cluster.random.randstr(False, 16)
+        self.in_posthog_id = None
         self.active_client = SimBrowserClient(self)
+        self.country_code = "US"
         self.all_time_pageview_counts = defaultdict(int)
         self.session_pageview_counts = defaultdict(int)
         self.active_session_intent = None
+        self.first_seen_at = None
+        self.last_seen_at = None
         self._groups = {}
         self._distinct_ids = set()
         self._properties = {}
@@ -333,21 +344,13 @@ class SimPerson(ABC):
         return " / ".join(self._distinct_ids) if self._distinct_ids else "???"
 
     def __hash__(self) -> int:
-        return hash(self.person_id)
+        return hash(self.in_product_id)
 
     # Helpers
 
     @property
     def all_events(self) -> Iterable[SimEvent]:
         return chain(self.past_events, self.future_events)
-
-    @property
-    def first_event(self) -> Optional[SimEvent]:
-        return self.past_events[0] if self.past_events else (self.future_events[0] if self.future_events else None)
-
-    @property
-    def last_event(self) -> Optional[SimEvent]:
-        return self.future_events[-1] if self.future_events else (self.past_events[-1] if self.past_events else None)
 
     # Public methods
 
@@ -422,7 +425,35 @@ class SimPerson(ABC):
 
     def _append_event(self, event: str, properties: Properties, *, distinct_id: str, timestamp: dt.datetime):
         """Append event to `past_events` or `future_events`, whichever is appropriate."""
-        sim_event = SimEvent(event=event, distinct_id=distinct_id, properties=properties, timestamp=timestamp)
+        if self.in_posthog_id is None:
+            self.in_posthog_id = self.cluster.roll_uuidt()
+        if self.first_seen_at is None:
+            self.first_seen_at = timestamp
+        self.last_seen_at = timestamp
+        if self._groups:
+            properties["$groups"] = deepcopy(self._groups)
+            for group_type, group_key in self._groups.items():
+                group_type_index = self.cluster.matrix._get_group_type_index(group_type)
+                properties[f"$group_{group_type_index}"] = group_key
+                # TODO: Support groups-on-events.
+                # This is tricky, because currently there's no way to get the state of a group at _append_event-time.
+                # The root of the issue is that groups state is stored on the matrix-level (self.cluster.matrix.groups)
+                # - and while time can only go forward at the cluster level, it DOES go backwards at the matrix level,
+                # because clusters are simulated one after another.
+                # groups_kwargs[f"group{group_type_index}_properties"] = deepcopy(<GROUP_PROPERTIES>)
+                # groups_kwargs[f"group{group_type_index}_created_at"] = deepcopy(<GROUP_CREATED_AT>)
+        if feature_flags := self.decide_feature_flags():
+            for flag_key, flag_value in feature_flags.items():
+                properties[f"$feature/{flag_key}"] = flag_value
+        sim_event = SimEvent(
+            event=event,
+            distinct_id=distinct_id,
+            properties=properties,
+            timestamp=timestamp,
+            person_id=self.in_posthog_id,
+            person_properties=deepcopy(self._properties),
+            person_created_at=self.first_seen_at,
+        )
         appropriate_events = self.future_events if sim_event.timestamp > self.cluster.now else self.past_events
         appropriate_events.append(sim_event)
         self._distinct_ids.add(distinct_id)

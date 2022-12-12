@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { BillingType, Realm } from '~/types'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
@@ -13,6 +13,7 @@ import { LemonSelect } from './LemonSelect'
 export default {
     title: 'Components/BillingAlerts',
     component: BillingAlerts,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof BillingAlerts>
 
 const Template = (): JSX.Element => {

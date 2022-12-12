@@ -14,11 +14,13 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
+from posthog.cloud_utils import is_cloud
 from posthog.models.organization import Organization
 from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
+from posthog.plugins.site import get_decide_site_apps
 from posthog.plugins.utils import (
     download_plugin_archive,
     extract_plugin_code,
@@ -26,7 +28,6 @@ from posthog.plugins.utils import (
     load_json_file,
     parse_url,
 )
-from posthog.plugins.web import get_decide_web_js_inject
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
@@ -61,8 +62,10 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
+        validated_data["latest_tag"] = None
         validated_data["archive"] = None
         validated_data["name"] = plugin_json.get("name", plugin_json_path.split("/")[-2])
+        validated_data["icon"] = plugin_json.get("icon", None)
         validated_data["description"] = plugin_json.get("description", "")
         validated_data["config_schema"] = plugin_json.get("config", [])
         validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
@@ -71,16 +74,19 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
     else:
         parsed_url = parse_url(url, get_latest_if_none=True)
         if parsed_url:
-            validated_data["url"] = parsed_url["root_url"]
+            validated_data["url"] = url
             validated_data["tag"] = parsed_url.get("tag", None)
+            validated_data["latest_tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
             plugin_json = cast(
-                Optional[Dict[str, Any]], get_file_from_archive(validated_data["archive"], "plugin.json")
+                Optional[Dict[str, Any]],
+                get_file_from_archive(validated_data["archive"], "plugin.json"),
             )
             if not plugin_json:
                 raise ValidationError("Could not find plugin.json in the plugin")
             validated_data["name"] = plugin_json["name"]
             validated_data["description"] = plugin_json.get("description", "")
+            validated_data["icon"] = plugin_json.get("icon", None)
             validated_data["config_schema"] = plugin_json.get("config", [])
             validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
             posthog_version = plugin_json.get("posthogVersion", None)
@@ -98,7 +104,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         ):
             validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
 
-    if posthog_version and not settings.MULTI_TENANCY:
+    if posthog_version and not is_cloud():
         try:
             spec = SimpleSpec(posthog_version.replace(" ", ""))
         except ValueError:
@@ -122,7 +128,6 @@ class PluginManager(models.Manager):
         plugin = Plugin.objects.create(**kwargs)
         if plugin_json:
             PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
-        reload_plugins_on_workers()
         return plugin
 
 
@@ -148,6 +153,7 @@ class Plugin(models.Model):
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
     config_schema: models.JSONField = models.JSONField(default=dict)
@@ -213,7 +219,7 @@ class PluginConfig(models.Model):
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: models.JSONField = models.JSONField(default=None, null=True)
-    # Used to access web.ts from a public URL
+    # Used to access site.ts from a public URL
     web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
@@ -265,7 +271,7 @@ class PluginSourceFileManager(models.Manager):
 
         If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
         try:
-            plugin_json, index_ts, frontend_tsx, web_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
         except ValueError as e:
             raise exceptions.ValidationError(f"{e} in plugin {plugin}")
         # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
@@ -287,15 +293,15 @@ class PluginSourceFileManager(models.Manager):
         else:
             filenames_to_delete.append("frontend.tsx")
         # Save frontend.tsx
-        web_ts_instance: Optional["PluginSourceFile"] = None
-        if web_ts is not None:
-            web_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+        site_ts_instance: Optional["PluginSourceFile"] = None
+        if site_ts is not None:
+            site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
                 plugin=plugin,
-                filename="web.ts",
-                defaults={"source": web_ts, "transpiled": None, "status": None, "error": None},
+                filename="site.ts",
+                defaults={"source": site_ts, "transpiled": None, "status": None, "error": None},
             )
         else:
-            filenames_to_delete.append("web.ts")
+            filenames_to_delete.append("site.ts")
         # Save index.ts
         index_ts_instance: Optional["PluginSourceFile"] = None
         if index_ts is not None:
@@ -310,7 +316,9 @@ class PluginSourceFileManager(models.Manager):
             filenames_to_delete.append("index.ts")
         # Make sure files are gone
         PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
-        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, web_ts_instance
+        # Trigger plugin server reload and code transpilation
+        plugin.save()
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, site_ts_instance
 
 
 class PluginSourceFile(UUIDModel):
@@ -329,6 +337,7 @@ class PluginSourceFile(UUIDModel):
     status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
     transpiled: models.TextField = models.TextField(blank=True, null=True)
     error: models.TextField = models.TextField(blank=True, null=True)
+    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
     objects: PluginSourceFileManager = PluginSourceFileManager()
 
@@ -395,7 +404,12 @@ def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: Dict[str
     for key, field_options in payload_spec.items():
         if field_options.get("required", False) and key not in payload:
             raise ValidationError(f"Missing required job field: {key}")
-        if field_options.get("staff_only", False) and not is_staff and key in payload:
+        if (
+            field_options.get("staff_only", False)
+            and not is_staff
+            and key in payload
+            and payload.get(key) != field_options.get("default")
+        ):
             raise ValidationError(f"Field is only settable for admins: {key}")
 
     for key in payload:
@@ -405,7 +419,7 @@ def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: Dict[str
 
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
-    if created and not settings.MULTI_TENANCY and can_install_plugins(instance):
+    if created and not is_cloud() and can_install_plugins(instance):
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             try:
                 Plugin.objects.install(
@@ -450,7 +464,7 @@ def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
 def sync_team_inject_web_apps(team: Optional[Team]):
     if not team:
         return
-    inject_web_apps = len(get_decide_web_js_inject(team)) > 0
+    inject_web_apps = len(get_decide_site_apps(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
 

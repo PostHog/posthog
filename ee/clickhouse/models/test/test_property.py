@@ -11,6 +11,7 @@ from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
 from posthog.models.filters import Filter
+from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.property import Property, TableWithProperties
 from posthog.models.property.util import (
     PropertyGroup,
@@ -564,6 +565,10 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         )
         self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
 
+    def test_get_property_string_expr_groups(self):
+        if not get_instance_setting("GROUPS_ON_EVENTS_ENABLED"):
+            return
+
         string_expr = get_property_string_expr(
             "events",
             "some_mat_prop3",
@@ -728,19 +733,24 @@ def test_breakdown_query_expression_materialised(
     expected_with: str,
     expected_without: str,
 ):
-    materialize(table, breakdown[0], table_column="properties")
-    actual = get_single_or_multi_property_string_expr(
-        breakdown, table, query_alias, column, materialised_table_column=materialise_column
-    )
+    with override_instance_config("GROUPS_ON_EVENTS_ENABLED", True):
+        from posthog.models.team import util
 
-    assert actual == expected_with
+        util.can_enable_actor_on_events = True
 
-    materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
-    actual = get_single_or_multi_property_string_expr(
-        breakdown, table, query_alias, column, materialised_table_column=materialise_column
-    )
+        materialize(table, breakdown[0], table_column="properties")
+        actual = get_single_or_multi_property_string_expr(
+            breakdown, table, query_alias, column, materialised_table_column=materialise_column
+        )
 
-    assert actual == expected_without
+        assert actual == expected_with
+
+        materialize(table, breakdown[0], table_column=materialise_column)  # type: ignore
+        actual = get_single_or_multi_property_string_expr(
+            breakdown, table, query_alias, column, materialised_table_column=materialise_column
+        )
+
+        assert actual == expected_without
 
 
 @pytest.fixture
@@ -1175,6 +1185,9 @@ def test_prop_filter_json_extract_materialized(
 def test_prop_filter_json_extract_person_on_events_materialized(
     test_events, clean_up_materialised_columns, property, expected_event_indexes, team
 ):
+    if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+        return
+
     # simulates a group property being materialised
     materialize("events", property.key, table_column="group2_properties")
 

@@ -2,13 +2,13 @@ from typing import List
 
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import Q, UniqueConstraint
+from django.db.models import Q, QuerySet, UniqueConstraint
 from django.db.models.signals import post_save
-from django.dispatch import receiver
 from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight, generate_insight_cache_key
+from posthog.models.signals import mutable_receiver
 from posthog.models.tagged_item import build_check
 
 
@@ -40,6 +40,8 @@ class DashboardTile(models.Model):
     refreshing: models.BooleanField = models.BooleanField(null=True)
     refresh_attempt: models.IntegerField = models.IntegerField(null=True, blank=True)
 
+    deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
+
     class Meta:
         indexes = [models.Index(fields=["filters_hash"], name="query_by_filters_hash_idx")]
         constraints = [
@@ -53,6 +55,13 @@ class DashboardTile(models.Model):
             ),
             models.CheckConstraint(check=build_check(("insight", "text")), name="dash_tile_exactly_one_related_object"),
         ]
+
+    @property
+    def caching_state(self):
+        # uses .all and not .first so that prefetching can be used
+        for state in self.caching_states.all():
+            return state
+        return None
 
     def clean(self):
         super().clean()
@@ -77,8 +86,28 @@ class DashboardTile(models.Model):
 
         super(DashboardTile, self).save(*args, **kwargs)
 
+    def copy_to_dashboard(self, dashboard: Dashboard) -> None:
+        DashboardTile.objects.create(
+            dashboard=dashboard, insight=self.insight, text=self.text, color=self.color, layouts=self.layouts
+        )
 
-@receiver(post_save, sender=Insight)
+    @staticmethod
+    def dashboard_queryset(queryset: QuerySet) -> QuerySet:
+        return (
+            queryset.select_related(
+                "insight",
+                "text",
+                "insight__created_by",
+                "insight__last_modified_by",
+                "insight__team",
+            )
+            .exclude(deleted=True)
+            .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
+            .order_by("insight__order")
+        )
+
+
+@mutable_receiver(post_save, sender=Insight)
 def on_insight_saved(sender, instance: Insight, **kwargs):
     update_fields = kwargs.get("update_fields")
     if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"})]:
@@ -89,7 +118,7 @@ def on_insight_saved(sender, instance: Insight, **kwargs):
     update_filters_hashes(tile_update_candidates)
 
 
-@receiver(post_save, sender=Dashboard)
+@mutable_receiver(post_save, sender=Dashboard)
 def on_dashboard_saved(sender, instance: Dashboard, **kwargs):
     tile_update_candidates = DashboardTile.objects.select_related("insight", "dashboard").filter(dashboard=instance)
     update_filters_hashes(tile_update_candidates)
@@ -112,6 +141,7 @@ def update_filters_hashes(tile_update_candidates):
 def get_tiles_ordered_by_position(dashboard: Dashboard, size: str = "xs") -> List[DashboardTile]:
     tiles = list(
         dashboard.tiles.select_related("insight", "text")
+        .exclude(deleted=True)
         .exclude(insight__deleted=True)
         .order_by("insight__order")
         .all()

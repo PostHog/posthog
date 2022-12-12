@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { BIN_COUNT_AUTO } from 'lib/constants'
@@ -16,9 +15,11 @@ interface BinOption {
     display: boolean
 }
 
-const MIN = 0,
-    MAX = 90 // constraints defined by backend #4995
+// Constraints as defined in funnel_time_to_convert.py:34
+const MIN = 1
+const MAX = 90
 const NUMBER_PRESETS = new Set([5, 15, 25, 50, 90])
+
 const options: BinOption[] = [
     {
         label: 'Auto bins',
@@ -87,7 +88,7 @@ export function FunnelBinsPicker({ disabled }: { disabled?: boolean }): JSX.Elem
                     }
                     return (
                         <Select.Option
-                            className={clsx({ 'select-option-hidden': !option.display })}
+                            className={clsx({ hidden: !option.display })}
                             key={option.value}
                             value={option.value}
                             label={

@@ -1,4 +1,3 @@
-import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
 import { prompt } from 'lib/logic/prompt'
@@ -19,6 +18,10 @@ export const insightsModel = kea<insightsModelType>({
             dashboardId,
         }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
+        insightsAddedToDashboard: ({ dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }) => ({
+            dashboardId,
+            insightIds,
+        }),
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {

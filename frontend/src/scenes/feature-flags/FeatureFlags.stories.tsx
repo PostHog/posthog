@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'

@@ -1,7 +1,8 @@
 # name: TestPerson.test_group_query_includes_recording_events
   '
   
-  SELECT $group_0 AS actor_id ,
+  SELECT $group_0 AS actor_id,
+         count() AS actor_value ,
          groupUniqArray(100)((timestamp,
                               uuid,
                               $session_id,
@@ -15,9 +16,12 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'pageview'
-       AND timestamp >= toDateTime('2021-01-21 00:00:00')
-       AND timestamp <= toDateTime('2021-01-21 23:59:59') )
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
+       AND "$group_0" != '' )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -35,7 +39,8 @@
 # name: TestPerson.test_person_query_does_not_include_recording_events_if_flag_not_set
   '
   
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -51,9 +56,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'pageview'
-       AND timestamp >= toDateTime('2021-01-21 00:00:00')
-       AND timestamp <= toDateTime('2021-01-21 23:59:59') )
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '

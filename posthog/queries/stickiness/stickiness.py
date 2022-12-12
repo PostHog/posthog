@@ -2,13 +2,13 @@ import copy
 import urllib.parse
 from typing import Any, Dict, List
 
-from posthog.client import sync_execute
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models.action import Action
 from posthog.models.entity import Entity
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
 from posthog.queries.base import handle_compare
+from posthog.queries.insight import insight_sync_execute
 from posthog.queries.stickiness.stickiness_actors import StickinessActors
 from posthog.queries.stickiness.stickiness_event_query import StickinessEventsQuery
 from posthog.utils import encode_get_request_params
@@ -31,7 +31,7 @@ class Stickiness:
 
     def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> Dict[str, Any]:
         events_query, event_params = self.event_query_class(
-            entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+            entity, filter, team, using_person_on_events=team.person_on_events_querying_enabled
         ).get_query()
 
         query = f"""
@@ -39,14 +39,13 @@ class Stickiness:
         WHERE num_intervals <= %(num_intervals)s
         GROUP BY num_intervals
         ORDER BY num_intervals
-        SETTINGS optimize_move_to_prewhere = 0
         """
 
-        counts = sync_execute(
+        counts = insight_sync_execute(
             query,
             {**event_params, "num_intervals": filter.total_intervals},
-            client_query_id=filter.client_query_id,
-            client_query_team_id=team.pk,
+            query_type="stickiness",
+            filter=filter,
         )
         return self.process_result(counts, filter, entity)
 

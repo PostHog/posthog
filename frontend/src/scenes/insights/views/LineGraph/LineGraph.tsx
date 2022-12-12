@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 import { useValues } from 'kea'
 import {
@@ -8,26 +8,26 @@ import {
     ChartEvent,
     ChartItem,
     ChartOptions,
-    ChartPluginsOptions,
     ChartType,
     Color,
     InteractionItem,
     TickOptions,
     TooltipModel,
     TooltipOptions,
+    ScriptableLineSegmentContext,
 } from 'chart.js'
 import { CrosshairOptions } from 'chartjs-plugin-crosshair'
 import 'chartjs-adapter-dayjs-3'
-import { areObjectValuesEmpty, lightenDarkenColor } from '~/lib/utils'
+import { areObjectValuesEmpty, lightenDarkenColor, hexToRGBA } from '~/lib/utils'
 import { getBarColorFromStatus, getGraphColors, getSeriesColor } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
-import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType } from '~/types'
+import { GraphDataset, GraphPoint, GraphPointPayload, GraphType, InsightType, TrendsFilterType } from '~/types'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { lineGraphLogic } from 'scenes/insights/views/LineGraph/lineGraphLogic'
 import { TooltipConfig } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { groupsModel } from '~/models/groupsModel'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { AggregationAxisFormat, formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
@@ -46,9 +46,11 @@ export interface LineGraphProps {
     showPersonsModal?: boolean
     tooltip?: TooltipConfig
     isCompare?: boolean
+    inCardView?: boolean
+    isArea?: boolean
     incompletenessOffsetFromEnd?: number // Number of data points at end of dataset to replace with a dotted line. Only used in line graphs.
     labelGroupType: number | 'people' | 'none'
-    aggregationAxisFormat?: AggregationAxisFormat
+    filters?: Partial<TrendsFilterType>
 }
 
 export function ensureTooltipElement(): HTMLElement {
@@ -165,6 +167,56 @@ export function onChartHover(
     }
 }
 
+export const filterNestedDataset = (
+    hiddenLegendKeys: Record<string | number, boolean | undefined> | undefined,
+    datasets: GraphDataset[]
+): GraphDataset[] => {
+    if (!hiddenLegendKeys) {
+        return datasets
+    }
+    // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
+    const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
+    return datasets.map((_data) => {
+        // Performs a filter transformation on properties that contain arrayed data
+        return Object.fromEntries(
+            Object.entries(_data).map(([key, val]) =>
+                Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
+                    ? [key, val?.filter(filterFn)]
+                    : [key, val]
+            )
+        ) as GraphDataset
+    })
+}
+
+function createPinstripePattern(color: string): CanvasPattern {
+    const stripeWidth = 8 // 0.5rem
+    const stripeAngle = -22.5
+
+    // create the canvas and context
+    const canvas = document.createElement('canvas')
+    canvas.width = 1
+    canvas.height = stripeWidth * 2
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const ctx = canvas.getContext('2d')!
+
+    // fill the canvas with given color
+    ctx.fillStyle = color
+    ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+    // overlay half-transparent white stripe
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)'
+    ctx.fillRect(0, stripeWidth, 1, 2 * stripeWidth)
+
+    // create a canvas pattern and rotate it
+    // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+    const pattern = ctx.createPattern(canvas, 'repeat')!
+    const xAx = Math.cos(stripeAngle)
+    const xAy = Math.sin(stripeAngle)
+    pattern.setTransform(new DOMMatrix([xAx, xAy, -xAy, xAx, 0, 0]))
+
+    return pattern
+}
+
 export function LineGraph_({
     datasets: _datasets,
     hiddenLegendKeys,
@@ -175,10 +227,12 @@ export function LineGraph_({
     ['data-attr']: dataAttr,
     showPersonsModal = true,
     isCompare = false,
+    inCardView,
+    isArea = false,
     incompletenessOffsetFromEnd = -1,
     tooltip: tooltipConfig,
     labelGroupType,
-    aggregationAxisFormat = 'numeric',
+    filters,
 }: LineGraphProps): JSX.Element {
     let datasets = _datasets
 
@@ -203,6 +257,7 @@ export function LineGraph_({
     const isBar = [GraphType.Bar, GraphType.HorizontalBar, GraphType.Histogram].includes(type)
     const isBackgroundBasedGraphType = [GraphType.Bar, GraphType.HorizontalBar].includes(type)
     const showAnnotations = (!insightType || insightType === InsightType.TRENDS) && !isHorizontal
+    const shouldAutoResize = isHorizontal && !inCardView
 
     // Remove tooltip element on unmount
     useEffect(() => {
@@ -215,16 +270,48 @@ export function LineGraph_({
     function processDataset(dataset: ChartDataset<any>): ChartDataset<any> {
         const mainColor = dataset?.status
             ? getBarColorFromStatus(dataset.status)
-            : getSeriesColor(dataset.id, isCompare)
+            : getSeriesColor(dataset.id, isCompare && !isArea)
         const hoverColor = dataset?.status ? getBarColorFromStatus(dataset.status, true) : mainColor
+        const areaBackgroundColor = hexToRGBA(mainColor, 0.5)
+        const areaIncompletePattern = createPinstripePattern(areaBackgroundColor)
+        let backgroundColor: string | undefined = undefined
+        if (isBackgroundBasedGraphType) {
+            backgroundColor = mainColor
+        } else if (isArea) {
+            backgroundColor = areaBackgroundColor
+        }
 
         // `horizontalBar` colors are set in `ActionsHorizontalBar.tsx` and overridden in spread of `dataset` below
         return {
             borderColor: mainColor,
             hoverBorderColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : hoverColor,
             hoverBackgroundColor: isBackgroundBasedGraphType ? lightenDarkenColor(mainColor, -20) : undefined,
-            backgroundColor: isBackgroundBasedGraphType ? mainColor : undefined,
-            fill: false,
+            fill: isArea ? 'origin' : false,
+            backgroundColor,
+            segment: {
+                borderDash: (ctx: ScriptableLineSegmentContext) => {
+                    // If chart is line graph, show dotted lines for incomplete data
+                    if (!(type === GraphType.Line && isInProgress)) {
+                        return undefined
+                    }
+
+                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
+                    // if last date is still active show dotted line
+                    return isIncomplete && isActive ? [10, 10] : undefined
+                },
+                backgroundColor: (ctx: ScriptableLineSegmentContext) => {
+                    // If chart is area graph, show pinstripe pattern for incomplete data
+                    if (!(type === GraphType.Line && isInProgress && isArea)) {
+                        return undefined
+                    }
+
+                    const isIncomplete = ctx.p1DataIndex >= dataset.data.length + incompletenessOffsetFromEnd
+                    const isActive = !dataset.compare || dataset.compare_label != 'previous'
+                    // if last date is still active show dotted line
+                    return isIncomplete && isActive ? areaIncompletePattern : undefined
+                },
+            },
             borderWidth: isBar ? 0 : 2,
             pointRadius: 0,
             hitRadius: 0,
@@ -242,58 +329,16 @@ export function LineGraph_({
         // Hide intentionally hidden keys
         if (!areObjectValuesEmpty(hiddenLegendKeys)) {
             if (isHorizontal) {
-                // If series are nested (for ActionsHorizontalBar and Pie), filter out the series by index
-                const filterFn = (_: any, i: number): boolean => !hiddenLegendKeys?.[i]
-                datasets = datasets.map((_data) => {
-                    // Performs a filter transformation on properties that contain arrayed data
-                    return Object.fromEntries(
-                        Object.entries(_data).map(([key, val]) =>
-                            Array.isArray(val) && val.length === datasets?.[0]?.actions?.length
-                                ? [key, val?.filter(filterFn)]
-                                : [key, val]
-                        )
-                    ) as GraphDataset
-                })
+                datasets = filterNestedDataset(hiddenLegendKeys, datasets)
             } else {
                 datasets = datasets.filter((data) => !hiddenLegendKeys?.[data.id])
             }
         }
 
-        // If chart is line graph, make duplicate lines and overlay to show dotted lines
-        if (type === GraphType.Line && isInProgress) {
-            datasets = [
-                ...datasets.map((dataset) => {
-                    const sliceTo = incompletenessOffsetFromEnd
-                    const datasetCopy = Object.assign({}, dataset, {
-                        data: [
-                            ...[...(dataset.data || [])].slice(0, sliceTo),
-                            ...(dataset.data?.slice(sliceTo).map(() => null) ?? []),
-                        ],
-                    })
-                    return processDataset(datasetCopy)
-                }),
-                ...datasets.map((dataset) => {
-                    const datasetCopy = Object.assign({}, dataset)
-                    datasetCopy.dotted = true
+        datasets = datasets.map((dataset) => processDataset(dataset))
 
-                    // if last date is still active show dotted line
-                    if (!dataset.compare || dataset.compare_label != 'previous') {
-                        datasetCopy['borderDash'] = [10, 10]
-                    }
-
-                    // Nullify dates that don't have dotted line
-                    const sliceFrom = incompletenessOffsetFromEnd - 1
-                    datasetCopy.data = [
-                        ...(datasetCopy.data?.slice(0, sliceFrom).map(() => null) ?? []),
-                        ...(datasetCopy.data?.slice(sliceFrom) ?? []),
-                    ] as number[]
-                    return processDataset(datasetCopy)
-                }),
-            ]
-        } else {
-            datasets = datasets.map((dataset) => processDataset(dataset))
-        }
-
+        const seriesMax = Math.max(...datasets.flatMap((d) => d.data).filter((n) => !!n))
+        const precision = seriesMax < 5 ? 1 : seriesMax < 2 ? 2 : 0
         const tickOptions: Partial<TickOptions> = {
             color: colors.axisLabel as Color,
         }
@@ -308,7 +353,7 @@ export function LineGraph_({
             itemSort: (a, b) => a.label.localeCompare(b.label),
         }
 
-        const options: ChartOptions & { plugins: ChartPluginsOptions } = {
+        const options: ChartOptions = {
             responsive: true,
             maintainAspectRatio: false,
             elements: {
@@ -361,8 +406,7 @@ export function LineGraph_({
                                     hideColorCol={isHorizontal || !!tooltipConfig?.hideColorCol}
                                     renderCount={
                                         tooltipConfig?.renderCount ||
-                                        ((value: number): string =>
-                                            formatAggregationAxisValue(aggregationAxisFormat, value))
+                                        ((value: number): string => formatAggregationAxisValue(filters, value))
                                     }
                                     forceEntitiesAsColumns={isHorizontal}
                                     hideInspectActorsSection={!onClick || !showPersonsModal}
@@ -436,7 +480,7 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
                     },
                 },
@@ -444,10 +488,10 @@ export function LineGraph_({
                     beginAtZero: true,
                     stacked: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
                         callback: (value) => {
-                            return formatAggregationAxisValue(aggregationAxisFormat, value)
+                            return formatAggregationAxisValue(filters, value)
                         },
                     },
                 },
@@ -468,11 +512,12 @@ export function LineGraph_({
                 y: {
                     beginAtZero: true,
                     display: true,
+                    stacked: isArea,
                     ticks: {
-                        precision: 0,
+                        precision,
                         ...tickOptions,
                         callback: (value) => {
-                            return formatAggregationAxisValue(aggregationAxisFormat, value)
+                            return formatAggregationAxisValue(filters, value)
                         },
                     },
                     grid: {
@@ -487,17 +532,32 @@ export function LineGraph_({
                     display: true,
                     ticks: {
                         ...tickOptions,
-                        precision: 0,
+                        precision,
                         callback: (value) => {
-                            return formatAggregationAxisValue(aggregationAxisFormat, value)
+                            return formatAggregationAxisValue(filters, value)
                         },
                     },
                 },
                 y: {
+                    beforeFit: (scale) => {
+                        if (shouldAutoResize) {
+                            // automatically resize the chart container to fit the number of rows
+                            const MIN_HEIGHT = 575
+                            const ROW_HEIGHT = 16
+                            const dynamicHeight = scale.ticks.length * ROW_HEIGHT
+                            const height = Math.max(dynamicHeight, MIN_HEIGHT)
+                            const parentNode: any = scale.chart?.canvas?.parentNode
+                            parentNode.style.height = `${height}px`
+                        } else {
+                            // display only as many bars, as we can fit labels
+                            scale.max = scale.ticks.length
+                        }
+                    },
                     beginAtZero: true,
                     ticks: {
-                        precision: 0,
+                        precision,
                         color: colors.axisLabel as string,
+                        autoSkip: !shouldAutoResize,
                         callback: function _renderYLabel(_, i) {
                             const labelDescriptors = [
                                 datasets?.[0]?.actions?.[i]?.custom_name ?? datasets?.[0]?.actions?.[i]?.name, // action name
@@ -522,7 +582,10 @@ export function LineGraph_({
     }, [datasets, hiddenLegendKeys])
 
     return (
-        <div className="LineGraph absolute w-full h-full overflow-hidden" data-attr={dataAttr}>
+        <div
+            className={`w-full h-full overflow-hidden ${shouldAutoResize ? 'mx-6 mb-6' : 'LineGraph absolute'}`}
+            data-attr={dataAttr}
+        >
             <canvas ref={canvasRef} />
             {showAnnotations && myLineChart && chartWidth && chartHeight ? (
                 <AnnotationsOverlay

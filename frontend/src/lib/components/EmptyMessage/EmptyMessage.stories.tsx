@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
 import { EmptyMessage } from './EmptyMessage'
@@ -6,6 +5,7 @@ import { EmptyMessage } from './EmptyMessage'
 export default {
     title: 'Components/Empty Message',
     component: EmptyMessage,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof EmptyMessage>
 
 export function EmptyMessage_(): JSX.Element {

@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import structlog
@@ -15,7 +15,7 @@ from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
 from posthog.models.feature_flag import get_active_feature_flags
-from posthog.plugins.web import get_decide_web_js_inject
+from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
 
@@ -62,7 +62,7 @@ def get_decide(request: HttpRequest):
 
     response = {
         "config": {"enable_collect_everything": True},
-        "editorParams": {},
+        "toolbarParams": {},
         "isAuthenticated": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
@@ -142,7 +142,10 @@ def get_decide(request: HttpRequest):
                 )
 
             property_overrides = get_geoip_properties(get_ip_address(request))
-            all_property_overrides = {**property_overrides, **(data.get("person_properties") or {})}
+            all_property_overrides: Dict[str, Union[str, int]] = {
+                **property_overrides,
+                **(data.get("person_properties") or {}),
+            }
 
             feature_flags, _ = get_active_feature_flags(
                 team.pk,
@@ -160,7 +163,7 @@ def get_decide(request: HttpRequest):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
                 response["sessionRecording"] = {"endpoint": "/s/", "consoleLogRecordingEnabled": capture_console_logs}
 
-            response["inject"] = get_decide_web_js_inject(team) if team.inject_web_apps else []
+            response["siteApps"] = get_decide_site_apps(team) if team.inject_web_apps else []
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

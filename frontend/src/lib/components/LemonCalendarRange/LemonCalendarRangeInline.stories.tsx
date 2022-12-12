@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonCalendarRangeProps } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
 import { dayjs } from 'lib/dayjs'
@@ -8,6 +8,7 @@ import { LemonCalendarRangeInline } from './LemonCalendarRangeInline'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Range Inline',
     component: LemonCalendarRangeInline,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonCalendarRangeInline>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarRangeInline> = (props: LemonCalendarRangeProps) => {

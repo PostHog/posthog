@@ -52,11 +52,16 @@
     position: sticky;
     top: 3.5rem;
     width: 100%;
-    max-height: calc(100vh - 3.5rem);
-    overflow: auto;
-    padding: 1rem 0.5rem;
+    height: calc(100vh - 3.5rem);
+
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    justify-content: space-between;
 
     > ul {
+        overflow: auto;
+        padding: 1rem 0.5rem;
         li {
             margin-top: 1px;
         }

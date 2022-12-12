@@ -1,9 +1,9 @@
-import { Params, Scene, SceneConfig, LoadedScene } from 'scenes/sceneTypes'
+import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId } from '~/types'
+import { InsightShortId, SessionRecordingsTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -86,6 +86,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Recordings',
     },
+    [Scene.SessionRecording]: {
+        projectBased: true,
+        name: 'Recordings',
+    },
+    [Scene.SessionRecordingPlaylist]: {
+        projectBased: true,
+        name: 'Recordings Playlist',
+    },
     [Scene.Person]: {
         projectBased: true,
         name: 'Person',
@@ -132,6 +140,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.FrontendAppScene]: {
         projectBased: true,
         name: 'App',
+    },
+    [Scene.AppMetrics]: {
+        projectBased: true,
+        name: 'Apps',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -226,6 +238,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
     },
+    [Scene.Query]: {
+        projectBased: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
@@ -249,6 +264,7 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
 export const routes: Record<string, Scene> = {
     [urls.dashboards()]: Scene.Dashboards,
     [urls.dashboard(':id')]: Scene.Dashboard,
+    [urls.dashboardTextTile(':id', ':textTileId')]: Scene.Dashboard,
     [urls.dashboardSharing(':id')]: Scene.Dashboard,
     [urls.dashboardSubcriptions(':id')]: Scene.Dashboard,
     [urls.dashboardSubcription(':id', ':subscriptionId')]: Scene.Dashboard,
@@ -271,6 +287,13 @@ export const routes: Record<string, Scene> = {
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
+    // One entry for every available tab
+    ...Object.values(SessionRecordingsTabs).reduce((acc, tab) => {
+        acc[urls.sessionRecordings(tab)] = Scene.SessionRecordings
+        return acc
+    }, {} as Record<string, Scene>),
+    [urls.sessionRecording(':id')]: Scene.SessionRecording,
+    [urls.sessionRecordingPlaylist(':id')]: Scene.SessionRecordingPlaylist,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
@@ -285,7 +308,13 @@ export const routes: Record<string, Scene> = {
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Plugins,
+    [urls.projectApp(':id')]: Scene.Plugins,
+    [urls.projectAppLogs(':id')]: Scene.Plugins,
+    [urls.projectAppSource(':id')]: Scene.Plugins,
     [urls.frontendApp(':id')]: Scene.FrontendAppScene,
+    [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
+    [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,
+    [urls.appHistory(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
@@ -316,4 +345,5 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
+    [urls.query()]: Scene.Query,
 }

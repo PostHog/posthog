@@ -1,4 +1,3 @@
-import React from 'react'
 import { inBounds } from '~/toolbar/utils'
 
 const heatmapLabelStyle = {

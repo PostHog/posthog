@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
-import React, { Dispatch, SetStateAction, useState } from 'react'
+import { Dispatch, SetStateAction, useState } from 'react'
 import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/components/icons'
 
@@ -21,7 +21,7 @@ export function DeleteOrganizationModal({
     return (
         <LemonModal
             title="Delete the entire organization?"
-            onClose={() => setIsOpen(false)}
+            onClose={!isDeletionInProgress ? () => setIsOpen(false) : undefined}
             footer={
                 <>
                     <LemonButton disabled={isDeletionInProgress} type="secondary" onClick={() => setIsOpen(false)}>

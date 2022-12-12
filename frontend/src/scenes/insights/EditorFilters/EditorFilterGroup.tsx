@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
+import { useState } from 'react'
+import { EditorFilterProps, InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
 import { cleanFilters } from '../utils/cleanFilters'
 import './EditorFilterGroup.scss'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -44,29 +44,46 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                     >
                         <div className="flex items-center space-x-2 font-semibold">
                             <span>{title}</span>
-                            <LemonBadge count={count} />
+                            <LemonBadge.Number count={count || 0} />
                         </div>
                     </LemonButton>
                 </div>
             )}
             {!usingEditorPanels || isRowExpanded ? (
                 <div className="EditorFilterGroup__content">
-                    {editorFilters.map(({ label, tooltip, showOptional, key, valueSelector, component: Component }) => (
-                        <div key={key}>
-                            <PureField label={label} info={tooltip} showOptional={showOptional}>
-                                {Component ? (
-                                    <Component
-                                        insight={insight}
-                                        insightProps={insightProps}
-                                        filters={insight.filters ?? cleanFilters({})}
-                                        value={
-                                            (valueSelector ? valueSelector(insight) : insight?.filters?.[key]) ?? null
+                    {editorFilters.map(
+                        ({ label: Label, tooltip, showOptional, key, valueSelector, component: Component }) => {
+                            // Don't calculate editorFilterProps if not needed
+                            const editorFilterProps: EditorFilterProps | null =
+                                typeof Label === 'function' || Component
+                                    ? {
+                                          insight,
+                                          insightProps,
+                                          filters: insight.filters ?? cleanFilters({}),
+                                          value:
+                                              (valueSelector ? valueSelector(insight) : insight?.filters?.[key]) ??
+                                              null,
+                                      }
+                                    : null
+                            return (
+                                <div key={key}>
+                                    <PureField
+                                        label={
+                                            typeof Label === 'function' ? (
+                                                <Label {...(editorFilterProps as EditorFilterProps)} />
+                                            ) : (
+                                                Label
+                                            )
                                         }
-                                    />
-                                ) : null}
-                            </PureField>
-                        </div>
-                    ))}
+                                        info={tooltip}
+                                        showOptional={showOptional}
+                                    >
+                                        {Component ? <Component {...(editorFilterProps as EditorFilterProps)} /> : null}
+                                    </PureField>
+                                </div>
+                            )
+                        }
+                    )}
                 </div>
             ) : null}
         </div>
