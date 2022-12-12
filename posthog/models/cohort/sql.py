@@ -1,4 +1,4 @@
-from posthog.clickhouse.table_engines import CollapsingMergeTree
+from posthog.clickhouse.table_engines import CollapsingMergeTree, MergeTreeEngine
 from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 from posthog.settings import CLICKHOUSE_CLUSTER
 
@@ -20,6 +20,22 @@ Order By (team_id, cohort_id, person_id, version)
 {storage_policy}
 """.format(
     cluster=CLICKHOUSE_CLUSTER, engine=COHORTPEOPLE_TABLE_ENGINE(), storage_policy=""
+)
+
+COHORTACTORS_TABLE_ENGINE = lambda: MergeTreeEngine("cohort_actors")
+
+CREATE_COHORT_ACTORS_TABLE_SQL = lambda: """
+CREATE TABLE IF NOT EXISTS cohort_actors ON CLUSTER '{cluster}'
+(
+    actor_id VARCHAR
+    cohort_id Int64,
+    team_id Int64,
+    version Int64
+) ENGINE = {engine}
+ORDER BY (team_id, cohort_id, version, actor_id)
+{storage_policy}
+""".format(
+    cluster=CLICKHOUSE_CLUSTER, engine=COHORTACTORS_TABLE_ENGINE(), storage_policy=""
 )
 
 TRUNCATE_COHORTPEOPLE_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS cohortpeople ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
