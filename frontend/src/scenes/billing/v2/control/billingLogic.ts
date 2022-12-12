@@ -169,6 +169,7 @@ export const billingLogic = kea<billingLogicType>([
                 return Boolean(
                     ((billingVersion === 'v2' &&
                         !billing.has_active_subscription &&
+                        !billing.free_trial_until &&
                         billing.products.find((x) => {
                             return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
                         })) ||
