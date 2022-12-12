@@ -12,6 +12,7 @@ import type { playlistPopupLogicType } from './playlistPopupLogicType'
 import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/playerUtils'
 
 export const playlistPopupLogic = kea<playlistPopupLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popup', 'playlistPopupLogic', key]),
@@ -51,12 +52,12 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             },
 
             addToPlaylist: async ({ playlist }) => {
-                await api.recordings.addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
+                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
-                await api.recordings.removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
+                await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
         },

@@ -4,7 +4,7 @@ import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import type { savedSessionRecordingPlaylistModelLogicType } from './savedSessionRecordingPlaylistModelLogicType'
 import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
-import { deleteWithUndo, toParams } from 'lib/utils'
+import { deleteWithUndo } from 'lib/utils'
 import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -92,7 +92,6 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
 
                 const { id, short_id, ...partialPlaylist } = playlist
                 partialPlaylist.name = partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
-                partialPlaylist.derived_name = partialPlaylist.derived_name
 
                 const newPlaylist = await createPlaylist(partialPlaylist, redirect)
                 breakpoint()
