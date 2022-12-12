@@ -75,11 +75,21 @@ test.concurrent(`exports: historical exports v2`, async () => {
     // First let's capture an event and wait for it to be ingested so
     // so we can check that the historical event is the same as the one
     // passed to processEvent on initial ingestion.
-    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
-        name: 'hehe',
-        uuid: new UUIDT().toString(),
-        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
-    })
+    const sentAt = new Date(Date.now())
+    await capture(
+        producer,
+        teamId,
+        distinctId,
+        uuid,
+        '$autocapture',
+        {
+            name: 'hehe',
+            uuid: new UUIDT().toString(),
+            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+        },
+        null,
+        sentAt
+    )
 
     // Then check that the exportEvents function was called
     const [exportedEvent] = await waitForExpect(() => {
@@ -102,7 +112,10 @@ test.concurrent(`exports: historical exports v2`, async () => {
                     pluginConfigId: pluginConfig.id,
                     pluginConfigTeam: teamId,
                     payload: {
-                        dateRange: [new Date(Date.now() - 60000).toISOString(), new Date(Date.now()).toISOString()],
+                        dateRange: [
+                            new Date(sentAt.getTime() - 10000).toISOString(),
+                            new Date(Date.now()).toISOString(),
+                        ],
                         $job_id: 'test',
                         parallelism: 1,
                     },
@@ -121,19 +134,23 @@ test.concurrent(`exports: historical exports v2`, async () => {
             )
             expect(historicallyExportedEvents.length).toBeGreaterThan(0)
 
-            const historicallyExportedEvent = historicallyExportedEvents[0]
-            expect(historicallyExportedEvent).toEqual([
-                expect.objectContaining({
-                    ...exportedEvent,
-                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
-                    properties: {
-                        ...exportedEvent.properties,
-                        $$is_historical_export_event: true,
-                        $$historical_export_timestamp: expect.any(String),
-                        $$historical_export_source_db: 'clickhouse',
-                    },
-                }),
-            ])
+            expect.objectContaining({
+                ...exportedEvent,
+                ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+                // NOTE: it's important that event, sent_at, uuid, and distinct_id
+                // are preserved and are stable for ClickHouse deduplication to
+                // function as expected.
+                event: '$autocapture',
+                sent_at: sentAt.toISOString(),
+                uuid: uuid,
+                distinct_id: distinctId,
+                properties: {
+                    ...exportedEvent.properties,
+                    $$is_historical_export_event: true,
+                    $$historical_export_timestamp: expect.any(String),
+                    $$historical_export_source_db: 'clickhouse',
+                },
+            })
         },
         20_000,
         1_000

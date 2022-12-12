@@ -69,7 +69,7 @@ const convertClickhouseEventToPluginEvent = (event: RawClickHouseEvent): Histori
         event: clickhouseEvent.event || '',
         ip: clickhouseEvent.properties['$ip'] || '',
         site_url: '',
-        sent_at: clickhouseEvent.created_at.toISO(),
+        sent_at: clickhouseEvent.timestamp.toISO(),
     }
     return addHistoricalExportEventProperties(parsedEvent)
 }

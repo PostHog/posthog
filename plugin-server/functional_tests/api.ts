@@ -17,7 +17,8 @@ export const capture = async (
     uuid: string,
     event: string,
     properties: object = {},
-    token: string | null = null
+    token: string | null = null,
+    sentAt: Date = new Date()
 ) => {
     await producer.send({
         topic: 'events_plugin_ingestion',
@@ -31,7 +32,7 @@ export const capture = async (
                     site_url: '',
                     team_id: teamId,
                     now: new Date(),
-                    sent_at: new Date(),
+                    sent_at: sentAt,
                     uuid: uuid,
                     data: JSON.stringify({
                         event,
