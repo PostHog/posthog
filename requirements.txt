@@ -237,7 +237,7 @@ pexpect==4.7.0
     # via -r requirements.in
 pickleshare==0.7.5
     # via -r requirements.in
-pillow==9.2.0
+pillow==9.3.0
     # via -r requirements.in
 posthoganalytics==2.1.2
     # via -r requirements.in

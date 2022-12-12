@@ -47,7 +47,7 @@ numpy==1.23.3
 parso==0.8.1
 pexpect==4.7.0
 pickleshare==0.7.5
-Pillow==9.2.0
+Pillow==9.3.0
 posthoganalytics==2.1.2
 psycopg2-binary==2.8.6
 pyjwt==2.4.0
