@@ -21,6 +21,7 @@ from posthog.models.cohort.sql import (
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
+    RECALCULATE_COHORT_ACTORS_BY_ID,
     RECALCULATE_COHORT_BY_ID,
 )
 from posthog.models.person.sql import (
@@ -256,10 +257,17 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
             "Recalculating cohortpeople starting", team_id=cohort.team_id, cohort_id=cohort.pk, size_before=before_count
         )
 
-    recalcluate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
+    recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
     sync_execute(
-        recalcluate_cohortpeople_sql,
+        recalculate_cohortpeople_sql,
+        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
+    )
+
+    recalculate_cohort_actors_sql = RECALCULATE_COHORT_ACTORS_BY_ID.format(cohort_filter=cohort_query)
+
+    sync_execute(
+        recalculate_cohort_actors_sql,
         {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
     )
 
