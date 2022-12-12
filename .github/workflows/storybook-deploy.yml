@@ -22,10 +22,10 @@ jobs:
               with:
                   version: 7.x.x
 
-            - name: Set up Node 16
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
                   cache: pnpm
                   cache-dependency-path: posthog/pnpm-lock.yaml
 

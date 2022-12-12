@@ -18,10 +18,10 @@ jobs:
               with:
                   version: 7.x.x
 
-            - name: Set up Node 16
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
                   cache: pnpm
 
             - name: Install package.json dependencies with pnpm
@@ -36,8 +36,8 @@ jobs:
             - name: Serve Storybook and run tests
               run: |
                   pnpm dlx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
-                    "pnpm dlx http-server storybook-static --port 6006 --silent" \
-                    "pnpm dlx wait-on tcp:6006 && pnpm dlx playwright test"
+                    "pnpm dlx http-server storybook-static --port 6006" \
+                    "pnpm dlx wait-on http://127.0.0.1:6006 --timeout 60 && pnpm dlx playwright test"
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3
