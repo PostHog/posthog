@@ -96,6 +96,8 @@ export interface EventsNode extends EntityNode {
     orderBy?: string[]
     /** Return a limited set of data */
     select?: DataTableColumn[]
+    /** Filters to apply before and after data is returned */
+    where?: DataTableColumn[]
     /** Columns to pivot on, up to two. */
     pivot?: DataTableColumn[]
     response?: {

@@ -311,6 +311,7 @@ team_id = %(team_id)s
 {conditions}
 {filters}
 {group}
+{having}
 {order} {limit}
 """
 

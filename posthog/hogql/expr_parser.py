@@ -9,32 +9,88 @@ from posthog.models.property.util import get_property_string_expr
 
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 PERSON_FIELDS = ["id", "created_at", "properties"]
-CLICKHOUSE_FUNCTIONS = [
-    "concat",
-    "coalesce",
-    "toYear",
-    "toQuarter",
-    "toMonth",
-    "toDayOfYear",
-    "toDayOfMonth",
-    "toDayOfWeek",
-    "toHour",
-    "toMinute",
-    "toSecond",
-    "toStartOfYear",
-    "toStartOfISOYear",
-    "toStartOfQuarter",
-    "toStartOfMonth",
-    "toMonday",
-    "toStartOfDay",
-    "toStartOfHour",
-    "toStartOfMinute",
-    "toStartOfSecond",
-    "toStartOfFiveMinutes",
-    "toStartOfTenMinutes",
-    "toStartOfFifteenMinutes",
+CLICKHOUSE_FUNCTIONS = {
+    # arithmetic
+    "abs": "abs",
+    "max2": "max2",
+    "min2": "min2",
+    # type conversions
+    "toInt": "toInt64OrNull",
+    "toFloat": "toFloat64OrNull",
+    "toDecimal": "toDecimal64OrNull",
+    "toDate": "toDateOrNull",
+    "toDateTime": "parseDateTimeBestEffort",
+    "toIntervalSecond": "toIntervalSecond",
+    "toIntervalMinute": "toIntervalMinute",
+    "toIntervalHour": "toIntervalHour",
+    "toIntervalDay": "toIntervalDay",
+    "toIntervalWeek": "toIntervalWeek",
+    "toIntervalMonth": "toIntervalMonth",
+    "toIntervalQuarter": "toIntervalQuarter",
+    "toIntervalYear": "toIntervalYear",
+    "toString": "toString",
+    # date functions
+    "now": "now",
+    "toMonday": "toMonday",
+    "toStartOfYear": "toStartOfYear",
+    "toStartOfQuarter": "toStartOfQuarter",
+    "toStartOfMonth": "toStartOfMonth",
+    "toStartOfWeek": "toStartOfWeek",
+    "toStartOfDay": "toStartOfDay",
+    "toStartOfHour": "toStartOfHour",
+    "toStartOfMinute": "toStartOfMinute",
+    "toStartOfSecond": "toStartOfSecond",
+    "toStartOfFiveMinutes": "toStartOfFiveMinutes",
+    "toStartOfTenMinutes": "toStartOfTenMinutes",
+    "toStartOfFifteenMinutes": "toStartOfFifteenMinutes",
+    "toTimezone": "toTimezone",
+    "age": "age",
+    "dateDiff": "dateDiff",
+    "dateTrunc": "dateTrunc",
+    "formatDateTime": "formatDateTime",
+    # string functions
+    "length": "lengthUTF8",
+    "empty": "empty",
+    "notEmpty": "notEmpty",
+    "leftPad": "leftPad",
+    "rightPad": "rightPad",
+    "lower": "lower",
+    "upper": "upper",
+    "repeat": "repeat",
+    "format": "format",
+    "concat": "concat",
+    "coalesce": "coalesce",
+    "substring": "substringUTF8",
+    "appendTrailingCharIfAbsent": "appendTrailingCharIfAbsent",
+    "endsWith": "endsWith",
+    "startsWith": "startsWith",
+    "trim": "trimBoth",
+    "trimLeft": "trimLeft",
+    "trimRight": "trimRight",
+    "extractTextFromHTML": "extractTextFromHTML",
+    "like": "like",
+    "ilike": "ilike",
+    "notLike": "notLike",
+    "replace": "replace",
+    "replaceOne": "replaceOne",
+    # conditional
+    "if": "if",
+    "multiIf": "multiIf",
+    # rounding
+    "round": "round",
+    "floor": "floor",
+    "ceil": "ceil",
+    "trunc": "trunc",
+}
+HOGQL_AGGREGATIONS = [
+    "total",
+    "min",
+    "max",
+    "sum",
+    "avg",
+    "any",
 ]
-HOGQL_AGGREGATIONS = ["avg", "sum", "total"]
+KEYWORDS = ["true", "false", "null"]
 
 
 @dataclass
@@ -83,12 +139,41 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             response = (
                 f"divide({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
             )
+        elif isinstance(node.op, ast.Mod):
+            response = (
+                f"modulo({translate_ast(node.left, stack, context)}, {translate_ast(node.right, stack, context)})"
+            )
         else:
             response = f"({translate_ast(node.left, stack, context)} {translate_ast(node.op, stack, context)} {translate_ast(node.right, stack, context)})"
+    elif isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            response = f"and({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
+        elif isinstance(node.op, ast.Or):
+            response = f"or({', '.join([translate_ast(operand, stack, context) for operand in node.values])})"
+        else:
+            raise ValueError(f"Unknown BoolOp: {type(node.op)}")
     elif isinstance(node, ast.UnaryOp):
-        response = f"{translate_ast(node.op, stack, context)}{translate_ast(node.operand, stack, context)}"
-    elif isinstance(node, ast.USub):
-        response = "-"
+        if isinstance(node.op, ast.Not):
+            response = f"not({translate_ast(node.operand, stack, context)})"
+        elif isinstance(node.op, ast.USub):
+            response = f"-{translate_ast(node.operand, stack, context)}"
+        else:
+            raise ValueError(f"Unknown UnaryOp: {type(node.op)}")
+    elif isinstance(node, ast.Compare):
+        if isinstance(node.ops[0], ast.Eq):
+            response = f"equals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.NotEq):
+            response = f"notEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.Gt):
+            response = f"greater({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.GtE):
+            response = f"greaterOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.Lt):
+            response = f"less({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        elif isinstance(node.ops[0], ast.LtE):
+            response = f"lessOrEquals({translate_ast(node.left, stack, context)}, {translate_ast(node.comparators[0], stack, context)})"
+        else:
+            raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
@@ -136,11 +221,11 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
             context.is_aggregation = True
             if call_name == "total":
                 if len(node.args) != 0:
-                    raise ValueError(f"Method 'total' does not accept any arguments.")
+                    raise ValueError(f"Aggregation 'total' does not accept any arguments.")
                 response = "count(*)"
             else:
                 if len(node.args) != 1:
-                    raise ValueError(f"Method '{call_name}' expects just one argument.")
+                    raise ValueError(f"Aggregation '{call_name}' expects just one argument.")
 
                 # check that we're not running inside another aggregate
                 for stack_node in stack:
@@ -150,7 +235,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                         and isinstance(stack_node.func, ast.Name)
                         and stack_node.func.id in HOGQL_AGGREGATIONS
                     ):
-                        raise ValueError(f"Method '{call_name}' cannot be nested inside another aggregate.")
+                        raise ValueError(
+                            f"Aggregation '{call_name}' cannot be nested inside another aggregation '{stack_node.func.id}'."
+                        )
 
                 # check that we're running an aggregate on a property
                 properties_before = len(context.attribute_list)
@@ -160,7 +247,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                     raise ValueError(f"{call_name}(...) must be called on fields or properties, not literals.")
 
         elif node.func.id in CLICKHOUSE_FUNCTIONS:
-            response = f"{node.func.id}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
+            response = f"{CLICKHOUSE_FUNCTIONS[node.func.id]}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"
         else:
             raise ValueError(f"Unsupported function call '{call_name}(...)'")
     elif isinstance(node, ast.Name) and isinstance(node.id, str):
@@ -205,6 +292,8 @@ def property_access_to_clickhouse(chain: List[str]):
             return chain[0]
         elif chain[0].startswith("person_") and chain[0][7:] in PERSON_FIELDS:
             return chain[0]
+        elif chain[0].lower() in KEYWORDS:
+            return chain[0].lower()
         else:
             raise ValueError(f"Unknown event field '{chain[0]}'")
 

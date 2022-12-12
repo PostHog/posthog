@@ -56,6 +56,7 @@ def query_events_list(
     order_by: List[str],
     action_id: Optional[str],
     select: Optional[List[str]],
+    where: Optional[List[str]],
     pivot: Optional[List[str]],
     long_date_from: bool = False,
     limit: int = 100,
@@ -88,6 +89,7 @@ def query_events_list(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
     )
 
+    having_filters: List[str] = []
     if action_id:
         try:
             action = Action.objects.get(pk=action_id, team_id=team.pk)
@@ -100,6 +102,15 @@ def query_events_list(
         action_query, params = format_action_filter(team_id=team.pk, action=action)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
+
+    if where:
+        for experssion in where:
+            context = ExprParserContext()
+            clickhouse_sql = translate_hql(experssion, context)
+            if context.is_aggregation:
+                having_filters.append(clickhouse_sql)
+            else:
+                prop_filters += " AND {}".format(clickhouse_sql)
 
     if selected_columns:
         order_by_list = []
@@ -155,10 +166,11 @@ def query_events_list(
                 SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS.format(
                     columns=", ".join(selected_columns),
                     conditions=conditions,
-                    limit=limit_sql,
-                    group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
-                    order="ORDER BY {}".format(", ".join(order_by_list)),
                     filters=prop_filters,
+                    group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
+                    having="HAVING {}".format(" AND ".join(having_filters)) if having_filters else "",
+                    order="ORDER BY {}".format(", ".join(order_by_list)),
+                    limit=limit_sql,
                 ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
                 with_column_types=True,

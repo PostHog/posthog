@@ -113,6 +113,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             filter = Filter(request=request, team=self.team)
 
             select: List[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
+            where: List[str] = json.loads(request.GET["where"]) if request.GET.get("where") else None
             pivot: List[str] = json.loads(request.GET["pivot"]) if request.GET.get("pivot") else None
 
             query_result = query_events_list(
@@ -123,6 +124,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 order_by=parse_order_by(request.GET.get("orderBy"), select),
                 action_id=request.GET.get("action_id"),
                 select=select,
+                where=where,
                 pivot=pivot,
             )
 
@@ -137,6 +139,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     order_by=parse_order_by(request.GET.get("orderBy"), select),
                     action_id=request.GET.get("action_id"),
                     select=select,
+                    where=where,
                     pivot=pivot,
                 )
 
