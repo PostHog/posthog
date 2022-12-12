@@ -83,7 +83,7 @@ const PropertyFormulasTable: DataTableNode = {
     source: PropertyFormulas,
 }
 
-const EventAggegations: DataTableNode = {
+const EventAggregations: DataTableNode = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.EventsNode,
@@ -93,6 +93,25 @@ const EventAggegations: DataTableNode = {
             'total() + 100000 # Inflamed total',
             '1 + 2',
         ],
+        orderBy: ['-total()'],
+    },
+    showReload: true,
+    showEventFilter: true,
+    showPropertyFilter: true,
+    showExport: true,
+    showColumnConfigurator: true,
+}
+
+const EventAggregationsPivot: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.EventsNode,
+        select: [
+            "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
+            'event',
+            'total() + 100000 # Inflamed total',
+        ],
+        pivot: ["concat(properties['$geoip_city_name'], ' ', 'Rocks') # City", 'event'],
         orderBy: ['-total()'],
     },
     showReload: true,
@@ -301,7 +320,8 @@ export const examples: Record<string, Node> = {
     TotalEventsTable,
     PropertyFormulas,
     PropertyFormulasTable,
-    EventAggegations,
+    EventAggregations,
+    EventAggregationsPivot,
     DataPerCountry,
     Persons,
     PersonsTable,

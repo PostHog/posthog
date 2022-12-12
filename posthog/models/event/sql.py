@@ -325,6 +325,7 @@ team_id = %(team_id)s
 {conditions}
 {filters}
 {group}
+{having}
 {order} {limit})
 group by col_a)
 group by col_a;
