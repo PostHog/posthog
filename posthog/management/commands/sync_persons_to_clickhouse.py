@@ -182,15 +182,15 @@ def run_group_sync(team_id: int, live_run: bool, sync: bool):
                 # Update ClickHouse via Kafka message
                 raw_create_group_ch(
                     team_id=team_id,
-                    group_type_index=pg_group["group_type_index"],
+                    group_type_index=pg_group["group_type_index"],  # type: ignore
                     group_key=pg_group["group_key"],
-                    properties=pg_group["group_properties"],
+                    properties=pg_group["group_properties"],  # type: ignore
                     created_at=pg_group["created_at"],
                     sync=sync,
                 )
 
 
-def should_update_group(ch_group, pg_group: Group) -> bool:
+def should_update_group(ch_group, pg_group) -> bool:
     return json.dumps(pg_group["group_properties"]) != ch_group["properties"] or pg_group["created_at"].strftime(
         "%Y-%m-%d %H:%M:%S"
     ) != ch_group["created_at"].strftime("%Y-%m-%d %H:%M:%S")
