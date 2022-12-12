@@ -16,10 +16,10 @@ jobs:
               with:
                   version: 7.x.x
 
-            - name: Set up Node 16
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
                   cache: pnpm
 
             # there's no need to run chromatic on every commit,

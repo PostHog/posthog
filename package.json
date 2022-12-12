@@ -13,7 +13,7 @@
     "homepage": "https://github.com/posthog/posthog#readme",
     "license": "MIT",
     "engines": {
-        "node": ">=16 <19"
+        "node": ">=18 <19"
     },
     "packageManager": "pnpm@7.14.2",
     "scripts": {
@@ -44,7 +44,7 @@
         "format:js": "pnpm prettier && pnpm eslint --fix",
         "format": "pnpm format:python && pnpm format:js",
         "storybook": "start-storybook -p 6006",
-        "build-storybook": "build-storybook",
+        "build-storybook": "export NODE_OPTIONS=--openssl-legacy-provider; build-storybook",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "prepare": "husky install"

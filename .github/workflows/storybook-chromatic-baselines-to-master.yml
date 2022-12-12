@@ -19,7 +19,7 @@ jobs:
               with:
                   version: 7.x.x
 
-            - name: Set up Node 18
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
                   node-version: 18
