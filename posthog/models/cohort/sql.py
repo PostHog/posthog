@@ -27,7 +27,7 @@ COHORTACTORS_TABLE_ENGINE = lambda: MergeTreeEngine("cohort_actors")
 CREATE_COHORT_ACTORS_TABLE_SQL = lambda: """
 CREATE TABLE IF NOT EXISTS cohort_actors ON CLUSTER '{cluster}'
 (
-    actor_id VARCHAR
+    actor_id VARCHAR,
     cohort_id Int64,
     team_id Int64,
     version Int64
