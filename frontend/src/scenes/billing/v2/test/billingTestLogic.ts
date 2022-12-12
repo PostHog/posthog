@@ -222,6 +222,42 @@ export const billingTestLogic = kea<billingTestLogicType>([
                 router.actions.replace(urls.billingLocked())
             }
         },
+        registerInstrumentationProps: async (_, breakpoint) => {
+            await breakpoint(100)
+            if (posthog && values.billing) {
+                const payload = {
+                    has_billing_plan: !!values.billing.has_active_subscription,
+                    free_trial_until: values.billing.free_trial_until?.toISOString(),
+                    customer_deactivated: values.billing.deactivated,
+                    current_total_amount_usd: values.billing.current_total_amount_usd,
+                }
+                if (values.billing.custom_limits_usd) {
+                    for (const product of Object.keys(values.billing.custom_limits_usd)) {
+                        payload[`custom_limits_usd.${product}`] = values.billing.custom_limits_usd[product]
+                    }
+                }
+                if (values.billing.products) {
+                    for (const product of values.billing.products) {
+                        const type = product.type.toLowerCase()
+                        payload[`percentage_usage.${type}`] = product.percentage_usage
+                        payload[`current_amount_usd.${type}`] = product.current_amount_usd
+                        payload[`unit_amount_usd.${type}`] = product.unit_amount_usd
+                        payload[`usage_limit.${type}`] = product.usage_limit
+                        payload[`current_usage.${type}`] = product.current_usage
+                        payload[`projected_usage.${type}`] = product.projected_usage
+                        payload[`free_allocation.${type}`] = product.free_allocation
+                    }
+                }
+                if (values.billing.billing_period) {
+                    payload['billing_period_start'] = values.billing.billing_period.current_period_start
+                    payload['billing_period_end'] = values.billing.billing_period.current_period_end
+                }
+                if (values.billing.license) {
+                    payload['license_plan'] = values.billing.license.plan
+                }
+                posthog.register(payload)
+            }
+        },
     })),
 
     afterMount(({ actions }) => {
