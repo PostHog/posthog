@@ -1,6 +1,5 @@
 import logging
-from typing import Dict
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 
@@ -14,66 +13,138 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 @pytest.mark.ee
 class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
-    def create_test_person(self, distinct_ids: Dict[str, int]):
-        person = Person.objects.create(team_id=self.team.pk, version=0, uuid=uuid4())
-        create_person(uuid=str(person.uuid), team_id=person.team.pk, version=person.version)
-        for did, version in distinct_ids.items():
-            PersonDistinctId.objects.create(team=self.team, person=person, distinct_id=did, version=version)
-            create_person_distinct_id(
-                team_id=self.team.pk, distinct_id=did, person_id=str(person.uuid), is_deleted=False, version=version
-            )
-        return person
+    CLASS_DATA_LEVEL_SETUP = False
 
-    def test_live_run(self):
-        person1 = self.create_test_person({"did1": 1, "did2": 2, "did3": 3})
-        person2 = self.create_test_person({"did5": 11, "did6": 12})
-        deleted_uuid = str(uuid4())
-        deleted_uuid2 = str(uuid4())
-        create_person(uuid=deleted_uuid, team_id=self.team.pk, is_deleted=True, version=5)
-        create_person(uuid=deleted_uuid2, team_id=self.team.pk, is_deleted=True, version=5)
-
-        sync_execute(
-            f"""
-            INSERT INTO {PERSON_DISTINCT_ID2_TABLE} (team_id, distinct_id, person_id, is_deleted, version)
-            VALUES
-                ({self.team.pk}, 'did1', '{deleted_uuid}', 1, 25)
-                ({self.team.pk}, 'did2', '{deleted_uuid2}', 0, 44)
-                ({self.team.pk}, 'did6', '{deleted_uuid2}', 1, 50)
-            """
+    def test_dry_run(self):
+        # clickhouse only deleted person and distinct id that should be updated
+        ch_only_deleted_person_uuid = create_person(
+            uuid=uuid4(), team_id=self.team.pk, is_deleted=True, version=5, sync=True
         )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="distinct_id",
+            person_id=ch_only_deleted_person_uuid,
+            is_deleted=True,
+            version=7,
+            sync=True,
+        )
+        # reuse
+        person_linked_to_after = Person.objects.create(
+            team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
+        )
+        PersonDistinctId.objects.create(
+            team=self.team, person=person_linked_to_after, distinct_id="distinct_id", version=0
+        )
+        options = {"live_run": False, "team_id": self.team.pk, "new_version": 2500}
+        run(options, True)
 
-        options = {"live_run": True, "team_id": self.team.pk, "new_version": 2500}
-        run(options)
+        # postgres didn't change
+        pg_distinct_ids = PersonDistinctId.objects.all()
+        self.assertEqual(len(pg_distinct_ids), 1)
+        self.assertEqual(pg_distinct_ids[0].version, 0)
+        self.assertEqual(pg_distinct_ids[0].distinct_id, "distinct_id")
+        self.assertEqual(pg_distinct_ids[0].person.uuid, person_linked_to_after.uuid)
 
-        did1 = PersonDistinctId.objects.get(distinct_id="did1")
-        did2 = PersonDistinctId.objects.get(distinct_id="did2")
-        did3 = PersonDistinctId.objects.get(distinct_id="did3")
-        did5 = PersonDistinctId.objects.get(distinct_id="did5")
-        did6 = PersonDistinctId.objects.get(distinct_id="did6")
-
-        self.assertEqual(did1.version, 2500)
-        self.assertEqual(did1.person.pk, person1.pk)
-        self.assertEqual(did2.version, 2500)
-        self.assertEqual(did2.person.pk, person1.pk)
-        self.assertEqual(did3.version, 3)
-        self.assertEqual(did3.person.pk, person1.pk)
-        self.assertEqual(did5.version, 11)
-        self.assertEqual(did5.person.pk, person2.pk)
-        self.assertEqual(did6.version, 2500)
-        self.assertEqual(did6.person.pk, person2.pk)
-
-        sync_execute(f"OPTIMIZE TABLE {PERSON_DISTINCT_ID2_TABLE}")
-        distinct_ids_after = sync_execute(
-            f"select distinct_id, person_id, version from {PERSON_DISTINCT_ID2_TABLE} ORDER BY distinct_id"
+        # CH didn't change
+        ch_person_distinct_ids = sync_execute(
+            f"""
+            SELECT person_id, team_id, distinct_id, version, is_deleted FROM {PERSON_DISTINCT_ID2_TABLE} FINAL WHERE team_id = %(team_id)s ORDER BY version
+            """,
+            {"team_id": self.team.pk},
         )
         self.assertEqual(
-            distinct_ids_after,
+            ch_person_distinct_ids,
             [
-                ("did1", person1.uuid, 2500),
-                ("did2", person1.uuid, 2500),
-                ("did3", person1.uuid, 3),
-                ("did5", person2.uuid, 11),
-                ("did6", person2.uuid, 2500),
+                (UUID(ch_only_deleted_person_uuid), self.team.pk, "distinct_id", 7, True),
+            ],
+        )
+
+    def test_live_run(self):
+        # clickhouse only deleted person and distinct id that should be updated
+        ch_only_deleted_person_uuid = create_person(
+            uuid=uuid4(), team_id=self.team.pk, is_deleted=True, version=5, sync=True
+        )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="distinct_id",
+            person_id=ch_only_deleted_person_uuid,
+            is_deleted=True,
+            version=7,
+            sync=True,
+        )
+        # reuse
+        person_linked_to_after = Person.objects.create(
+            team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
+        )
+        PersonDistinctId.objects.create(
+            team=self.team, person=person_linked_to_after, distinct_id="distinct_id", version=0
+        )
+        options = {"live_run": True, "team_id": self.team.pk, "new_version": 2500}
+        run(options, True)
+
+        # postgres
+        pg_distinct_ids = PersonDistinctId.objects.all()
+        self.assertEqual(len(pg_distinct_ids), 1)
+        self.assertEqual(pg_distinct_ids[0].version, 2500)
+        self.assertEqual(pg_distinct_ids[0].distinct_id, "distinct_id")
+        self.assertEqual(pg_distinct_ids[0].person.uuid, person_linked_to_after.uuid)
+
+        # CH
+        ch_person_distinct_ids = sync_execute(
+            f"""
+            SELECT person_id, team_id, distinct_id, version, is_deleted FROM {PERSON_DISTINCT_ID2_TABLE} FINAL WHERE team_id = %(team_id)s ORDER BY version
+            """,
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(
+            ch_person_distinct_ids,
+            [
+                (person_linked_to_after.uuid, self.team.pk, "distinct_id", 2500, False),
+            ],
+        )
+
+    def test_no_op(self):
+        # person who shouldn't be changed
+        person_not_changed_1 = Person.objects.create(
+            team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
+        )
+
+        # distinct id no update
+        PersonDistinctId.objects.create(
+            team=self.team, person=person_not_changed_1, distinct_id="distinct_id-1", version=0
+        )
+
+        # deleted person not re-used
+        person_deleted_1 = Person.objects.create(
+            team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
+        )
+        PersonDistinctId.objects.create(
+            team=self.team, person=person_deleted_1, distinct_id="distinct_id-del-1", version=16
+        )
+        person_deleted_1.delete()
+
+        options = {"live_run": True, "team_id": self.team.pk, "new_version": 2500}
+        run(options, True)
+
+        # postgres
+        pg_distinct_ids = PersonDistinctId.objects.all()
+        self.assertEqual(len(pg_distinct_ids), 1)
+        self.assertEqual(pg_distinct_ids[0].version, 0)
+        self.assertEqual(pg_distinct_ids[0].distinct_id, "distinct_id-1")
+        self.assertEqual(pg_distinct_ids[0].person.uuid, person_not_changed_1.uuid)
+
+        # clickhouse
+        ch_person_distinct_ids = sync_execute(
+            f"""
+            SELECT person_id, team_id, distinct_id, version, is_deleted FROM {PERSON_DISTINCT_ID2_TABLE} FINAL WHERE team_id = %(team_id)s ORDER BY version
+            """,
+            {"team_id": self.team.pk},
+        )
+        self.assertEqual(
+            ch_person_distinct_ids,
+            [
+                (person_not_changed_1.uuid, self.team.pk, "distinct_id-1", 0, False),
+                (person_deleted_1.uuid, self.team.pk, "distinct_id-del-1", 116, True),
             ],
         )
 

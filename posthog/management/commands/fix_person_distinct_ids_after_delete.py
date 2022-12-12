@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 
 import structlog
 from django.core.management.base import BaseCommand
@@ -23,7 +23,7 @@ class Command(BaseCommand):
         run(options)
 
 
-def run(options):
+def run(options, sync: bool = False):
     live_run = options["live_run"]
 
     if not options["team_id"]:
@@ -40,7 +40,7 @@ def run(options):
         # updated distinct_ids won't show up in the search anymore
         # since they no longer belong to deleted persons
         # it's safer to throw and exit if anything went wrong
-        update_distinct_id(distinct_id, version, team_id, live_run)
+        update_distinct_id(distinct_id, version, team_id, live_run, sync)
 
 
 def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[str]:
@@ -61,25 +61,35 @@ def get_distinct_ids_tied_to_deleted_persons(team_id: int) -> List[str]:
     return [row[0] for row in rows]
 
 
-def update_distinct_id(distinct_id: str, version: int, team_id: int, live_run: bool):
+def update_distinct_id(distinct_id: str, version: int, team_id: int, live_run: bool, sync: bool):
     # update the version if the distinct_id exists in postgres, otherwise do nothing
     # also to avoid collisions we're doing this one-by-one locking postgres for a transaction
-    with transaction.atomic():
-        person_distinct_id = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
-        if person_distinct_id is None:
-            logger.info(f"Distinct id {distinct_id} hasn't been re-used yet and can cause problems in the future")
-            return
-        logger.info(f"Updating {distinct_id} to version {version} for person uuid = {person_distinct_id.person.uuid}")
-        if live_run:
-            person_distinct_id.version = version
-            person_distinct_id.save()
-    # Update ClickHouse via Kafka message
     if live_run:
+        with transaction.atomic():
+            person_distinct_id = update_distinct_id_in_postgres(distinct_id, version, team_id, live_run)
+    else:
+        person_distinct_id = update_distinct_id_in_postgres(distinct_id, version, team_id, live_run)
+    # Update ClickHouse via Kafka message
+    if person_distinct_id and live_run:
         create_person_distinct_id(
             team_id=team_id,
             distinct_id=distinct_id,
             person_id=str(person_distinct_id.person.uuid),
             version=version,
             is_deleted=False,
+            sync=sync,
         )
-    # we don't update person info cache as it's not used in reality
+
+
+def update_distinct_id_in_postgres(
+    distinct_id: str, version: int, team_id: int, live_run: bool
+) -> Optional[PersonDistinctId]:
+    person_distinct_id = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
+    if person_distinct_id is None:
+        logger.info(f"Distinct id {distinct_id} hasn't been re-used yet and can cause problems in the future")
+        return None
+    logger.info(f"Updating {distinct_id} to version {version} for person uuid = {person_distinct_id.person.uuid}")
+    if live_run:
+        person_distinct_id.version = version
+        person_distinct_id.save()
+    return person_distinct_id
