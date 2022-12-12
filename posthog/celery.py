@@ -1,7 +1,7 @@
 import os
 import time
 from random import randrange
-from typing import Any, Dict, List, Optional
+from typing import Optional
 from uuid import UUID
 
 from celery import Celery
@@ -101,9 +101,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
     # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
+    sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
+    if sync_insight_cache_states_schedule:
+        sender.add_periodic_task(
+            sync_insight_cache_states_schedule, sync_insight_cache_states_task.s(), name="sync insight cache states"
+        )
+
     sender.add_periodic_task(
         settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
-        check_cached_items.s(),
+        schedule_cache_updates_task.s(),
         name="check dashboard items",
     )
 
@@ -471,24 +477,6 @@ def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
-
-
-@app.task(ignore_result=True)
-def check_cached_items():
-    from posthog.caching.update_cache import update_cached_items
-
-    update_cached_items()
-
-
-@app.task(ignore_result=False)
-def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str, Any]]:
-    """
-    Tasks used in a group (as this is) must not ignore their results
-    https://docs.celeryq.dev/en/latest/userguide/canvas.html#groups:~:text=Similarly%20to%20chords%2C%20tasks%20used%20in%20a%20group%20must%20not%20ignore%20their%20results.
-    """
-    from posthog.caching.update_cache import update_cache_item
-
-    return update_cache_item(key, cache_type, payload)
 
 
 @app.task(ignore_result=True)

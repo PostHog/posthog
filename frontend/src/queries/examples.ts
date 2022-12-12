@@ -39,6 +39,36 @@ const EventsTable: DataTableNode = {
     columns: defaultDataTableColumns({ kind: NodeKind.EventsNode }),
     source: Events,
 }
+const EventsTableFull: DataTableNode = {
+    ...EventsTable,
+    showPropertyFilter: true,
+    showEventFilter: true,
+    showExport: true,
+    showReload: true,
+    showColumnConfigurator: true,
+    showEventsBufferWarning: true,
+}
+
+const Persons: PersonsNode = {
+    kind: NodeKind.PersonsNode,
+    properties: [
+        { type: PropertyFilterType.Person, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+}
+
+const PersonsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    columns: defaultDataTableColumns({ kind: NodeKind.PersonsNode }),
+    source: Persons,
+}
+
+const PersonsTableFull: DataTableNode = {
+    ...PersonsTable,
+    showSearch: true,
+    showPropertyFilter: true,
+    showExport: true,
+    showReload: true,
+}
 
 const EventsTableFull: DataTableNode = {
     ...EventsTable,

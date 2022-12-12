@@ -3,5 +3,5 @@ set -e
 
 export WEBPACK_HOT_RELOAD_HOST="0.0.0.0"
 
-yarn install
-yarn start-docker
+pnpm install
+pnpm start-docker

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Tuple, cast
+from typing import Any, List, Optional, Tuple, cast
 from uuid import UUID
 
 import structlog
@@ -146,15 +146,6 @@ def update_cached_state(team_id: int, cache_key: str, timestamp: datetime, resul
     return InsightCachingState.objects.filter(team_id=team_id, cache_key=cache_key).update(
         last_refresh=timestamp, refresh_attempt=0
     )
-
-
-def synchronously_update_cache(insight: Insight, dashboard: Optional[Dashboard]) -> List[Dict[str, Any]]:
-    cache_key, cache_type, result = calculate_result_by_insight(team=insight.team, insight=insight, dashboard=dashboard)
-    timestamp = now()
-    update_cached_state(
-        insight.team_id, cache_key, timestamp, {"result": result, "type": cache_type, "last_refresh": timestamp}
-    )
-    return result
 
 
 def _extract_insight_dashboard(caching_state: InsightCachingState) -> Tuple[Insight, Optional[Dashboard]]:

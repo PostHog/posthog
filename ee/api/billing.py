@@ -22,11 +22,13 @@ from rest_framework.response import Response
 from ee.models import License
 from ee.settings import BILLING_SERVICE_URL
 from posthog.auth import PersonalAPIKeyAuthentication
+from posthog.cloud_utils import is_cloud
 from posthog.models import Organization
 from posthog.models.event.util import get_event_count_for_team_and_period
 from posthog.models.organization import OrganizationUsageInfo
 from posthog.models.session_recording_event.util import get_recording_count_for_team_and_period
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 logger = structlog.get_logger(__name__)
 
@@ -49,12 +51,19 @@ def build_billing_token(license: License, organization: Organization):
     license_id = license.key.split("::")[0]
     license_secret = license.key.split("::")[1]
 
+    distinct_ids = []
+    if is_cloud():
+        distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+    else:
+        distinct_ids = list(User.objects.values_list("distinct_id", flat=True))
+
     encoded_jwt = jwt.encode(
         {
             "exp": datetime.now(tz=timezone.utc) + timedelta(minutes=15),
             "id": license_id,
             "organization_id": str(organization.id),
             "organization_name": organization.name,
+            "distinct_ids": distinct_ids,
             "aud": "posthog:license-key",
         },
         license_secret,
@@ -191,25 +200,26 @@ class BillingViewset(viewsets.GenericViewSet):
             raise Exception("There is no license configured for this instance yet.")
 
         org = self._get_org_required()
-        billing_service_token = build_billing_token(license, org)
-        custom_limits_usd = request.data.get("custom_limits_usd")
+        if license and org:  # for mypy
+            billing_service_token = build_billing_token(license, org)
 
-        if custom_limits_usd:
-            res = requests.patch(
-                f"{BILLING_SERVICE_URL}/api/billing/",
-                headers={"Authorization": f"Bearer {billing_service_token}"},
-                json={"custom_limits_usd": custom_limits_usd},
-            )
-
-            handle_billing_service_error(res)
-
-            if distinct_id:
-                posthoganalytics.capture(distinct_id, "billing limits updated", properties={**custom_limits_usd})
-                posthoganalytics.group_identify(
-                    "organization",
-                    str(org.id),
-                    properties={f"billing_limits_{key}": value for key, value in custom_limits_usd.items()},
+            custom_limits_usd = request.data.get("custom_limits_usd")
+            if custom_limits_usd:
+                res = requests.patch(
+                    f"{BILLING_SERVICE_URL}/api/billing/",
+                    headers={"Authorization": f"Bearer {billing_service_token}"},
+                    json={"custom_limits_usd": custom_limits_usd},
                 )
+
+                handle_billing_service_error(res)
+
+                if distinct_id:
+                    posthoganalytics.capture(distinct_id, "billing limits updated", properties={**custom_limits_usd})
+                    posthoganalytics.group_identify(
+                        "organization",
+                        str(org.id),
+                        properties={f"billing_limits_{key}": value for key, value in custom_limits_usd.items()},
+                    )
 
         return self.list(request, *args, **kwargs)
 
@@ -377,10 +387,6 @@ class BillingViewset(viewsets.GenericViewSet):
         if data["available_features"] != organization.available_features:
             organization.available_features = data["available_features"]
             org_modified = True
-
-        if data.get("deactivated"):
-            # TODO: Mark the organization as deactivated
-            pass
 
         if org_modified:
             organization.save()
