@@ -215,7 +215,7 @@ class Team(UUIDClassicModel):
         tag_queries(person_on_events_enabled=result)
         return result
 
-    @cached_property
+    @property
     def _person_on_events_querying_enabled(self) -> bool:
         if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
             return settings.PERSON_ON_EVENTS_OVERRIDE
