@@ -33,8 +33,6 @@ from posthog.test.test_journeys import journeys_for
 class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatchingTest):
     maxDiff = None
 
-    CLASS_DATA_LEVEL_SETUP = False
-
     def test_get_insight_items(self):
         filter_dict = {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
 

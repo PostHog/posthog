@@ -20,8 +20,6 @@ from posthog.utils import generate_cache_key
 
 
 class TestDashboard(APIBaseTest, QueryMatchingTest):
-    CLASS_DATA_LEVEL_SETUP = False
-
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
