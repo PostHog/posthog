@@ -13,6 +13,7 @@ import {
 
 export type SessionRecordingsListProps = {
     title: React.ReactNode
+    titleRight?: React.ReactNode
     info?: React.ReactNode
     recordings?: SessionRecordingType[]
     onRecordingClick: (recording: SessionRecordingType) => void
@@ -25,6 +26,7 @@ export type SessionRecordingsListProps = {
 }
 
 export function SessionRecordingsList({
+    titleRight,
     recordings,
     collapsable,
     title,
@@ -51,7 +53,7 @@ export function SessionRecordingsList({
 
     return (
         <div
-            className={clsx('flex flex-col w-full border rounded', {
+            className={clsx('flex flex-col w-full border rounded bg-light', {
                 'border-dashed': !recordings?.length,
                 'flex-1': !collapsed && recordings?.length,
                 'flex-0': collapsed,
@@ -70,9 +72,9 @@ export function SessionRecordingsList({
                         {titleContent}
                     </LemonButton>
                 ) : (
-                    titleContent
+                    <span className="px-2 py-1">{titleContent}</span>
                 )}
-                {/* <span className="rounded p-1 px-2 text-xs bg-border-light">5 of 100</span> */}
+                {titleRight}
             </div>
             {!collapsed ? (
                 recordings?.length ? (
@@ -98,7 +100,7 @@ export function SessionRecordingsList({
                         ))}
                     </>
                 ) : (
-                    <div className="p-4 text-muted-alt border-t border-dashed">{empty || info}</div>
+                    <div className="p-3 text-sm text-muted-alt border-t border-dashed">{empty || info}</div>
                 )
             ) : null}
         </div>

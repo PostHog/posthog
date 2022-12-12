@@ -9,7 +9,7 @@ import {
 import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -87,27 +87,21 @@ export function SessionRecordingsPlaylist({
     const nextLength = offset + (sessionRecordingsResponseLoading ? RECORDINGS_LIMIT : sessionRecordings.length)
 
     const paginationControls = nextLength ? (
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 mx-2">
             <span>{`${offset + 1} - ${nextLength}`}</span>
             <LemonButton
                 icon={<IconChevronLeft />}
                 status="stealth"
                 size="small"
                 disabled={!hasPrev}
-                onClick={() => {
-                    loadPrev()
-                    window.scrollTo(0, 0)
-                }}
+                onClick={() => loadPrev()}
             />
             <LemonButton
                 icon={<IconChevronRight />}
                 status="stealth"
                 disabled={!hasNext}
                 size="small"
-                onClick={() => {
-                    loadNext()
-                    window.scrollTo(0, 0)
-                }}
+                onClick={() => loadNext()}
             />
         </div>
     ) : null
@@ -202,6 +196,13 @@ export function SessionRecordingsPlaylist({
                                 <>
                                     <SessionRecordingsList
                                         title="Pinned Recordings"
+                                        titleRight={
+                                            pinnedRecordingsResponse?.results?.length ? (
+                                                <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold">
+                                                    {pinnedRecordingsResponse?.results?.length}
+                                                </span>
+                                            ) : null
+                                        }
                                         onRecordingClick={onRecordingClick}
                                         onPropertyClick={onPropertyClick}
                                         collapsable
@@ -224,6 +225,7 @@ export function SessionRecordingsPlaylist({
 
                             <SessionRecordingsList
                                 title={!playlistShortId ? 'Recent recordings' : 'Other recordings'}
+                                titleRight={paginationControls}
                                 onRecordingClick={onRecordingClick}
                                 onPropertyClick={onPropertyClick}
                                 collapsable={!!playlistShortId}
