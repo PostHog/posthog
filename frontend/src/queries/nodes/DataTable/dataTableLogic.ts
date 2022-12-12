@@ -1,46 +1,27 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { DataTableNode, DataTableStringColumn } from '~/queries/schema'
-import { defaultDataTableStringColumns } from './defaults'
+import { DataTableNode, DataTableColumn } from '~/queries/schema'
+import { defaultsForDataTable } from './defaults'
 import { sortedKeys } from 'lib/utils'
 
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
-    defaultColumns?: DataTableStringColumn[]
+    defaultEventsColumns?: DataTableColumn[]
 }
 
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
     key((props) => props.key),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
-    actions({ setColumns: (columns: DataTableStringColumn[]) => ({ columns }) }),
+    actions({ setColumns: (columns: DataTableColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
-        storedColumns: [
-            (props.query.columns ?? props.defaultColumns ?? defaultDataTableStringColumns) as DataTableStringColumn[],
+        columns: [
+            defaultsForDataTable(props.query, props.defaultEventsColumns),
             { setColumns: (_, { columns }) => columns },
         ],
     })),
     selectors({
-        columns: [
-            (s) => [s.storedColumns],
-            (storedColumns) => {
-                // This makes old stored columns (e.g. on the Team model) compatible with the new view that prepends 'properties.'
-                const topLevelFields = ['event', 'timestamp', 'id', 'distinct_id', 'person', 'url']
-                return storedColumns.map((column) => {
-                    if (
-                        topLevelFields.includes(column) ||
-                        column.startsWith('person.properties.') ||
-                        column.startsWith('properties.') ||
-                        column.startsWith('context.')
-                    ) {
-                        return column
-                    } else {
-                        return `properties.${column}`
-                    }
-                })
-            },
-        ],
         queryWithDefaults: [
             (s) => [(_, props) => props.query, s.columns],
             (query: DataTableNode, columns): Required<DataTableNode> => {
@@ -55,6 +36,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? false,
                         showEventFilter: query.showEventFilter ?? false,
+                        showSearch: query.showSearch ?? false,
                         showActions: query.showActions ?? true,
                         showExport: query.showExport ?? false,
                         showReload: query.showReload ?? false,
@@ -66,8 +48,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        const newColumns = props.query.columns ?? props.defaultColumns ?? defaultDataTableStringColumns
-        const oldColumns = oldProps.query.columns ?? oldProps.defaultColumns ?? defaultDataTableStringColumns
+        const newColumns = defaultsForDataTable(props.query, props.defaultEventsColumns)
+        const oldColumns = defaultsForDataTable(oldProps.query, oldProps.defaultEventsColumns)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
             actions.setColumns(newColumns)
         }
