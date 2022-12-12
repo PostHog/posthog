@@ -133,9 +133,9 @@ export function parseConsoleLogPayload(
         })
         .flat()
     const fullContent = [
-        ...parsedEntries.map(({ parsed, type }) => {
+        ...parsedEntries.map(({ parsed, type }, idx) => {
             if (['array', 'object'].includes(type)) {
-                return <ConsoleDetails json={parsed as ConsoleDetailsProps['json']} />
+                return <ConsoleDetails json={parsed as ConsoleDetailsProps['json']} key={idx} />
             }
             return parsed
         }),

@@ -150,11 +150,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/trend/?events=%s&properties=%s"
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
-        )
-        self.assertEqual(response.status_code, 200)
+        ).json()
         item = Insight.objects.get(pk=item.pk)
-        self.assertAlmostEqual(item.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-        self.assertEqual(item.filters_hash, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
+        self.assertAlmostEqual(item.caching_state.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+        self.assertAlmostEqual(parser.isoparse(response["last_refresh"]), now(), delta=timezone.timedelta(seconds=5))
+        self.assertEqual(item.caching_state.cache_key, generate_cache_key(f"{filter.toJSON()}_{self.team.pk}"))
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/%s/" % dashboard.pk).json()
 
@@ -294,7 +294,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     data={"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}
                 ).to_dict(),
                 team=self.team,
-                last_refresh=now(),
                 order=0,
             )
             DashboardTile.objects.create(dashboard=dashboard, insight=item_default)
@@ -310,7 +309,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                     }
                 ).to_dict(),
                 team=self.team,
-                last_refresh=now(),
                 order=1,
             )
         DashboardTile.objects.create(dashboard=dashboard, insight=item_trends)
@@ -321,6 +319,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, 200)
 
             response_data = response.json()
+            self.assertEqual(response_data["tiles"][0]["is_cached"], False)
             self.assertIsNotNone(response_data["tiles"][0]["insight"]["result"])
             self.assertIsNotNone(response_data["tiles"][0]["insight"]["last_refresh"])
             self.assertIsNotNone(response_data["tiles"][0]["last_refresh"])
@@ -330,14 +329,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             item_trends.refresh_from_db()
 
             self.assertEqual(
-                parser.isoparse(response_data["tiles"][0]["insight"]["last_refresh"]), item_default.last_refresh
+                parser.isoparse(response_data["tiles"][0]["last_refresh"]), item_default.caching_state.last_refresh
             )
             self.assertEqual(
-                parser.isoparse(response_data["tiles"][1]["insight"]["last_refresh"]), item_trends.last_refresh
+                parser.isoparse(response_data["tiles"][1]["last_refresh"]), item_default.caching_state.last_refresh
             )
 
-            self.assertAlmostEqual(item_default.last_refresh, now(), delta=timezone.timedelta(seconds=5))
-            self.assertAlmostEqual(item_trends.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+            self.assertAlmostEqual(item_default.caching_state.last_refresh, now(), delta=timezone.timedelta(seconds=5))
+            self.assertAlmostEqual(item_trends.caching_state.last_refresh, now(), delta=timezone.timedelta(seconds=5))
 
     def test_dashboard_endpoints(self):
         # create

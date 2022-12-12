@@ -103,6 +103,6 @@ $SKIP_SETUP_DEV || setupDev
 ./bin/plugin-server &
 # Only start webpack if not already running
 nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
-npx cypress open --config-file cypress.e2e.config.ts &
+pnpm dlx cypress open --config-file cypress.e2e.config.ts &
 python manage.py runserver 8080
 
