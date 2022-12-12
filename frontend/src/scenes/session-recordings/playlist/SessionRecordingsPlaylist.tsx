@@ -1,6 +1,5 @@
-import { Fragment, useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { useActions, useValues } from 'kea'
-import { range } from '~/lib/utils'
 import { RecordingDurationFilter, RecordingFilters, SessionRecordingType } from '~/types'
 import {
     defaultPageviewPropertyEntityFilter,
@@ -11,25 +10,14 @@ import './SessionRecordingsPlaylist.scss'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
-import {
-    IconChevronLeft,
-    IconChevronRight,
-    IconFilter,
-    IconInfo,
-    IconUnfoldLess,
-    IconUnfoldMore,
-    IconWithCount,
-} from 'lib/components/icons'
+import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
-import clsx from 'clsx'
-import { LemonSkeleton } from 'lib/components/LemonSkeleton'
-import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
-import { SessionRecordingPlaylistItem } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistItem'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { DurationFilter } from '../filters/DurationFilter'
-import { Tooltip } from 'lib/components/Tooltip'
+import { SessionRecordingsList } from './SessionRecordingsList'
+import { StickyView } from 'lib/components/StickyView/StickyView'
 
 export type SessionRecordingsPlaylistProps = {
     playlistShortId?: string
@@ -64,21 +52,11 @@ export function SessionRecordingsPlaylist({
         filters,
         totalFiltersCount,
         showFilters,
-        showPinnedRecordingsPanel,
-        showOtherRecordingsPanel,
         pinnedRecordingsResponse,
         pinnedRecordingsResponseLoading,
     } = useValues(logic)
-    const {
-        setSelectedRecordingId,
-        loadNext,
-        loadPrev,
-        setFilters,
-        reportRecordingsListFilterAdded,
-        setShowFilters,
-        setShowPinnedRecordingsPanel,
-        setShowOtherRecordingsPanel,
-    } = useActions(logic)
+    const { setSelectedRecordingId, loadNext, loadPrev, setFilters, reportRecordingsListFilterAdded, setShowFilters } =
+        useActions(logic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -133,13 +111,6 @@ export function SessionRecordingsPlaylist({
             />
         </div>
     ) : null
-
-    const pinnedRecordingsDescription = (
-        <>
-            You can pin recordings to a playlist to easily keep track of relevant recordings for the task at hand.
-            Pinned recordings are always shown, regardless of filters and are not deleted.
-        </>
-    )
 
     return (
         <>
@@ -216,159 +187,54 @@ export function SessionRecordingsPlaylist({
             </div>
             <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
                 <div className="SessionRecordingsPlaylist__left-column space-y-4">
-                    {showFilters ? (
-                        <SessionRecordingsFilters
-                            filters={filters}
-                            setFilters={setFilters}
-                            showPropertyFilters={!personUUID}
-                        />
-                    ) : null}
+                    <StickyView top="3.5rem" marginTop={16}>
+                        <div className="SessionRecordingsPlaylist__lists">
+                            {showFilters ? (
+                                <SessionRecordingsFilters
+                                    filters={filters}
+                                    setFilters={setFilters}
+                                    showPropertyFilters={!personUUID}
+                                />
+                            ) : null}
 
-                    {/* Pinned recordings */}
-
-                    {!!playlistShortId && !showFilters ? (
-                        <>
-                            <div
-                                className={clsx('w-full overflow-hidden border rounded', {
-                                    'border-dashed': !pinnedRecordingsResponse?.results?.length,
-                                })}
-                            >
-                                <div className="relative flex justify-between items-center p-2 gap-1">
-                                    {playlistShortId ? (
-                                        <LemonButton
-                                            status="stealth"
-                                            icon={showPinnedRecordingsPanel ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                            size="small"
-                                            onClick={() => {
-                                                setShowPinnedRecordingsPanel(!showPinnedRecordingsPanel)
-                                            }}
-                                        />
-                                    ) : null}
-                                    <span className="font-bold uppercase text-xs my-1 tracking-wide flex-1 flex gap-1 items-center">
-                                        Pinned Recordings
-                                        <Tooltip title={pinnedRecordingsDescription}>
-                                            <IconInfo className="text-muted-alt" />
-                                        </Tooltip>
-                                    </span>
-                                    {/* <span className="rounded p-1 px-2 text-xs bg-border-light">5 of 100</span> */}
-                                </div>
-                                {showPinnedRecordingsPanel ? (
-                                    pinnedRecordingsResponse?.results?.length ? (
-                                        <ul className="overflow-y-auto border-t">
-                                            {pinnedRecordingsResponse?.results.map((rec, i) => (
-                                                <Fragment key={rec.id}>
-                                                    {i > 0 && <div className="border-t" />}
-                                                    <SessionRecordingPlaylistItem
-                                                        recording={rec}
-                                                        recordingProperties={sessionRecordingIdToProperties[rec.id]}
-                                                        recordingPropertiesLoading={
-                                                            sessionRecordingsPropertiesResponseLoading
-                                                        }
-                                                        onClick={() => onRecordingClick(rec)}
-                                                        onPropertyClick={onPropertyClick}
-                                                        isActive={activeSessionRecording?.id === rec.id}
-                                                    />
-                                                </Fragment>
-                                            ))}
-                                        </ul>
-                                    ) : pinnedRecordingsResponseLoading ? (
-                                        <div className="w-full border border-dashed rounded text-muted-alt p-3">
-                                            <LemonSkeleton className="my-2" repeat={3} />
-                                        </div>
-                                    ) : (
-                                        <div className="p-4 text-muted-alt border-t border-dashed">
-                                            {pinnedRecordingsDescription}
-                                        </div>
-                                    )
-                                ) : null}
-                            </div>
-                            <LemonDivider dashed />
-                        </>
-                    ) : null}
-
-                    {/* Other recordings */}
-
-                    <div className="w-full overflow-hidden border rounded">
-                        <div className="relative flex justify-between items-center p-2">
-                            <span className="flex items-center gap-2">
-                                {playlistShortId ? (
-                                    <LemonButton
-                                        status="stealth"
-                                        icon={showOtherRecordingsPanel ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                                        size="small"
-                                        onClick={() => {
-                                            setShowOtherRecordingsPanel(!showOtherRecordingsPanel)
-                                        }}
-                                    />
-                                ) : null}
-                                <span className="font-bold uppercase text-xs my-1 tracking-wide">
-                                    {!playlistShortId ? 'Recent recordings' : 'Other recordings'}
-                                </span>
-                            </span>
-                            {paginationControls}
-
-                            <LemonTableLoader loading={sessionRecordingsResponseLoading} />
-                        </div>
-                        {showOtherRecordingsPanel &&
-                            (!sessionRecordings.length ? (
-                                sessionRecordingsResponseLoading ? (
-                                    <>
-                                        {range(RECORDINGS_LIMIT).map((i) => (
-                                            <div key={i} className="p-4 space-y-2 border-b">
-                                                <LemonSkeleton className="w-1/2" />
-                                                <LemonSkeleton className="w-1/3" />
-                                            </div>
-                                        ))}
-                                    </>
-                                ) : (
-                                    <p className="text-muted-alt m-4">No matching recordings found</p>
-                                )
-                            ) : (
+                            {/* Pinned recordings */}
+                            {!!playlistShortId && !showFilters ? (
                                 <>
-                                    <ul className={clsx(sessionRecordingsResponseLoading && 'opacity-50', 'border-t')}>
-                                        {sessionRecordings.map((rec, i) => (
-                                            <Fragment key={rec.id}>
-                                                {i > 0 && <div className="border-t" />}
-                                                <SessionRecordingPlaylistItem
-                                                    recording={rec}
-                                                    recordingProperties={sessionRecordingIdToProperties[rec.id]}
-                                                    recordingPropertiesLoading={
-                                                        sessionRecordingsPropertiesResponseLoading
-                                                    }
-                                                    onClick={() => onRecordingClick(rec)}
-                                                    onPropertyClick={onPropertyClick}
-                                                    isActive={activeSessionRecording?.id === rec.id}
-                                                />
-                                            </Fragment>
-                                        ))}
-                                    </ul>
-                                    <div className="border-t flex justify-between items-center p-2">
-                                        <LemonButton
-                                            icon={<IconChevronLeft />}
-                                            disabled={!hasPrev}
-                                            onClick={() => {
-                                                loadPrev()
-                                                window.scrollTo(0, 0)
-                                            }}
-                                        >
-                                            Previous
-                                        </LemonButton>
-
-                                        <span>{`${offset + 1} - ${nextLength}`}</span>
-
-                                        <LemonButton
-                                            icon={<IconChevronRight />}
-                                            disabled={!hasNext}
-                                            onClick={() => {
-                                                loadNext()
-                                            }}
-                                        >
-                                            Next
-                                        </LemonButton>
-                                    </div>
+                                    <SessionRecordingsList
+                                        title="Pinned Recordings"
+                                        onRecordingClick={onRecordingClick}
+                                        onPropertyClick={onPropertyClick}
+                                        collapsable
+                                        recordings={pinnedRecordingsResponse?.results}
+                                        loading={pinnedRecordingsResponseLoading}
+                                        info={
+                                            <>
+                                                You can pin recordings to a playlist to easily keep track of relevant
+                                                recordings for the task at hand. Pinned recordings are always shown,
+                                                regardless of filters and are not deleted.
+                                            </>
+                                        }
+                                        activeRecordingId={activeSessionRecording?.id}
+                                    />
+                                    {/* <LemonDivider dashed className="my-0" /> */}
                                 </>
-                            ))}
-                    </div>
+                            ) : null}
+
+                            {/* Other recordings */}
+
+                            <SessionRecordingsList
+                                title={!playlistShortId ? 'Recent recordings' : 'Other recordings'}
+                                onRecordingClick={onRecordingClick}
+                                onPropertyClick={onPropertyClick}
+                                collapsable={!!playlistShortId}
+                                recordings={sessionRecordings}
+                                loading={sessionRecordingsResponseLoading}
+                                loadingSkeletonCount={RECORDINGS_LIMIT}
+                                empty={<>No matching recordings found</>}
+                                activeRecordingId={activeSessionRecording?.id}
+                            />
+                        </div>
+                    </StickyView>
                 </div>
                 <div className="SessionRecordingsPlaylist__right-column">
                     {activeSessionRecording?.id ? (
