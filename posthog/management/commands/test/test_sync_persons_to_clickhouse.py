@@ -1,9 +1,11 @@
 import logging
 from datetime import datetime, timedelta
+from unittest import mock
 from uuid import UUID, uuid4
 
 import pytest
 
+import posthog.management.commands.sync_persons_to_clickhouse
 from posthog.client import sync_execute
 from posthog.management.commands.sync_persons_to_clickhouse import (
     run,
@@ -114,7 +116,11 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         )
         self.assertEqual(ch_person_distinct_ids, [(UUID(int=0), self.team.pk, "test-id-7", 107, True)])
 
-    def test_group_sync(self):
+    @mock.patch(
+        f"{posthog.management.commands.sync_persons_to_clickhouse.__name__}.raw_create_group_ch",
+        wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
+    )
+    def test_group_sync(self, mocked_ch_call):
         ts = datetime.utcnow()
         Group.objects.create(
             team_id=self.team.pk,
@@ -126,6 +132,7 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         )
 
         run_group_sync(self.team.pk, live_run=True, sync=True)
+        mocked_ch_call.assert_called_once()
 
         ch_groups = sync_execute(
             """
@@ -140,16 +147,26 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         self.assertEqual(ch_group[2], '{"a": 1234}')
         self.assertEqual(ch_group[3].strftime("%Y-%m-%d %H:%M:%S"), ts.strftime("%Y-%m-%d %H:%M:%S"))
 
-    def test_group_sync_updates_group(self):
+        # second time it's a no-op
+        run_group_sync(self.team.pk, live_run=True, sync=True)
+        mocked_ch_call.assert_called_once()
+
+    @mock.patch(
+        f"{posthog.management.commands.sync_persons_to_clickhouse.__name__}.raw_create_group_ch",
+        wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
+    )
+    def test_group_sync_updates_group(self, mocked_ch_call):
         group = create_group(self.team.pk, 2, "group-key", {"a": 5}, timestamp=datetime.utcnow() - timedelta(hours=3))
         group.group_properties = {"a": 5, "b": 3}
         group.save()
 
+        ts_before = datetime.utcnow()
         run_group_sync(self.team.pk, live_run=True, sync=True)
+        mocked_ch_call.assert_called_once()
 
         ch_groups = sync_execute(
             """
-            SELECT group_type_index, group_key, group_properties, created_at FROM groups WHERE team_id = %(team_id)s ORDER BY _timestamp DESC LIMIT 1
+            SELECT group_type_index, group_key, group_properties, created_at, _timestamp FROM groups WHERE team_id = %(team_id)s ORDER BY _timestamp DESC LIMIT 1
             """,
             {"team_id": self.team.pk},
         )
@@ -159,6 +176,12 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         self.assertEqual(ch_group[1], "group-key")
         self.assertEqual(ch_group[2], '{"a": 5, "b": 3}')
         self.assertEqual(ch_group[3].strftime("%Y-%m-%d %H:%M:%S"), group.created_at.strftime("%Y-%m-%d %H:%M:%S"))
+        self.assertGreaterEqual(ch_group[4].strftime("%Y-%m-%d %H:%M:%S"), ts_before.strftime("%Y-%m-%d %H:%M:%S"))
+        self.assertLessEqual(ch_group[4].strftime("%Y-%m-%d %H:%M:%S"), datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S"))
+
+        # second time it's a no-op
+        run_group_sync(self.team.pk, live_run=True, sync=True)
+        mocked_ch_call.assert_called_once()
 
     def test_live_run_everything(self):
         self.everything_test_run(True)

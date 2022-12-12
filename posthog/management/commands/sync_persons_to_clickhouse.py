@@ -1,3 +1,4 @@
+import json
 from uuid import UUID
 
 import structlog
@@ -157,7 +158,9 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
 def run_group_sync(team_id: int, live_run: bool, sync: bool):
     logger.info("Running group table sync")
     # lookup what needs to be updated in ClickHouse and send kafka messages for only those
-    pg_groups = Group.objects.filter(team_id=team_id)
+    pg_groups = Group.objects.filter(team_id=team_id).values(
+        "group_type_index", "group_key", "group_properties", "created_at"
+    )
     # unfortunately we don't have version column for groups table
     rows = sync_execute(
         """
@@ -170,22 +173,24 @@ def run_group_sync(team_id: int, live_run: bool, sync: bool):
     ch_groups = {row[0]: {row[1]: {"properties": row[2], "created_at": row[3]}} for row in rows}
 
     for pg_group in pg_groups:
-        ch_group = ch_groups.get(pg_group.group_type_index, {}).get(pg_group.group_key, None)
+        ch_group = ch_groups.get(pg_group["group_type_index"], {}).get(pg_group["group_key"], None)
         if ch_group is None or should_update_group(ch_group, pg_group):
             logger.info(
-                f"Updating {pg_group.group_type_index} - {pg_group.group_key} with properties {pg_group.group_properties} and created_at {pg_group.created_at}"
+                f"Updating {pg_group['group_type_index']} - {pg_group['group_key']} with properties {pg_group['group_properties']} and created_at {pg_group['created_at']}"
             )
             if live_run:
                 # Update ClickHouse via Kafka message
                 raw_create_group_ch(
                     team_id=team_id,
-                    group_type_index=pg_group.group_type_index,
-                    group_key=pg_group.group_key,
-                    properties=pg_group.group_properties,
-                    created_at=pg_group.created_at,
+                    group_type_index=pg_group["group_type_index"],
+                    group_key=pg_group["group_key"],
+                    properties=pg_group["group_properties"],
+                    created_at=pg_group["created_at"],
                     sync=sync,
                 )
 
 
 def should_update_group(ch_group, pg_group: Group) -> bool:
-    return pg_group.group_properties != ch_group["properties"] or pg_group.created_at != ch_group["created_at"]
+    return json.dumps(pg_group["group_properties"]) != ch_group["properties"] or pg_group["created_at"].strftime(
+        "%Y-%m-%d %H:%M:%S"
+    ) != ch_group["created_at"].strftime("%Y-%m-%d %H:%M:%S")
