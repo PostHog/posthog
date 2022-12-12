@@ -5,7 +5,9 @@ from posthog.models.team import Team
 
 class SessionRecordingPlaylistItem(models.Model):
     class Meta:
-        unique_together = ("recording_id", "playlist_id", "team")
+        constraints = [
+            models.UniqueConstraint(fields=["recording", "playlist", "team"], name="unique_recording_playlist_team")
+        ]
 
     recording: models.ForeignKey = models.ForeignKey(
         "SessionRecording", related_name="playlist_items", on_delete=models.CASCADE, null=True, to_field="session_id"
