@@ -27,7 +27,8 @@ interface HashParams {
     sessionRecordingId?: SessionRecordingId
 }
 
-export const PLAYLIST_LIMIT = 20
+export const RECORDINGS_LIMIT = 20
+export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
 export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     session_recording_duration: {
@@ -138,7 +139,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     const paramsDict = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
-                        limit: PLAYLIST_LIMIT,
+                        limit: RECORDINGS_LIMIT,
                     }
 
                     const params = toParams(paramsDict)
@@ -192,18 +193,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     }
 
                     const paramsDict = {
-                        limit: PLAYLIST_LIMIT,
+                        limit: PINNED_RECORDINGS_LIMIT,
                     }
 
                     const params = toParams(paramsDict)
                     await breakpoint(100)
-
-                    const startTime = performance.now()
                     const response = await api.recordings.listPlaylistRecordings(props.playlistShortId, params)
-                    const loadTimeMs = performance.now() - startTime
-
-                    actions.reportRecordingsListFetched(loadTimeMs)
-
                     breakpoint()
                     return response
                 },
@@ -277,12 +272,12 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
         loadNext: () => {
             actions.setFilters({
-                offset: (values.filters?.offset || 0) + PLAYLIST_LIMIT,
+                offset: (values.filters?.offset || 0) + RECORDINGS_LIMIT,
             })
         },
         loadPrev: () => {
             actions.setFilters({
-                offset: Math.max((values.filters?.offset || 0) - PLAYLIST_LIMIT, 0),
+                offset: Math.max((values.filters?.offset || 0) - RECORDINGS_LIMIT, 0),
             })
         },
         getSessionRecordingsSuccess: () => {

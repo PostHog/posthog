@@ -11,6 +11,7 @@ import {
 import type { playlistPopupLogicType } from './playlistPopupLogicType'
 import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export const playlistPopupLogic = kea<playlistPopupLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popup', 'playlistPopupLogic', key]),
@@ -126,26 +127,45 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 actions.setPause()
             }
         },
+        addToPlaylistSuccess: ({ payload }) => {
+            if (payload?.playlist.short_id) {
+                sessionRecordingsListLogic
+                    .findMounted({ playlistShortId: payload?.playlist.short_id })
+                    ?.actions.loadPinnedRecordings({})
+            }
+        },
+        removeFromPlaylistSuccess: ({ payload }) => {
+            if (payload?.playlist.short_id) {
+                // TODO: Change this around for the list logic to listen out for the player changing it
+                // or at least that it doesn't trigger a load...
+                sessionRecordingsListLogic
+                    .findMounted({ playlistShortId: payload?.playlist.short_id })
+                    ?.actions.loadPinnedRecordings({})
+            }
+        },
     })),
     selectors(() => ({
         allPlaylists: [
-            (s) => [s.playlists, s.currentPlaylists],
-            (playlists, currentPlaylists) => {
-                // TODO: When searching we probably want to hide the current playlists and just show the searched ones
+            (s) => [s.playlists, s.currentPlaylists, s.searchQuery],
+            (playlists, currentPlaylists, searchQuery) => {
+                const otherPlaylists = searchQuery
+                    ? playlists
+                    : playlists.filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
+
+                const selectedPlaylists = !searchQuery ? currentPlaylists : []
+
                 const results: {
                     selected: boolean
                     playlist: SessionRecordingPlaylistType
                 }[] = [
-                    ...currentPlaylists.map((x) => ({
+                    ...selectedPlaylists.map((x) => ({
                         selected: true,
                         playlist: x,
                     })),
-                    ...playlists
-                        .filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
-                        .map((x) => ({
-                            selected: false,
-                            playlist: x,
-                        })),
+                    ...otherPlaylists.map((x) => ({
+                        selected: !!currentPlaylists.find((y) => x.short_id === y.short_id),
+                        playlist: x,
+                    })),
                 ]
 
                 return results

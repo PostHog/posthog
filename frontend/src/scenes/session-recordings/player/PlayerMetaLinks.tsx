@@ -9,8 +9,9 @@ import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/Pl
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlaylistPopup } from './playlist-popup/PlaylistPopup'
 
-export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
-    const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
+export function PlayerMetaLinks(props: SessionRecordingPlayerLogicProps): JSX.Element {
+    const { sessionRecordingId } = props
+    const logic = sessionRecordingPlayerLogic(props)
     const { setPause } = useActions(logic)
     const { isFullScreen } = useValues(playerSettingsLogic)
 
@@ -33,7 +34,7 @@ export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecord
                 Share
             </LemonButton>
 
-            <PlaylistPopup sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            <PlaylistPopup {...props} />
         </div>
     )
 }

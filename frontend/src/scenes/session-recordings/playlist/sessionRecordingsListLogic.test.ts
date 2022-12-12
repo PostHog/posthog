@@ -1,4 +1,4 @@
-import { sessionRecordingsListLogic, PLAYLIST_LIMIT, DEFAULT_RECORDING_FILTERS } from './sessionRecordingsListLogic'
+import { sessionRecordingsListLogic, RECORDINGS_LIMIT, DEFAULT_RECORDING_FILTERS } from './sessionRecordingsListLogic'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -32,11 +32,11 @@ describe('sessionRecordingsListLogic', () => {
                                 results: ["List of specific user's recordings from server"],
                             },
                         ]
-                    } else if (searchParams.get('offset') === `${PLAYLIST_LIMIT}`) {
+                    } else if (searchParams.get('offset') === `${RECORDINGS_LIMIT}`) {
                         return [
                             200,
                             {
-                                results: [`List of recordings offset by ${PLAYLIST_LIMIT}`],
+                                results: [`List of recordings offset by ${RECORDINGS_LIMIT}`],
                             },
                         ]
                     } else if (
@@ -184,10 +184,10 @@ describe('sessionRecordingsListLogic', () => {
                 await expectLogic(logic, () => {
                     logic.actions.loadNext()
                 })
-                    .toMatchValues({ filters: expect.objectContaining({ offset: PLAYLIST_LIMIT }) })
+                    .toMatchValues({ filters: expect.objectContaining({ offset: RECORDINGS_LIMIT }) })
                     .toDispatchActions(['loadNext', 'getSessionRecordingsSuccess'])
-                    .toMatchValues({ sessionRecordings: [`List of recordings offset by ${PLAYLIST_LIMIT}`] })
-                expect(router.values.searchParams.filters).toHaveProperty('offset', PLAYLIST_LIMIT)
+                    .toMatchValues({ sessionRecordings: [`List of recordings offset by ${RECORDINGS_LIMIT}`] })
+                expect(router.values.searchParams.filters).toHaveProperty('offset', RECORDINGS_LIMIT)
 
                 await expectLogic(logic, () => {
                     logic.actions.loadPrev()

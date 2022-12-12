@@ -97,6 +97,10 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
                                         }
                                     >
                                         {playlist.name || playlist.derived_name}
+
+                                        {props.playlistShortId === playlist.short_id && (
+                                            <span className="text-muted-alt italic text-sm ml-1">(current)</span>
+                                        )}
                                     </LemonButton>
 
                                     <LemonButton
