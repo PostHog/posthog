@@ -378,10 +378,6 @@ class BillingViewset(viewsets.GenericViewSet):
             organization.available_features = data["available_features"]
             org_modified = True
 
-        if data.get("deactivated"):
-            # TODO: Mark the organization as deactivated
-            pass
-
         if org_modified:
             organization.save()
 
