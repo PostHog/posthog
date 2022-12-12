@@ -37,12 +37,12 @@ def calculate_cohorts() -> None:
 
 def update_cohort(cohort: Cohort) -> None:
     pending_version = get_and_update_pending_version(cohort)
-    clear_stale_cohortpeople.delay(cohort.id, cohort.version)
+    clear_stale_cohort.delay(cohort.id, cohort.version)
     calculate_cohort_ch.delay(cohort.id, pending_version)
 
 
 @shared_task(ignore_result=True)
-def clear_stale_cohort(cohort_id: int, current_version) -> None:
+def clear_stale_cohort(cohort_id: int, current_version: int) -> None:
     cohort: Cohort = Cohort.objects.get(pk=cohort_id)
     clear_stale_cohortpeople(cohort, current_version)
 
