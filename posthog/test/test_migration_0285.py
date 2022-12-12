@@ -87,6 +87,8 @@ class CreatingSessionRecordingModelMigrationTestCase(TestMigrations):
     def tearDown(self):
         SessionRecording = self.apps.get_model("posthog", "SessionRecording")  # type: ignore
         SessionRecordingPlaylistItem = self.apps.get_model("posthog", "SessionRecordingPlaylistItem")  # type: ignore
+        SessionRecordingPlaylist = self.apps.get_model("posthog", "SessionRecordingPlaylist")
 
         SessionRecording.objects.all().delete()
         SessionRecordingPlaylistItem.objects.all().delete()
+        SessionRecordingPlaylist.objects.all().delete()
