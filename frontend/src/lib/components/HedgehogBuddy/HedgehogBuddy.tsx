@@ -223,6 +223,16 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
         }
     }, [animation, isDragging])
 
+    useEffect(() => {
+        if (isDragging) {
+            document.body.classList.add('select-none')
+        } else {
+            document.body.classList.remove('select-none')
+        }
+
+        return () => document.body.classList.remove('select-none')
+    }, [isDragging])
+
     const onClick = (): void => {
         !isDragging && setPopupVisible(!popupVisible)
     }
