@@ -13,7 +13,7 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.client import sync_execute
-from posthog.constants import PropertyOperatorType
+from posthog.constants import AvailableFeature, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
@@ -734,6 +734,8 @@ def can_user_edit_feature_flag(request, feature_flag):
     except:
         return True
     else:
+        if not request.user.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            return True
         if feature_flag.created_by == request.user:
             return True
         if (
