@@ -125,42 +125,5 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
                 return playlist
             },
         },
-        _recordingModel: {
-            addRecordingToPlaylist: async ({ recording, playlist, silent }) => {
-                const newRecordingResponse = await api.recordings.updateRecording(
-                    recording.id,
-                    {
-                        playlists: [...(recording.playlists || []).filter((id) => id !== playlist.id), playlist.id],
-                    },
-                    toParams({
-                        recording_start_time: recording.start_time,
-                    })
-                )
-                if (!silent) {
-                    lemonToast.success('Recording added to playlist', {
-                        button: {
-                            label: 'View playlist',
-                            action: () => router.actions.push(urls.sessionRecordingPlaylist(playlist.short_id)),
-                        },
-                    })
-                }
-                return newRecordingResponse.result.session_recording
-            },
-            removeRecordingFromPlaylist: async ({ recording, playlist, silent }) => {
-                const newRecordingResponse = await api.recordings.updateRecording(
-                    recording.id,
-                    {
-                        playlists: [...(recording.playlists || []).filter((id) => id !== playlist.id)],
-                    },
-                    toParams({
-                        recording_start_time: recording.start_time,
-                    })
-                )
-                if (!silent) {
-                    lemonToast.success('Recording removed from playlist')
-                }
-                return newRecordingResponse.result.session_recording
-            },
-        },
     })),
 ])

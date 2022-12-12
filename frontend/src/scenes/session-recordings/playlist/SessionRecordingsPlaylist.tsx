@@ -19,6 +19,8 @@ import { DurationFilter } from '../filters/DurationFilter'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import { StickyView } from 'lib/components/StickyView/StickyView'
 
+const MARGIN_TOP = 16
+
 export type SessionRecordingsPlaylistProps = {
     playlistShortId?: string
     personUUID?: string
@@ -68,7 +70,7 @@ export function SessionRecordingsPlaylist({
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
 
-        const scrollToTop = playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - 8 : 0
+        const scrollToTop = playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - MARGIN_TOP : 0
 
         if (window.scrollY > scrollToTop) {
             window.scrollTo({
@@ -181,7 +183,7 @@ export function SessionRecordingsPlaylist({
             </div>
             <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
                 <div className="SessionRecordingsPlaylist__left-column space-y-4">
-                    <StickyView top="3.5rem" marginTop={16}>
+                    <StickyView top="3.5rem" marginTop={MARGIN_TOP}>
                         <div className="SessionRecordingsPlaylist__lists">
                             {showFilters ? (
                                 <SessionRecordingsFilters
