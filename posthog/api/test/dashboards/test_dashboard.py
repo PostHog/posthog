@@ -177,12 +177,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.dashboard_api.create_insight(
                 {"filters": filter_dict, "dashboards": [dashboard_id]}, expected_status=status.HTTP_201_CREATED
             )
-            with self.assertNumQueries(16):
-                self.dashboard_api.get_dashboard(dashboard_id)
-
-            self.dashboard_api.create_insight(
-                {"filters": filter_dict, "dashboards": [dashboard_id]}, expected_status=status.HTTP_201_CREATED
-            )
             with self.assertNumQueries(18):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
@@ -190,6 +184,12 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 {"filters": filter_dict, "dashboards": [dashboard_id]}, expected_status=status.HTTP_201_CREATED
             )
             with self.assertNumQueries(20):
+                self.dashboard_api.get_dashboard(dashboard_id)
+
+            self.dashboard_api.create_insight(
+                {"filters": filter_dict, "dashboards": [dashboard_id]}, expected_status=status.HTTP_201_CREATED
+            )
+            with self.assertNumQueries(22):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
