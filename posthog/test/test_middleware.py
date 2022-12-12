@@ -86,7 +86,14 @@ class TestAccessMiddleware(APIBaseTest):
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
-    BASE_APP_NUM_QUERIES = 40 if not settings.MULTI_TENANCY else 41
+    from posthog.models.team import util
+
+    BASE_APP_NUM_QUERIES = 40 if not settings.MULTI_TENANCY else 42
+
+    if settings.MULTI_TENANCY:
+        BASE_APP_NUM_QUERIES += 1
+    if util.can_enable_person_on_events:
+        BASE_APP_NUM_QUERIES += 1
 
     second_team: Team
 

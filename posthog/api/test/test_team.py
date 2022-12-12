@@ -6,6 +6,7 @@ from rest_framework import status
 
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
@@ -40,8 +41,12 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["is_demo"], False)
         self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
         self.assertEqual(response_data["has_group_types"], False)
-        self.assertEqual(response_data["person_on_events_querying_enabled"], False)
-        self.assertEqual(response_data["groups_on_events_querying_enabled"], False)
+        self.assertEqual(
+            response_data["person_on_events_querying_enabled"], get_instance_setting("PERSON_ON_EVENTS_ENABLED")
+        )
+        self.assertEqual(
+            response_data["groups_on_events_querying_enabled"], get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
+        )
 
         # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
         self.assertNotIn("event_names", response_data)
