@@ -2,7 +2,6 @@ from django.conf import settings
 from rest_framework import status
 
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.test.base import APIBaseTest
@@ -88,14 +87,13 @@ class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
     second_team: Team
+    base_app_num_queries: int
 
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        cls.base_app_num_queries = 40
+        cls.base_app_num_queries = 42
         if settings.MULTI_TENANCY:
-            cls.base_app_num_queries += 2
-        if get_instance_setting("PERSON_ON_EVENTS_ENABLED") or get_instance_setting("GROUPS_ON_EVENTS_ENABLED"):
             cls.base_app_num_queries += 2
         # Create another team that the user does have access to
         cls.second_team = Team.objects.create(organization=cls.organization, name="Second Life")
