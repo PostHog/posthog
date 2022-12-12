@@ -18,12 +18,12 @@ frontend/.cache/
 frontend/dist/
 frontend/types/
 *Type.ts
-frontend/yarn-error.log
+frontend/pnpm-error.log
 frontend/tmp
 .idea
 celerybeat-schedule
 celerybeat.pid
-yarn-error.log
+pnpm-error.log
 .yalc
 yalc.lock
 .vscode/*

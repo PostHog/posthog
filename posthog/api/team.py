@@ -1,10 +1,8 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
-from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from sentry_sdk import capture_exception
@@ -14,7 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Insight, Organization, Team, User
+from posthog.models import InsightCachingState, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
@@ -150,19 +148,14 @@ class TeamSerializer(serializers.ModelSerializer):
             raise e
         return team
 
-    def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
-        hashes = (
-            Insight.objects.filter(team=team, last_refresh__gt=now() - relativedelta(days=7))
-            .exclude(filters_hash=None)
-            .values_list("filters_hash", flat=True)
-        )
+    def _handle_timezone_update(self, team: Team) -> None:
+        # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
+        hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
-
-        return
 
     def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance, validated_data["timezone"])
+            self._handle_timezone_update(instance)
 
         return super().update(instance, validated_data)
 

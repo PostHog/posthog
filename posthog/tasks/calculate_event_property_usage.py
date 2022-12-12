@@ -271,6 +271,13 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
         .values_list("id", "filters")
         .all()
     ]
+
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.insight_filters_to_process",
+        value=len(insight_filters),
+        tags={"team": team_id},
+    )
+
     for id, item_filters in insight_filters:
         if item_filters is None:
             logger.info(
@@ -288,5 +295,16 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
             event_usage.extend(action.get_step_events())
 
         counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
+
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.counted_events_for_team_insights",
+        value=len(event_usage),
+        tags={"team": team_id},
+    )
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.counted_properties_for_team_insights",
+        value=sum(counted_properties.values()),
+        tags={"team": team_id},
+    )
 
     return event_usage, counted_properties

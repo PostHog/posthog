@@ -24,6 +24,7 @@ export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
     title: string
     message: string
+    contactSupport?: boolean
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -121,6 +122,15 @@ export const billingTestLogic = kea<billingTestLogicType>([
                     }
                 }
 
+                if (billing.deactivated) {
+                    return {
+                        status: 'error',
+                        title: 'Your organization has been temporarily suspended.',
+                        message: 'Please contact support to reactivate it.',
+                        contactSupport: true,
+                    }
+                }
+
                 const productOverLimit = billing.products.find((x) => {
                     return x.percentage_usage > 1
                 })
@@ -156,11 +166,13 @@ export const billingTestLogic = kea<billingTestLogicType>([
                 }
                 // lock cloud users without a subscription out if they are above the usage limit on any product
                 return Boolean(
-                    billingVersion === 'v2' &&
+                    ((billingVersion === 'v2' &&
                         !billing.has_active_subscription &&
+                        !billing.free_trial_until &&
                         billing.products.find((x) => {
                             return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
-                        }) &&
+                        })) ||
+                        billing.deactivated) &&
                         featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
                 )
             },
