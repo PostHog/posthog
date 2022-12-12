@@ -8,7 +8,7 @@ from rest_framework.exceptions import NotFound, PermissionDenied, ValidationErro
 from rest_framework.permissions import SAFE_METHODS, IsAuthenticated
 from rest_framework.request import Request
 
-from posthog.api.dashboard import DashboardSerializer
+from posthog.api.dashboards.dashboard import DashboardSerializer
 from posthog.api.insight import InsightSerializer
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import SharingConfiguration

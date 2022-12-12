@@ -1,4 +1,3 @@
-import datetime
 import json
 from typing import Any, Dict, List, Optional, cast
 
@@ -27,7 +26,7 @@ from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.utils import should_ignore_dashboard_items_field, should_refresh
+from posthog.utils import should_ignore_dashboard_items_field
 
 logger = structlog.get_logger(__name__)
 
@@ -55,13 +54,6 @@ class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
     text = TextSerializer()
-    last_refresh = serializers.SerializerMethodField(
-        read_only=True,
-        help_text="""
-        The datetime this tile's insight results were generated.
-        """,
-    )
-    is_cached = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = DashboardTile
@@ -69,15 +61,15 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "insight"]
         depth = 1
 
-    def get_last_refresh(self, dashboard_tile: DashboardTile) -> datetime.datetime:
-        if should_refresh(self.context["request"]):
-            return now()
-        return dashboard_tile.last_refresh
+    def to_representation(self, instance: Insight):
+        representation = super().to_representation(instance)
 
-    def get_is_cached(self, dashboard_tile: DashboardTile) -> bool:
-        if should_refresh(self.context["request"]):
-            return False
-        return dashboard_tile.last_refresh is not None
+        insight_representation = representation["insight"] or {}  # May be missing for text tiles
+
+        representation["last_refresh"] = insight_representation.get("last_refresh", None)
+        representation["is_cached"] = insight_representation.get("is_cached", False)
+
+        return representation
 
 
 class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -400,6 +392,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         if self.action != "list":
             tiles_prefetch_queryset = DashboardTile.dashboard_queryset(
                 DashboardTile.objects.prefetch_related(
+                    "caching_states",
                     Prefetch(
                         "insight__dashboards",
                         queryset=Dashboard.objects.exclude(deleted=True)

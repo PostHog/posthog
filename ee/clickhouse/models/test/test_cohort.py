@@ -105,7 +105,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.actor_on_events_querying_enabled
+            if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -146,7 +146,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.actor_on_events_querying_enabled
+            if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -160,7 +160,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.actor_on_events_querying_enabled
+            if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -201,7 +201,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.actor_on_events_querying_enabled
+            if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
@@ -215,7 +215,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self.team.actor_on_events_querying_enabled
+            if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)

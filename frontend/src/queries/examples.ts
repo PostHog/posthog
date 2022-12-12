@@ -39,7 +39,6 @@ const EventsTable: DataTableNode = {
     columns: defaultDataTableColumns({ kind: NodeKind.EventsNode }),
     source: Events,
 }
-
 const EventsTableFull: DataTableNode = {
     ...EventsTable,
     showPropertyFilter: true,
