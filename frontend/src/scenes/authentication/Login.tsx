@@ -7,7 +7,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import clsx from 'clsx'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
+import { SocialLoginIcon } from 'lib/components/SocialLoginButton/control/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { SSOProviders } from '~/types'
 import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
@@ -87,9 +87,18 @@ export function Login(): JSX.Element {
     }, [isPasswordHidden])
 
     return (
-        <BridgePage view="login" noHedgehog>
+        <BridgePage
+            view="login"
+            hedgehog
+            message={
+                <>
+                    Welcome to
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                </>
+            }
+        >
             <div className="space-y-2">
-                <h2>Get started</h2>
+                <h2>Log in</h2>
                 {generalError && (
                     <AlertMessage type="error">
                         {generalError.detail ||
