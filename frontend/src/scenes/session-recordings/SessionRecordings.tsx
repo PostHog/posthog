@@ -21,7 +21,7 @@ import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFil
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { tab, newPlaylistLoading } = useValues(sessionRecordingsLogic)
+    const { tab, playlistLoading } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -57,7 +57,7 @@ export function SessionsRecordings(): JSX.Element {
                                     //         playerKey: 'recents',
                                     //     })
                                     // }}
-                                    loading={newPlaylistLoading}
+                                    loading={playlistLoading}
                                     data-attr="save-recordings-playlist-button"
                                 >
                                     New playlist

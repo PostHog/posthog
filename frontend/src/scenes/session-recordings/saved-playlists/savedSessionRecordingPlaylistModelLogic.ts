@@ -2,39 +2,10 @@ import { actions, kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 import { SessionRecordingPlaylistType, SessionRecordingType } from '~/types'
 import type { savedSessionRecordingPlaylistModelLogicType } from './savedSessionRecordingPlaylistModelLogicType'
-import api from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+import api from 'lib/api'
 import { deleteWithUndo } from 'lib/utils'
-import { DEFAULT_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
-import { router } from 'kea-router'
-import { urls } from 'scenes/urls'
-import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
-import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
-
-export async function createPlaylist(
-    playlist: Partial<SessionRecordingPlaylistType>,
-    redirect = false
-): Promise<SessionRecordingPlaylistType | null> {
-    try {
-        playlist.filters = playlist.filters || DEFAULT_RECORDING_FILTERS
-        const res = await api.recordings.createPlaylist(playlist)
-        if (redirect) {
-            router.actions.push(urls.sessionRecordingPlaylist(res.short_id))
-        }
-        return res
-    } catch (e: any) {
-        if (e.status === 403) {
-            openBillingPopupModal({
-                title: `Upgrade now to unlock unlimited playlists`,
-                description: PLAYLIST_LIMIT_REACHED_MESSAGE,
-            })
-        } else {
-            throw e
-        }
-    }
-
-    return null
-}
 
 export type PlaylistTypeWithShortId = Partial<SessionRecordingPlaylistType> &
     Pick<SessionRecordingPlaylistType, 'short_id'>
@@ -51,7 +22,6 @@ export interface UpdatedRecordingResponse {
 export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecordingPlaylistModelLogicType>([
     path(['scenes', 'session-recordings', 'saved-playlists', 'savedSessionRecordingPlaylistModelLogic']),
     actions(() => ({
-        loadSavedPlaylist: (shortId: SessionRecordingPlaylistType['short_id']) => ({ shortId }),
         createSavedPlaylist: (playlist: Partial<SessionRecordingPlaylistType>, redirect: boolean = false) => ({
             playlist,
             redirect,
@@ -60,21 +30,6 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
             playlist,
             redirect,
         }),
-        updateSavedPlaylist: (playlist: PlaylistTypeWithShortId, silent = false) => ({ playlist, silent }),
-        deleteSavedPlaylistWithUndo: (playlist: PlaylistTypeWithShortId, undoCallback?: () => void) => ({
-            playlist,
-            undoCallback,
-        }),
-        addRecordingToPlaylist: (
-            recording: RecordingTypeWithIdAndPlaylist,
-            playlist: PlaylistTypeWithIds,
-            silent = false
-        ) => ({ recording, playlist, silent }),
-        removeRecordingFromPlaylist: (
-            recording: RecordingTypeWithIdAndPlaylist,
-            playlist: PlaylistTypeWithIds,
-            silent = false
-        ) => ({ recording, playlist, silent }),
     })),
     loaders(() => ({
         _playlistModel: {

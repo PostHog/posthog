@@ -2,7 +2,6 @@ import { kea, props, path, key, actions, reducers, selectors, listeners, connect
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { createPlaylist } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
@@ -13,6 +12,7 @@ import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/playerUtils'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 
 export const playlistPopupLogic = kea<playlistPopupLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popup', 'playlistPopupLogic', key]),

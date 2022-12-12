@@ -3,10 +3,17 @@ import { Breadcrumb, RecordingFilters, SessionRecordingPlaylistType, SessionReco
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 import { urls } from 'scenes/urls'
 import equal from 'fast-deep-equal'
-import { beforeUnload } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 import { cohortsModel } from '~/models/cohortsModel'
-import { summarizePlaylistFilters } from 'scenes/session-recordings/playlist/playlistUtils'
-import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
+import {
+    deletePlaylist,
+    duplicatePlaylist,
+    getPlaylist,
+    summarizePlaylistFilters,
+    updatePlaylist,
+} from 'scenes/session-recordings/playlist/playlistUtils'
+import { PlaylistTypeWithShortId } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
+import { loaders } from 'kea-loaders'
 
 export interface SessionRecordingsPlaylistLogicProps {
     shortId: string
@@ -17,38 +24,39 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     props({} as SessionRecordingsPlaylistLogicProps),
     key((props) => props.shortId),
     connect({
-        values: [
-            cohortsModel,
-            ['cohortsById'],
-            savedSessionRecordingPlaylistModelLogic,
-            ['_playlistModel', '_playlistModelLoading'],
-        ],
-        actions: [
-            savedSessionRecordingPlaylistModelLogic,
-            [
-                'loadSavedPlaylist',
-                'loadSavedPlaylistSuccess',
-                'updateSavedPlaylist',
-                'updateSavedPlaylistSuccess',
-                'duplicateSavedPlaylist',
-                'duplicateSavedPlaylistSuccess',
-                'deleteSavedPlaylistWithUndo',
-            ],
-        ],
+        values: [cohortsModel, ['cohortsById']],
     }),
     actions({
-        getPlaylist: true,
         setPlaylist: (playlist: SessionRecordingPlaylistType | null) => ({ playlist }),
+        updatePlaylist: (playlist: PlaylistTypeWithShortId | null) => ({ playlist }),
         setFilters: (filters: RecordingFilters | null) => ({ filters }),
-        saveChanges: true,
     }),
-    reducers(({}) => ({
+    loaders(({ values, props }) => ({
         playlist: [
             null as SessionRecordingPlaylistType | null,
             {
-                setPlaylist: (oldPlaylist, { playlist }) => playlist || oldPlaylist,
+                setPlaylist: ({ playlist }) => playlist || values.playlist,
+                getPlaylist: async () => {
+                    return getPlaylist(props.shortId)
+                },
+                updatePlaylist: async ({ playlist }) => {
+                    return updatePlaylist(playlist ?? { short_id: props.shortId, filters: values.filters || undefined })
+                },
+                duplicatePlaylist: async () => {
+                    return duplicatePlaylist(values.playlist ?? {}, true)
+                },
+                deletePlaylist: async () => {
+                    if (values.playlist) {
+                        return deletePlaylist(values.playlist, () => {
+                            router.actions.replace(urls.sessionRecordings(SessionRecordingsTabs.Playlists))
+                        })
+                    }
+                    return null
+                },
             },
         ],
+    })),
+    reducers(({}) => ({
         filters: [
             null as RecordingFilters | null,
             {
@@ -59,24 +67,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
 
     listeners(({ actions, values, props }) => ({
-        getPlaylist: () => {
-            actions.loadSavedPlaylist(props.shortId)
-        },
-        saveChanges: () => {
-            actions.updateSavedPlaylist({ short_id: props.shortId, filters: values.filters || undefined })
-        },
-        updateSavedPlaylistSuccess: () => {
-            actions.setPlaylist(values._playlistModel)
-        },
-        duplicateSavedPlaylistSuccess: () => {
-            actions.setPlaylist(values._playlistModel)
-        },
-        loadSavedPlaylistSuccess: () => {
-            actions.setPlaylist(values._playlistModel)
-
+        getPlaylistSuccess: () => {
             if (values.playlist?.derived_name !== values.derivedName) {
                 // This keeps the derived name up to date if the playlist changes
-                actions.updateSavedPlaylist({ short_id: props.shortId, derived_name: values.derivedName }, true)
+                actions.updatePlaylist({ short_id: props.shortId, derived_name: values.derivedName })
             }
         },
     })),
@@ -90,7 +84,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
 
     selectors(({}) => ({
-        playlistLoading: [(s) => [s._playlistModelLoading], (_playlistModelLoading) => !!_playlistModelLoading],
         breadcrumbs: [
             (s) => [s.playlist],
             (playlist): Breadcrumb[] => [

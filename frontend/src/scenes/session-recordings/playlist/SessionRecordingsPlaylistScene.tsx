@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { SessionRecordingsTabs } from '~/types'
 import './SessionRecordingsPlaylist.scss'
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
@@ -10,8 +9,6 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 import { NotFound } from 'lib/components/NotFound'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { More } from 'lib/components/LemonButton/More'
-import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
 import { SessionRecordingsPlaylist } from './SessionRecordingsPlaylist'
 
 export const scene: SceneExport = {
@@ -24,8 +21,7 @@ export const scene: SceneExport = {
 
 export function SessionRecordingsPlaylistScene(): JSX.Element {
     const { playlist, playlistLoading, hasChanges, derivedName } = useValues(sessionRecordingsPlaylistLogic)
-    const { updateSavedPlaylist, setFilters, saveChanges, duplicateSavedPlaylist, deleteSavedPlaylistWithUndo } =
-        useActions(sessionRecordingsPlaylistLogic)
+    const { setFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(sessionRecordingsPlaylistLogic)
 
     if (!playlist && playlistLoading) {
         return (
@@ -64,7 +60,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                         name="name"
                         value={playlist.name || ''}
                         placeholder={derivedName}
-                        onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, name: value })}
+                        onSave={(value) => updatePlaylist({ short_id: playlist.short_id, name: value })}
                         saveOnBlur={true}
                         maxLength={400}
                         mode={undefined}
@@ -78,7 +74,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                 <>
                                     <LemonButton
                                         status="stealth"
-                                        onClick={() => duplicateSavedPlaylist(playlist, true)}
+                                        onClick={() => duplicatePlaylist()}
                                         fullWidth
                                         data-attr="duplicate-playlist"
                                     >
@@ -87,7 +83,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                     <LemonButton
                                         status="stealth"
                                         onClick={() =>
-                                            updateSavedPlaylist({
+                                            updatePlaylist({
                                                 short_id: playlist.short_id,
                                                 pinned: !playlist.pinned,
                                             })
@@ -98,17 +94,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                                     </LemonButton>
                                     <LemonDivider />
 
-                                    <LemonButton
-                                        status="danger"
-                                        onClick={() =>
-                                            deleteSavedPlaylistWithUndo(playlist, () => {
-                                                router.actions.replace(
-                                                    urls.sessionRecordings(SessionRecordingsTabs.Playlists)
-                                                )
-                                            })
-                                        }
-                                        fullWidth
-                                    >
+                                    <LemonButton status="danger" onClick={() => deletePlaylist()} fullWidth>
                                         Delete playlist
                                     </LemonButton>
                                 </>
@@ -120,7 +106,9 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             type="primary"
                             disabled={!hasChanges}
                             loading={hasChanges && playlistLoading}
-                            onClick={saveChanges}
+                            onClick={() => {
+                                updatePlaylist(null)
+                            }}
                         >
                             Save changes
                         </LemonButton>
@@ -133,7 +121,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             name="description"
                             value={playlist.description || ''}
                             placeholder="Description (optional)"
-                            onSave={(value) => updateSavedPlaylist({ short_id: playlist.short_id, description: value })}
+                            onSave={(value) => updatePlaylist({ short_id: playlist.short_id, description: value })}
                             saveOnBlur={true}
                             maxLength={400}
                             data-attr="playlist-description"
