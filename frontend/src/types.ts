@@ -275,6 +275,8 @@ export interface TeamType extends TeamBasicType {
      * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
      */
     correlation_config: CorrelationConfigType | null
+    person_on_events_querying_enabled: boolean
+    groups_on_events_querying_enabled: boolean
 }
 
 export interface ActionType {
