@@ -47,7 +47,7 @@ recording_viewed_stats AS (
         user_id,
         count(*) AS viewed_recording_count,
         CASE
-            WHEN count(*) >= 10 THEN 'popcorn_muncher'
+            WHEN count(*) >= 50 THEN 'popcorn_muncher'
         END AS badge
     FROM
         posthog_sessionrecordingviewed
