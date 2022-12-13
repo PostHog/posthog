@@ -420,7 +420,8 @@ class FOSSCohortQuery(EventQuery):
         # If we reach this stage, it means there are no cyclic dependencies
         # They should've been caught by API update validation
         # and if not there, `simplifyFilter` would've failed
-        query, params = format_static_cohort_query(cast(int, prop.value), idx, prepend)
+        cohort = Cohort.objects.get(pk=cast(int, prop.value))
+        query, params = format_static_cohort_query(cohort, idx, prepend)
         return f"id {'NOT' if prop.negation else ''} IN ({query})", params
 
     def get_performed_event_condition(self, prop: Property, prepend: str, idx: int) -> Tuple[str, Dict[str, Any]]:

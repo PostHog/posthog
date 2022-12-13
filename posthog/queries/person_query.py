@@ -4,7 +4,12 @@ from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
-from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.cohort.sql import (
+    GET_COHORT_ACTORS_BY_COHORT_ID,
+    GET_COHORTPEOPLE_BY_COHORT_ID,
+    GET_STATIC_COHORTPEOPLE_BY_COHORT_ID,
+)
+from posthog.models.cohort.util import cohort_actors_ready
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -186,15 +191,20 @@ class PersonQuery:
     def _get_cohort_query(self) -> Tuple[str, Dict]:
 
         if self._cohort:
-            cohort_table = (
-                GET_STATIC_COHORTPEOPLE_BY_COHORT_ID if self._cohort.is_static else GET_COHORTPEOPLE_BY_COHORT_ID
-            )
+
+            if self._cohort.is_static:
+                cohort_table = GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+            elif cohort_actors_ready():
+                cohort_table = GET_COHORT_ACTORS_BY_COHORT_ID
+            else:
+                cohort_table = GET_COHORTPEOPLE_BY_COHORT_ID
+
             return (
                 f"""
             INNER JOIN (
                 {cohort_table}
             ) {self.COHORT_TABLE_ALIAS}
-            ON {self.COHORT_TABLE_ALIAS}.person_id = person.id
+            ON {self.COHORT_TABLE_ALIAS}.person_id = toString(person.id)
             """,
                 {"team_id": self._team_id, "cohort_id": self._cohort.pk},
             )

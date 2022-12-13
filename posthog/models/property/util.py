@@ -296,9 +296,10 @@ def parse_prop_clauses(
                 params[group_type_index_var] = prop.group_type_index
         elif prop.type in ("static-cohort", "precalculated-cohort"):
             cohort_id = cast(int, prop.value)
+            cohort = Cohort.objects.get(pk=cohort_id)
 
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
-            filter_query, filter_params = method(cohort_id, idx, prepend=prepend)  # type: ignore
+            filter_query, filter_params = method(cohort, idx, prepend=prepend)  # type: ignore
             filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
 
             if has_person_id_joined or person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:

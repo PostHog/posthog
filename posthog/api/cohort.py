@@ -209,7 +209,6 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             filter = filter.with_data({LIMIT: 100})
 
         query, params = PersonQuery(filter, team.pk, cohort=cohort).get_query(paginate=True)
-
         raw_result = sync_execute(query, params)
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids, distinct_id_limit=10 if is_csv_request else None)

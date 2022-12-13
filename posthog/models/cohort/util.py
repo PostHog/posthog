@@ -8,14 +8,18 @@ from django.conf import settings
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.cache_utils import cache_for
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
+from posthog.models.async_migration import is_async_migration_complete
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
+    GET_ACTOR_ID_BY_PRECALCULATED_COHORT_ID,
     GET_COHORT_SIZE_SQL,
+    GET_COHORTS_BY_ACTOR_ID,
     GET_COHORTS_BY_PERSON_UUID,
     GET_DISTINCT_ID_BY_ENTITY_SQL,
     GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
@@ -41,7 +45,7 @@ logger = structlog.get_logger(__name__)
 
 def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
-        return format_static_cohort_query(cohort.pk, index, prepend="")
+        return format_static_cohort_query(cohort, index, prepend="")
 
     if not cohort.properties.values:
         # No person can match an empty cohort
@@ -58,16 +62,21 @@ def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]
     return query, params
 
 
-def format_static_cohort_query(cohort_id: int, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
+def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> Tuple[str, Dict[str, Any]]:
     return (
         f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
-        {f"{prepend}_cohort_id_{index}": cohort_id},
+        {f"{prepend}_cohort_id_{index}": cohort.pk},
     )
 
 
-def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
-    filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
-    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort_id})
+def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str = "") -> Tuple[str, Dict[str, Any]]:
+
+    if cohort_actors_ready():
+        filter_query = GET_ACTOR_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
+    else:
+        filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
+
+    return (filter_query, {f"{prepend}_cohort_id_{index}": cohort.pk, "version": cohort.version})
 
 
 def get_entity_cohort_subquery(
@@ -201,9 +210,12 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
 def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
-        query, params = format_precalculated_cohort_query(cohort.pk, index)
+        query, params = format_precalculated_cohort_query(cohort, index)
     else:
         query, params = format_person_query(cohort, index)
+
+    if cohort_actors_ready():
+        custom_match_field = f"toString({custom_match_field})"
 
     person_query = f"{custom_match_field} IN ({query})"
     return person_query, params
@@ -257,19 +269,20 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
             "Recalculating cohortpeople starting", team_id=cohort.team_id, cohort_id=cohort.pk, size_before=before_count
         )
 
-    recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
+    if cohort_actors_ready():
+        recalculate_cohort_actors_sql = RECALCULATE_COHORT_ACTORS_BY_ID.format(cohort_filter=cohort_query)
 
-    sync_execute(
-        recalculate_cohortpeople_sql,
-        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
-    )
+        sync_execute(
+            recalculate_cohort_actors_sql,
+            {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
+        )
+    else:
+        recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
 
-    recalculate_cohort_actors_sql = RECALCULATE_COHORT_ACTORS_BY_ID.format(cohort_filter=cohort_query)
-
-    sync_execute(
-        recalculate_cohort_actors_sql,
-        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
-    )
+        sync_execute(
+            recalculate_cohortpeople_sql,
+            {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
+        )
 
     count = get_cohort_size(cohort.pk, cohort.team_id)
 
@@ -335,7 +348,12 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
-    res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+
+    if cohort_actors_ready():
+        res = sync_execute(GET_COHORTS_BY_ACTOR_ID, {"actor_id": uuid, "team_id": team_id})
+    else:
+        res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+
     return [row[0] for row in res]
 
 
@@ -348,3 +366,8 @@ def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:
     cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
     static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
     return [*cohort_ids, *static_cohort_ids]
+
+
+@cache_for(timedelta(minutes=1))
+def cohort_actors_ready() -> bool:
+    return is_async_migration_complete("0008_cohort_actors")

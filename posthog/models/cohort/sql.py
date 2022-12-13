@@ -91,12 +91,22 @@ GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID = """
 SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0
 """
 
+GET_ACTOR_ID_BY_PRECALCULATED_COHORT_ID = """
+SELECT actor_id FROM cohort_actors WHERE team_id = %(team_id)s AND cohort_id = %({prepend}_cohort_id_{index})s AND version = %(version)s
+"""
+
 GET_COHORTS_BY_PERSON_UUID = """
 SELECT DISTINCT cohort_id
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND person_id = %(person_id)s
 GROUP BY person_id, cohort_id, team_id, version
 HAVING sum(sign) > 0
+"""
+
+GET_COHORTS_BY_ACTOR_ID = """
+SELECT DISTINCT cohort_id
+FROM cohort_actors
+WHERE team_id = %(team_id)s AND actor_id = %(person_id)s
 """
 
 GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID = f"""
@@ -106,7 +116,7 @@ WHERE team_id = %(team_id)s AND person_id = %(person_id)s
 """
 
 GET_COHORTPEOPLE_BY_COHORT_ID = """
-SELECT person_id
+SELECT toString(person_id)
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id, version
@@ -114,8 +124,14 @@ HAVING sum(sign) > 0
 ORDER BY person_id
 """
 
+GET_COHORT_ACTORS_BY_COHORT_ID = """
+SELECT actor_id AS person_id
+FROM cohort_actors
+WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
+"""
+
 GET_STATIC_COHORTPEOPLE_BY_COHORT_ID = f"""
-SELECT person_id
+SELECT toString(person_id)
 FROM {PERSON_STATIC_COHORT_TABLE}
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
