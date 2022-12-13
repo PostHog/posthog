@@ -296,8 +296,8 @@
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               tuple(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
-               lagInFrame(tuple(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
+               array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+               lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
                                                                                                                row_number() OVER person_events AS start_event_number
         FROM (
                 (SELECT e.timestamp as timestamp,
@@ -337,8 +337,8 @@
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               tuple(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
-               lagInFrame(tuple(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
+               array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+               lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
                                                                                                                row_number() OVER person_events AS start_event_number
         FROM (
                 (SELECT e.timestamp as timestamp,
@@ -378,8 +378,8 @@
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               tuple(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
-               lagInFrame(tuple(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
+               array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
+               lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
                                                                                                                row_number() OVER person_events AS start_event_number
         FROM (
                 (SELECT e.timestamp as timestamp,
@@ -419,8 +419,8 @@
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               tuple("mat_pp_bar") AS relevant_property_values,
-               lagInFrame(tuple("mat_pp_bar")) OVER person_events AS previous_relevant_property_values,
+               array("mat_pp_bar") AS relevant_property_values,
+               lagInFrame(array("mat_pp_bar")) OVER person_events AS previous_relevant_property_values,
                                                     row_number() OVER person_events AS start_event_number
         FROM (
                 (SELECT e.timestamp as timestamp,
