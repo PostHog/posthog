@@ -183,6 +183,60 @@ class TestSyncPersonsToClickHouse(BaseTest, ClickhouseTestMixin):
         run_group_sync(self.team.pk, live_run=True, sync=True)
         mocked_ch_call.assert_called_once()
 
+    @mock.patch(
+        f"{posthog.management.commands.sync_persons_to_clickhouse.__name__}.raw_create_group_ch",
+        wraps=posthog.management.commands.sync_persons_to_clickhouse.raw_create_group_ch,
+    )
+    def test_group_sync_multiple_entries(self, mocked_ch_call):
+        ts = datetime.utcnow()
+        Group.objects.create(
+            team_id=self.team.pk,
+            group_type_index=2,
+            group_key="group-key",
+            group_properties={"a": 1234},
+            created_at=ts,
+            version=5,
+        )
+        Group.objects.create(
+            team_id=self.team.pk,
+            group_type_index=2,
+            group_key="group-key-2",
+            group_properties={"a": 12345},
+            created_at=ts,
+            version=6,
+        )
+        Group.objects.create(
+            team_id=self.team.pk,
+            group_type_index=1,
+            group_key="group-key",
+            group_properties={"a": 123456},
+            created_at=ts,
+            version=7,
+        )
+
+        run_group_sync(self.team.pk, live_run=True, sync=True)
+        self.assertEqual(mocked_ch_call.call_count, 3)
+
+        ch_groups = sync_execute(
+            """
+            SELECT group_type_index, group_key, group_properties FROM groups WHERE team_id = %(team_id)s ORDER BY group_type_index, group_key
+            """,
+            {"team_id": self.team.pk},
+        )
+
+        self.assertEqual(
+            ch_groups,
+            [
+                (1, "group-key", '{"a": 123456}'),
+                (2, "group-key", '{"a": 1234}'),
+                (2, "group-key-2", '{"a": 12345}'),
+            ],
+        )
+
+        # second time it's a no-op
+        run_group_sync(self.team.pk, live_run=True, sync=True)
+        self.assertEqual(mocked_ch_call.call_count, 3)
+
     def test_live_run_everything(self):
         self.everything_test_run(True)
 
