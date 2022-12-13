@@ -47,9 +47,8 @@ describe('sessionRecordingsPlaylistLogic', () => {
 
     describe('core assumptions', () => {
         it('loads playlist after mounting', async () => {
-            await expectLogic(logic)
-                .toDispatchActions(['loadSavedPlaylistSuccess', 'setPlaylist'])
-                .toMatchValues({ playlist: mockPlaylist })
+            await expectLogic(logic).toDispatchActions(['getPlaylistSuccess'])
+            expect(logic.values.playlist).toEqual(mockPlaylist)
         })
     })
 
