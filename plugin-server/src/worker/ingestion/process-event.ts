@@ -2,16 +2,18 @@ import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
+import { KAFKA_PERFORMANCE_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
     GroupTypeIndex,
     Hub,
     IngestionPersonData,
     ISOTimestamp,
+    PerformanceEventReverseMapping,
     PostIngestionEvent,
     PreIngestionEvent,
     RawClickHouseEvent,
+    RawPerformanceEvent,
     RawSessionRecordingEvent,
     Team,
     TimestampFormat,
@@ -92,10 +94,26 @@ export class EventsProcessor {
                         this.pluginsServer.statsd?.timing('kafka_queue.single_save.snapshot', singleSaveTimer, {
                             team_id: teamId.toString(),
                         })
-                        // No return value in case of snapshot events as we don't do action matching on them
                     } finally {
                         clearTimeout(timeout2)
                     }
+                }
+            } else if (data['event'] === '$performance_event') {
+                const timeout2 = timeoutGuard('Still running "createPerformanceEvent". Timeout warning after 30 sec!', {
+                    eventUuid,
+                })
+                try {
+                    await this.createPerformanceEvent(eventUuid, teamId, distinctId, timestamp, ip, properties)
+                    // No return value in case of performance events as we don't do further processing on them
+
+                    this.pluginsServer.statsd?.timing('kafka_queue.single_save.performance', singleSaveTimer, {
+                        team_id: teamId.toString(),
+                    })
+                } catch (e) {
+                    console.log('BOO ERROR', e)
+                    throw e
+                } finally {
+                    clearTimeout(timeout2)
                 }
             } else {
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
@@ -262,6 +280,44 @@ export class EventsProcessor {
         return {
             eventUuid: uuid,
             event: '$snapshot',
+            ip,
+            distinctId: distinct_id,
+            properties,
+            timestamp: timestamp.toISO() as ISOTimestamp,
+            elementsList: [],
+            teamId: team_id,
+        }
+    }
+
+    private async createPerformanceEvent(
+        uuid: string,
+        team_id: number,
+        distinct_id: string,
+        timestamp: DateTime,
+        ip: string | null,
+        properties: Properties
+    ): Promise<PostIngestionEvent> {
+        const data: Partial<RawPerformanceEvent> = {
+            uuid,
+            team_id: team_id,
+            distinct_id: distinct_id,
+            session_id: properties['$session_id'],
+            window_id: properties['$window_id'],
+            pageview_id: properties['$pageview_id'],
+            current_url: properties['$current_url'],
+        }
+
+        Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {
+            if (key in properties) {
+                data[value] = properties[key]
+            }
+        })
+
+        await this.kafkaProducer.queueSingleJsonMessage(KAFKA_PERFORMANCE_EVENTS, uuid, data)
+
+        return {
+            eventUuid: uuid,
+            event: '$performance_event',
             ip,
             distinctId: distinct_id,
             properties,
