@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { Breadcrumb, RecordingFilters, SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
 import type { sessionRecordingsPlaylistLogicType } from './sessionRecordingsPlaylistLogicType'
 import { urls } from 'scenes/urls'
@@ -79,7 +79,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
     })),
 
     beforeUnload(({ values, actions }) => ({
-        enabled: () => values.hasChanges,
+        enabled: (newLocation) => values.hasChanges && newLocation?.pathname !== router.values.location.pathname,
         message: 'Leave playlist? Changes you made will be discarded.',
         onConfirm: () => {
             actions.setFilters(values.playlist?.filters || null)
@@ -107,7 +107,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         hasChanges: [
             (s) => [s.playlist, s.filters],
             (playlist, filters): boolean => {
-                console.log('FOO', playlist?.filters, filters)
                 return !equal(playlist?.filters, filters)
             },
         ],
@@ -118,7 +117,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
 
-    afterMount(({ actions }) => {
+    afterMount(({ actions, props }) => {
+        console.log('MOUNT', props)
         actions.getPlaylist()
+    }),
+    beforeUnmount(({ props }) => {
+        console.log('UNMOUNT', props)
     }),
 ])
