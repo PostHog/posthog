@@ -2,7 +2,6 @@ import { kea, props, path, key, actions, reducers, selectors, listeners, connect
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { toParams } from 'lib/utils'
-import { createPlaylist } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
@@ -12,6 +11,8 @@ import type { playlistPopupLogicType } from './playlistPopupLogicType'
 import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/playerUtils'
+import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 
 export const playlistPopupLogic = kea<playlistPopupLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popup', 'playlistPopupLogic', key]),
@@ -51,12 +52,12 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             },
 
             addToPlaylist: async ({ playlist }) => {
-                await api.recordings.addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
+                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
-                await api.recordings.removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
+                await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
         },
@@ -146,15 +147,15 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
     })),
     selectors(() => ({
         allPlaylists: [
-            (s) => [s.playlists, s.currentPlaylists, s.searchQuery],
-            (playlists, currentPlaylists, searchQuery) => {
+            (s) => [s.playlists, s.currentPlaylists, s.searchQuery, (_, props) => props.playlistShortId],
+            (playlists, currentPlaylists, searchQuery, playlistShortId) => {
                 const otherPlaylists = searchQuery
                     ? playlists
                     : playlists.filter((x) => !currentPlaylists.find((y) => x.short_id === y.short_id))
 
                 const selectedPlaylists = !searchQuery ? currentPlaylists : []
 
-                const results: {
+                let results: {
                     selected: boolean
                     playlist: SessionRecordingPlaylistType
                 }[] = [
@@ -167,6 +168,13 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                         playlist: x,
                     })),
                 ]
+
+                // If props.playlistShortId exists put it at the beginning of the list
+                if (playlistShortId) {
+                    results = results.sort((a, b) =>
+                        a.playlist.short_id == playlistShortId ? -1 : b.playlist.short_id == playlistShortId ? 1 : 0
+                    )
+                }
 
                 return results
             },

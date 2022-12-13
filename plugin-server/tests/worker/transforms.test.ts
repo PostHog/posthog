@@ -88,7 +88,6 @@ describe('transforms', () => {
             "use strict";
 
             async function x() {}
-
             __asyncGuard(x, "Promise.then on line 2:0").then(() => null);
         `)
         })
@@ -106,7 +105,6 @@ describe('transforms', () => {
             "use strict";
 
             const _LP = Date.now();
-
             for (let i = 0; i < i + 1; i++) {
               if (Date.now() - _LP > 30000) throw new Error("Script execution timed out after looping for 30 seconds on line 1:0");
               console.log(i);
@@ -125,7 +123,6 @@ describe('transforms', () => {
             "use strict";
 
             const _LP = Date.now();
-
             for (let i = 0; i < i + 1; i++) {
               if (Date.now() - _LP > 30000) throw new Error("Script execution timed out after looping for 30 seconds on line 1:0");
               console.log(i);
@@ -148,9 +145,7 @@ describe('transforms', () => {
             "use strict";
 
             const _LP = 0;
-
             const _LP2 = Date.now();
-
             for (let i = 0; i < i + 1; i++) {
               if (Date.now() - _LP2 > 30000) throw new Error("Script execution timed out after looping for 30 seconds on line 3:0");
               console.log(i);
@@ -184,7 +179,6 @@ describe('transforms', () => {
             }) {
               return \`a * 10 is {a * 10}, while b is just {b}\`;
             }
-
             let a = 2;
             console.log(k({
               a,
@@ -207,8 +201,8 @@ describe('transforms', () => {
             "use strict";
 
             const bla = __pluginHostImports["node-fetch"]["bla"],
-                  bla2 = __pluginHostImports["node-fetch"]["bla2"],
-                  bla4 = __pluginHostImports["node-fetch"]["bla3"];
+              bla2 = __pluginHostImports["node-fetch"]["bla2"],
+              bla4 = __pluginHostImports["node-fetch"]["bla3"];
             const fetch1 = __pluginHostImports["node-fetch"];
             const fetch2 = __pluginHostImports["node-fetch"];
             console.log(bla, bla2, bla4, fetch1, fetch2);

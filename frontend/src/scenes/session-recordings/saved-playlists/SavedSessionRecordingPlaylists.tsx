@@ -20,9 +20,8 @@ export type SavedSessionRecordingPlaylistsProps = {
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
-    const { playlists, playlistsLoading, filters, sorting, pagination, newPlaylistLoading } = useValues(logic)
-    const { setSavedPlaylistsFilters, updateSavedPlaylist, duplicateSavedPlaylist, deleteSavedPlaylistWithUndo } =
-        useActions(logic)
+    const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
+    const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(logic)
     const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
@@ -34,7 +33,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     <LemonButton
                         size="small"
                         status="primary-alt"
-                        onClick={() => updateSavedPlaylist({ short_id, pinned: !pinned })}
+                        onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                     >
                         {pinned ? <PushpinFilled /> : <PushpinOutlined />}
                     </LemonButton>
@@ -90,10 +89,10 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={() => duplicateSavedPlaylist(playlist, true)}
+                                    onClick={() => duplicatePlaylist(playlist)}
                                     fullWidth
-                                    loading={newPlaylistLoading}
                                     data-attr="duplicate-playlist"
+                                    loading={playlistsLoading}
                                 >
                                     Duplicate
                                 </LemonButton>
@@ -101,8 +100,9 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
 
                                 <LemonButton
                                     status="danger"
-                                    onClick={() => deleteSavedPlaylistWithUndo(playlist)}
+                                    onClick={() => deletePlaylist(playlist)}
                                     fullWidth
+                                    loading={playlistsLoading}
                                 >
                                     Delete playlist
                                 </LemonButton>
@@ -179,7 +179,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             </div>
 
             {!playlistsLoading && playlists.count < 1 ? (
-                <SavedSessionRecordingPlaylistsEmptyState tab={tab} />
+                <SavedSessionRecordingPlaylistsEmptyState />
             ) : (
                 <LemonTable
                     loading={playlistsLoading}

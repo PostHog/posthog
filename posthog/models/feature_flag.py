@@ -13,7 +13,7 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.client import sync_execute
-from posthog.constants import PropertyOperatorType
+from posthog.constants import AvailableFeature, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
@@ -727,12 +727,15 @@ def get_user_blast_radius(feature_flag_condition: dict, team: Team):
 
 
 def can_user_edit_feature_flag(request, feature_flag):
+    # self hosted check for enterprise models that may not exist
     try:
         from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
         from ee.models.organization_resource_access import OrganizationResourceAccess
     except:
         return True
     else:
+        if not request.user.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            return True
         if feature_flag.created_by == request.user:
             return True
         if (
@@ -743,7 +746,7 @@ def can_user_edit_feature_flag(request, feature_flag):
         all_role_memberships = request.user.role_memberships.select_related("role").all()
         try:
             feature_flag_resource_access = OrganizationResourceAccess.objects.get(
-                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+                organization=request.user.organization, resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
             )
             org_level = feature_flag_resource_access.access_level
         except OrganizationResourceAccess.DoesNotExist:
@@ -755,8 +758,6 @@ def can_user_edit_feature_flag(request, feature_flag):
             final_level = org_level
         else:
             final_level = role_level
-        if OrganizationResourceAccess.objects.filter(organization=request.user.organization).exists() is False:
-            return True
         if final_level == OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW:
             can_edit = FeatureFlagRoleAccess.objects.filter(
                 feature_flag__id=feature_flag.pk,

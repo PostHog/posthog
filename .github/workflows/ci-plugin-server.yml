@@ -49,19 +49,25 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - name: Set up Node 18
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
                   node-version: 18
+                  cache: pnpm
 
-            - name: Install package.json dependencies with Yarn
-              run: yarn
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
 
             - name: Check formatting with prettier
-              run: yarn prettier:check
+              run: pnpm prettier:check
 
             - name: Lint with ESLint
-              run: yarn lint
+              run: pnpm lint
 
     tests:
         name: Tests (${{matrix.shard}})
@@ -109,28 +115,20 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
-            - name: Set up Node 18
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
                   node-version: 18
+                  cache: pnpm
+                  cache-dependency-path: plugin-server/pnpm-lock.yaml
 
-            - name: Get yarn cache directory path
-              id: yarn-cache-dir-path
-              run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v3
-              id: yarn-cache
-              with:
-                  path: |
-                      ${{ steps.yarn-cache-dir-path.outputs.dir }}
-                      plugin-server/node_modules
-                  key: plugin-server-yarn-${{ runner.os }}-${{ hashFiles('plugin-server/yarn.lock') }}
-                  restore-keys: |
-                      plugin-server-yarn-${{ runner.os }}
-
-            - name: Install package.json dependencies with Yarn
-              if: steps.yarn-cache.cache-hit != 'true'
-              run: cd plugin-server && yarn
+            - name: Install package.json dependencies with pnpm
+              run: cd plugin-server && pnpm i
 
             - name: Wait for Clickhouse & Kafka
               run: bin/check_kafka_clickhouse_up
@@ -140,14 +138,15 @@ jobs:
                   TEST: 'true'
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
-              run: cd plugin-server && yarn setup:test
+              run: cd plugin-server && pnpm setup:test
 
             - name: Test with Jest
               env:
                   # Below DB name has `test_` prepended, as that's how Django (ran above) creates the test DB
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   REDIS_URL: 'redis://localhost'
-              run: cd plugin-server && yarn test --runInBand --forceExit tests/ --shard=${{matrix.shard}}
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+              run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
         name: Functional tests
@@ -191,31 +190,23 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
-            - name: Set up Node 18
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
                   node-version: 18
+                  cache: pnpm
+                  cache-dependency-path: plugin-server/pnpm-lock.yaml
 
-            - name: Get yarn cache directory path
-              id: yarn-cache-dir-path
-              run: echo "dir=$(yarn config get cacheFolder)" >> $GITHUB_OUTPUT
-
-            - uses: actions/cache@v3
-              id: yarn-cache
-              with:
-                  path: |
-                      ${{ steps.yarn-cache-dir-path.outputs.dir }}
-                      plugin-server/node_modules
-                  key: plugin-server-yarn-${{ runner.os }}-${{ hashFiles('plugin-server/yarn.lock') }}
-                  restore-keys: |
-                      plugin-server-yarn-${{ runner.os }}
-
-            - name: Install package.json dependencies with Yarn
-              if: steps.yarn-cache.cache-hit != 'true'
+            - name: Install package.json dependencies with pnpm
               run: |
                   cd plugin-server
-                  yarn install --frozen-lockfile
-                  yarn build
+                  pnpm install --frozen-lockfile
+                  pnpm build
 
             - name: Wait for Clickhouse & Kafka
               run: bin/check_kafka_clickhouse_up

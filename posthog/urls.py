@@ -35,6 +35,7 @@ from posthog.models import User
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
+from .year_in_posthog import year_in_posthog
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -165,6 +166,7 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
+    path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
 ]
 
 if settings.DEBUG:

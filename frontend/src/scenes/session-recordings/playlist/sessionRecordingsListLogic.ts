@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
     PropertyFilter,
@@ -7,7 +7,6 @@ import {
     PropertyOperator,
     RecordingFilters,
     SessionRecordingId,
-    SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
@@ -95,6 +94,10 @@ export const defaultPageviewPropertyEntityFilter = (
     }
 }
 
+export function generateSessionRecordingListLogicKey(props: SessionRecordingListLogicProps): string {
+    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ?? '-with-search'}`
+}
+
 export interface SessionRecordingListLogicProps {
     key?: string
     playlistShortId?: string
@@ -106,22 +109,14 @@ export interface SessionRecordingListLogicProps {
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key]),
     props({} as SessionRecordingListLogicProps),
-    key(
-        (props) =>
-            `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ?? '-with-search'}`
-    ),
+    key(generateSessionRecordingListLogicKey),
     connect({
-        actions: [
-            eventUsageLogic,
-            ['reportRecordingsListFetched', 'reportRecordingsListPropertiesFetched', 'reportRecordingsListFilterAdded'],
-        ],
+        actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
         replaceFilters: (filters: RecordingFilters) => ({ filters }),
         setShowFilters: (showFilters: boolean) => ({ showFilters }),
-        setShowPinnedRecordingsPanel: (showPinned: boolean) => ({ showPinned }),
-        setShowOtherRecordingsPanel: (showOther: boolean) => ({ showOther }),
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
@@ -150,34 +145,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                     const loadTimeMs = performance.now() - startTime
 
                     actions.reportRecordingsListFetched(loadTimeMs)
-
-                    breakpoint()
-                    return response
-                },
-            },
-        ],
-        sessionRecordingsPropertiesResponse: [
-            {
-                results: [],
-            } as PaginatedResponse<SessionRecordingPropertiesType>,
-            {
-                getSessionRecordingsProperties: async (_, breakpoint) => {
-                    if (values.sessionRecordingsResponse.results.length < 1) {
-                        return {
-                            results: [],
-                        }
-                    }
-                    const paramsDict = {
-                        session_ids: values.sessionRecordingsResponse.results.map(({ id }) => id),
-                    }
-                    const params = toParams(paramsDict)
-                    await breakpoint(100) // Debounce for lots of quick filter changes
-
-                    const startTime = performance.now()
-                    const response = await api.recordings.listProperties(params)
-                    const loadTimeMs = performance.now() - startTime
-
-                    actions.reportRecordingsListPropertiesFetched(loadTimeMs)
 
                     breakpoint()
                     return response
@@ -220,18 +187,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             false,
             {
                 setShowFilters: (_, { showFilters }) => showFilters,
-            },
-        ],
-        showPinnedRecordingsPanel: [
-            true,
-            {
-                setShowPinnedRecordingsPanel: (_, { showPinned }) => showPinned,
-            },
-        ],
-        showOtherRecordingsPanel: [
-            true,
-            {
-                setShowOtherRecordingsPanel: (_, { showOther }) => showOther,
             },
         ],
         sessionRecordings: [
@@ -280,19 +235,8 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 offset: Math.max((values.filters?.offset || 0) - RECORDINGS_LIMIT, 0),
             })
         },
-        getSessionRecordingsSuccess: () => {
-            actions.getSessionRecordingsProperties({})
-        },
     })),
     selectors({
-        sessionRecordingIdToProperties: [
-            (s) => [s.sessionRecordingsPropertiesResponse],
-            (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
-                return (
-                    Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
-                )
-            },
-        ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings],
             (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {

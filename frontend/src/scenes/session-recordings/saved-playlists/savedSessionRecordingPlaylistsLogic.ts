@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api, { PaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual, toParams } from 'lib/utils'
@@ -9,7 +9,8 @@ import { Sorting } from 'lib/components/LemonTable'
 import { PaginationManual } from 'lib/components/PaginationControl'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { savedSessionRecordingPlaylistModelLogic } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
+import { createPlaylist, deletePlaylist } from '../playlist/playlistUtils'
+import { lemonToast } from '@posthog/lemon-ui'
 
 export const PLAYLISTS_PER_PAGE = 30
 
@@ -43,27 +44,17 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     path((key) => ['scenes', 'session-recordings', 'saved-playlists', 'savedSessionRecordingPlaylistsLogic', key]),
     props({} as SavedSessionRecordingPlaylistsLogicProps),
     key((props) => props.tab),
-    connect({
-        actions: [
-            savedSessionRecordingPlaylistModelLogic,
-            [
-                'createSavedPlaylist',
-                'duplicateSavedPlaylist',
-                'updateSavedPlaylist',
-                'updateSavedPlaylistSuccess',
-                'deleteSavedPlaylistWithUndo',
-                'deleteSavedPlaylistWithUndoSuccess',
-            ],
-        ],
-        values: [savedSessionRecordingPlaylistModelLogic, ['_playlistModelLoading', '_playlistModel']],
-    }),
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({
             filters,
         }),
         loadPlaylists: true,
-        updateLocalPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
-        deleteLocalPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
+        updatePlaylist: (
+            shortId: SessionRecordingPlaylistType['short_id'],
+            properties: Partial<SessionRecordingPlaylistType>
+        ) => ({ shortId, properties }),
+        deletePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
+        duplicatePlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
     })),
     reducers(({}) => ({
         filters: [
@@ -106,34 +97,51 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
 
                 return response
             },
-            updateLocalPlaylist: async ({ playlist }) => {
-                const index = values.playlists.results.findIndex((x) => x.short_id === playlist.short_id)
+            updatePlaylist: async ({ shortId, properties }, breakpoint) => {
+                await breakpoint(100)
+                const updatedPlaylist = await api.recordings.updatePlaylist(shortId, properties)
+                breakpoint()
+
+                const index = values.playlists.results.findIndex((x) => x.short_id === updatedPlaylist.short_id)
                 if (index > -1) {
-                    values.playlists.results[index] = playlist
+                    values.playlists.results[index] = updatedPlaylist
                 }
+
+                return { ...values.playlists, results: [...values.playlists.results] }
+            },
+            deletePlaylist: async ({ playlist }) => {
+                await deletePlaylist(playlist, () => actions.loadPlaylists())
+                values.playlists.results = values.playlists.results.filter((x) => x.short_id !== playlist.short_id)
                 return values.playlists
             },
-            deleteLocalPlaylist: async ({ playlist }) => {
-                values.playlists.results = values.playlists.results.filter((x) => x.short_id !== playlist.short_id)
-                actions.loadPlaylists()
+
+            duplicatePlaylist: async ({ playlist }, breakpoint) => {
+                await breakpoint(100)
+
+                const { id, short_id, ...partialPlaylist } = playlist
+                partialPlaylist.name = partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
+
+                const newPlaylist = await createPlaylist(partialPlaylist)
+                breakpoint()
+                if (!newPlaylist) {
+                    return values.playlists
+                }
+
+                lemonToast.success('Playlist duplicated successfully')
+
+                values.playlists.results = [newPlaylist, ...values.playlists.results]
+
                 return values.playlists
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         setSavedPlaylistsFilters: () => {
             actions.loadPlaylists()
-        },
-        updateSavedPlaylistSuccess: () => {
-            actions.updateLocalPlaylist(values._playlistModel)
-        },
-        deleteSavedPlaylistWithUndoSuccess: () => {
-            actions.deleteLocalPlaylist(values._playlistModel)
         },
     })),
 
     selectors(({ actions }) => ({
-        newPlaylistLoading: [(s) => [s._playlistModelLoading], (_playlistModelLoading) => !!_playlistModelLoading],
         sorting: [
             (s) => [s.filters],
             (filters): Sorting | null => {

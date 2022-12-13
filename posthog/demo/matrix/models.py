@@ -319,7 +319,6 @@ class SimPerson(ABC):
     _distinct_ids: Set[str]
     _properties: Properties
 
-    @abstractmethod
     def __init__(self, *, kernel: bool, cluster: "Cluster", x: int, y: int):
         self.past_events = []
         self.future_events = []
@@ -330,6 +329,7 @@ class SimPerson(ABC):
         self.in_product_id = self.cluster.random.randstr(False, 16)
         self.in_posthog_id = None
         self.active_client = SimBrowserClient(self)
+        self.country_code = "US"
         self.all_time_pageview_counts = defaultdict(int)
         self.session_pageview_counts = defaultdict(int)
         self.active_session_intent = None

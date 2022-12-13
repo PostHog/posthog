@@ -7,9 +7,10 @@ import structlog
 from django.core.paginator import Paginator
 from django.utils.timezone import now
 
+from posthog.caching.calculate_results import calculate_cache_key
 from posthog.caching.utils import active_teams
 from posthog.models.dashboard_tile import DashboardTile
-from posthog.models.insight import Insight, InsightViewed, generate_insight_cache_key
+from posthog.models.insight import Insight, InsightViewed
 from posthog.models.insight_caching_state import InsightCachingState
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
@@ -124,16 +125,6 @@ def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, d
             insight_id=insight_id,
             dashboard_tile_id=dashboard_tile_id,
         )
-
-
-def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
-    insight = target if isinstance(target, Insight) else target.insight
-    dashboard = target.dashboard if isinstance(target, DashboardTile) else None
-
-    if insight is None:
-        return None
-
-    return generate_insight_cache_key(insight, dashboard)
 
 
 def calculate_target_age(team: Team, target: Union[DashboardTile, Insight], lazy_loader: LazyLoader) -> TargetCacheAge:

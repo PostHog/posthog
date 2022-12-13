@@ -17,6 +17,7 @@ export default {
 
 const colorGroups = {
     primary: ['primary-highlight', 'primary-light', 'primary', 'primary-dark'],
+    orange: ['orange-highlight', 'orange-light', 'orange', 'orange-dark'],
     danger: ['danger-highlight', 'danger-light', 'danger', 'danger-dark'],
     warning: ['warning-highlight', 'warning-light', 'warning', 'warning-dark'],
     success: ['success-highlight', 'success-light', 'success', 'success-dark'],
