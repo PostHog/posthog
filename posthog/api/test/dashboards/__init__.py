@@ -56,12 +56,19 @@ class DashboardAPI:
         return dashboard_id, response_json
 
     def get_dashboard(
-        self, dashboard_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+        self,
+        dashboard_id: int,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+        query_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         if team_id is None:
             team_id = self.team.id
 
-        response = self.client.get(f"/api/projects/{team_id}/dashboards/{dashboard_id}")
+        if query_params is None:
+            query_params = {}
+
+        response = self.client.get(f"/api/projects/{team_id}/dashboards/{dashboard_id}", query_params)
         self.assertEqual(response.status_code, expected_status)
 
         response_json = response.json()

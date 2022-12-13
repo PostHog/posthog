@@ -1,5 +1,4 @@
 import json
-from typing import Any, Dict, Literal, Optional, Tuple
 from unittest.mock import MagicMock
 
 from dateutil import parser
@@ -109,7 +108,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_create_dashboard_item(self):
         dashboard = Dashboard.objects.create(team=self.team, name="public dashboard")
-        self._create_insight(
+        self.dashboard_api.create_insight(
             {
                 "dashboards": [dashboard.pk],
                 "name": "dashboard item",
@@ -161,7 +160,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
     @snapshot_postgres_queries
     def test_adding_insights_is_not_nplus1_for_gets(self):
         with mute_selected_signals():
-            dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
             filter_dict = {
                 "events": [{"id": "$pageview"}],
                 "properties": [{"key": "$browser", "value": "Mac OS X"}],
@@ -169,19 +168,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
 
             with self.assertNumQueries(10):
-                self._get_dashboard(dashboard_id)
+                self.dashboard_api.get_dashboard(dashboard_id)
 
-            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
             with self.assertNumQueries(14):
-                self._get_dashboard(dashboard_id)
+                self.dashboard_api.get_dashboard(dashboard_id)
 
-            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
             with self.assertNumQueries(14):
-                self._get_dashboard(dashboard_id)
+                self.dashboard_api.get_dashboard(dashboard_id)
 
-            self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+            self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
             with self.assertNumQueries(14):
-                self._get_dashboard(dashboard_id)
+                self.dashboard_api.get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:
@@ -202,21 +201,21 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         for i in range(5):
-            dashboard_id, _ = self._create_dashboard({"name": f"dashboard-{i}", "description": i})
+            dashboard_id, _ = self.dashboard_api.create_dashboard({"name": f"dashboard-{i}", "description": i})
             for j in range(3):
-                self._create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
+                self.dashboard_api.create_insight({"dashboards": [dashboard_id], "name": f"insight-{j}"})
 
             with self.assertNumQueries(8):
                 response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?limit=300")
                 self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_listing_dashboards_does_not_include_tiles(self) -> None:
-        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard-1"})
-        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard-2"})
-        self._create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-1"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
 
-        assert len(self._get_dashboard(dashboard_one_id)["items"]) == 1
-        assert len(self._get_dashboard(dashboard_two_id)["items"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["items"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["items"]) == 1
 
         response = self.client.get(f"/api/projects/{self.team.id}/dashboards/?limit=100")
 
@@ -234,15 +233,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             AND "posthog_dashboardtile"."dashboard_id" IN (1,
          ```
         """
-        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard-1"})
-        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard-2"})
-        self._create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
-        self._create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
-        self._create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
-        self._create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-1"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_one_id], "name": f"insight"})
 
         # so DB has 5 tiles, but we only load need to 1
-        self._get_dashboard(dashboard_one_id)
+        self.dashboard_api.get_dashboard(dashboard_one_id)
 
     def test_no_cache_available(self):
         dashboard = Dashboard.objects.create(team=self.team, name="dashboard")
@@ -340,8 +339,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(response["results"]), 1)
 
     def test_delete_does_not_delete_tiles_by_default(self):
-        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
-        insight_id, _ = self._create_insight(
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
         )
 
@@ -353,12 +352,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_200_OK)
 
     def test_delete_dashboard_can_delete_tiles(self):
-        dashboard_one_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
-        dashboard_two_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
-        insight_on_one_dashboard_id, _ = self._create_insight({"dashboards": [dashboard_one_id]})
+        insight_on_one_dashboard_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_one_id]})
 
-        insight_on_two_dashboards_id, _ = self._create_insight({"dashboards": [dashboard_one_id, dashboard_two_id]})
+        insight_on_two_dashboards_id, _ = self.dashboard_api.create_insight(
+            {"dashboards": [dashboard_one_id, dashboard_two_id]}
+        )
 
         dashboard_one_before_delete = self.dashboard_api.get_dashboard(dashboard_one_id)
         assert len(dashboard_one_before_delete["tiles"]) == 2
@@ -379,8 +380,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_two_after_delete["tiles"]) == 1
 
     def test_dashboard_items(self):
-        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
-        insight_id, _ = self._create_insight(
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
         )
 
@@ -410,11 +411,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         """
         regression test reported by customer, insight was deleted without deleting its tiles and was still shown
         """
-        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
-        insight_id, _ = self._create_insight(
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
         )
-        out_of_synch_insight_id, _ = self._create_insight(
+        out_of_synch_insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "out of synch"}
         )
 
@@ -438,8 +439,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_data["tiles"]) == 1
 
     def test_dashboard_insight_tiles_can_be_loaded_correct_context(self):
-        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
-        insight_id, _ = self._create_insight(
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
+        insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
         )
 
@@ -453,7 +454,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert tile["insight"]["id"] == insight_id
 
     def test_dashboard_filtering_on_properties(self):
-        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-24h"}})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
         response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/",
             data={"filters": {"date_from": "-24h", "properties": [{"key": "prop", "value": "val"}]}},
@@ -461,7 +462,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         self.assertEqual(response["filters"]["properties"], [{"key": "prop", "value": "val"}])
 
-        insight_id, _ = self._create_insight(
+        insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test", "date_from": "-7d"}, "dashboards": [dashboard_id], "name": "some_item"}
         )
 
@@ -471,9 +472,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["tiles"][0]["insight"]["filters"]["properties"], [{"key": "prop", "value": "val"}])
 
     def test_dashboard_filter_is_applied_even_if_insight_is_created_before_dashboard(self):
-        insight_id, _ = self._create_insight({"filters": {"hello": "test", "date_from": "-7d"}, "name": "some_item"})
+        insight_id, _ = self.dashboard_api.create_insight(
+            {"filters": {"hello": "test", "date_from": "-7d"}, "name": "some_item"}
+        )
 
-        dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
         # add the insight to the dashboard
         self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": [dashboard_id]})
@@ -510,13 +513,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response["count"], 1)
 
     def test_dashboard_item_layout(self):
-        dashboard_id, _ = self._create_dashboard({"name": "asdasd", "pinned": True})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
 
-        insight_id, _ = self._create_insight(
+        insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"}
         )
 
-        dashboard_json = self._get_dashboard(dashboard_id)
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         tiles = dashboard_json["tiles"]
         assert len(tiles) == 1
         tile_id = tiles[0]["id"]
@@ -548,13 +551,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertTrue("lg" in first_tile_layouts)
 
     def test_dashboard_tile_color_can_be_set_for_new_or_existing_tiles(self):
-        dashboard_id, _ = self._create_dashboard({"name": "asdasd", "pinned": True})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "asdasd", "pinned": True})
 
-        insight_id, _ = self._create_insight(
+        insight_id, _ = self.dashboard_api.create_insight(
             {"filters": {"hello": "test"}, "dashboards": [dashboard_id], "name": "another"}
         )
 
-        dashboard_json = self._get_dashboard(dashboard_id)
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
         tiles = dashboard_json["tiles"]
         assert len(tiles) == 1
         tile_id = tiles[0]["id"]
@@ -658,7 +661,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication_does_not_duplicate_tiles_by_default(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": "the insight"})
+        insight_one_id, _ = self.dashboard_api.create_insight(
+            {"dashboards": [existing_dashboard.pk], "name": "the insight"}
+        )
         _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
 
         duplicate_response = self.client.post(
@@ -675,7 +680,9 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication_can_duplicate_tiles(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": "the insight"})
+        insight_one_id, _ = self.dashboard_api.create_insight(
+            {"dashboards": [existing_dashboard.pk], "name": "the insight"}
+        )
         _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
 
         duplicate_response = self.client.post(
@@ -693,7 +700,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     def test_dashboard_duplication_can_duplicate_tiles_without_editing_name_if_there_is_none(self) -> None:
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
-        insight_one_id, _ = self._create_insight({"dashboards": [existing_dashboard.pk], "name": None})
+        insight_one_id, _ = self.dashboard_api.create_insight({"dashboards": [existing_dashboard.pk], "name": None})
         _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
 
         duplicate_response = self.client.post(
@@ -754,11 +761,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         }
 
         # create two insights with a -7d date from filter
-        insight_one_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-        insight_two_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
+        insight_one_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
+        insight_two_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
 
-        insight_one_original_filter_hash = self._get_insight(insight_one_id)["filters_hash"]
-        insight_two_original_filter_hash = self._get_insight(insight_two_id)["filters_hash"]
+        insight_one_original_filter_hash = self.dashboard_api.get_insight(insight_one_id)["filters_hash"]
+        insight_two_original_filter_hash = self.dashboard_api.get_insight(insight_two_id)["filters_hash"]
 
         self.assertEqual(insight_one_original_filter_hash, insight_two_original_filter_hash)
 
@@ -854,8 +861,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.json()["name"], "replaced")
 
     def test_dashboard_does_not_load_insight_that_was_deleted(self) -> None:
-        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
-        insight_id, _ = self._create_insight({"dashboards": [dashboard_id]})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
 
         self.client.patch(f"/api/projects/{self.team.id}/insights/{insight_id}/", {"deleted": True})
 
@@ -869,15 +876,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "insight": "TRENDS",
         }
 
-        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
-        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
 
-        self._soft_delete(dashboard_id, "dashboards")
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
-        insight_json = self._get_insight(insight_id=insight_id)
+        insight_json = self.dashboard_api.get_insight(insight_id=insight_id)
         self.assertEqual(insight_json["dashboards"], [])
 
-        self._soft_delete(insight_id, "insights")
+        self.dashboard_api.soft_delete(insight_id, "insights")
 
     def test_can_soft_delete_dashboard_after_soft_deleting_insight(self) -> None:
         filter_dict = {
@@ -886,20 +893,20 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "insight": "TRENDS",
         }
 
-        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
-        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
 
-        self._soft_delete(insight_id, "insights")
+        self.dashboard_api.soft_delete(insight_id, "insights")
 
-        self._get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
+        self.dashboard_api.get_insight(insight_id=insight_id, expected_status=status.HTTP_404_NOT_FOUND)
 
         dashboard_json = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}").json()
         self.assertEqual(len(dashboard_json["tiles"]), 0)
 
-        self._soft_delete(dashboard_id, "dashboards")
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
     def test_hard_delete_is_forbidden(self) -> None:
-        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         api_response = self.client.delete(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}")
         self.assertEqual(api_response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
         self.assertEqual(
@@ -907,14 +914,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         )
 
     def test_soft_delete_can_be_reversed_with_patch(self) -> None:
-        dashboard_id, _ = self._create_dashboard({"name": "dashboard"})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
         self.dashboard_api.create_text_tile(dashboard_id)
 
         dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, expected_status=status.HTTP_200_OK)
         self.assertEqual(len(dashboard_json["tiles"]), 2, dashboard_json["tiles"])
 
-        self._soft_delete(dashboard_id, "dashboards")
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         update_response = self.client.patch(
             f"/api/projects/{self.team.id}/dashboards/{dashboard_id}", {"deleted": False}
@@ -925,13 +932,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(dashboard_json["tiles"]), 2, dashboard_json["tiles"])
 
     def test_soft_delete_does_not_delete_tiles(self) -> None:
-        dashboard_id, _ = self._create_dashboard({"name": "to delete"})
-        other_dashboard_id, _ = self._create_dashboard({"name": "not to delete"})
-        insight_one_id, _ = self._create_insight({"dashboards": [dashboard_id, other_dashboard_id]})
-        insight_two_id, _ = self._create_insight({"dashboards": [dashboard_id]})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "to delete"})
+        other_dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "not to delete"})
+        insight_one_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id, other_dashboard_id]})
+        insight_two_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
         self.dashboard_api.create_text_tile(dashboard_id)
 
-        self._soft_delete(dashboard_id, "dashboards")
+        self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         insight_one_json = self.dashboard_api.get_insight(insight_id=insight_one_id)
         assert insight_one_json["dashboards"] == [other_dashboard_id]
@@ -947,13 +954,13 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "insight": "TRENDS",
         }
 
-        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard one"})
-        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
-        insight_id, _ = self._create_insight({"filters": filter_dict, "dashboards": [dashboard_one_id]})
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
+        insight_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_one_id]})
 
-        dashboard_one = self._get_dashboard(dashboard_one_id)
+        dashboard_one = self.dashboard_api.get_dashboard(dashboard_one_id)
         assert len(dashboard_one["tiles"]) == 1
-        dashboard_two = self._get_dashboard(dashboard_two_id)
+        dashboard_two = self.dashboard_api.get_dashboard(dashboard_two_id)
         assert len(dashboard_two["tiles"]) == 0
 
         patch_response = self.client.patch(
@@ -963,7 +970,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert patch_response.status_code == status.HTTP_200_OK
         assert patch_response.json()["tiles"] == []
 
-        dashboard_two = self._get_dashboard(dashboard_two_id)
+        dashboard_two = self.dashboard_api.get_dashboard(dashboard_two_id)
         assert len(dashboard_two["tiles"]) == 1
         assert dashboard_two["tiles"][0]["insight"]["id"] == insight_id
 
@@ -974,83 +981,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             "insight": "TRENDS",
         }
 
-        dashboard_one_id, _ = self._create_dashboard({"name": "dashboard one"})
-        dashboard_two_id, _ = self._create_dashboard({"name": "dashboard two"})
-        insight_id, _ = self._create_insight(
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard one"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard two"})
+        insight_id, _ = self.dashboard_api.create_insight(
             {"filters": filter_dict, "dashboards": [dashboard_one_id, dashboard_two_id]}
         )
 
-        self._soft_delete(dashboard_one_id, "dashboards")
+        self.dashboard_api.soft_delete(dashboard_one_id, "dashboards")
 
-        insight_after_dashboard_deletion = self._get_insight(insight_id)
+        insight_after_dashboard_deletion = self.dashboard_api.get_insight(insight_id)
         assert insight_after_dashboard_deletion["dashboards"] == [dashboard_two_id]
 
-        dashboard_two_json = self._get_dashboard(dashboard_two_id)
+        dashboard_two_json = self.dashboard_api.get_dashboard(dashboard_two_id)
         expected_dashboards_on_insight = dashboard_two_json["tiles"][0]["insight"]["dashboards"]
         assert expected_dashboards_on_insight == [dashboard_two_id]
 
     def test_dashboard_items_deprecation(self) -> None:
-        dashboard_id, _ = self._create_dashboard({"name": "items deprecation"})
-        self._create_insight({"dashboards": [dashboard_id]})
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "items deprecation"})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
 
-        default_dashboard_json = self._get_dashboard(dashboard_id, query_params="")
+        default_dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={})
 
         assert len(default_dashboard_json["tiles"]) == 1
         assert len(default_dashboard_json["items"]) == 1
 
-        no_items_dashboard_json = self._get_dashboard(dashboard_id, query_params="?no_items_field")
+        no_items_dashboard_json = self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": True})
 
         assert len(no_items_dashboard_json["tiles"]) == 1
         assert no_items_dashboard_json["items"] is None
-
-    def _soft_delete(
-        self,
-        model_id: int,
-        model_type: Literal["insights", "dashboards"],
-        expected_get_status: int = status.HTTP_404_NOT_FOUND,
-    ) -> None:
-        api_response = self.client.patch(f"/api/projects/{self.team.id}/{model_type}/{model_id}", {"deleted": True})
-        self.assertEqual(api_response.status_code, status.HTTP_200_OK)
-        self.assertEqual(
-            self.client.get(f"/api/projects/{self.team.id}/{model_type}/{model_id}").status_code, expected_get_status
-        )
-
-    def _create_dashboard(self, data: Dict[str, Any], team_id: Optional[int] = None) -> Tuple[int, Dict[str, Any]]:
-        if team_id is None:
-            team_id = self.team.id
-        response = self.client.post(f"/api/projects/{team_id}/dashboards/", data)
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        response_json = response.json()
-        return response_json["id"], response_json
-
-    def _get_insight(
-        self, insight_id: int, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
-    ) -> Dict[str, Any]:
-        if team_id is None:
-            team_id = self.team.id
-
-        response = self.client.get(f"/api/projects/{team_id}/insights/{insight_id}")
-        self.assertEqual(response.status_code, expected_status)
-
-        response_json = response.json()
-        return response_json
-
-    def _create_insight(
-        self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
-    ) -> Tuple[int, Dict[str, Any]]:
-        if team_id is None:
-            team_id = self.team.id
-
-        if "filters" not in data:
-            data["filters"] = {"events": [{"id": "$pageview"}]}
-
-        response = self.client.post(f"/api/projects/{team_id}/insights", data=data)
-        self.assertEqual(response.status_code, expected_status)
-
-        response_json = response.json()
-        return response_json.get("id", None), response_json
-
-    def _get_dashboard(self, dashboard_id: int, query_params: str = "") -> Dict:
-        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/{query_params}")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        return response.json()
