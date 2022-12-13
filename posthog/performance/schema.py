@@ -119,7 +119,7 @@ PERFORMANCE_EVENT_TABLE_ENGINE = lambda: ReplacingMergeTree(
 )
 
 PERFORMANCE_EVENTS_TABLE_BASE_SQL = """
-CREATE TABLE IF NOT EXISTS performance_events ON CLUSTER '{cluster}'
+CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     {columns}
     {extra_fields}
@@ -134,6 +134,7 @@ ORDER BY (team_id, toDate(timestamp), session_id, $pageview_id)
 """
 ).format(
     columns=columns,
+    table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
