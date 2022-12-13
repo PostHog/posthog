@@ -21,6 +21,7 @@ interface SocialLoginButtonProps extends SharedProps {
 interface SocialLoginButtonsProps extends SharedProps {
     title?: string
     caption?: string
+    captionLocation?: 'top' | 'bottom'
     className?: string
     topDivider?: boolean
     bottomDivider?: boolean
@@ -73,6 +74,7 @@ export function SocialLoginLinkTestVersion({ provider, queryString }: SocialLogi
 export function SocialLoginButtons({
     title,
     caption,
+    captionLocation = 'top',
     className,
     topDivider,
     bottomDivider,
@@ -96,7 +98,7 @@ export function SocialLoginButtons({
 
             <div className={clsx(className, 'text-center space-y-4')}>
                 {title && <h3>{title}</h3>}
-                {caption && <span className="text-muted">{caption}</span>}
+                {caption && captionLocation === 'top' && <p className="text-muted">{caption}</p>}
                 <div className="flex gap-2 justify-center flex-wrap">
                     {Object.keys(preflight.available_social_auth_providers)
                         .sort((a, b) => order.indexOf(a) - order.indexOf(b))
@@ -112,6 +114,7 @@ export function SocialLoginButtons({
                             )
                         )}
                 </div>
+                {caption && captionLocation === 'bottom' && <p className="text-muted">{caption}</p>}
             </div>
             {bottomDivider ? <LemonDivider dashed className="my-6" /> : null}
         </>

@@ -170,10 +170,10 @@ def run_group_sync(team_id: int, live_run: bool, sync: bool):
             "team_id": team_id,
         },
     )
-    ch_groups = {row[0]: {row[1]: {"properties": row[2], "created_at": row[3]}} for row in rows}
+    ch_groups = {(row[0], row[1]): {"properties": row[2], "created_at": row[3]} for row in rows}
 
     for pg_group in pg_groups:
-        ch_group = ch_groups.get(pg_group["group_type_index"], {}).get(pg_group["group_key"], None)
+        ch_group = ch_groups.get((pg_group["group_type_index"], pg_group["group_key"]), None)
         if ch_group is None or should_update_group(ch_group, pg_group):
             logger.info(
                 f"Updating {pg_group['group_type_index']} - {pg_group['group_key']} with properties {pg_group['group_properties']} and created_at {pg_group['created_at']}"
