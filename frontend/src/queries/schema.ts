@@ -23,6 +23,7 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
+    PersonsNode = 'PersonsNode',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -41,6 +42,7 @@ export type QuerySchema =
     // Data nodes (see utils.ts)
     | EventsNode
     | ActionsNode
+    | PersonsNode
 
     // Interface nodes
     | DataTableNode
@@ -101,17 +103,30 @@ export interface ActionsNode extends EntityNode {
     id: number
 }
 
+export interface PersonsNode extends DataNode {
+    kind: NodeKind.PersonsNode
+    search?: string
+    cohort?: number
+    distinctId?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyPropertyFilter[]
+}
+
 // Data table node
 
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode
+    source: EventsNode | PersonsNode
     /** Columns shown in the table  */
-    columns?: DataTableStringColumn[]
-    /** Include an event filter above the table (default: true) */
+    columns?: DataTableColumn[]
+    /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
-    /** Include a property filter above the table (default: true) */
+    /** Include a free text search field (PersonsNode only) */
+    showSearch?: boolean
+    /** Include a property filter above the table */
     showPropertyFilter?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
@@ -119,7 +134,7 @@ export interface DataTableNode extends Node {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
-    /** Show a button to configure the table's columns */
+    /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
@@ -201,7 +216,7 @@ export type InsightQueryNode =
     | LifecycleQuery
 export type InsightNodeKind = InsightQueryNode['kind']
 
-export type DataTableStringColumn = string
+export type DataTableColumn = string
 
 // Legacy queries
 

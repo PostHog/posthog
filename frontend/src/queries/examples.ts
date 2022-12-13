@@ -1,29 +1,29 @@
 // This file contains example queries, used in storybook and in the /query interface.
 import {
-    EventsNode,
+    ActionsNode,
     DataTableNode,
+    EventsNode,
+    FunnelsQuery,
     LegacyQuery,
+    LifecycleQuery,
     Node,
     NodeKind,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    ActionsNode,
     PathsQuery,
+    PersonsNode,
+    RetentionQuery,
     StickinessQuery,
-    LifecycleQuery,
+    TrendsQuery,
 } from '~/queries/schema'
 import {
     ChartDisplayType,
+    FilterLogicalOperator,
     InsightType,
     PropertyFilterType,
-    PropertyOperator,
-    // PropertyMathType,
-    FilterLogicalOperator,
-    StepOrderValue,
     PropertyGroupFilter,
+    PropertyOperator,
+    StepOrderValue,
 } from '~/types'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
 import { ShownAsValue } from '~/lib/constants'
 
 const Events: EventsNode = {
@@ -36,8 +36,38 @@ const Events: EventsNode = {
 
 const EventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    columns: defaultDataTableStringColumns,
+    columns: defaultDataTableColumns({ kind: NodeKind.EventsNode }),
     source: Events,
+}
+const EventsTableFull: DataTableNode = {
+    ...EventsTable,
+    showPropertyFilter: true,
+    showEventFilter: true,
+    showExport: true,
+    showReload: true,
+    showColumnConfigurator: true,
+    showEventsBufferWarning: true,
+}
+
+const Persons: PersonsNode = {
+    kind: NodeKind.PersonsNode,
+    properties: [
+        { type: PropertyFilterType.Person, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+}
+
+const PersonsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    columns: defaultDataTableColumns({ kind: NodeKind.PersonsNode }),
+    source: Persons,
+}
+
+const PersonsTableFull: DataTableNode = {
+    ...PersonsTable,
+    showSearch: true,
+    showPropertyFilter: true,
+    showExport: true,
+    showReload: true,
 }
 
 const LegacyTrendsQuery: LegacyQuery = {
@@ -196,6 +226,10 @@ const InsightLifecycleQuery: LifecycleQuery = {
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
+    EventsTableFull,
+    Persons,
+    PersonsTable,
+    PersonsTableFull,
     LegacyTrendsQuery,
     InsightTrendsQuery,
     InsightFunnelsQuery,

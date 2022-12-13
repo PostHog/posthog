@@ -9,7 +9,7 @@ from posthog.caching.fetch_from_cache import (
 )
 from posthog.decorators import CacheType
 from posthog.models import Dashboard, DashboardTile, Insight
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from posthog.utils import get_safe_cache
 
 
@@ -20,6 +20,7 @@ class TestFetchFromCache(ClickhouseTestMixin, BaseTest):
 
         _create_event(team=self.team, event="$pageview", distinct_id="1", properties={"prop": "val"})
         _create_event(team=self.team, event="$pageview", distinct_id="2", properties={"prop": "another_val"})
+        flush_persons_and_events()
 
         self.dashboard = Dashboard.objects.create(team=self.team, filters={"properties": [{}]})
         self.insight = Insight.objects.create(

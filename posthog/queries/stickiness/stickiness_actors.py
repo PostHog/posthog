@@ -27,7 +27,7 @@ class StickinessActors(ActorBaseQuery):
             entity=self.entity,
             filter=self._filter,
             team=self._team,
-            using_person_on_events=self._team.actor_on_events_querying_enabled,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
         ).get_query()
 
         return (

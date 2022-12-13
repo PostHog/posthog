@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { DataNode, EventsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isEventsNode } from '~/queries/utils'
+import { isEventsNode, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
@@ -124,7 +124,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (s) => [s.query, s.response],
             (query, response) => {
                 return (
-                    isEventsNode(query) &&
+                    (isEventsNode(query) || isPersonsNode(query)) &&
                     (response as EventsNode['response'])?.next &&
                     ((response as EventsNode['response'])?.results?.length ?? 0) > 0
                 )
