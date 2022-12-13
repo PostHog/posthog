@@ -15,8 +15,9 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         try:
-            from multi_tenancy.tasks.migrate_billing import migrate_billing
+            from multi_tenancy.migrate_billing import migrate_billing
         except ImportError:
+            print("Couldn't import multi_tenancy.migrate_billing")  # noqa T201
             return
 
         dry_run = options["dry_run"]
