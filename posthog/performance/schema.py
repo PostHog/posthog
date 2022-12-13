@@ -1,7 +1,7 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
-from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
 # TODO
@@ -14,6 +14,8 @@ from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 ## get all performance events for a given team's session
 
 allows us to show performance events alongside other logs while viewing a session recording
+
+shard by session id so that when querying for all in session or pageview all data for the results are on the same shard
 
 SELECT * FROM performance_events
 WHERE team_id = 1
@@ -121,7 +123,7 @@ ORDER BY (team_id, toDate(origin_timestamp), session_id, pageview_id)
 """
 ).format(
     columns=columns,
-    table_name="performance_events",
+    table_name="sharded_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
@@ -158,8 +160,26 @@ AS SELECT
 FROM {database}.kafka_performance_events
 """.format(
     columns=_column_names_from_column_definitions(columns),
-    target_table="performance_events",  # do we need to shard this?
+    target_table="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
     extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
+)
+
+# This table is responsible for writing to sharded_events based on a sharding key.
+WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
+    columns=columns,
+    table_name="writeable_performance_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+)
+
+# This table is responsible for reading from events on a cluster setting
+DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
+    columns=columns,
+    table_name="writeable_performance_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
