@@ -8,7 +8,7 @@ import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/
 import { EventDetails } from 'scenes/events'
 import React from 'react'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
-import { UnverifiedEvent, IconTerminal, IconInfo } from 'lib/components/icons'
+import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge } from 'lib/components/icons'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { Tooltip } from 'antd'
@@ -181,7 +181,7 @@ export function PlayerFilter({
 
                 <LemonButton
                     size="small"
-                    icon={<IconTerminal />}
+                    icon={<IconGauge />}
                     status={tab === SessionRecordingPlayerTab.PERFORMANCE ? 'primary' : 'primary-alt'}
                     active={tab === SessionRecordingPlayerTab.PERFORMANCE}
                     onClick={() => {

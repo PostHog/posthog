@@ -7,14 +7,12 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { openPlayerAddToPlaylistDialog } from 'scenes/session-recordings/player/add-to-playlist/PlayerAddToPlaylist'
 import { IconLink, IconPlus, IconWithCount } from 'lib/components/icons'
 import { openPlayerShareDialog } from 'scenes/session-recordings/player/share/PlayerShare'
-import { playerSettingsLogic } from './playerSettingsLogic'
 
 export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const { recordingStartTime, sessionPlayerData } = useValues(logic)
     const { setPause } = useActions(logic)
     const playlists = sessionPlayerData.metadata.playlists ?? []
-    const { isFullScreen } = useValues(playerSettingsLogic)
 
     const onShare = (): void => {
         setPause()
@@ -35,7 +33,7 @@ export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecord
 
     return (
         <div className="flex flex-row gap-2">
-            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size={'small'}>
+            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size="small">
                 Share
             </LemonButton>
             <LemonButton
@@ -45,8 +43,8 @@ export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecord
                         <IconPlus />
                     </IconWithCount>
                 }
-                size={'small'}
                 tooltip="Save recording to static playlist"
+                size="small"
             >
                 Save
             </LemonButton>
