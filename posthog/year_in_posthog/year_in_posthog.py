@@ -56,7 +56,7 @@ def stats_for_badge(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
                 else []
             )
         elif badge == "curator":
-            return [{"count": stats["dashboard_created_count"], "description": "Dashboards created"}]
+            return [{"count": stats["dashboards_created_count"], "description": "Dashboards created"}]
         elif badge == "flag_raiser":
             return [{"count": stats["flag_created_count"], "description": "Feature flags created"}]
         elif badge == "popcorn_muncher":
