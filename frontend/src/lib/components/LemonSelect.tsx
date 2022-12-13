@@ -154,8 +154,9 @@ export function LemonSelect<T>({
     }
 
     return (
-        <div className="flex" tabIndex={-1} ref={selectRef}>
+        <div className="flex">
             <LemonButtonWithPopup
+                ref={selectRef}
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
                 onKeyDown={(e) => handleKeyboardEvents(e)}
                 popup={{
