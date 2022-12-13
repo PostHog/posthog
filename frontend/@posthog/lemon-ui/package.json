@@ -7,10 +7,10 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "yarn build:source && yarn build:types && ls -lah dist/",
+        "build": "pnpm build:source && pnpm build:types && ls -lah dist/",
         "build:source": "echo \"Building source\" && node build.mjs",
         "build:types": "echo \"Building types\" && tsup src/index.ts --dts-only",
-        "prepublishOnly": "yarn build"
+        "prepublishOnly": "pnpm build"
     },
     "devDependencies": {
         "tsup": "^5.12.8",

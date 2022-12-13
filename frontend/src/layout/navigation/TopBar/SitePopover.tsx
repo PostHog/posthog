@@ -76,23 +76,22 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     const { closeSitePopover } = useActions(navigationLogic)
 
     return (
-        <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
-            <>
+        <Tooltip title="Organization settings" placement="left">
+            <LemonButton
+                data-attr="top-menu-item-org-settings"
+                icon={<Lettermark name={organization.name} />}
+                sideIcon={<IconSettings />}
+                status="stealth"
+                fullWidth
+                to={urls.organizationSettings()}
+                onClick={closeSitePopover}
+            >
                 <div className="SitePopover__main-info SitePopover__organization">
                     <strong>{organization.name}</strong>
                     <AccessLevelIndicator organization={organization} />
                 </div>
-                <Tooltip title="Organization settings" placement="left">
-                    <LemonButton
-                        to={urls.organizationSettings()}
-                        onClick={closeSitePopover}
-                        data-attr="top-menu-item-org-settings"
-                        status="stealth"
-                        icon={<IconSettings />}
-                    />
-                </Tooltip>
-            </>
-        </LemonRow>
+            </LemonButton>
+        </Tooltip>
     )
 }
 

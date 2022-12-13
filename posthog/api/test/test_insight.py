@@ -12,7 +12,7 @@ from rest_framework import status
 from ee.api.test.base import LicensedTestMixin
 from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
-from posthog.caching.update_cache import synchronously_update_insight_cache
+from posthog.caching.fetch_from_cache import synchronously_update_cache
 from posthog.models import (
     Cohort,
     Dashboard,
@@ -753,7 +753,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    @patch("posthog.api.insight.synchronously_update_insight_cache", wraps=synchronously_update_insight_cache)
+    @patch("posthog.api.insight.synchronously_update_cache", wraps=synchronously_update_cache)
     def test_insight_refreshing(self, spy_update_insight_cache):
         dashboard_id, _ = self._create_dashboard({"filters": {"date_from": "-14d"}})
 
@@ -1712,6 +1712,41 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertIsNotNone(after_save)
         self.assertEqual(before_save, after_save)
 
+    def test_saving_an_insight_without_changing_dashboards_does_not_update_the_dashboard_tiles(self):
+        """
+        Regression test. Sending an unchanged dashboard list to the API should not update the dashboard tiles.
+        Previously it was resetting the tiles which was removing their layouts and making dashboard tiles move about :/
+        """
+        dashboard_id, _ = self._create_dashboard({"name": "the dashboard's name"})
+        dashboard_two_id, _ = self._create_dashboard({"name": "the other dashboard's name"})
+
+        insight_id, _ = self._create_insight(
+            {"filters": {"events": [{"id": "$pageview"}], "properties": [{"key": "$browser", "value": "Mac OS X"}]}}
+        )
+
+        self._add_insight_to_dashboard([dashboard_id, dashboard_two_id], insight_id)
+
+        self._set_tile_layout(dashboard_id, expected_tiles_to_update=1)
+        self._set_tile_layout(dashboard_two_id, expected_tiles_to_update=1)
+
+        tiles = DashboardTile.objects.filter(insight_id=insight_id)
+        layouts = [tile.layouts for tile in tiles]
+        assert len(layouts) == 2
+        for layout in layouts:
+            assert layout != {}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}",
+            {"name": "the new name", "dashboards": [dashboard_id, dashboard_two_id]},
+        )  # the UI sends entire insight objects, where these tests send individual fields
+        # here we send unchanged dashboards list to trigger the bug
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        tiles_after_save = DashboardTile.objects.filter(insight_id=insight_id)
+        layouts_after_save = [tile.layouts for tile in tiles_after_save]
+        assert layouts_after_save == layouts
+
     def test_hard_delete_is_forbidden(self) -> None:
         insight_id, _ = self._create_insight({"name": "to be deleted"})
         api_response = self.client.delete(f"/api/projects/{self.team.id}/insights/{insight_id}")
@@ -1866,3 +1901,45 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.maxDiff = None
         self.assertEqual(activity, expected)
+
+    def _set_tile_layout(self, dashboard_id: int, expected_tiles_to_update: int) -> None:
+        dashboard_json = self._get_dashboard(dashboard_id)
+        tiles = dashboard_json["tiles"]
+        assert len(tiles) == expected_tiles_to_update
+
+        x = 0
+        y = 0
+        for tile in tiles:
+            x += 1
+            y += 1
+
+            tile_id = tile["id"]
+            # layouts used to live on insights, but moved onto the relation from a dashboard to its insights
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
+                {
+                    "tiles": [
+                        {
+                            "id": tile_id,
+                            "layouts": {
+                                "sm": {
+                                    "w": "7",
+                                    "h": "5",
+                                    "x": str(x),
+                                    "y": str(y),
+                                    "moved": "False",
+                                    "static": "False",
+                                },
+                                "xs": {"x": "0", "y": "0", "w": "6", "h": "5"},
+                            },
+                        }
+                    ]
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def _get_dashboard(self, dashboard_id: int, query_params: str = "") -> Dict:
+        response = self.client.get(f"/api/projects/{self.team.id}/dashboards/{dashboard_id}/{query_params}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response.json()
