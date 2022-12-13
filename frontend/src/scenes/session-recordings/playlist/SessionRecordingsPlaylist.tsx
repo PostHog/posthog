@@ -212,7 +212,7 @@ export function SessionRecordingsPlaylist({
                                         <>
                                             You can pin recordings to a playlist to easily keep track of relevant
                                             recordings for the task at hand. Pinned recordings are always shown,
-                                            regardless of filters and are not deleted.
+                                            regardless of filters.
                                         </>
                                     }
                                     activeRecordingId={activeSessionRecording?.id}
