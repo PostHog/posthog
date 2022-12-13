@@ -12,7 +12,6 @@ import {
     summarizePlaylistFilters,
     updatePlaylist,
 } from 'scenes/session-recordings/playlist/playlistUtils'
-import { PlaylistTypeWithShortId } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 import { loaders } from 'kea-loaders'
 
 export interface SessionRecordingsPlaylistLogicProps {
@@ -27,7 +26,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         values: [cohortsModel, ['cohortsById']],
     }),
     actions({
-        updatePlaylist: (playlist: PlaylistTypeWithShortId | null) => ({ playlist }),
+        updatePlaylist: (properties?: Partial<SessionRecordingPlaylistType>) => ({ properties }),
         setFilters: (filters: RecordingFilters | null) => ({ filters }),
     }),
     loaders(({ values, props }) => ({
@@ -37,8 +36,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 getPlaylist: async () => {
                     return getPlaylist(props.shortId)
                 },
-                updatePlaylist: async ({ playlist }) => {
-                    return updatePlaylist(playlist ?? { short_id: props.shortId, filters: values.filters || undefined })
+                updatePlaylist: async ({ properties }) => {
+                    if (!values.playlist?.short_id) {
+                        return values.playlist
+                    }
+                    return updatePlaylist(
+                        values.playlist?.short_id,
+                        properties ?? { filters: values.filters || undefined }
+                    )
                 },
                 duplicatePlaylist: async () => {
                     return duplicatePlaylist(values.playlist ?? {}, true)
@@ -64,11 +69,11 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
     })),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         getPlaylistSuccess: () => {
             if (values.playlist?.derived_name !== values.derivedName) {
                 // This keeps the derived name up to date if the playlist changes
-                actions.updatePlaylist({ short_id: props.shortId, derived_name: values.derivedName })
+                actions.updatePlaylist({ derived_name: values.derivedName })
             }
         },
     })),

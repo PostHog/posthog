@@ -9,7 +9,6 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Tabs } from 'antd'
 import { SessionRecordingsTabs } from '~/types'
 import { SavedSessionRecordingPlaylists } from './saved-playlists/SavedSessionRecordingPlaylists'
-import { Tooltip } from 'lib/components/Tooltip'
 import { humanFriendlyTabName, sessionRecordingsLogic } from './sessionRecordingsLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { IconSettings } from 'lib/components/icons'
@@ -18,10 +17,11 @@ import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingS
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
+import { createPlaylist } from './playlist/playlistUtils'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { tab, playlistLoading } = useValues(sessionRecordingsLogic)
+    const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { featureFlags } = useValues(featureFlagLogic)
 
@@ -48,21 +48,13 @@ export function SessionsRecordings(): JSX.Element {
                         )}
 
                         {tab === SessionRecordingsTabs.Playlists && (
-                            <Tooltip placement="topRight" title={'Create a new playlist'}>
-                                <LemonButton
-                                    type="primary"
-                                    // onClick={() => {
-                                    //     openPlayerNewPlaylistDialog({
-                                    //         sessionRecordingId: 'global',
-                                    //         playerKey: 'recents',
-                                    //     })
-                                    // }}
-                                    loading={playlistLoading}
-                                    data-attr="save-recordings-playlist-button"
-                                >
-                                    New playlist
-                                </LemonButton>
-                            </Tooltip>
+                            <LemonButton
+                                type="primary"
+                                onClick={() => createPlaylist({}, true)}
+                                data-attr="save-recordings-playlist-button"
+                            >
+                                New playlist
+                            </LemonButton>
                         )}
                     </>
                 }

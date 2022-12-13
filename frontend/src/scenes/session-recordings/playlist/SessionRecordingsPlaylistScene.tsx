@@ -107,7 +107,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             disabled={!hasChanges}
                             loading={hasChanges && playlistLoading}
                             onClick={() => {
-                                updatePlaylist(null)
+                                updatePlaylist()
                             }}
                         >
                             Save changes
@@ -121,7 +121,7 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
                             name="description"
                             value={playlist.description || ''}
                             placeholder="Description (optional)"
-                            onSave={(value) => updatePlaylist({ short_id: playlist.short_id, description: value })}
+                            onSave={(value) => updatePlaylist({ description: value })}
                             saveOnBlur={true}
                             maxLength={400}
                             data-attr="playlist-description"

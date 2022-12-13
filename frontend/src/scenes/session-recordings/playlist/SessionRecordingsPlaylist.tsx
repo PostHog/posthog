@@ -18,6 +18,7 @@ import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { DurationFilter } from '../filters/DurationFilter'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import { StickyView } from 'lib/components/StickyView/StickyView'
+import { createPlaylist } from './playlistUtils'
 
 const MARGIN_TOP = 16
 
@@ -133,14 +134,11 @@ export function SessionRecordingsPlaylist({
                             {showFilters ? 'Hide filters' : 'Filters'}
                         </LemonButton>
 
-                        {playlistShortId ? (
+                        {!playlistShortId ? (
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={() => {
-                                    // saveNewPlaylist()
-                                }}
-                                // loading={newPlaylistLoading}
+                                onClick={() => createPlaylist({ filters }, true)}
                                 data-attr="save-recordings-playlist-button"
                                 tooltip="Save the current filters as a playlist that you can come back to."
                             >

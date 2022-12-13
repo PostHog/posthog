@@ -11,7 +11,6 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { openBillingPopupModal } from 'scenes/billing/v2/BillingPopup'
 import { PLAYLIST_LIMIT_REACHED_MESSAGE } from 'scenes/session-recordings/sessionRecordingsLogic'
-import { PlaylistTypeWithShortId } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 function getOperatorSymbol(operator: PropertyOperator | null): string {
     if (!operator) {
@@ -65,10 +64,11 @@ export async function getPlaylist(
 }
 
 export async function updatePlaylist(
-    playlist: PlaylistTypeWithShortId,
+    shortId: SessionRecordingPlaylistType['short_id'],
+    playlist: Partial<SessionRecordingPlaylistType>,
     silent: boolean = false
 ): Promise<SessionRecordingPlaylistType> {
-    const newPlaylist = await api.recordings.updatePlaylist(playlist.short_id, playlist)
+    const newPlaylist = await api.recordings.updatePlaylist(shortId, playlist)
     if (!silent) {
         lemonToast.success('Playlist updated successfully')
     }
@@ -118,7 +118,7 @@ export async function createPlaylist(
 }
 
 export async function deletePlaylist(
-    playlist: PlaylistTypeWithShortId,
+    playlist: SessionRecordingPlaylistType,
     undoCallback?: () => void
 ): Promise<SessionRecordingPlaylistType> {
     await deleteWithUndo({
@@ -127,5 +127,5 @@ export async function deletePlaylist(
         endpoint: `projects/@current/session_recording_playlists`,
         callback: undoCallback,
     })
-    return playlist as SessionRecordingPlaylistType
+    return playlist
 }

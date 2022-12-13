@@ -1,12 +1,10 @@
 import { actions, kea, path, reducers, selectors } from 'kea'
-import { Breadcrumb, SessionRecordingPlaylistType, SessionRecordingsTabs } from '~/types'
+import { Breadcrumb, SessionRecordingsTabs } from '~/types'
 import { urls } from 'scenes/urls'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import type { sessionRecordingsLogicType } from './sessionRecordingsLogicType'
 import { SESSION_RECORDINGS_PLAYLIST_FREE_COUNT } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { loaders } from 'kea-loaders'
-import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 
 export const humanFriendlyTabName = (tab: SessionRecordingsTabs): string => {
     switch (tab) {
@@ -33,23 +31,6 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
             SessionRecordingsTabs.Recent as SessionRecordingsTabs,
             {
                 setTab: (_, { tab }) => tab,
-            },
-        ],
-    })),
-
-    loaders(({ values }) => ({
-        playlist: [
-            null as SessionRecordingPlaylistType | null,
-            {
-                createPlaylist: async () => {
-                    const filters = router.values.searchParams?.filters
-                    return createPlaylist(
-                        {
-                            filters: values.tab === SessionRecordingsTabs.Recent ? filters : undefined,
-                        },
-                        true
-                    )
-                },
             },
         ],
     })),
