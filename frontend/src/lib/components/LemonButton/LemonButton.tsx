@@ -237,7 +237,6 @@ export function LemonButtonWithPopup({
             {...popupProps}
         >
             <LemonButton
-                forwardRef={buttonProps.forwardRef}
                 className={clsx('LemonButtonWithPopup', className)}
                 onClick={(e) => {
                     setPopupVisible((state) => !state)

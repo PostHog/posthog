@@ -126,6 +126,8 @@ export function LemonSelect<T>({
     const [localValue, setLocalValue] = useState(value)
     const [focusedOptionIndex, setFocusedOptionIndex] = useState(-1)
 
+    const selectRef = useRef<HTMLDivElement>(null)
+
     useEffect(() => {
         if (focusedOptionIndex > -1) {
             elementsRef.current[focusedOptionIndex].current?.focus()
@@ -143,8 +145,7 @@ export function LemonSelect<T>({
     const [sections, allLeafOptions] = useMemo(() => boxToSections(options), [options])
     const elementsRef = useRef(options.flat().map(() => useRef<HTMLButtonElement>(null)))
 
-    const handleKeyboardEvents = (e): void => {
-        console.log(e, 'THE EVENT')
+    const handleKeyboardEvents = (e: React.KeyboardEvent<HTMLElement>): void => {
         if (e.key === 'ArrowDown' && focusedOptionIndex < allLeafOptions.length - 1) {
             setFocusedOptionIndex(focusedOptionIndex + 1)
         } else if (e.key === 'ArrowUp' && focusedOptionIndex > 0) {
@@ -153,15 +154,15 @@ export function LemonSelect<T>({
     }
 
     return (
-        <div className="flex">
+        <div className="flex" tabIndex={-1} ref={selectRef}>
             <LemonButtonWithPopup
                 className={clsx(className, isClearButtonShown && 'LemonSelect--clearable')}
                 onKeyDown={(e) => handleKeyboardEvents(e)}
                 popup={{
                     ref: popup?.ref,
                     overlay: sections.map((section, i) => (
-                        <>
-                            <div key={i} className="space-y-px">
+                        <div key={i}>
+                            <div className="space-y-px">
                                 {section.title ? (
                                     typeof section.title === 'string' ? (
                                         <h5>{section.title}</h5>
@@ -180,6 +181,7 @@ export function LemonSelect<T>({
                                                 setLocalValue(newValue)
                                             }
                                             onSelect?.(newValue)
+                                            selectRef.current?.focus()
                                         }}
                                         activeValue={localValue}
                                         tooltipPlacement={optionTooltipPlacement}
@@ -189,7 +191,7 @@ export function LemonSelect<T>({
                                 {section.footer ? <div>{section.footer}</div> : null}
                             </div>
                             {i < sections.length - 1 ? <LemonDivider /> : null}
-                        </>
+                        </div>
                     )),
                     sameWidth: dropdownMatchSelectWidth,
                     placement: dropdownPlacement,
@@ -255,7 +257,7 @@ function LemonSelectOptionRowInternal<T>(
         activeValue: T | undefined
         onSelect: (value: T) => void
         tooltipPlacement: TooltipPlacement | undefined
-        onKeyDown: (e) => void
+        onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void
     },
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
