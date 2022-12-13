@@ -1,16 +1,20 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
+# TODO
+# explode server timing from Resource events into their own columns
+# /* time origin is in milliseconds e.g. 1670900799301.7 */
+
 BASE_PERFORMANCE_EVENT_COLUMNS = """
 id UUID,
-$session_id UUID,
-$window_id UUID,
-$pageview_id UUID,
+session_id UUID,
+window_id UUID,
+pageview_id UUID,
 time_origin Int64,
-origin_timestamp DateTime64(3, 'UTC'), -- time origin is in milliseconds e.g. 1670900799301.7
+origin_timestamp DateTime64(3, 'UTC'),
 entry_type LowCardinality(String),
 name String,
 team_id Int64,
@@ -19,7 +23,7 @@ current_url String,
 
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming"""
 RESOURCE_EVENT_COLUMNS = """
-start_timeInt64,
+start_time Int64,
 redirect_start Int64,
 redirect_end Int64,
 worker_start Int64,
@@ -39,7 +43,6 @@ next_hop_protocol LowCardinality(String),
 render_blocking_status LowCardinality(String),
 response_status Int64,
 transfer_size Int64,
-server_timing Array(JSON) -- yuck should we explode these?
 """.strip()
 
 """https://developer.mozilla.org/en-US/docs/Web/API/LargestContentfulPaint"""
@@ -91,47 +94,47 @@ PERFORMANCE_EVENT_TABLE_ENGINE = lambda: ReplacingMergeTree(
     "performance_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
 )
 
-PERFORMANCE_ENTRIES_TABLE_BASE_SQL = """
+PERFORMANCE_EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS performance_events ON CLUSTER '{cluster}'
 (
-    {columns}, {extra_fields}
+    {columns}
+    {extra_fields}
 ) ENGINE = {engine}
 """
 
-PERFORMANCE_ENTRIES_TABLE_SQL = lambda: (
-    PERFORMANCE_ENTRIES_TABLE_BASE_SQL
+PERFORMANCE_EVENTS_TABLE_SQL = (
+    PERFORMANCE_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), $session_id, $pageview_id)
+ORDER BY (team_id, toDate(timestamp), session_id, $pageview_id)
 {storage_policy}
 """
 ).format(
     columns=columns,
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_PERFORMANCE_ENTRIES_TABLE_SQL = lambda: PERFORMANCE_ENTRIES_TABLE_BASE_SQL.format(
+KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
     columns=columns,
-    table_name=f"kafka_performance_events",
+    table_name="kafka_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
 
-PERFORMANCE_ENTRIES_TABLE_MV_SQL = lambda: """
+PERFORMANCE_EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
-{columns},
-_timestamp,
-_offset
-FROM {database}.kafka_{table_name}
+{columns}
+{extra_fields}
+FROM {database}.kafka_performance_events
 """.format(
-    columns=columns,
-    table_name="performance_events",
+    columns=[line.strip().split(" ")[0] for line in columns.split("\n") if line.strip().split(" ")],
     target_table="performance_events",  # do we need to shard this?
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
