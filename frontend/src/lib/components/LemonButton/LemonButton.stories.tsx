@@ -9,7 +9,7 @@ import {
 import { IconCalculate, IconInfo, IconPlus } from '../icons'
 import { More, MoreProps } from './More'
 import { LemonDivider } from '../LemonDivider'
-import { capitalizeFirstLetter, range } from 'lib/utils'
+import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
 import { AlertMessage } from '../AlertMessage'
@@ -118,6 +118,22 @@ export const Disabled = (): JSX.Element => {
 
 export const Loading = (): JSX.Element => {
     return <TypesAndStatusesTemplate loading />
+}
+
+export const LoadingViaOnClick = (): JSX.Element => {
+    return (
+        <div className="space-y-2">
+            <p>
+                For simple use-cases, you may want to use a button click to trigger something async and show a loading
+                state. This is simplified by simply using an async function as the <code>onClick</code> handler.
+            </p>
+            <div className="flex items-center gap-2">
+                <LemonButton type="secondary" onClick={async () => await delay(1000)}>
+                    I load for one second
+                </LemonButton>
+            </div>
+        </div>
+    )
 }
 
 export const Active = (): JSX.Element => {
