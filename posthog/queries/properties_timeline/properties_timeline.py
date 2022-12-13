@@ -20,17 +20,23 @@ PROPERTIES_TIMELINE_SQL = """
 SELECT
     timestamp,
     properties,
-    start_event_number - if(previous_start_event_number > 0, previous_start_event_number, 1) AS relevant_events_since_previous_point
+    if(
+        NOT is_pre_range AND start_event_number = 1,
+        0, /* If the event is first-ever for this person, relevant_events_since_previous_point will be 0 */
+        start_event_number - previous_start_event_number
+    ) AS relevant_events_since_previous_point
 FROM (
     SELECT
         timestamp,
         properties,
+        is_pre_range,
         start_event_number,
         lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
     FROM (
         SELECT
             timestamp,
             person_properties AS properties,
+            is_pre_range,
             {crucial_property_columns} AS relevant_property_values, -- TODO make this dynamic
             lagInFrame({crucial_property_columns}) OVER person_events AS previous_relevant_property_values,
             row_number() OVER person_events AS start_event_number

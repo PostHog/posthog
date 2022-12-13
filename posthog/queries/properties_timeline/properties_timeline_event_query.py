@@ -34,7 +34,7 @@ class PropertiesTimelineEventQuery(EventQuery):
 
         query = f"""
             ( /* Select a single event immediately preceding the main date range to determine pre-existing properties */
-                SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
+                SELECT {_fields}, true AS is_pre_range FROM events {self.EVENT_TABLE_ALIAS}
                 PREWHERE
                     team_id = %(team_id)s
                     AND person_id = %(person_id)s
@@ -43,7 +43,7 @@ class PropertiesTimelineEventQuery(EventQuery):
                 ORDER BY timestamp DESC
                 LIMIT 1
             ) UNION ALL ( /* Select events from main date range */
-                SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
+                SELECT {_fields}, false AS is_pre_range FROM events {self.EVENT_TABLE_ALIAS}
                 PREWHERE
                     team_id = %(team_id)s
                     AND person_id = %(person_id)s
@@ -96,4 +96,4 @@ class PropertiesTimelineEventQuery(EventQuery):
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
         )
 
-        return entity_format_params["entity_query"], entity_params
+        return entity_format_params.get("entity_query", ""), entity_params
