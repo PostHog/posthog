@@ -34,13 +34,8 @@ export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecord
     }
 
     return (
-        <div className="flex flex-row justify-end gap-2">
-            <LemonButton
-                icon={<IconLink />}
-                onClick={onShare}
-                tooltip="Share recording"
-                size={isFullScreen ? 'small' : 'medium'}
-            >
+        <div className="flex flex-row gap-2">
+            <LemonButton icon={<IconLink />} onClick={onShare} tooltip="Share recording" size={'small'}>
                 Share
             </LemonButton>
             <LemonButton
@@ -50,7 +45,7 @@ export function PlayerMetaLinks({ sessionRecordingId, playerKey }: SessionRecord
                         <IconPlus />
                     </IconWithCount>
                 }
-                size={isFullScreen ? 'small' : 'medium'}
+                size={'small'}
                 tooltip="Save recording to static playlist"
             >
                 Save
