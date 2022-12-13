@@ -41,7 +41,7 @@ window_id String,
 pageview_id String,
 distinct_id String,
 time_origin Int64,
-origin_timestamp DateTime64(3, 'UTC'),
+origin_timestamp DateTime64,
 entry_type LowCardinality(String),
 name String,
 team_id Int64,
@@ -161,19 +161,10 @@ AS SELECT
 FROM {database}.kafka_performance_events
 """.format(
     columns=_column_names_from_column_definitions(columns),
-    target_table="writeable_performance_events",
+    target_table="sharded_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
     extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
-)
-
-# This table is responsible for writing to sharded_events based on a sharding key.
-WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
-    columns=columns,
-    table_name="writeable_performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
 
 # This table is responsible for reading from events on a cluster setting
