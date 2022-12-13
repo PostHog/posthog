@@ -63,7 +63,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         },
     })),
     reducers(() => ({
-        searchQuery: ['', { setSearchQuery: (_, { query }) => query, submitNewPlaylistSuccess: () => '' }],
+        searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         newFormShowing: [
             false,
             {
@@ -96,18 +96,17 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 const newPlaylist = await createPlaylist({
                     name,
                 })
-                breakpoint()
 
                 if (!newPlaylist) {
                     // This indicates the billing popup has been shown so we should close the modal
-
                     actions.setShowPlaylistPopup(false)
                     return
                 }
 
+                actions.addToPlaylist(newPlaylist)
                 actions.setNewFormShowing(false)
                 actions.resetNewPlaylist()
-                actions.loadPlaylists()
+                actions.setSearchQuery('')
             },
         },
     })),
