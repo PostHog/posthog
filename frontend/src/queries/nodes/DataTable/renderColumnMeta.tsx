@@ -28,6 +28,6 @@ export function renderColumnMeta(key: string, context?: QueryContext): ColumnMet
         // NOTE: PropertyFilterType.Event is not a mistake. PropertyKeyInfo only knows events vs elements ¯\_(ツ)_/¯
         return { title: <PropertyKeyInfo value={key.substring(18)} type={PropertyFilterType.Event} disableIcon /> }
     } else {
-        return { title: String(key) }
+        return { title: key }
     }
 }
