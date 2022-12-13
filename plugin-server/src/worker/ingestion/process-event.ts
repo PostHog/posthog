@@ -305,6 +305,7 @@ export class EventsProcessor {
             window_id: properties['$window_id'],
             pageview_id: properties['$pageview_id'],
             current_url: properties['$current_url'],
+            origin_timestamp: properties['$origin_timestamp'],
         }
 
         Object.entries(PerformanceEventReverseMapping).forEach(([key, value]) => {

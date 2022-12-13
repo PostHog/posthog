@@ -36,9 +36,10 @@ ORDER BY timestamp DESC
 
 BASE_PERFORMANCE_EVENT_COLUMNS = """
 uuid UUID,
-session_id UUID,
-window_id UUID,
-pageview_id UUID,
+session_id String,
+window_id String,
+pageview_id String,
+distinct_id String,
 time_origin Int64,
 origin_timestamp DateTime64(3, 'UTC'),
 entry_type LowCardinality(String),
