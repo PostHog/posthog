@@ -123,6 +123,10 @@
             border-top-style: solid;
             border-left-style: solid;
             border-right-style: solid;
+
+            .extend-variant-fully {
+                flex: 1;
+            }
         }
 
         .variant-label {

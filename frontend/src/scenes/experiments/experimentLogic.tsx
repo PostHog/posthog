@@ -109,6 +109,8 @@ export const experimentLogic = kea<experimentLogicType>([
         endExperiment: true,
         addExperimentGroup: true,
         archiveExperiment: true,
+        checkFlagImplementationWarning: true,
+        checkFlagAvailabilityWarning: true,
     }),
     reducers({
         experiment: [
@@ -350,8 +352,10 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experimentData && actions.reportExperimentArchived(values.experimentData)
         },
         setExperimentInsightType: () => {
-            if (values.experimentId === 'new' || values.editingExistingExperiment) {
+            if (values.experimentId === 'new') {
                 actions.createNewExperimentInsight()
+            } else if (values.editingExistingExperiment) {
+                actions.createNewExperimentInsight({ properties: values.experimentData?.filters?.properties })
             } else {
                 actions.createNewExperimentInsight(values.experimentData?.filters)
             }
@@ -359,7 +363,58 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentSuccess: async ({ experiment }) => {
             actions.updateExperiments(experiment)
         },
-        setExperiment: async ({ experiment }, breakpoint) => {
+        setExperiment: async ({ experiment }) => {
+            const experimentEntitiesChanged =
+                (experiment.filters?.events && experiment.filters.events.length > 0) ||
+                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+
+            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
+                return
+            }
+
+            if (experimentEntitiesChanged) {
+                actions.checkFlagImplementationWarning()
+            }
+            actions.checkFlagAvailabilityWarning()
+        },
+        setExperimentValue: async ({ name, value }, breakpoint) => {
+            await breakpoint(100)
+
+            if (name === 'filters') {
+                const experimentEntitiesChanged =
+                    (value?.events && value.events.length > 0) || (value?.actions && value.actions.length > 0)
+
+                if (!value || Object.keys(value).length === 0) {
+                    return
+                }
+
+                if (experimentEntitiesChanged) {
+                    actions.checkFlagImplementationWarning()
+                }
+
+                actions.checkFlagAvailabilityWarning()
+            }
+        },
+        setExperimentValues: async ({ values }, breakpoint) => {
+            await breakpoint(100)
+
+            const experiment = values
+
+            const experimentEntitiesChanged =
+                (experiment.filters?.events && experiment.filters.events.length > 0) ||
+                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+
+            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
+                return
+            }
+
+            if (experimentEntitiesChanged) {
+                actions.checkFlagImplementationWarning()
+            }
+            actions.checkFlagAvailabilityWarning()
+        },
+        checkFlagImplementationWarning: async (_, breakpoint) => {
+            const experiment = values.experiment
             const experimentEntitiesChanged =
                 (experiment.filters?.events && experiment.filters.events.length > 0) ||
                 (experiment.filters?.actions && experiment.filters.actions.length > 0)
@@ -382,9 +437,10 @@ export const experimentLogic = kea<experimentLogicType>([
                     actions.setFlagImplementationWarning(false)
                 }
             }
-
-            if (experiment.filters?.properties) {
-                const targetProperties = convertPropertyGroupToProperties(experiment.filters.properties) || []
+        },
+        checkFlagAvailabilityWarning: async () => {
+            if (values.experiment.filters?.properties) {
+                const targetProperties = convertPropertyGroupToProperties(values.experiment.filters.properties) || []
 
                 if (targetProperties.length > 0) {
                     const hasNonInstantProperty = !!targetProperties.find(

@@ -274,7 +274,7 @@ export function Experiment(): JSX.Element {
                                                             >
                                                                 {index === 0 ? 'Control' : 'Test'}
                                                             </div>
-                                                            <Field name="key">
+                                                            <Field name="key" className="extend-variant-fully">
                                                                 <LemonInput
                                                                     disabled={index === 0 || experimentId !== 'new'}
                                                                     data-attr="experiment-variant-key"
@@ -324,7 +324,7 @@ export function Experiment(): JSX.Element {
                                         </Col>
                                     )}
                                 </div>
-                                <div>{JSON.stringify(experiment)}</div>
+                                <div>{JSON.stringify(experiment.filters)}</div>
                                 <Row className="person-selection">
                                     <Col span={12}>
                                         <div className="mb-2">
