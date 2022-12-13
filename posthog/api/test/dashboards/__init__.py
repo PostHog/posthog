@@ -15,9 +15,15 @@ class DashboardAPI:
         self,
         model_id: int,
         model_type: Literal["insights", "dashboards"],
+        extra_data: Optional[Dict] = None,
         expected_get_status: int = status.HTTP_404_NOT_FOUND,
     ) -> None:
-        api_response = self.client.patch(f"/api/projects/{self.team.id}/{model_type}/{model_id}", {"deleted": True})
+        if extra_data is None:
+            extra_data = {}
+
+        api_response = self.client.patch(
+            f"/api/projects/{self.team.id}/{model_type}/{model_id}", {"deleted": True, **extra_data}
+        )
         assert api_response.status_code == status.HTTP_200_OK
         self.assertEqual(
             self.client.get(f"/api/projects/{self.team.id}/{model_type}/{model_id}").status_code,
@@ -69,6 +75,24 @@ class DashboardAPI:
             query_params = {}
 
         response = self.client.get(f"/api/projects/{team_id}/dashboards/{dashboard_id}", query_params)
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json
+
+    def list_dashboards(
+        self,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+        query_params: Optional[Dict] = None,
+    ) -> Dict:
+        if team_id is None:
+            team_id = self.team.id
+
+        if query_params is None:
+            query_params = {}
+
+        response = self.client.get(f"/api/projects/{team_id}/dashboards/", query_params)
         self.assertEqual(response.status_code, expected_status)
 
         response_json = response.json()
