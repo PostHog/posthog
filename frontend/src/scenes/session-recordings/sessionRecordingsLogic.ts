@@ -44,15 +44,20 @@ export const sessionRecordingsLogic = kea<sessionRecordingsLogicType>([
     selectors(({}) => ({
         breadcrumbs: [
             (s) => [s.tab],
-            (tab): Breadcrumb[] => [
-                {
-                    name: 'Recordings',
-                    path: urls.sessionRecordings(),
-                },
-                {
+            (tab): Breadcrumb[] => {
+                const breadcrumbs: Breadcrumb[] = []
+                if (tab !== SessionRecordingsTabs.Recent) {
+                    breadcrumbs.push({
+                        name: 'Recordings',
+                        path: urls.sessionRecordings(),
+                    })
+                }
+                breadcrumbs.push({
                     name: humanFriendlyTabName(tab),
-                },
-            ],
+                })
+
+                return breadcrumbs
+            },
         ],
     })),
 
