@@ -33,20 +33,20 @@ class PropertiesTimelineEventQuery(EventQuery):
         self.params.update(entity_params)
 
         query = f"""
-            (
+            ( /* Select a single event immediately preceding the main date range to determine pre-existing properties */
                 SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
                 PREWHERE
                     team_id = %(team_id)s
-                    AND {self.EVENT_TABLE_ALIAS}.person_id = %(person_id)s
+                    AND person_id = %(person_id)s
                     {entity_query}
                     {lookback_date_query}
                 ORDER BY timestamp DESC
                 LIMIT 1
-            ) UNION ALL (
+            ) UNION ALL ( /* Select events from main date range */
                 SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
                 PREWHERE
                     team_id = %(team_id)s
-                    AND {self.EVENT_TABLE_ALIAS}.person_id = %(person_id)s
+                    AND person_id = %(person_id)s
                     {entity_query}
                     {date_query}
                 ORDER BY timestamp ASC
@@ -82,7 +82,7 @@ class PropertiesTimelineEventQuery(EventQuery):
             self._filter.with_data({DATE_TO: self._filter.date_from, EXPLICIT_DATE: True}),
             self._team,
             param_prefix="lookback",
-            is_right_open=True,  # Needs to be right-open so that this doesn't intersect with the primary range
+            is_right_open=True,  # Needs to be right-open so that this doesn't intersect with the main date range
         )
         return query_date_range.date_to
 

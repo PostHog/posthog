@@ -52,7 +52,7 @@ class EnterpriseEventQuery(EventQuery):
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
         if isinstance(self._filter, PropertiesTimelineFilter):
-            raise Exception("Cannot determine groups query for properties timeline")
+            raise Exception("Properties Timeline never needs groups query")
         return GroupsJoinQuery(
             self._filter, self._team_id, self._column_optimizer, using_person_on_events=self._using_person_on_events
         ).get_join_query()

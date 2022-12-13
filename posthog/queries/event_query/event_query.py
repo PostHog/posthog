@@ -153,7 +153,7 @@ class EventQuery(metaclass=ABCMeta):
     @cached_property
     def _person_query(self) -> PersonQuery:
         if isinstance(self._filter, PropertiesTimelineFilter):
-            raise Exception("Cannot determine person query for properties timeline")
+            raise Exception("Properties Timeline never needs person query")
         return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=self._extra_person_fields)
 
     def _get_person_query(self) -> Tuple[str, Dict]:
@@ -175,7 +175,7 @@ class EventQuery(metaclass=ABCMeta):
     @cached_property
     def _sessions_query(self) -> SessionQuery:
         if isinstance(self._filter, PropertiesTimelineFilter):
-            raise Exception("Cannot determine session query for properties timeline")
+            raise Exception("Properties Timeline never needs sessions query")
         return SessionQuery(filter=self._filter, team=self._team)
 
     def _get_sessions_query(self) -> Tuple[str, Dict]:
