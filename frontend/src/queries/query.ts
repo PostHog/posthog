@@ -14,6 +14,8 @@ import {
 } from 'scenes/insights/sharedUtils'
 import { toParams } from 'lib/utils'
 
+export const DEFAULT_QUERY_LIMIT = 100
+
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
     query: N,
@@ -39,12 +41,15 @@ export function getEventsEndpoint(query: EventsNode): string {
         {
             properties: [...(query.fixedProperties || []), ...(query.properties || [])],
             ...(query.event ? { event: query.event } : {}),
+            ...(query.select ? { select: query.select } : {}),
+            ...(query.where ? { where: query.where } : {}),
             ...(query.actionId ? { action_id: query.actionId } : {}),
             ...(query.personId ? { person_id: query.personId } : {}),
             ...(query.before ? { before: query.before } : {}),
             ...(query.after ? { after: query.after } : {}),
+            ...(query.orderBy ? { orderBy: query.orderBy } : {}),
         },
-        query.limit ?? 3500
+        query.limit ?? DEFAULT_QUERY_LIMIT
     )
 }
 

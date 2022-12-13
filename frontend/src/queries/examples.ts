@@ -49,6 +49,75 @@ const EventsTableFull: DataTableNode = {
     showEventsBufferWarning: true,
 }
 
+const TotalEvents: EventsNode = {
+    kind: NodeKind.EventsNode,
+    properties: [
+        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+    select: ['total()'],
+}
+
+const TotalEventsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: TotalEvents,
+}
+
+const PropertyFormulas: EventsNode = {
+    kind: NodeKind.EventsNode,
+    properties: [
+        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+    select: [
+        '1 + 2 + 3',
+        'event',
+        'person.created_at',
+        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name']) # Browser 💚 City",
+        "'random string'",
+    ],
+    limit: 100,
+}
+
+const PropertyFormulasTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: PropertyFormulas,
+}
+
+const EventAggegations: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.EventsNode,
+        select: [
+            "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
+            'event',
+            'total() + 100000 # Inflamed total',
+            '1 + 2',
+        ],
+        orderBy: ['-total()'],
+    },
+    showReload: true,
+    showEventFilter: true,
+    showPropertyFilter: true,
+    showExport: true,
+    showColumnConfigurator: true,
+}
+
+const DataPerCountry: EventsNode = {
+    kind: NodeKind.EventsNode,
+    properties: [
+        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
+    ],
+    select: [
+        'properties.$country_name',
+        'total()',
+        'dau()',
+        'weekly_active()',
+        'avg(properties.$screen_width)',
+        'avg_count_per_actor(person)',
+        'p95_count_per_actor(group_1)',
+        'avg(properties.$screen_width) * avg(properties.$screen_height)',
+    ],
+}
+
 const Persons: PersonsNode = {
     kind: NodeKind.PersonsNode,
     properties: [
@@ -227,6 +296,12 @@ export const examples: Record<string, Node> = {
     Events,
     EventsTable,
     EventsTableFull,
+    TotalEvents,
+    TotalEventsTable,
+    PropertyFormulas,
+    PropertyFormulasTable,
+    EventAggegations,
+    DataPerCountry,
     Persons,
     PersonsTable,
     PersonsTableFull,

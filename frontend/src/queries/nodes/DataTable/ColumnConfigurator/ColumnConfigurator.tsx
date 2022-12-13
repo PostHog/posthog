@@ -2,11 +2,10 @@ import './ColumnConfigurator.scss'
 import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
-import { IconClose, IconTuning, SortableDragIcon } from 'lib/components/icons'
+import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/components/icons'
 import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import clsx from 'clsx'
-import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
     SortableContainer as sortableContainer,
@@ -15,7 +14,6 @@ import {
 } from 'react-sortable-hoc'
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useState } from 'react'
@@ -23,8 +21,11 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableColumns } from '../defaults'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
-import { PropertyFilterType } from '~/types'
+import { isEventsNode } from '~/queries/utils'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
+import { PropertyFilterType } from '~/types'
 
 let uniqueNode = 0
 
@@ -41,7 +42,11 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         key,
         columns,
         setColumns: (columns: string[]) => {
-            setQuery?.({ ...query, columns })
+            if (isEventsNode(query.source) && query.source.select) {
+                setQuery?.({ ...query, source: { ...query.source, select: columns } })
+            } else {
+                setQuery?.({ ...query, columns })
+            }
         },
     }
     const { showModal } = useActions(columnConfiguratorLogic(columnConfiguratorLogicProps))
@@ -91,7 +96,7 @@ function ColumnConfiguratorModal(): JSX.Element {
             <SortableDragIcon />
         </span>
     ))
-    const SelectedColumn = ({ column }: { column: string }): JSX.Element => {
+    const SelectedColumn = ({ column, dataIndex }: { column: string; dataIndex: number }): JSX.Element => {
         let columnType: PropertyFilterType | null = null
         let columnKey = column
         if (column.startsWith('person.properties.')) {
@@ -103,23 +108,33 @@ function ColumnConfiguratorModal(): JSX.Element {
             columnKey = column.substring(11)
         }
 
+        // const SelectedColumn = (props: { column: string; dataIndex: number }): JSX.Element => {
+        //     const { column, dataIndex } = props
         return (
             <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>
                 <DragHandle />
                 {columnType && <PropertyFilterIcon type={columnType} />}
                 <PropertyKeyInfo className="ml-1" value={columnKey} />
-                <div className="text-right flex-1">
-                    <Tooltip title={'Remove'}>
-                        <LemonButton
-                            onClick={() => unselectColumn(column)}
-                            status="stealth"
-                            size="small"
-                            className="ml-auto"
-                        >
-                            <IconClose data-attr="column-display-item-remove-icon" style={{ color: 'var(--danger)' }} />
-                        </LemonButton>
-                    </Tooltip>
-                </div>
+                <div className="flex-1" />
+                <Tooltip title="Edit">
+                    <LemonButton
+                        onClick={() => {
+                            const newColumn = window.prompt('Edit column', column)
+                            if (newColumn) {
+                                setColumns(columns.map((c, i) => (i === dataIndex ? newColumn : c)))
+                            }
+                        }}
+                        status="primary"
+                        size="small"
+                    >
+                        <IconEdit data-attr="column-display-item-edit-icon" />
+                    </LemonButton>
+                </Tooltip>
+                <Tooltip title="Remove">
+                    <LemonButton onClick={() => unselectColumn(column)} status="danger" size="small">
+                        <IconClose data-attr="column-display-item-remove-icon" />
+                    </LemonButton>
+                </Tooltip>
             </div>
         )
     }
@@ -129,7 +144,12 @@ function ColumnConfiguratorModal(): JSX.Element {
     const SortableSelectedColumnRenderer = ({ index, style, key }: ListRowProps): JSX.Element => {
         return (
             <div style={style} key={key}>
-                <SortableSelectedColumn column={columns[index]} index={index} collection="selected-columns" />
+                <SortableSelectedColumn
+                    column={columns[index]}
+                    dataIndex={index}
+                    index={index}
+                    collection="selected-columns"
+                />
             </div>
         )
     }
@@ -202,16 +222,23 @@ function ColumnConfiguratorModal(): JSX.Element {
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.EventFeatureFlags,
                                             TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.HogQLExpression,
                                         ]}
                                         value={undefined}
-                                        onChange={(group, value) =>
-                                            value &&
-                                            selectColumn(
-                                                group.type === TaxonomicFilterGroupType.PersonProperties
-                                                    ? `person.properties.${value}`
-                                                    : `properties.${value}`
-                                            )
-                                        }
+                                        onChange={(group, value) => {
+                                            if (group.type === TaxonomicFilterGroupType.EventProperties) {
+                                                selectColumn(`properties.${value}`)
+                                            }
+                                            if (group.type === TaxonomicFilterGroupType.PersonProperties) {
+                                                selectColumn(`person.properties.${value}`)
+                                            }
+                                            if (group.type === TaxonomicFilterGroupType.EventFeatureFlags) {
+                                                selectColumn(`properties.${value}`)
+                                            }
+                                            if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
+                                                selectColumn(String(value))
+                                            }
+                                        }}
                                         popoverEnabled={false}
                                         selectFirstItem={false}
                                     />

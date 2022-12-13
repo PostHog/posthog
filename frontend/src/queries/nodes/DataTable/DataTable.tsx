@@ -55,7 +55,16 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const defaultEventsColumns = currentTeam?.live_events_columns ?? undefined
 
     const dataTableLogicProps: DataTableLogicProps = { query, key, defaultEventsColumns }
-    const { columns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
+    const {
+        columns: dataTableQueryColumns,
+        queryWithDefaults,
+        canSort,
+        sorting,
+    } = useValues(dataTableLogic(dataTableLogicProps))
+    const columns =
+        response?.columns && Array.isArray(response.columns) && !response.columns.find((c) => typeof c !== 'string')
+            ? (response?.columns as string[])
+            : dataTableQueryColumns
 
     const {
         showActions,
@@ -70,12 +79,18 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = queryWithDefaults
 
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
-        ...columns.map((key) => ({
+        ...columns.map((key, index) => ({
             dataIndex: key as any,
-            title: renderTitle(key, context),
+            title:
+                isEventsNode(query.source) && query.source.select && key.includes('#')
+                    ? key.split('#')[1].trim()
+                    : renderTitle(key, context),
             render: function RenderDataTableColumn(_: any, record: EventType) {
-                return renderColumn(key, record, query, setQuery, context)
+                const arrayOfArrays = isEventsNode(query.source) && !!query.source.select
+                const value = arrayOfArrays ? record[index] : record[key]
+                return renderColumn(key, value, record, query, setQuery, context)
             },
+            sorter: canSort || undefined, // we sort on the backend
         })),
         ...(showActions && isEventsNode(query.source)
             ? [
@@ -155,6 +170,22 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         columns={lemonColumns}
                         key={lemonColumns.join('::') /* Bust the LemonTable cache when columns change */}
                         dataSource={dataSource}
+                        sorting={canSort && setQuery ? sorting : undefined}
+                        useURLForSorting={false}
+                        onSort={
+                            canSort && setQuery
+                                ? (newSorting) =>
+                                      setQuery?.({
+                                          ...query,
+                                          source: {
+                                              ...query.source,
+                                              orderBy: newSorting
+                                                  ? [(newSorting.order === -1 ? '-' : '') + newSorting.columnKey]
+                                                  : undefined,
+                                          } as EventsNode,
+                                      } as DataTableNode)
+                                : undefined
+                        }
                         expandable={
                             expandable
                                 ? {

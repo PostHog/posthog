@@ -14,18 +14,19 @@ import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButt
 
 export function renderColumn(
     key: string,
-    record: EventType | PersonType,
+    value: any,
+    record: EventType | PersonType | any[],
     query: DataTableNode,
     setQuery?: (node: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
     if (key === 'event' && isEventsNode(query.source)) {
         const eventRecord = record as EventType
-        if (eventRecord.event === '$autocapture') {
+        if (value === '$autocapture') {
             return autoCaptureEventToDescription(eventRecord)
         } else {
-            const content = <PropertyKeyInfo value={eventRecord.event} type="event" />
-            const { $sentry_url } = eventRecord.properties
+            const content = <PropertyKeyInfo value={value} type="event" />
+            const $sentry_url = eventRecord?.properties?.$sentry_url
             return $sentry_url ? (
                 <Link to={$sentry_url} target="_blank">
                     {content}
@@ -35,8 +36,8 @@ export function renderColumn(
             )
         }
     } else if (key === 'timestamp' || key === 'created_at') {
-        return <TZLabel time={record[key]} showSeconds />
-    } else if (key.startsWith('properties.') || key === 'url') {
+        return <TZLabel time={value} showSeconds />
+    } else if (!Array.isArray(record) && (key.startsWith('properties.') || key === 'url')) {
         const propertyKey =
             key === 'url' ? (record.properties['$screen_name'] ? '$screen_name' : '$current_url') : key.substring(11)
         if (setQuery && (isEventsNode(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
@@ -151,14 +152,14 @@ export function renderColumn(
     } else if (key === 'id' && isPersonsNode(query.source)) {
         return (
             <CopyToClipboardInline
-                explicitValue={String(record[key])}
+                explicitValue={String(value)}
                 iconStyle={{ color: 'var(--primary)' }}
                 description="person distinct ID"
             >
-                {String(record[key])}
+                {String(value)}
             </CopyToClipboardInline>
         )
     } else {
-        return String(record[key])
+        return String(value)
     }
 }

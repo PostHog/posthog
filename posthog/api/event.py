@@ -63,7 +63,10 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
     def _build_next_url(self, request: request.Request, last_event_timestamp: datetime) -> str:
         params = request.GET.dict()
-        reverse = "-timestamp" in parse_order_by(request.GET.get("orderBy"))
+        reverse = "-timestamp" in parse_order_by(
+            request.GET.get("orderBy"),
+            json.loads(request.GET.get("select", "")) if request.GET.get("select", "") else None,
+        )
         timestamp = last_event_timestamp.astimezone().isoformat()
         if reverse:
             params["before"] = timestamp
@@ -77,6 +80,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 "event",
                 OpenApiTypes.STR,
                 description="Filter list by event. For example `user sign up` or `$pageview`.",
+            ),
+            OpenApiParameter(
+                "select", OpenApiTypes.STR, description="Columns to return. Supports HogQL aggregations.", many=True
             ),
             OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
             OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
@@ -106,13 +112,18 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             team = self.team
             filter = Filter(request=request, team=self.team)
 
+            select: List[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
+            where: List[str] = json.loads(request.GET["where"]) if request.GET.get("where") else None
+
             query_result = query_events_list(
                 filter=filter,
                 team=team,
                 limit=limit,
                 request_get_query_dict=request.GET.dict(),
-                order_by=parse_order_by(request.GET.get("orderBy")),
+                order_by=parse_order_by(request.GET.get("orderBy"), select),
                 action_id=request.GET.get("action_id"),
+                select=select,
+                where=where,
             )
 
             # Retry the query without the 1 day optimization
@@ -123,8 +134,16 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     long_date_from=True,
                     limit=limit,
                     request_get_query_dict=request.GET.dict(),
-                    order_by=parse_order_by(request.GET.get("orderBy")),
+                    order_by=parse_order_by(request.GET.get("orderBy"), select),
                     action_id=request.GET.get("action_id"),
+                    select=select,
+                    where=where,
+                )
+
+            # Result with selected columns
+            if isinstance(query_result, dict):
+                return response.Response(
+                    {"columns": select, "types": query_result["types"], "results": query_result["results"]}
                 )
 
             result = ClickhouseEventSerializer(
@@ -134,8 +153,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             next_url: Optional[str] = None
             if not is_csv_request and len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
-
             return response.Response({"next": next_url, "results": result})
+
         except Exception as ex:
             capture_exception(ex)
             raise ex

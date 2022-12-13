@@ -523,7 +523,7 @@ def _create_person(*args, **kwargs):
 class ClickhouseTestMixin(QueryMatchingTest):
     RUN_MATERIALIZED_COLUMN_TESTS = True
     # overrides the basetest in posthog/test/base.py
-    #  this way the team id will increment so we don't have to destroy all clickhouse tables on each test
+    # this way the team id will increment so we don't have to destroy all clickhouse tables on each test
     CLASS_DATA_LEVEL_SETUP = False
 
     snapshot: Any
