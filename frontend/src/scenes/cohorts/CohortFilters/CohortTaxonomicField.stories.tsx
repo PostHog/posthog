@@ -18,7 +18,10 @@ const Template: ComponentStory<typeof CohortTaxonomicField> = (props: CohortTaxo
     useMountedLogic(actionsModel)
     const [value, setValue] = useState<string | undefined>('')
     const type =
-        props.taxonomicGroupTypes === [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]
+        props.taxonomicGroupTypes &&
+        props.taxonomicGroupTypes.length === 2 &&
+        props.taxonomicGroupTypes[0] === TaxonomicFilterGroupType.Events &&
+        props.taxonomicGroupTypes[1] === TaxonomicFilterGroupType.Actions
             ? FilterType.EventsAndActions
             : FilterType.EventProperties
     return renderField[type]({

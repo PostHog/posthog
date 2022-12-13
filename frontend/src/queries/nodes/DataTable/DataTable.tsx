@@ -1,5 +1,5 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, Node, QueryContext } from '~/queries/schema'
+import { DataTableNode, EventsNode, Node, PersonsNode, QueryContext } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -18,12 +18,15 @@ import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { teamLogic } from 'scenes/teamLogic'
-import { defaultDataTableStringColumns } from '~/queries/nodes/DataTable/defaults'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
-import { InlineEditor } from '~/queries/nodes/Node/InlineEditor'
+import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
+import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
+import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 
 interface DataTableProps {
     query: DataTableNode
@@ -49,13 +52,14 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = useValues(dataNodeLogic(dataNodeLogicProps))
 
     const { currentTeam } = useValues(teamLogic)
-    const defaultColumns = currentTeam?.live_events_columns ?? defaultDataTableStringColumns
+    const defaultEventsColumns = currentTeam?.live_events_columns ?? undefined
 
-    const dataTableLogicProps: DataTableLogicProps = { query, key, defaultColumns }
+    const dataTableLogicProps: DataTableLogicProps = { query, key, defaultEventsColumns }
     const { columns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
 
     const {
         showActions,
+        showSearch,
         showEventFilter,
         showPropertyFilter,
         showReload,
@@ -73,7 +77,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                 return renderColumn(key, record, query, setQuery, context)
             },
         })),
-        ...(showActions
+        ...(showActions && isEventsNode(query.source)
             ? [
                   {
                       dataIndex: 'more' as any,
@@ -86,9 +90,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             : []),
     ]
     const dataSource = (response as null | EventsNode['response'])?.results ?? []
-    const setQuerySource = (source: EventsNode): void => setQuery?.({ ...query, source })
+    const setQuerySource = (source: EventsNode | PersonsNode): void => setQuery?.({ ...query, source })
 
-    const showFilters = showEventFilter || showPropertyFilter
+    const showFilters = showSearch || showEventFilter || showPropertyFilter
     const showTools = showReload || showExport || showColumnConfigurator
     const inlineRow = showFilters ? 1 : showTools ? 2 : 0
 
@@ -98,14 +102,22 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                 <div className="space-y-4 relative">
                     {showFilters && (
                         <div className="flex gap-4">
-                            {showEventFilter && <EventName query={query.source} setQuery={setQuerySource} />}
-                            {showPropertyFilter && (
+                            {showEventFilter && isEventsNode(query.source) && (
+                                <EventName query={query.source} setQuery={setQuerySource} />
+                            )}
+                            {showSearch && isPersonsNode(query.source) && (
+                                <PersonsSearch query={query.source} setQuery={setQuerySource} />
+                            )}
+                            {showPropertyFilter && isEventsNode(query.source) && (
                                 <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
+                            )}
+                            {showPropertyFilter && isPersonsNode(query.source) && (
+                                <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
                             )}
                             {inlineRow === 1 ? (
                                 <>
                                     <div className="flex-1" />
-                                    <InlineEditor
+                                    <InlineEditorButton
                                         query={queryWithDefaults}
                                         setQuery={setQuery as (node: Node) => void}
                                     />
@@ -117,25 +129,31 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     {showTools && (
                         <div className="flex gap-4">
                             <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
-                            {showColumnConfigurator && <ColumnConfigurator query={query} setQuery={setQuery} />}
+                            {showColumnConfigurator && isEventsNode(query.source) && (
+                                <ColumnConfigurator query={query} setQuery={setQuery} />
+                            )}
                             {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                             {inlineRow === 2 ? (
-                                <InlineEditor query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
+                                <InlineEditorButton
+                                    query={queryWithDefaults}
+                                    setQuery={setQuery as (node: Node) => void}
+                                />
                             ) : null}
                         </div>
                     )}
-                    {showEventsBufferWarning && (
+                    {showEventsBufferWarning && isEventsNode(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
                     {inlineRow === 0 ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <InlineEditor query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
+                            <InlineEditorButton query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
                         </div>
                     ) : null}
                     <LemonTable
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
+                        key={lemonColumns.join('::') /* Bust the LemonTable cache when columns change */}
                         dataSource={dataSource}
                         expandable={
                             expandable
@@ -154,7 +172,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         }
                     />
                     {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
+                    {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
+                    <PersonDeleteModal />
                 </div>
             </BindLogic>
         </BindLogic>
