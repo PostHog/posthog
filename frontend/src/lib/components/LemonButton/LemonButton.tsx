@@ -33,7 +33,7 @@ export interface LemonButtonPropsBase
     /** External URL to link to. */
     className?: string
 
-    onClick?: (e: React.MouseEvent<HTMLButtonElement>) => void | Promise<any>
+    onClick?: (e: React.MouseEvent<HTMLButtonElement>) => any | Promise<any>
 
     icon?: React.ReactElement | null
     sideIcon?: React.ReactElement | null
