@@ -248,6 +248,15 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
+            - name: Restore Cypress binary from cache # actions/setup-node can only cache pnpm's global store
+              uses: actions/cache@v3
+              with:
+                  path: ~/.cache/Cypress
+                  key: ${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile # This is primarily for Cypress
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
