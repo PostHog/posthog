@@ -168,7 +168,6 @@ export function Person(): JSX.Element | null {
                                     kind: NodeKind.EventsNode,
                                     personId: person.id,
                                 },
-                                showEventsBufferWarning: true,
                                 showReload: true,
                                 showColumnConfigurator: true,
                                 showExport: true,
