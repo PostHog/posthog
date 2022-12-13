@@ -299,7 +299,7 @@ jobs:
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Make sure Cypress is available
-              run: npx cypress install
+              run: npx cypress@10.11.0 install
 
             - name: Cypress run
               uses: cypress-io/github-action@v5
