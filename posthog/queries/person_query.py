@@ -204,7 +204,7 @@ class PersonQuery:
             INNER JOIN (
                 {cohort_table}
             ) {self.COHORT_TABLE_ALIAS}
-            ON {self.COHORT_TABLE_ALIAS}.person_id = toString(person.id)
+            ON {self.COHORT_TABLE_ALIAS}.actor_id = toString(person.id)
             """,
                 {"team_id": self._team_id, "cohort_id": self._cohort.pk},
             )

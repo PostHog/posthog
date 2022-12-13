@@ -116,7 +116,7 @@ WHERE team_id = %(team_id)s AND person_id = %(person_id)s
 """
 
 GET_COHORTPEOPLE_BY_COHORT_ID = """
-SELECT toString(person_id)
+SELECT toString(person_id) as actor_id
 FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id, version
@@ -125,13 +125,13 @@ ORDER BY person_id
 """
 
 GET_COHORT_ACTORS_BY_COHORT_ID = """
-SELECT actor_id AS person_id
+SELECT actor_id
 FROM cohort_actors
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 """
 
 GET_STATIC_COHORTPEOPLE_BY_COHORT_ID = f"""
-SELECT toString(person_id)
+SELECT toString(person_id) as actor_id
 FROM {PERSON_STATIC_COHORT_TABLE}
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s
 GROUP BY person_id, cohort_id, team_id
