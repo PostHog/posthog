@@ -15,7 +15,7 @@ import {
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
 import { defaultDataTableColumns } from '../defaults'
@@ -26,6 +26,7 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyFilterType } from '~/types'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 let uniqueNode = 0
 
@@ -77,6 +78,7 @@ function ColumnConfiguratorModal(): JSX.Element {
     const { modalVisible, columns } = useValues(columnConfiguratorLogic)
     const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
         useActions(columnConfiguratorLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     function SaveColumnsAsDefault({ isRestricted }: RestrictedComponentProps): JSX.Element {
         return (
@@ -222,7 +224,9 @@ function ColumnConfiguratorModal(): JSX.Element {
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.EventFeatureFlags,
                                             TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.HogQLExpression,
+                                            ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS]
+                                                ? [TaxonomicFilterGroupType.HogQLExpression]
+                                                : []),
                                         ]}
                                         value={undefined}
                                         onChange={(group, value) => {
