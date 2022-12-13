@@ -249,7 +249,7 @@ export type LemonSelectOptionRowProps<T> = {
     activeValue: T | undefined
     onSelect: (value: T) => void
     tooltipPlacement: TooltipPlacement | undefined
-    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void
+    onKeyDown?: (e: React.KeyboardEvent<HTMLElement>) => void
 }
 
 export const LemonSelectOptionRow = React.forwardRef(LemonSelectOptionRowInternal) as <T>(
