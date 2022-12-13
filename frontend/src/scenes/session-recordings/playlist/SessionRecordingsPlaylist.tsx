@@ -133,19 +133,20 @@ export function SessionRecordingsPlaylist({
                             {showFilters ? 'Hide filters' : 'Filters'}
                         </LemonButton>
 
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            disabled={!totalFiltersCount}
-                            onClick={() => {
-                                // saveNewPlaylist()
-                            }}
-                            // loading={newPlaylistLoading}
-                            data-attr="save-recordings-playlist-button"
-                            tooltip="Save the current filters as a playlist that you can come back to."
-                        >
-                            {playlistShortId ? 'Save changes' : 'Save as playlist'}
-                        </LemonButton>
+                        {playlistShortId ? (
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => {
+                                    // saveNewPlaylist()
+                                }}
+                                // loading={newPlaylistLoading}
+                                data-attr="save-recordings-playlist-button"
+                                tooltip="Save the current filters as a playlist that you can come back to."
+                            >
+                                Save as playlist
+                            </LemonButton>
+                        ) : null}
                     </>
                 </div>
 

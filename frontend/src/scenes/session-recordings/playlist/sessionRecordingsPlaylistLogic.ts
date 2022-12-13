@@ -27,7 +27,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         values: [cohortsModel, ['cohortsById']],
     }),
     actions({
-        setPlaylist: (playlist: SessionRecordingPlaylistType | null) => ({ playlist }),
         updatePlaylist: (playlist: PlaylistTypeWithShortId | null) => ({ playlist }),
         setFilters: (filters: RecordingFilters | null) => ({ filters }),
     }),
@@ -35,7 +34,6 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         playlist: [
             null as SessionRecordingPlaylistType | null,
             {
-                setPlaylist: ({ playlist }) => playlist || values.playlist,
                 getPlaylist: async () => {
                     return getPlaylist(props.shortId)
                 },
@@ -60,7 +58,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         filters: [
             null as RecordingFilters | null,
             {
-                setPlaylist: (_, { playlist }) => playlist?.filters || null,
+                getPlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
                 setFilters: (_, { filters }) => filters,
             },
         ],
@@ -103,7 +101,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         ],
         hasChanges: [
             (s) => [s.playlist, s.filters],
-            (playlist, filters): boolean => !equal(playlist?.filters, filters),
+            (playlist, filters): boolean => {
+                console.log('FOO', playlist?.filters, filters)
+                return !equal(playlist?.filters, filters)
+            },
         ],
         derivedName: [
             (s) => [s.filters, s.cohortsById],

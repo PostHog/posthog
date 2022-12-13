@@ -33,9 +33,6 @@ export const savedSessionRecordingPlaylistModelLogic = kea<savedSessionRecording
     })),
     loaders(() => ({
         _playlistModel: {
-            loadSavedPlaylist: async ({ shortId }) => {
-                return api.recordings.getPlaylist(shortId)
-            },
             createSavedPlaylist: async ({ playlist, redirect }, breakpoint) => {
                 await breakpoint(100)
                 const newPlaylist = await createPlaylist(playlist, redirect)
