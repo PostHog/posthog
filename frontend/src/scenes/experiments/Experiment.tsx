@@ -88,6 +88,7 @@ export function Experiment(): JSX.Element {
         archiveExperiment,
         loadExperiment,
         setExposureAndSampleSize,
+        setExperimentValue,
     } = useActions(experimentLogic)
 
     const [showWarning, setShowWarning] = useState(true)
@@ -323,234 +324,224 @@ export function Experiment(): JSX.Element {
                                         </Col>
                                     )}
                                 </div>
-                                <Field name="filters">
-                                    {({ value, onChange }) => (
-                                        <>
-                                            <Row className="person-selection">
-                                                <Col span={12}>
-                                                    <div className="mb-2">
-                                                        <strong>Select participants</strong>
-                                                    </div>
-                                                    <div className="text-muted">
-                                                        Select the entities who will participate in this experiment. If
-                                                        no filters are set, 100% of participants will be targeted.
-                                                    </div>
-                                                    <div className="mt-4 mb-2">
-                                                        <strong>Participant type</strong>
-                                                    </div>
-                                                    <LemonSelect
-                                                        value={
-                                                            value.aggregation_group_type_index != undefined
-                                                                ? value.aggregation_group_type_index
-                                                                : -1
-                                                        }
-                                                        data-attr="participant-aggregation-filter"
-                                                        dropdownMatchSelectWidth={false}
-                                                        onChange={(value) => {
-                                                            const groupTypeIndex = value !== -1 ? value : undefined
-                                                            if (groupTypeIndex != value.aggregation_group_type_index) {
-                                                                setFilters({
-                                                                    properties: [],
-                                                                    aggregation_group_type_index: groupTypeIndex,
-                                                                })
-                                                                onChange({
-                                                                    ...experiment.filters,
-                                                                    ...{
-                                                                        aggregation_group_type_index: groupTypeIndex,
-                                                                        // :TRICKY: We reset property filters after changing what you're aggregating by.
-                                                                        properties: [],
-                                                                    },
-                                                                })
-                                                            }
-                                                        }}
-                                                        options={[
-                                                            { value: -1, label: 'Persons' },
-                                                            ...groupTypes.map((groupType) => ({
-                                                                value: groupType.group_type_index,
-                                                                label: capitalizeFirstLetter(
-                                                                    aggregationLabel(groupType.group_type_index).plural
-                                                                ),
-                                                            })),
-                                                        ]}
-                                                    />
-                                                    <div className="mt-4 mb-2">
-                                                        <strong>Filters</strong>
-                                                    </div>
-                                                    <div className="mb-4">
-                                                        <PropertyFilters
-                                                            pageKey={'experiment-participants-property'}
-                                                            propertyFilters={
-                                                                experimentInsightType === InsightType.FUNNELS
-                                                                    ? convertPropertyGroupToProperties(
-                                                                          funnelsFilters.properties
-                                                                      )
-                                                                    : convertPropertyGroupToProperties(
-                                                                          trendsFilters.properties
-                                                                      )
-                                                            }
-                                                            onChange={(anyProperties) => {
-                                                                onChange({
-                                                                    ...experiment.filters,
-                                                                    ...{ properties: anyProperties },
-                                                                })
-                                                                setFilters({
-                                                                    properties:
-                                                                        anyProperties.filter(isValidPropertyFilter),
-                                                                })
-                                                            }}
-                                                            taxonomicGroupTypes={taxonomicGroupTypesForSelection}
-                                                        />
-                                                    </div>
-                                                    {flagAvailabilityWarning && (
-                                                        <AlertMessage type="info" className="mt-3 mb-3">
-                                                            These properties aren't immediately available on first page
-                                                            load for unidentified persons. This experiment requires that
-                                                            at least one event is sent prior to becoming available to
-                                                            your product or website.{' '}
-                                                            <a
-                                                                href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags"
-                                                                target="_blank"
-                                                            >
-                                                                {' '}
-                                                                Learn more about how to make feature flags available
-                                                                instantly.
-                                                            </a>
-                                                        </AlertMessage>
-                                                    )}
-                                                    <div className="mt-4 mb-2">
-                                                        <strong>Advanced Options</strong>
-                                                    </div>
-                                                    <div className="mb-4">
-                                                        For more advanced options like changing the rollout percentage
-                                                        and persisting feature flags, you can{' '}
-                                                        {experimentId === 'new' ? (
-                                                            'change settings on the feature flag after creation.'
-                                                        ) : (
-                                                            <Link
-                                                                to={
-                                                                    experiment.feature_flag
-                                                                        ? urls.featureFlag(experiment.feature_flag)
-                                                                        : undefined
-                                                                }
-                                                            >
-                                                                change settings on the feature flag.
-                                                            </Link>
-                                                        )}
-                                                    </div>
-                                                </Col>
-                                            </Row>
+                                <div>{JSON.stringify(experiment)}</div>
+                                <Row className="person-selection">
+                                    <Col span={12}>
+                                        <div className="mb-2">
+                                            <strong>Select participants</strong>
+                                        </div>
+                                        <div className="text-muted">
+                                            Select the entities who will participate in this experiment. If no filters
+                                            are set, 100% of participants will be targeted.
+                                        </div>
+                                        <div className="mt-4 mb-2">
+                                            <strong>Participant type</strong>
+                                        </div>
+                                        <LemonSelect
+                                            value={
+                                                experiment.filters.aggregation_group_type_index != undefined
+                                                    ? experiment.filters.aggregation_group_type_index
+                                                    : -1
+                                            }
+                                            data-attr="participant-aggregation-filter"
+                                            dropdownMatchSelectWidth={false}
+                                            onChange={(rawGroupTypeIndex) => {
+                                                const groupTypeIndex =
+                                                    rawGroupTypeIndex !== -1 ? rawGroupTypeIndex : undefined
 
-                                            <Row className="metrics-selection">
-                                                <Col span={12}>
-                                                    <div className="mb-2" data-attr="experiment-goal-type">
-                                                        <b>Goal type</b>
-                                                        <div className="text-muted">
-                                                            {experimentInsightType === InsightType.TRENDS
-                                                                ? 'Track counts of a specific event or action'
-                                                                : 'Track how many persons complete a sequence of actions and or events'}
-                                                        </div>
-                                                    </div>
-                                                    <LemonSelect
-                                                        value={experimentInsightType}
-                                                        onChange={(val) => {
-                                                            if (val) {
-                                                                setExperimentInsightType(val)
-                                                            }
-                                                        }}
-                                                        dropdownMatchSelectWidth={false}
-                                                        options={[
-                                                            { value: InsightType.TRENDS, label: 'Trend' },
-                                                            { value: InsightType.FUNNELS, label: 'Conversion funnel' },
-                                                        ]}
-                                                    />
-                                                    <div className="my-4">
-                                                        <b>Experiment goal</b>
-                                                        {experimentInsightType === InsightType.TRENDS && (
-                                                            <div className="text-muted">
-                                                                Trend-based experiments can have at most one graph
-                                                                series. This metric is used to track the progress of
-                                                                your experiment.
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                    {flagImplementationWarning && (
-                                                        <AlertMessage type="info" className="mt-3 mb-3">
-                                                            We can't detect any feature flag information for this target
-                                                            metric. Ensure that you're using the latest PostHog client
-                                                            libraries, and make sure you manually send feature flag
-                                                            information for server-side libraries if necessary.{' '}
-                                                            <a
-                                                                href="https://posthog.com/docs/integrate/server/python#capture"
-                                                                target="_blank"
-                                                            >
-                                                                {' '}
-                                                                Read the docs for how to do this for server-side
-                                                                libraries.
-                                                            </a>
-                                                        </AlertMessage>
-                                                    )}
-                                                    {experimentInsightType === InsightType.FUNNELS && (
-                                                        <ActionFilter
-                                                            bordered
-                                                            filters={funnelsFilters}
-                                                            setFilters={(payload) => {
-                                                                onChange({ ...experiment.filters, ...payload })
-                                                                setFilters(payload)
-                                                            }}
-                                                            typeKey={`experiment-funnel-goal`}
-                                                            mathAvailability={MathAvailability.None}
-                                                            hideDeleteBtn={filterSteps.length === 1}
-                                                            buttonCopy="Add funnel step"
-                                                            showSeriesIndicator={!isStepsEmpty}
-                                                            seriesIndicatorType="numeric"
-                                                            sortable
-                                                            showNestedArrow={true}
-                                                            propertiesTaxonomicGroupTypes={[
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                                                TaxonomicFilterGroupType.Cohorts,
-                                                                TaxonomicFilterGroupType.Elements,
-                                                            ]}
-                                                        />
-                                                    )}
-                                                    {experimentInsightType === InsightType.TRENDS && (
-                                                        <ActionFilter
-                                                            bordered
-                                                            filters={trendsFilters}
-                                                            setFilters={(payload: Partial<FilterType>) => {
-                                                                onChange({ ...experiment.filters, ...payload })
-                                                                setFilters(payload)
-                                                            }}
-                                                            typeKey={`experiment-trends`}
-                                                            buttonCopy="Add graph series"
-                                                            showSeriesIndicator
-                                                            entitiesLimit={1}
-                                                            hideDeleteBtn
-                                                            propertiesTaxonomicGroupTypes={[
-                                                                TaxonomicFilterGroupType.EventProperties,
-                                                                TaxonomicFilterGroupType.PersonProperties,
-                                                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                                                TaxonomicFilterGroupType.Cohorts,
-                                                                TaxonomicFilterGroupType.Elements,
-                                                            ]}
-                                                        />
-                                                    )}
-                                                </Col>
-                                                <Col span={12} className="pl-4">
-                                                    <div className="card-secondary mb-4" data-attr="experiment-preview">
-                                                        Goal preview
-                                                    </div>
-                                                    <InsightContainer
-                                                        disableHeader={experimentInsightType === InsightType.TRENDS}
-                                                        disableTable={true}
-                                                        disableCorrelationTable={true}
-                                                    />
-                                                </Col>
-                                            </Row>
-                                        </>
-                                    )}
-                                </Field>
+                                                setFilters({
+                                                    properties: [],
+                                                    aggregation_group_type_index: groupTypeIndex ?? undefined,
+                                                })
+                                                setExperimentValue('filters', {
+                                                    ...experiment.filters,
+                                                    aggregation_group_type_index: groupTypeIndex,
+                                                    // :TRICKY: We reset property filters after changing what you're aggregating by.
+                                                    properties: [],
+                                                })
+                                            }}
+                                            options={[
+                                                { value: -1, label: 'Persons' },
+                                                ...groupTypes.map((groupType) => ({
+                                                    value: groupType.group_type_index,
+                                                    label: capitalizeFirstLetter(
+                                                        aggregationLabel(groupType.group_type_index).plural
+                                                    ),
+                                                })),
+                                            ]}
+                                        />
+                                        <div className="mt-4 mb-2">
+                                            <strong>Filters</strong>
+                                        </div>
+                                        <div className="mb-4">
+                                            <PropertyFilters
+                                                pageKey={`experiment-participants-property-${JSON.stringify(
+                                                    experiment.filters
+                                                )}`}
+                                                propertyFilters={convertPropertyGroupToProperties(
+                                                    experiment.filters.properties
+                                                )}
+                                                onChange={(anyProperties) => {
+                                                    setFilters({
+                                                        properties: anyProperties.filter(isValidPropertyFilter),
+                                                    })
+                                                    setExperimentValue('filters', {
+                                                        ...experiment.filters,
+                                                        properties: anyProperties.filter(isValidPropertyFilter),
+                                                    })
+                                                }}
+                                                taxonomicGroupTypes={taxonomicGroupTypesForSelection}
+                                            />
+                                        </div>
+                                        {flagAvailabilityWarning && (
+                                            <AlertMessage type="info" className="mt-3 mb-3">
+                                                These properties aren't immediately available on first page load for
+                                                unidentified persons. This experiment requires that at least one event
+                                                is sent prior to becoming available to your product or website.{' '}
+                                                <a
+                                                    href="https://posthog.com/docs/integrate/client/js#bootstrapping-flags"
+                                                    target="_blank"
+                                                >
+                                                    {' '}
+                                                    Learn more about how to make feature flags available instantly.
+                                                </a>
+                                            </AlertMessage>
+                                        )}
+                                        <div className="mt-4 mb-2">
+                                            <strong>Advanced Options</strong>
+                                        </div>
+                                        <div className="mb-4">
+                                            For more advanced options like changing the rollout percentage and
+                                            persisting feature flags, you can{' '}
+                                            {experimentId === 'new' ? (
+                                                'change settings on the feature flag after creation.'
+                                            ) : (
+                                                <Link
+                                                    to={
+                                                        experiment.feature_flag
+                                                            ? urls.featureFlag(experiment.feature_flag)
+                                                            : undefined
+                                                    }
+                                                >
+                                                    change settings on the feature flag.
+                                                </Link>
+                                            )}
+                                        </div>
+                                    </Col>
+                                </Row>
+
+                                <Row className="metrics-selection">
+                                    <Col span={12}>
+                                        <div className="mb-2" data-attr="experiment-goal-type">
+                                            <b>Goal type</b>
+                                            <div className="text-muted">
+                                                {experimentInsightType === InsightType.TRENDS
+                                                    ? 'Track counts of a specific event or action'
+                                                    : 'Track how many persons complete a sequence of actions and or events'}
+                                            </div>
+                                        </div>
+                                        <LemonSelect
+                                            value={experimentInsightType}
+                                            onChange={(val) => {
+                                                if (val) {
+                                                    setExperimentInsightType(val)
+                                                }
+                                            }}
+                                            dropdownMatchSelectWidth={false}
+                                            options={[
+                                                { value: InsightType.TRENDS, label: 'Trend' },
+                                                { value: InsightType.FUNNELS, label: 'Conversion funnel' },
+                                            ]}
+                                        />
+                                        <div className="my-4">
+                                            <b>Experiment goal</b>
+                                            {experimentInsightType === InsightType.TRENDS && (
+                                                <div className="text-muted">
+                                                    Trend-based experiments can have at most one graph series. This
+                                                    metric is used to track the progress of your experiment.
+                                                </div>
+                                            )}
+                                        </div>
+                                        {flagImplementationWarning && (
+                                            <AlertMessage type="info" className="mt-3 mb-3">
+                                                We can't detect any feature flag information for this target metric.
+                                                Ensure that you're using the latest PostHog client libraries, and make
+                                                sure you manually send feature flag information for server-side
+                                                libraries if necessary.{' '}
+                                                <a
+                                                    href="https://posthog.com/docs/integrate/server/python#capture"
+                                                    target="_blank"
+                                                >
+                                                    {' '}
+                                                    Read the docs for how to do this for server-side libraries.
+                                                </a>
+                                            </AlertMessage>
+                                        )}
+                                        {experimentInsightType === InsightType.FUNNELS && (
+                                            <ActionFilter
+                                                bordered
+                                                filters={funnelsFilters}
+                                                setFilters={(payload) => {
+                                                    setFilters(payload)
+                                                    setExperimentValue('filters', {
+                                                        ...experiment.filters,
+                                                        ...payload,
+                                                    })
+                                                }}
+                                                typeKey={`experiment-funnel-goal-${JSON.stringify(experiment.filters)}`}
+                                                mathAvailability={MathAvailability.None}
+                                                hideDeleteBtn={filterSteps.length === 1}
+                                                buttonCopy="Add funnel step"
+                                                showSeriesIndicator={!isStepsEmpty}
+                                                seriesIndicatorType="numeric"
+                                                sortable
+                                                showNestedArrow={true}
+                                                propertiesTaxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.EventProperties,
+                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                                    TaxonomicFilterGroupType.Cohorts,
+                                                    TaxonomicFilterGroupType.Elements,
+                                                ]}
+                                            />
+                                        )}
+                                        {experimentInsightType === InsightType.TRENDS && (
+                                            <ActionFilter
+                                                bordered
+                                                filters={trendsFilters}
+                                                setFilters={(payload: Partial<FilterType>) => {
+                                                    setFilters(payload)
+                                                    setExperimentValue('filters', {
+                                                        ...experiment.filters,
+                                                        ...payload,
+                                                    })
+                                                }}
+                                                typeKey={`experiment-trends-goal-${JSON.stringify(experiment.filters)}`}
+                                                buttonCopy="Add graph series"
+                                                showSeriesIndicator
+                                                entitiesLimit={1}
+                                                hideDeleteBtn
+                                                propertiesTaxonomicGroupTypes={[
+                                                    TaxonomicFilterGroupType.EventProperties,
+                                                    TaxonomicFilterGroupType.PersonProperties,
+                                                    TaxonomicFilterGroupType.EventFeatureFlags,
+                                                    TaxonomicFilterGroupType.Cohorts,
+                                                    TaxonomicFilterGroupType.Elements,
+                                                ]}
+                                            />
+                                        )}
+                                    </Col>
+                                    <Col span={12} className="pl-4">
+                                        <div className="card-secondary mb-4" data-attr="experiment-preview">
+                                            Goal preview
+                                        </div>
+                                        <InsightContainer
+                                            disableHeader={experimentInsightType === InsightType.TRENDS}
+                                            disableTable={true}
+                                            disableCorrelationTable={true}
+                                        />
+                                    </Col>
+                                </Row>
                                 <Field name="secondary_metrics">
                                     {({ value, onChange }) => (
                                         <Row className="secondary-metrics">

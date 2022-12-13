@@ -56,7 +56,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                             loading={isSecondaryMetricModalSubmitting}
                             data-attr="create-annotation-submit"
                         >
-                            {existingModalSecondaryMetric ? 'Edit' : 'Create'}
+                            {existingModalSecondaryMetric ? 'Save' : 'Create'}
                         </LemonButton>
                     </div>
                 }

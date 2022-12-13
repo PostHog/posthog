@@ -1,4 +1,3 @@
-import { kea } from 'kea'
 import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -216,7 +215,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         exposureAndSampleSize: [
-            null,
+            { exposure: 0, sampleSize: 0 } as { exposure: number; sampleSize: number },
             {
                 setExposureAndSampleSize: (_, { exposure, sampleSize }) => ({ exposure, sampleSize }),
             },
