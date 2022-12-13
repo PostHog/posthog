@@ -40,7 +40,7 @@ from posthog.settings import (
     CLICKHOUSE_VERIFY,
     TEST,
 )
-from posthog.utils import generate_short_id
+from posthog.utils import generate_short_id, patchable
 
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
@@ -138,6 +138,7 @@ def validated_client_query_id() -> Optional[str]:
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
+@patchable
 def sync_execute(
     query,
     args=None,
@@ -421,6 +422,7 @@ def substitute_params(query, params):
     return cast(SyncClient, ch_client).substitute_params(query, params)
 
 
+@patchable
 def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     """
     Given a string query with placeholders we do one of two things:

@@ -14,6 +14,7 @@ import time
 import uuid
 import zlib
 from enum import Enum
+from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -1187,3 +1188,23 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
             raise TimeoutError("Timed out waiting for celery task to finish")
         time.sleep(0.1)
     return task
+
+
+def patchable(fn):
+    """
+    Decorator which allows patching behavior of a function at run-time.
+
+    Used in benchmarking scripts.
+    """
+
+    @wraps(fn)
+    def inner(*args, **kwargs):
+        return inner._impl(*args, **kwargs)  # type: ignore
+
+    def patch(wrapper):
+        inner._impl = lambda *args, **kw: wrapper(fn, *args, **kw)  # type: ignore
+
+    inner._impl = fn  # type: ignore
+    inner._patch = patch  # type: ignore
+
+    return inner
