@@ -1,5 +1,5 @@
 import { kea } from 'kea'
-import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
+import { convertPropertyGroupToProperties, daysAgo, toParams } from 'lib/utils'
 import { router } from 'kea-router'
 import api from 'lib/api'
 import type { eventsTableLogicType } from './eventsTableLogicType'
@@ -45,8 +45,6 @@ const formatEvents = (events: EventType[], newEvents: EventType[]): EventsTableR
     }
     return eventsFormatted
 }
-
-const daysAgo = (days: number): string => now().subtract(days, 'day').toISOString()
 
 export interface EventsTableLogicProps {
     fixedFilters?: FixedFilters

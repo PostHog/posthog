@@ -12,7 +12,9 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { toParams } from 'lib/utils'
+import { daysAgo, toParams } from 'lib/utils'
+
+const EVENTS_DAYS_FIRST_FETCH = 5
 
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
@@ -20,7 +22,13 @@ export async function query<N extends DataNode = DataNode>(
     methodOptions?: ApiMethodOptions
 ): Promise<N['response']> {
     if (isEventsNode(query)) {
-        return await api.get(getEventsEndpoint(query))
+        if (!query.before && !query.after) {
+            const earlyResults = await api.get(getEventsEndpoint({ ...query, after: daysAgo(EVENTS_DAYS_FIRST_FETCH) }))
+            if (earlyResults.results.length > 0) {
+                return earlyResults
+            }
+        }
+        return await api.get(getEventsEndpoint({ after: daysAgo(365), ...query }))
     } else if (isPersonsNode(query)) {
         return await api.get(getPersonsEndpoint(query))
     } else if (isLegacyQuery(query)) {
@@ -44,7 +52,7 @@ export function getEventsEndpoint(query: EventsNode): string {
             ...(query.before ? { before: query.before } : {}),
             ...(query.after ? { after: query.after } : {}),
         },
-        query.limit ?? 3500
+        query.limit ?? 100
     )
 }
 
