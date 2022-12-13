@@ -43,9 +43,8 @@ import { groupDisplayId } from 'scenes/persons/GroupActorHeader'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { useEffect, useState } from 'react'
-import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
-import { LemonButton } from 'lib/components/LemonButton'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { InlineHogQLEditor } from '~/queries/QueryEditor/InlineHogQLEditor'
 
 export const eventTaxonomicGroupProps: Pick<TaxonomicFilterGroup, 'getPopupHeader' | 'getIcon'> = {
     getPopupHeader: (eventDefinition: EventDefinition): string => {
@@ -152,14 +151,26 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                 selectors.groupAnalyticsTaxonomicGroupNames,
                 selectors.eventNames,
                 selectors.excludedProperties,
+                featureFlagLogic.selectors.featureFlags,
             ],
             (
                 teamId,
                 groupAnalyticsTaxonomicGroups,
                 groupAnalyticsTaxonomicGroupNames,
                 eventNames,
-                excludedProperties
+                excludedProperties,
+                featureFlags
             ): TaxonomicFilterGroup[] => {
+                const hogQl: TaxonomicFilterGroup = {
+                    name: 'HogQL',
+                    searchPlaceholder: 'Custom HogQL',
+                    type: TaxonomicFilterGroupType.HogQLExpression,
+                    options: [{ name: 'hogql', value: 'hogql' }],
+                    render: InlineHogQLEditor,
+                    getName: (option) => option.name,
+                    getValue: (option) => option.value,
+                    getPopupHeader: () => 'HogQL',
+                }
                 return [
                     {
                         name: 'Events',
@@ -412,51 +423,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getValue: (option) => option.value,
                         getPopupHeader: () => 'Session',
                     },
-                    {
-                        name: 'HogQL',
-                        searchPlaceholder: 'Custom HogQL',
-                        type: TaxonomicFilterGroupType.HogQLExpression,
-                        options: [
-                            {
-                                name: 'Custom HogQL expression',
-                                value: '!',
-                            },
-                        ],
-                        render: function RenderHogQLEditor({ value, onChange }) {
-                            const [localValue, setLocalValue] = useState(value)
-                            useEffect(() => {
-                                setLocalValue(value)
-                            }, [value])
-                            return (
-                                <div className="px-2">
-                                    <LemonTextArea
-                                        value={String(localValue ?? '')}
-                                        onChange={(e) => setLocalValue(e)}
-                                        className="font-mono"
-                                        minRows={6}
-                                        maxRows={6}
-                                        placeholder={'Enter HogQL Expression...'}
-                                        autoFocus
-                                    />
-                                    <LemonButton
-                                        fullWidth
-                                        type="primary"
-                                        onClick={() => {
-                                            onChange(String(localValue))
-                                            setLocalValue('')
-                                        }}
-                                        disabled={!localValue}
-                                        center
-                                    >
-                                        Add expression
-                                    </LemonButton>
-                                </div>
-                            )
-                        },
-                        getName: (option) => option.name,
-                        getValue: (option) => option.value,
-                        getPopupHeader: () => 'HogQL',
-                    },
+                    ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] ? [hogQl] : []),
                     ...groupAnalyticsTaxonomicGroups,
                     ...groupAnalyticsTaxonomicGroupNames,
                 ]

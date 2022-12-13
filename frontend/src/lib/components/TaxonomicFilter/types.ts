@@ -29,15 +29,17 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 
 export type TaxonomicFilterValue = string | number
 
+export type TaxonomicFilterRender = (props: {
+    value?: TaxonomicFilterValue
+    onChange: (value: TaxonomicFilterValue) => void
+}) => JSX.Element | null
+
 export interface TaxonomicFilterGroup {
     name: string
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
     /** */
-    render?: (props: {
-        value?: TaxonomicFilterValue
-        onChange: (value: TaxonomicFilterValue) => void
-    }) => JSX.Element | null
+    render?: TaxonomicFilterRender
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
