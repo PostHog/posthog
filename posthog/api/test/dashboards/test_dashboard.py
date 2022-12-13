@@ -309,8 +309,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         # retrieve
         response = self.dashboard_api.list_dashboards()
         pk = Dashboard.objects.first().pk  # type: ignore
-        self.assertEqual(response["results"][0]["id"], pk)  # type: ignore
-        self.assertEqual(response["results"][0]["name"], "Default")  # type: ignore
+        self.assertEqual(response["results"][0]["id"], pk)
+        self.assertEqual(response["results"][0]["name"], "Default")
 
         # soft-delete
         self.dashboard_api.soft_delete(pk, "dashboards")
@@ -754,8 +754,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, 200)
 
         # Expecting this to only have one day as per the dashboard filter
-        response = self.dashboard_api.get_dashboard(dashboard.pk)
-        self.assertEqual(len(response["tiles"][0]["insight"]["result"][0]["days"]), 2)  # type: ignore
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
+        self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 2)
 
     def test_invalid_properties(self):
         properties = "invalid_json"
