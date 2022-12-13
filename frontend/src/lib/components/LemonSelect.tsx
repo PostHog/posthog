@@ -128,12 +128,6 @@ export function LemonSelect<T>({
 
     const selectRef = useRef<HTMLDivElement>(null)
 
-    useEffect(() => {
-        if (focusedOptionIndex > -1) {
-            elementsRef.current[focusedOptionIndex].current?.focus()
-        }
-    }, [focusedOptionIndex])
-
     const isClearButtonShown = allowClear && !!localValue
 
     useEffect(() => {
@@ -143,7 +137,14 @@ export function LemonSelect<T>({
     }, [value, buttonProps.loading])
 
     const [sections, allLeafOptions] = useMemo(() => boxToSections(options), [options])
-    const elementsRef = useRef(options.flat().map(() => useRef<HTMLButtonElement>(null)))
+
+    const elementsRef = useRef(allLeafOptions.map(() => useRef<HTMLButtonElement>(null)))
+
+    useEffect(() => {
+        if (focusedOptionIndex > -1) {
+            elementsRef.current?.[focusedOptionIndex]?.current?.focus()
+        }
+    }, [focusedOptionIndex])
 
     const handleKeyboardEvents = (e: React.KeyboardEvent<HTMLElement>): void => {
         if (e.key === 'ArrowDown' && focusedOptionIndex < allLeafOptions.length - 1) {
@@ -172,7 +173,7 @@ export function LemonSelect<T>({
                                 ) : null}
                                 {section.options.map((option, index) => (
                                     <LemonSelectOptionRow
-                                        ref={elementsRef.current[index]}
+                                        ref={elementsRef.current?.[index]}
                                         key={index}
                                         option={option}
                                         onSelect={(newValue) => {
