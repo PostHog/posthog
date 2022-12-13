@@ -101,23 +101,6 @@ const EventAggegations: DataTableNode = {
     showColumnConfigurator: true,
 }
 
-const DataPerCountry: EventsNode = {
-    kind: NodeKind.EventsNode,
-    properties: [
-        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
-    ],
-    select: [
-        'properties.$country_name',
-        'total()',
-        'dau()',
-        'weekly_active()',
-        'avg(properties.$screen_width)',
-        'avg_count_per_actor(person)',
-        'p95_count_per_actor(group_1)',
-        'avg(properties.$screen_width) * avg(properties.$screen_height)',
-    ],
-}
-
 const Persons: PersonsNode = {
     kind: NodeKind.PersonsNode,
     properties: [
@@ -301,7 +284,6 @@ export const examples: Record<string, Node> = {
     PropertyFormulas,
     PropertyFormulasTable,
     EventAggegations,
-    DataPerCountry,
     Persons,
     PersonsTable,
     PersonsTableFull,
