@@ -22,21 +22,23 @@
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
                  ORDER BY timestamp DESC
                  LIMIT 1)
               UNION ALL
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)) WINDOW person_events AS (
                                                                    ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
@@ -68,19 +70,21 @@
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
                  ORDER BY timestamp DESC
                  LIMIT 1)
               UNION ALL
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)) WINDOW person_events AS (
                                                                    ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
@@ -112,21 +116,23 @@
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
                  ORDER BY timestamp DESC
                  LIMIT 1)
               UNION ALL
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)) WINDOW person_events AS (
                                                                    ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
@@ -158,21 +164,23 @@
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
                  ORDER BY timestamp DESC
                  LIMIT 1)
               UNION ALL
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)) WINDOW person_events AS (
                                                                    ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
@@ -204,21 +212,23 @@
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
                  ORDER BY timestamp DESC
                  LIMIT 1)
               UNION ALL
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)) WINDOW person_events AS (
                                                                    ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
@@ -250,21 +260,23 @@
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
                  ORDER BY timestamp DESC
                  LIMIT 1)
               UNION ALL
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)) WINDOW person_events AS (
                                                                    ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
@@ -344,21 +356,23 @@
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
                  ORDER BY timestamp DESC
                  LIMIT 1)
               UNION ALL
                 (SELECT e.timestamp as timestamp,
                         e."person_properties" as "person_properties",
                         false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)) WINDOW person_events AS (
                                                                    ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
