@@ -178,7 +178,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format
 # This table is responsible for reading from events on a cluster setting
 DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
     columns=columns,
-    table_name="writeable_performance_events",
+    table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
