@@ -35,7 +35,7 @@ class PropertiesTimelineEventQuery(EventQuery):
         query = f"""
             ( /* Select a single event immediately preceding the main date range to determine pre-existing properties */
                 SELECT {_fields}, true AS is_pre_range FROM events {self.EVENT_TABLE_ALIAS}
-                PREWHERE
+                WHERE
                     team_id = %(team_id)s
                     AND person_id = %(person_id)s
                     {entity_query}
@@ -44,7 +44,7 @@ class PropertiesTimelineEventQuery(EventQuery):
                 LIMIT 1
             ) UNION ALL ( /* Select events from main date range */
                 SELECT {_fields}, false AS is_pre_range FROM events {self.EVENT_TABLE_ALIAS}
-                PREWHERE
+                WHERE
                     team_id = %(team_id)s
                     AND person_id = %(person_id)s
                     {entity_query}
