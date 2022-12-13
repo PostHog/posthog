@@ -30,7 +30,7 @@ import { tagColors } from 'lib/colors'
 import { WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
-import { dayjs, now } from 'lib/dayjs'
+import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
 import { isPropertyFilterWithOperator, isValidPropertyFilter } from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
@@ -1542,5 +1542,3 @@ export function downloadFile(file: File): void {
         link?.parentNode?.removeChild(link)
     }, 0)
 }
-
-export const daysAgo = (days: number): string => now().subtract(days, 'day').toISOString()

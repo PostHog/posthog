@@ -12,7 +12,8 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { daysAgo, toParams } from 'lib/utils'
+import { toParams } from 'lib/utils'
+import { now } from 'lib/dayjs'
 
 const EVENTS_DAYS_FIRST_FETCH = 5
 
@@ -23,12 +24,14 @@ export async function query<N extends DataNode = DataNode>(
 ): Promise<N['response']> {
     if (isEventsNode(query)) {
         if (!query.before && !query.after) {
-            const earlyResults = await api.get(getEventsEndpoint({ ...query, after: daysAgo(EVENTS_DAYS_FIRST_FETCH) }))
+            const earlyResults = await api.get(
+                getEventsEndpoint({ ...query, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() })
+            )
             if (earlyResults.results.length > 0) {
                 return earlyResults
             }
         }
-        return await api.get(getEventsEndpoint({ after: daysAgo(365), ...query }))
+        return await api.get(getEventsEndpoint({ after: now().subtract(1, 'year').toISOString(), ...query }))
     } else if (isPersonsNode(query)) {
         return await api.get(getPersonsEndpoint(query))
     } else if (isLegacyQuery(query)) {
