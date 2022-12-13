@@ -59,6 +59,7 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -87,6 +88,11 @@ export const createEmptyInsight = (
     result: null,
 })
 
+const getDefaultQuery = (): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: { kind: NodeKind.TrendsQuery, series: [] },
+})
+
 export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -110,6 +116,7 @@ export const insightLogic = kea<insightLogicType>([
     }),
 
     actions({
+        setQuery: (query: Node) => ({ query }),
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
@@ -421,6 +428,7 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     reducers(({ props }) => ({
+        query: [getDefaultQuery() as Node, { setQuery: (_, { query }) => query }],
         highlightedSeries: [
             null as number | null,
             {

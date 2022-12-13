@@ -27,6 +27,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    InsightVizNode = 'InsightVizNode',
     LegacyQuery = 'LegacyQuery',
 
     // New queries, not yet implemented
@@ -46,6 +47,7 @@ export type QuerySchema =
 
     // Interface nodes
     | DataTableNode
+    | InsightVizNode
     | LegacyQuery
 
     // New queries, not yet implemented
@@ -142,6 +144,15 @@ export interface DataTableNode extends Node {
     propertiesViaUrl?: boolean
     /** Show warning about live events being buffered max 60 sec (default: false) */
     showEventsBufferWarning?: boolean
+}
+
+// Insight viz node
+
+export interface InsightVizNode extends Node {
+    kind: NodeKind.InsightVizNode
+    source: InsightQueryNode
+
+    // showViz, showTable, etc.
 }
 
 // Base class should not be used directly

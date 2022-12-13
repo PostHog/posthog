@@ -1727,9 +1727,45 @@
             "required": ["kind", "series"],
             "type": "object"
         },
+        "InsightQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                }
+            ]
+        },
         "InsightType": {
             "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],
             "type": "string"
+        },
+        "InsightVizNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightVizNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
         },
         "IntervalType": {
             "enum": ["hour", "day", "week", "month"],
@@ -2051,6 +2087,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"
+                },
+                {
+                    "$ref": "#/definitions/InsightVizNode"
                 },
                 {
                     "$ref": "#/definitions/LegacyQuery"

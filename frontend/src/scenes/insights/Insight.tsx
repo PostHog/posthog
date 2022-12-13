@@ -38,6 +38,8 @@ import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { tagsModel } from '~/models/tagsModel'
+import { isLifecycleFilter } from 'scenes/insights/sharedUtils'
+import { Query } from '~/queries/Query/Query'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
@@ -48,6 +50,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
+        query,
         insightProps,
         insightLoading,
         filtersKnown,
@@ -60,7 +63,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         exporterResourceParams,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
+    const { setQuery, saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } =
+        useActions(logic)
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -74,7 +78,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
+    // feature flag insight-editor-panels
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
+
+    // feature flag data-exploration-live-events
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+    const isLifecycle = isLifecycleFilter(filters)
+    const usingDataExploration = featureDataExploration && isLifecycle
 
     // Show the skeleton if loading an insight for which we only know the id
     // This helps with the UX flickering and showing placeholder "name" text.
@@ -288,10 +298,16 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     'insight-wrapper--singlecolumn': !usingEditorPanels && filters.insight === InsightType.FUNNELS,
                 })}
             >
-                <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
-                <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} />
-                </div>
+                {usingDataExploration ? (
+                    <Query query={query} setQuery={setQuery} />
+                ) : (
+                    <>
+                        <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                        <div className="insights-container" data-attr="insight-view">
+                            <InsightContainer insightMode={insightMode} />
+                        </div>
+                    </>
+                )}
             </div>
 
             {insightMode !== ItemMode.View ? (
