@@ -242,9 +242,15 @@ export class HookCommander {
                 text: messageMarkdown,
             }
         }
+        const statsd = this.statsd
         ;(AbortSignal as any).timeout ??= function timeout(ms: number) {
             const ctrl = new AbortController()
-            setTimeout(() => ctrl.abort(), ms)
+            setTimeout(() => {
+                ctrl.abort()
+                statsd?.increment('webhook_timeouts', {
+                    team_id: event.teamId.toString(),
+                })
+            }, ms)
             return ctrl.signal
         }
         await fetch(webhookUrl, {
