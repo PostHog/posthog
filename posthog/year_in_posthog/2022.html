@@ -15,7 +15,7 @@
     {% endif %}
     <link rel="preload" href="{% static 'Inter.woff2' %}" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="{% static 'Inter.woff' %}" as="font" type="font/woff" crossorigin>
-    <link rel="preload" href="{% static image %}" as="image">
+    <link rel="preload" href="{% static image_webp %}" as="image">
     <script>
         !function (t, e) {
             var o, n, p, r;
@@ -320,8 +320,13 @@
 <main class="px-4 pb-4" role="main">
     <div class="left column">
         <div>This year, I'm {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
-        <img width="326" height="326" class="badge my-8" src="{% static image %}"
-             alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}"/>
+
+        <picture class="badge my-8">
+            <source type="image/webp" srcset="{% static image_webp %}" width="326" height="326" >
+            <source type="image/jpeg" srcset="{% static image_png %}" width="326" height="326" >
+            <img src="{% static image_png %}" alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}">
+        </picture>
+
         <h1 class="highlight text-2xl">{{ human_badge }}</h1>
     </div>
     <div class="right column">
