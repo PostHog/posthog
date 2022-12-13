@@ -566,6 +566,7 @@ export enum SessionRecordingUsageType {
 export enum SessionRecordingPlayerTab {
     EVENTS = 'events',
     CONSOLE = 'console',
+    PERFORMANCE = 'performance',
 }
 
 export enum SessionPlayerState {

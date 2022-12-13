@@ -11,22 +11,13 @@ import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { IconExport, IconFullScreen, IconPause, IconPlay, IconSkipInactivity } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
-import { PlayerInspectorPicker } from './PlayerInspector'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-interface PlayerControllerProps extends SessionRecordingPlayerLogicProps {
-    hideInspectorPicker?: boolean
-}
-
-export function PlayerController({
-    sessionRecordingId,
-    playerKey,
-    hideInspectorPicker = false,
-}: PlayerControllerProps): JSX.Element {
+export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
     const { togglePlayPause, exportRecordingToFile } = useActions(logic)
     const { currentPlayerState } = useValues(logic)
@@ -41,11 +32,7 @@ export function PlayerController({
         <div className="p-3 bg-light flex flex-col select-none space-y-2">
             <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             <div className="flex justify-between items-center h-8 gap-2">
-                <div className="flex items-center gap-2 flex-1">
-                    {!hideInspectorPicker && !isFullScreen && (
-                        <PlayerInspectorPicker sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                    )}
-                </div>
+                <div className="flex-1" />
                 <div className="flex items-center gap-1">
                     <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
