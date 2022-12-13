@@ -17,6 +17,8 @@ export enum WebhookType {
     Teams = 'teams',
 }
 
+const HOOK_TIMEOUT = 10 * 1000
+
 export function determineWebhookType(url: string): WebhookType {
     url = url.toLowerCase()
     if (url.includes('slack.com')) {
@@ -240,10 +242,16 @@ export class HookCommander {
                 text: messageMarkdown,
             }
         }
+        ;(AbortSignal as any).timeout ??= function timeout(ms: number) {
+            const ctrl = new AbortController()
+            setTimeout(() => ctrl.abort(), ms)
+            return ctrl.signal
+        }
         await fetch(webhookUrl, {
             method: 'POST',
             body: JSON.stringify(message, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
+            signal: (AbortSignal as any).timeout(HOOK_TIMEOUT),
         })
         this.statsd?.increment('webhook_firings', {
             team_id: event.teamId.toString(),
