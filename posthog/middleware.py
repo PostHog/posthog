@@ -1,5 +1,5 @@
 from ipaddress import ip_address, ip_network
-from typing import List, Optional, cast
+from typing import List, Optional, Set, cast
 
 from django.conf import settings
 from django.core.exceptions import MiddlewareNotUsed
@@ -10,6 +10,7 @@ from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
 from statshog.defaults.django import statsd
 
+from posthog.api.capture import get_event
 from posthog.api.decide import get_decide
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
@@ -197,10 +198,25 @@ def shortcircuitmiddleware(f):
 
 
 class ShortCircuitMiddleware:
+    capture_endpoints: Set[str] = {
+        "/s",
+        "/s/",
+        "/e",
+        "/e/",
+        "/capture",
+        "/capture/",
+        "/engage",
+        "/engage/",
+        "/track",
+        "/track/",
+    }
+
     def __init__(self, get_response):
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest):
+        if request.path in self.capture_endpoints:
+            return get_event(request)
         if request.path == "/decide/" or request.path == "/decide":
             return get_decide(request)
         response: HttpResponse = self.get_response(request)
