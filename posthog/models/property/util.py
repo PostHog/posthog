@@ -578,7 +578,7 @@ def get_single_or_multi_property_string_expr(
             )
             expressions.append(normalize_url_breakdown(expr, normalize_url))
 
-        expression = f"array({','.join(expressions)})"
+        expression = f"tuple({','.join(expressions)})"
 
     if query_alias is None:
         return expression

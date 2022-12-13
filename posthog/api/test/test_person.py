@@ -1,3 +1,4 @@
+import datetime as dt
 import json
 from typing import Dict, List, Optional, cast
 from unittest import mock
@@ -579,7 +580,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-    def _get_person_activity(self, person_id: Optional[str] = None, expected_status: int = status.HTTP_200_OK):
+    def _get_person_activity(self, person_id: Optional[str] = None, *, expected_status: int = status.HTTP_200_OK):
         if person_id:
             url = f"/api/person/{person_id}/activity"
         else:
@@ -595,3 +596,191 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         activity: List[Dict] = activity_response["results"]
         self.maxDiff = None
         self.assertCountEqual(activity, expected)
+
+
+class TestPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
+    @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @snapshot_clickhouse_queries
+    def test_timeline_for_new_person_with_one_event(self):
+        person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 123},
+            timestamp="2020-01-01T00:00:00Z",  # Exactly the same as date_from
+        )
+        flush_persons_and_events()
+
+        timeline = self._get_person_properties_timeline(
+            str(person.uuid),
+            events=[
+                {
+                    "id": "$pageview",
+                }
+            ],
+            properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+            date_from=dt.datetime(2020, 1, 1),
+            date_to=dt.datetime(2020, 1, 5),
+        )
+
+        self.assertEqual(
+            timeline,
+            [
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_events_since_previous_point": 0,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                }
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    def test_timeline_for_existing_person_with_two_events(self):
+        person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 456},
+            timestamp="2019-12-27T00:00:00Z",  # Before date_from
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 123},
+            timestamp="2020-01-01T00:00:00Z",  # Exactly the same as date_from
+        )
+        flush_persons_and_events()
+
+        timeline = self._get_person_properties_timeline(
+            str(person.uuid),
+            events=[
+                {
+                    "id": "$pageview",
+                }
+            ],
+            properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+            date_from=dt.datetime(2020, 1, 1),
+            date_to=dt.datetime(2020, 1, 5),
+        )
+
+        self.assertEqual(
+            timeline,
+            [
+                {
+                    "properties": {"foo": "abc", "bar": 456},  # Initial bar
+                    "relevant_events_since_previous_point": 0,  # 0 means that this is the person's pre-range state
+                    "timestamp": "2019-12-27T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},  # Changed bar
+                    "relevant_events_since_previous_point": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
+                },
+            ],
+        )
+
+    @snapshot_clickhouse_queries
+    @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    def test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes(self):
+        person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 456},  # Initial bar
+            timestamp="2019-12-27T00:00:00Z",  # Before date_from
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 456},
+            timestamp="2020-01-01T00:00:00Z",  # Exactly the same as date_from
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 123},  # Changed bar
+            timestamp="2020-01-01T01:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 123},
+            timestamp="2020-01-03T01:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 123},
+            timestamp="2020-01-04T19:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="1",
+            person_properties={"foo": "abc", "bar": 789},  # Changed bar
+            timestamp="2020-01-04T19:00:01Z",
+        )
+        flush_persons_and_events()
+
+        timeline = self._get_person_properties_timeline(
+            str(person.uuid),
+            events=[
+                {
+                    "id": "$pageview",
+                }
+            ],
+            properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+            date_from=dt.datetime(2020, 1, 1),
+            date_to=dt.datetime(2020, 1, 5),
+        )
+
+        self.assertEqual(
+            timeline,
+            [
+                {
+                    "properties": {"foo": "abc", "bar": 456},
+                    "relevant_events_since_previous_point": 0,  # 0 means that this is the person's pre-range state
+                    "timestamp": "2019-12-27T00:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 123},
+                    "relevant_events_since_previous_point": 2,
+                    "timestamp": "2020-01-01T01:00:00Z",
+                },
+                {
+                    "properties": {"foo": "abc", "bar": 789},
+                    "relevant_events_since_previous_point": 3,
+                    "timestamp": "2020-01-04T19:00:01Z",
+                },
+            ],
+        )
+
+    def _get_person_properties_timeline(
+        self,
+        person_id: str,
+        *,
+        events: Optional[list] = None,
+        actions: Optional[list] = None,
+        properties: Optional[list] = None,
+        date_from: Optional[dt.datetime] = None,
+        date_to: Optional[dt.datetime] = None,
+        expected_status: int = status.HTTP_200_OK,
+    ):
+        url = (
+            f"/api/person/{person_id}/properties_timeline"
+            f"?events={json.dumps(events or [])}&actions={json.dumps(actions or [])}"
+            f"&properties={json.dumps(properties or [])}"
+            f"&date_from={date_from.isoformat() if date_from else ''}&date_to={date_to.isoformat() if date_to else ''}"
+        )
+        properties_timeline = self.client.get(url)
+        self.assertEqual(properties_timeline.status_code, expected_status)
+        return properties_timeline.json()
