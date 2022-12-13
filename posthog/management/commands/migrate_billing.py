@@ -31,7 +31,7 @@ class Command(BaseCommand):
             recordings_free_price_id,
             dry_run=dry_run,
             limit=limit,
-            only_organization_id=organization_id,
+            organization_id=organization_id,
         )
 
         if dry_run:
