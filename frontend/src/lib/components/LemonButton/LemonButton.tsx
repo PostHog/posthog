@@ -197,21 +197,16 @@ export interface LemonButtonWithPopupProps extends LemonButtonPropsBase {
     sideIcon?: React.ReactElement | null
 }
 
-export const LemonButtonWithPopup = React.forwardRef(LemonButtonWithPopupInternal)
-
 /**
  * Styled button that opens a popup menu on click.
  * The difference vs. plain `LemonButton` is popup visibility being controlled internally, which is more convenient.
  */
-export function LemonButtonWithPopupInternal(
-    {
-        popup: { onClickOutside, onClickInside, closeOnClickInside = true, className: popupClassName, ...popupProps },
-        onClick,
-        className,
-        ...buttonProps
-    }: LemonButtonWithPopupProps,
-    ref: React.Ref<HTMLElement>
-): JSX.Element {
+export function LemonButtonWithPopup({
+    popup: { onClickOutside, onClickInside, closeOnClickInside = true, className: popupClassName, ...popupProps },
+    onClick,
+    className,
+    ...buttonProps
+}: LemonButtonWithPopupProps): JSX.Element {
     const parentPopupId = useContext(PopupContext)
     const [popupVisible, setPopupVisible] = useState(false)
 
@@ -242,7 +237,6 @@ export function LemonButtonWithPopupInternal(
             {...popupProps}
         >
             <LemonButton
-                ref={ref}
                 className={clsx('LemonButtonWithPopup', className)}
                 onClick={(e) => {
                     setPopupVisible((state) => !state)
