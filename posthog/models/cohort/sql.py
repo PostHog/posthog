@@ -64,14 +64,6 @@ FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(new_version)s AND sign = 1
 """
 
-RECALCULATE_COHORT_ACTORS_BY_ID = """
-INSERT INTO cohort_actors
-SELECT toString(id), %(cohort_id)s AS cohort_id, %(team_id)s AS team_id, %(new_version)s AS version
-FROM (
-    {cohort_filter}
-)
-"""
-
 GET_DISTINCT_ID_BY_ENTITY_SQL = """
 SELECT distinct_id FROM events WHERE team_id = %(team_id)s {date_query} AND {entity_query}
 """
