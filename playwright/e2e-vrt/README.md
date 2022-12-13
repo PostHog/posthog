@@ -14,9 +14,9 @@ We're using Playwright to run visual regression tests against Storybook. To crea
 
     - Get inspiration from one of the existing tests. Lemon Button and Insights scene are good examples.
 
-    - Use Playwright's [codegen feature](https://playwright.dev/docs/codegen-intro) to record user interactions interactively e.g. `yarn playwright codegen http://localhost:6006/iframe.html?args=&id=scenes-app-insights--trends-line&viewMode=story`.
+    - Use Playwright's [codegen feature](https://playwright.dev/docs/codegen-intro) to record user interactions interactively e.g. `pnpm playwright codegen "http://localhost:6006/iframe.html?args=&id=scenes-app-insights--trends-line&viewMode=story"`.
 
-    - Use Playwright's [debug mode](https://playwright.dev/docs/debug) to inspect an existing test in a headed browser e.g. `yarn playwright test --debug e2e-vrt/scenes-app/mytest.spec.ts:17:5`. Sprinkle in `await page.pause()` in your test to stop at specific lines.
+    - Use Playwright's [debug mode](https://playwright.dev/docs/debug) to inspect an existing test in a headed browser e.g. `pnpm playwright test --debug e2e-vrt/scenes-app/mytest.spec.ts:17:5`. Sprinkle in `await page.pause()` in your test to stop at specific lines.
 
 2. Add screenshot expectations:
 
