@@ -37,9 +37,15 @@ function CategoryPill({
             className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': !canInteract })}
             onClick={canInteract ? onClick : undefined}
         >
-            {group?.name}
-            {': '}
-            {totalResultCount ?? '...'}
+            {group?.render ? (
+                group?.name
+            ) : (
+                <>
+                    {group?.name}
+                    {': '}
+                    {totalResultCount ?? '...'}
+                </>
+            )}
         </Tag>
     )
 }

@@ -38,7 +38,7 @@ export interface TaxonomicFilterGroup {
     name: string
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
-    /** */
+    /** Component to show instead of the usual taxonomic list. */
     render?: TaxonomicFilterRender
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
@@ -49,8 +49,8 @@ export interface TaxonomicFilterGroup {
     value?: string
     searchAlias?: string
     valuesEndpoint?: (key: string) => string
-    getName: (instance: any) => string
-    getValue: (instance: any) => TaxonomicFilterValue
+    getName?: (instance: any) => string
+    getValue?: (instance: any) => TaxonomicFilterValue
     getPopupHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number

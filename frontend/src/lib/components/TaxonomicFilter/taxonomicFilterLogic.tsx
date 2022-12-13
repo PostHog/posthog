@@ -163,12 +163,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
             ): TaxonomicFilterGroup[] => {
                 const hogQl: TaxonomicFilterGroup = {
                     name: 'HogQL',
-                    searchPlaceholder: 'Custom HogQL',
+                    searchPlaceholder: 'HogQL',
                     type: TaxonomicFilterGroupType.HogQLExpression,
-                    options: [{ name: 'hogql', value: 'hogql' }],
                     render: InlineHogQLEditor,
-                    getName: (option) => option.name,
-                    getValue: (option) => option.value,
                     getPopupHeader: () => 'HogQL',
                 }
                 return [
