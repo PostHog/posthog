@@ -33,7 +33,7 @@ ORDER BY timestamp DESC
 """
 
 BASE_PERFORMANCE_EVENT_COLUMNS = """
-id UUID,
+uuid UUID,
 session_id UUID,
 window_id UUID,
 pageview_id UUID,
@@ -79,17 +79,6 @@ largest_contentful_paint_id String,
 largest_contentful_paint_url String,
 """.strip()
 
-"""https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEventTiming"""
-EVENT_TIMING_EVENT_COLUMNS = """
-event_timing_processing_start Int64,
-event_timing_processing_end Int64,
-""".strip()
-
-"""https://developer.mozilla.org/en-US/docs/Web/API/PerformanceMark and https://developer.mozilla.org/en-US/docs/Web/API/PerformanceMeasure"""
-MARK_AND_MEASURE_EVENT_COLUMNS = """
-detail String,
-""".strip()
-
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceNavigationTiming"""
 NAVIGATION_EVENT_COLUMNS = """
 dom_complete Int64,
@@ -108,8 +97,6 @@ columns = ",".join(
         BASE_PERFORMANCE_EVENT_COLUMNS.rstrip(","),
         RESOURCE_EVENT_COLUMNS.rstrip(","),
         LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS.rstrip(","),
-        EVENT_TIMING_EVENT_COLUMNS.rstrip(","),
-        MARK_AND_MEASURE_EVENT_COLUMNS.rstrip(","),
         NAVIGATION_EVENT_COLUMNS.rstrip(","),
     ]
 )
