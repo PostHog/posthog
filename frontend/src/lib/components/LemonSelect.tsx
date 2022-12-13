@@ -244,22 +244,20 @@ function doOptionsContainActiveValue<T>(options: LemonSelectOption<T>[], activeV
     return false
 }
 
-export const LemonSelectOptionRow = React.forwardRef(LemonSelectOptionRowInternal)
+export type LemonSelectOptionRowProps<T> = {
+    option: LemonSelectOption<T>
+    activeValue: T | undefined
+    onSelect: (value: T) => void
+    tooltipPlacement: TooltipPlacement | undefined
+    onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void
+}
+
+export const LemonSelectOptionRow = React.forwardRef(LemonSelectOptionRowInternal) as <T>(
+    props: LemonSelectOptionRowProps<T> & { ref?: React.ForwardedRef<HTMLElement> }
+) => ReturnType<typeof LemonSelectOptionRowInternal>
 
 function LemonSelectOptionRowInternal<T>(
-    {
-        option,
-        activeValue,
-        onSelect,
-        tooltipPlacement,
-        onKeyDown,
-    }: {
-        option: LemonSelectOption<T>
-        activeValue: T | undefined
-        onSelect: (value: T) => void
-        tooltipPlacement: TooltipPlacement | undefined
-        onKeyDown: (e: React.KeyboardEvent<HTMLElement>) => void
-    },
+    { option, activeValue, onSelect, tooltipPlacement, onKeyDown }: LemonSelectOptionRowProps<T>,
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
     const disabled = !!option.disabledReason
