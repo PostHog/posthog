@@ -17,6 +17,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -61,6 +62,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 class TeamSerializer(serializers.ModelSerializer):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
+    groups_on_events_querying_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -93,6 +95,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
+            "person_on_events_querying_enabled",
+            "groups_on_events_querying_enabled",
         )
         read_only_fields = (
             "id",
@@ -104,6 +108,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "person_on_events_querying_enabled",
+            "groups_on_events_querying_enabled",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -111,6 +117,9 @@ class TeamSerializer(serializers.ModelSerializer):
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
+
+    def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
+        return groups_on_events_querying_enabled()
 
     def validate(self, attrs: Any) -> Any:
         if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:

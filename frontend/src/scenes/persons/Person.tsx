@@ -31,6 +31,7 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
 const { TabPane } = Tabs
 
@@ -89,16 +90,11 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId, distinctId } =
-        useValues(personsLogic)
-    const {
-        editProperty,
-        deleteProperty,
-        navigateToTab,
-        setSplitMergeModalShown,
-        showPersonDeleteModal,
-        setDistinctId,
-    } = useActions(personsLogic)
+    const { person, personLoading, currentTab, splitMergeModalShown, urlId, distinctId } = useValues(personsLogic)
+    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
+        useActions(personsLogic)
+    const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
+    const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -116,7 +112,7 @@ export function Person(): JSX.Element | null {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            onClick={() => showPersonDeleteModal(person)}
+                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
                             loading={deletedPersonLoading}
                             type="secondary"

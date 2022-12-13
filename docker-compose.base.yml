@@ -13,7 +13,6 @@ services:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
-        command: postgres -c 'max_connections=1000'
 
     redis:
         image: redis:6.2.7-alpine

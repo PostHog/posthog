@@ -74,10 +74,9 @@ export const signupLogic = kea<signupLogicType>([
                 organization_name: '',
                 role_at_organization: '',
             } as SignupForm,
-            errors: ({ first_name, organization_name, role_at_organization }) => ({
+            errors: ({ first_name, organization_name }) => ({
                 first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
-                role_at_organization: !role_at_organization ? 'Please select your role' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 await breakpoint()
@@ -109,7 +108,6 @@ export const signupLogic = kea<signupLogicType>([
                     actions.setSignupPanel2Values({
                         first_name: 'X',
                         organization_name: 'Y',
-                        role_at_organization: 'other',
                     })
                     actions.submitSignupPanel2()
                 } else {

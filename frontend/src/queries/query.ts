@@ -1,5 +1,5 @@
-import { DataNode } from './schema'
-import { isEventsNode, isLegacyQuery } from './utils'
+import { DataNode, EventsNode, PersonsNode } from './schema'
+import { isEventsNode, isLegacyQuery, isPersonsNode } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { AnyPartialFilterType } from '~/types'
@@ -20,17 +20,9 @@ export async function query<N extends DataNode = DataNode>(
     methodOptions?: ApiMethodOptions
 ): Promise<N['response']> {
     if (isEventsNode(query)) {
-        return await api.events.list(
-            {
-                properties: [...(query.fixedProperties || []), ...(query.properties || [])],
-                ...(query.event ? { event: query.event } : {}),
-                ...(query.actionId ? { action_id: query.actionId } : {}),
-                ...(query.personId ? { person_id: query.personId } : {}),
-                before: query.before,
-                after: query.after,
-            },
-            query.limit
-        )
+        return await api.get(getEventsEndpoint(query))
+    } else if (isPersonsNode(query)) {
+        return await api.get(getPersonsEndpoint(query))
     } else if (isLegacyQuery(query)) {
         const [response] = await legacyInsightQuery({
             filters: query.filters,
@@ -40,6 +32,29 @@ export async function query<N extends DataNode = DataNode>(
         return await response.json()
     }
     throw new Error(`Unsupported query: ${query.kind}`)
+}
+
+export function getEventsEndpoint(query: EventsNode): string {
+    return api.events.determineListEndpoint(
+        {
+            properties: [...(query.fixedProperties || []), ...(query.properties || [])],
+            ...(query.event ? { event: query.event } : {}),
+            ...(query.actionId ? { action_id: query.actionId } : {}),
+            ...(query.personId ? { person_id: query.personId } : {}),
+            ...(query.before ? { before: query.before } : {}),
+            ...(query.after ? { after: query.after } : {}),
+        },
+        query.limit ?? 3500
+    )
+}
+
+export function getPersonsEndpoint(query: PersonsNode): string {
+    return api.persons.determineListUrl({
+        properties: [...(query.fixedProperties || []), ...(query.properties || [])],
+        ...(query.search ? { search: query.search } : {}),
+        ...(query.cohort ? { cohort: query.cohort } : {}),
+        ...(query.distinctId ? { distinct_id: query.distinctId } : {}),
+    })
 }
 
 interface LegacyInsightQueryParams {

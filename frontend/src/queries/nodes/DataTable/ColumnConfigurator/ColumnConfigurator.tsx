@@ -20,8 +20,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TeamMembershipLevel } from 'lib/constants'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { defaultDataTableStringColumns } from '../defaults'
-import { DataTableNode } from '~/queries/schema'
+import { defaultDataTableColumns } from '../defaults'
+import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
 import { PropertyFilterType } from '~/types'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -104,7 +104,7 @@ function ColumnConfiguratorModal(): JSX.Element {
         }
 
         return (
-            <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: `${rowItemHeight}px` }}>
+            <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>
                 <DragHandle />
                 {columnType && <PropertyFilterIcon type={columnType} />}
                 <PropertyKeyInfo className="ml-1" value={columnKey} />
@@ -160,7 +160,10 @@ function ColumnConfiguratorModal(): JSX.Element {
             footer={
                 <>
                     <div className="flex-1">
-                        <LemonButton type="secondary" onClick={() => setColumns(defaultDataTableStringColumns)}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={() => setColumns(defaultDataTableColumns({ kind: NodeKind.EventsNode }))}
+                        >
                             Reset to defaults
                         </LemonButton>
                     </div>

@@ -736,7 +736,7 @@ def test_breakdown_query_expression_materialised(
     with override_instance_config("GROUPS_ON_EVENTS_ENABLED", True):
         from posthog.models.team import util
 
-        util.can_enable_person_on_events = True
+        util.can_enable_actor_on_events = True
 
         materialize(table, breakdown[0], table_column="properties")
         actual = get_single_or_multi_property_string_expr(
