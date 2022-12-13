@@ -128,8 +128,8 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 
 PERFORMANCE_EVENTS_TABLE_SQL = (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL
-    + """PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, toDate(timestamp), session_id, $pageview_id)
+    + """PARTITION BY toYYYYMM(origin_timestamp)
+ORDER BY (team_id, toDate(origin_timestamp), session_id, pageview_id)
 {storage_policy}
 """
 ).format(
@@ -149,6 +149,19 @@ KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
 
+
+def _column_names_from_column_definitions(column_definitions: str) -> str:
+    """
+    this avoids manually duplicating column names from a string defining the columns earlier in the file
+    when creating the materialized view
+    """
+
+    def clean_line(line: str) -> str:
+        return line.strip().strip(",").strip()
+
+    return ",".join([clean_line(line).split(" ")[0] for line in column_definitions.split("\n") if clean_line(line)])
+
+
 PERFORMANCE_EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
@@ -157,9 +170,9 @@ AS SELECT
 {extra_fields}
 FROM {database}.kafka_performance_events
 """.format(
-    columns=[line.strip().split(" ")[0] for line in columns.split("\n") if line.strip().split(" ")],
+    columns=_column_names_from_column_definitions(columns),
     target_table="performance_events",  # do we need to shard this?
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
 )
