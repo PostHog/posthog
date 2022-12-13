@@ -99,7 +99,6 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
             },
             updatePlaylist: async ({ shortId, properties }, breakpoint) => {
                 await breakpoint(100)
-                console.log('foo', shortId, properties)
                 const updatedPlaylist = await api.recordings.updatePlaylist(shortId, properties)
                 breakpoint()
 

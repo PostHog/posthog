@@ -80,38 +80,36 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
 
                     {allPlaylists.length ? (
                         <div className="max-h-60 overflow-auto">
-                            {[...allPlaylists, ...allPlaylists, ...allPlaylists, ...allPlaylists]?.map(
-                                ({ selected, playlist }) => (
-                                    <div key={playlist.short_id} className="flex items-center gap-1">
-                                        <LemonButton
-                                            className="flex-1"
-                                            icon={
-                                                currentPlaylistsLoading &&
-                                                modifiyingPlaylist?.short_id === playlist.short_id ? (
-                                                    <Spinner className="text-sm" />
-                                                ) : (
-                                                    <LemonCheckbox className="pointer-events-none" checked={selected} />
-                                                )
-                                            }
-                                            onClick={() =>
-                                                !selected ? addToPlaylist(playlist) : removeFromPlaylist(playlist)
-                                            }
-                                        >
-                                            {playlist.name || playlist.derived_name}
+                            {allPlaylists?.map(({ selected, playlist }) => (
+                                <div key={playlist.short_id} className="flex items-center gap-1">
+                                    <LemonButton
+                                        className="flex-1"
+                                        icon={
+                                            currentPlaylistsLoading &&
+                                            modifiyingPlaylist?.short_id === playlist.short_id ? (
+                                                <Spinner className="text-sm" />
+                                            ) : (
+                                                <LemonCheckbox className="pointer-events-none" checked={selected} />
+                                            )
+                                        }
+                                        onClick={() =>
+                                            !selected ? addToPlaylist(playlist) : removeFromPlaylist(playlist)
+                                        }
+                                    >
+                                        {playlist.name || playlist.derived_name}
 
-                                            {props.playlistShortId === playlist.short_id && (
-                                                <span className="text-muted-alt italic text-sm ml-1">(current)</span>
-                                            )}
-                                        </LemonButton>
+                                        {props.playlistShortId === playlist.short_id && (
+                                            <span className="text-muted-alt italic text-sm ml-1">(current)</span>
+                                        )}
+                                    </LemonButton>
 
-                                        <LemonButton
-                                            icon={<IconOpenInNew />}
-                                            to={urls.sessionRecordingPlaylist(playlist.short_id)}
-                                            targetBlank
-                                        />
-                                    </div>
-                                )
-                            )}
+                                    <LemonButton
+                                        icon={<IconOpenInNew />}
+                                        to={urls.sessionRecordingPlaylist(playlist.short_id)}
+                                        targetBlank
+                                    />
+                                </div>
+                            ))}
                         </div>
                     ) : playlistsLoading ? (
                         <LemonSkeleton className="my-2" repeat={3} />
