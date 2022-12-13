@@ -8,6 +8,30 @@ from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 # explode server timing from Resource events into their own columns
 # /* time origin is in milliseconds e.g. 1670900799301.7 */
 
+"""
+# expected queries
+
+## get all performance events for a given team's session
+
+allows us to show performance events alongside other logs while viewing a session recording
+
+SELECT * FROM performance_events
+WHERE team_id = 1
+AND session_id = 'my-session-uuid'
+ORDER BY timestamp DESC
+
+## get all performance events for a given team's pageview
+
+allows us to show performance events in a waterfall chart for a given pageview
+
+SELECT * FROM performance_events
+WHERE team_id = 1
+AND pageview_id = 'my-page-view-uuid' -- sent by SDK
+ORDER BY timestamp DESC
+
+## all other queries are expected to be based on aggregating materialized views built from this fact table
+"""
+
 BASE_PERFORMANCE_EVENT_COLUMNS = """
 id UUID,
 session_id UUID,
