@@ -36,7 +36,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             query_type = "trends_breakdown"
             sql, params, parse_function = TrendsBreakdown(
-                entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+                entity, filter, team, using_person_on_events=team.person_on_events_querying_enabled
             ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
             query_type = "trends_lifecycle"

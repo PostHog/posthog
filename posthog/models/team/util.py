@@ -23,19 +23,19 @@ def _raw_delete(queryset: Any):
     queryset._raw_delete(queryset.db)
 
 
-can_enable_person_on_events = False
+can_enable_actor_on_events = False
 
 # :TRICKY: Avoid overly eagerly checking whether the migration is complete.
 # We instead cache negative responses for a minute and a positive one forever.
-def person_on_events_ready() -> bool:
-    global can_enable_person_on_events
+def actor_on_events_ready() -> bool:
+    global can_enable_actor_on_events
 
-    if can_enable_person_on_events:
+    if can_enable_actor_on_events:
         return True
-    can_enable_person_on_events = _person_on_events_ready()
-    return can_enable_person_on_events
+    can_enable_actor_on_events = _actor_on_events_ready()
+    return can_enable_actor_on_events
 
 
 @cache_for(timedelta(minutes=1))
-def _person_on_events_ready() -> bool:
+def _actor_on_events_ready() -> bool:
     return is_async_migration_complete("0007_persons_and_groups_on_events_backfill")

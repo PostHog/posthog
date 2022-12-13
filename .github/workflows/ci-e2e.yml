@@ -237,6 +237,17 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v3
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
@@ -288,7 +299,7 @@ jobs:
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Cypress run
-              uses: cypress-io/github-action@v2
+              uses: cypress-io/github-action@v4
               with:
                   config-file: cypress.e2e.config.ts
                   config: retries=2

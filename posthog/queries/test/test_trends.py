@@ -267,7 +267,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 from posthog.models.team import util
 
-                util.can_enable_person_on_events = True
+                util.can_enable_actor_on_events = True
 
                 response = Trends().run(Filter(data=data), self.team)
                 self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0])
