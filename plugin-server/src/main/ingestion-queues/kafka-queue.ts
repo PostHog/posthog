@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { Consumer, ConsumerSubscribeTopics, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
+import { Consumer, ConsumerConfig, ConsumerSubscribeTopics, EachBatchHandler, EachBatchPayload, Kafka } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
@@ -32,7 +32,9 @@ export class IngestionConsumer {
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
         this.pluginsServer = pluginsServer
         this.kafka = pluginsServer.kafka!
-        this.consumer = IngestionConsumer.buildConsumer(this.kafka, this.consumerGroupId())
+        this.consumer = IngestionConsumer.buildConsumer(this.kafka, this.consumerGroupId(), {
+            sessionTimeout: pluginsServer.KAFKAJS_CONSUMER_SESSION_TIMEOUT_MS,
+        })
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
         this.consumerGroupMemberId = null
@@ -174,11 +176,16 @@ export class IngestionConsumer {
         return emitConsumerGroupMetrics(this.consumer, this.consumerGroupMemberId, this.pluginsServer)
     }
 
-    private static buildConsumer(kafka: Kafka, groupId: string): Consumer {
+    private static buildConsumer(
+        kafka: Kafka,
+        groupId: string,
+        consumerConfig: Partial<ConsumerConfig> = {}
+    ): Consumer {
         const consumer = kafka.consumer({
             // NOTE: This should never clash with the group ID specified for the kafka engine posthog/ee/clickhouse/sql/clickhouse.py
             groupId,
             readUncommitted: false,
+            ...consumerConfig,
         })
         setupEventHandlers(consumer)
         return consumer
