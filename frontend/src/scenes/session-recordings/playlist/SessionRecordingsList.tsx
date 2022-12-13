@@ -12,6 +12,7 @@ import {
 } from './SessionRecordingsPlaylistItem'
 import { useValues } from 'kea'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
+import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
 
 export type SessionRecordingsListProps = {
     listKey: string
@@ -84,6 +85,7 @@ export function SessionRecordingsList({
                     <span className="px-2 py-1">{titleContent}</span>
                 )}
                 {titleRight}
+                <LemonTableLoader loading={loading} />
             </div>
             {!collapsed ? (
                 recordings?.length ? (
