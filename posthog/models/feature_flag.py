@@ -748,6 +748,8 @@ def can_user_edit_feature_flag(request, feature_flag):
             feature_flag_resource_access = OrganizationResourceAccess.objects.get(
                 organization=request.user.organization, resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
             )
+            if feature_flag_resource_access.access_level >= OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT:
+                return True
             org_level = feature_flag_resource_access.access_level
         except OrganizationResourceAccess.DoesNotExist:
             org_level = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
