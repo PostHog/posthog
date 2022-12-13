@@ -50,7 +50,9 @@ certifi==2019.11.28
     #   sentry-sdk
     #   urllib3
 cffi==1.14.5
-    # via cryptography
+    # via
+    #   cryptography
+    #   milksnakex
 charset-normalizer==2.1.0
     # via
     #   aiohttp
@@ -207,6 +209,8 @@ marshmallow-enum==1.5.1
     # via dataclasses-json
 maxminddb==2.2.0
     # via geoip2
+milksnakex==0.1.6
+    # via pyroscope-io
 mimesis==5.2.1
     # via -r requirements.in
 monotonic==1.5
@@ -257,6 +261,8 @@ pyopenssl==22.0.0
     # via urllib3
 pyparsing==3.0.7
     # via packaging
+pyroscope-io==0.8.0
+    # via -r requirements.in
 pyrsistent==0.18.1
     # via jsonschema
 pysocks==1.7.1
