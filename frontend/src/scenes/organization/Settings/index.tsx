@@ -12,14 +12,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { VerifiedDomains } from './VerifiedDomains/VerifiedDomains'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { Roles } from './Roles/Roles'
-import { Permissions } from './Permissions/Permissions'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AvailableFeature } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'
 import type { organizationSettingsTabsLogicType } from './indexType'
+import { PermissionsGrid } from './Permissions/PermissionsGrid'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -150,12 +149,9 @@ export function OrganizationSettings(): JSX.Element {
                     <Tabs.TabPane tab="Role access" key="role_access">
                         <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                             <RestrictedArea
-                                Component={Permissions}
+                                Component={PermissionsGrid}
                                 minimumAccessLevel={OrganizationMembershipLevel.Admin}
                             />
-                            <LemonDivider className="my-6" />
-                            <RestrictedArea Component={Roles} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                            <LemonDivider className="my-6" />
                         </PayGateMini>
                     </Tabs.TabPane>
                 )}

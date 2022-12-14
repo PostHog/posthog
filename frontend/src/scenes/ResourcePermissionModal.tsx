@@ -13,7 +13,7 @@ import {
     permissionsLogic,
     ResourcePermissionMapping,
 } from './organization/Settings/Permissions/permissionsLogic'
-import { rolesLogic } from './organization/Settings/Roles/rolesLogic'
+import { rolesLogic } from './organization/Settings/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {

@@ -785,7 +785,7 @@ const api = {
                 },
             })
         },
-        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<ActionType> {
+        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<RoleType> {
             return await new ApiRequest().rolesDetail(roleId).update({ data: roleData })
         },
         members: {
