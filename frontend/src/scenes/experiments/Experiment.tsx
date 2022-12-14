@@ -324,7 +324,6 @@ export function Experiment(): JSX.Element {
                                         </Col>
                                     )}
                                 </div>
-                                <div>{JSON.stringify(experiment.filters)}</div>
                                 <Row className="person-selection">
                                     <Col span={12}>
                                         <div className="mb-2">
