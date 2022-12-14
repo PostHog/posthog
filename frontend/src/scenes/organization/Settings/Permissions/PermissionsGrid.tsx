@@ -2,6 +2,7 @@ import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { LemonTableColumns } from 'lib/components/LemonTable'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { Tooltip } from 'lib/components/Tooltip'
 import { AccessLevel, Resource, RoleType } from '~/types'
 import { permissionsLogic } from './permissionsLogic'
 import { CreateRoleModal } from './Roles/CreateRoleModal'
@@ -37,15 +38,17 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                 {
                     key: 'view',
                     title: (
-                        <div className="text-center">
-                            {name} <br /> View
-                        </div>
+                        <Tooltip title="View defaults cannot be changed">
+                            <div className="text-center">
+                                {name} <br /> View
+                            </div>
+                        </Tooltip>
                     ),
                     align: 'center',
                     render: function RenderView() {
                         return (
                             <div className="flex justify-center">
-                                <LemonCheckbox checked disabled />
+                                <LemonCheckbox defaultChecked disabled />
                             </div>
                         )
                     },
