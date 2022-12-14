@@ -23,7 +23,9 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                 {items.map((item, i) => (
                     <li className={clsx('flex flex-1 overflow-hidden gap-1', i > 0 && 'mt-1')} key={i}>
                         {showIcon ? (
-                            <span className="shrink-0 text-lg text-muted-alt w-6 mt-2">{TabToIcon[item.type]}</span>
+                            <span className="shrink-0 text-lg text-muted-alt w-6 mt-1 text-center">
+                                {TabToIcon[item.type]}
+                            </span>
                         ) : null}
                         <span className="flex-1 overflow-hidden">
                             {item.type === 'performance' ? (
