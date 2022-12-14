@@ -186,7 +186,7 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                                         : ''
                                 }
                             >
-                                <th>{plans[0].feature_list[feature].description}</th>
+                                <th>{plans[0].feature_list[feature].key}</th>
                                 {plans.map((plan) => (
                                     <td key={`plan-product-features-2-${plan.name}-${feature}`}>
                                         <PlanIcon
@@ -209,7 +209,13 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                                               key={subfeature}
                                               className={
                                                   // Show the bottom border on the row if it's the last subfeature in the list
-                                                  j === Object.keys(plans[0].feature_list[feature].features).length - 1
+                                                  j ===
+                                                  Object.keys(
+                                                      plans[0].feature_list[feature].features.filter(
+                                                          (f: Feature) => !f.hide_from_ui
+                                                      )
+                                                  ).length -
+                                                      1
                                                       ? 'PlanTable__tr__border'
                                                       : ''
                                               }
