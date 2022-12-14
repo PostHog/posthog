@@ -296,8 +296,9 @@ def get_event(request):
             team_id = ingestion_context.team_id if ingestion_context else None
             try:
                 futures.append(
-                    capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid, token)
-                    # type: ignore
+                    capture_internal(
+                        event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid, token
+                    )  # type: ignore
                 )
             except Exception as e:
                 capture_exception(e, {"data": data})
