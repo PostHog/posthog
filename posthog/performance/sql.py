@@ -150,7 +150,12 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     def clean_line(line: str) -> str:
         return line.strip().strip(",").strip()
 
-    return ",".join([clean_line(line).split(" ")[0] for line in column_definitions.split("\n") if clean_line(line)])
+    column_names = []
+    for line in column_definitions.splitlines():
+        column_name = clean_line(line).split(" ")[0]
+        column_names.append(column_name)
+
+    return ", ".join([cl for cl in column_names if cl])
 
 
 DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
