@@ -1,18 +1,32 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# Note: for PostHog Cloud remember to update 'Dockerfile.cloud' as appropriate.
+# Note: for PostHog Cloud remember to update 'Dockerfile.cloud'
+#       as appropriate.
+#
+# The first 3 stages are used to build:
+#
+# - static assets
+# - plugin-server (Node.js app)
+# - PostHog (Django app)
+#
+# while in the last and final stage we import the artifacts
+# from the previous stages add some runtime dependencies
+# and build the final image.
 #
 
 #
-# Build the frontend artifacts
+# ---------------------------------------------------------
 #
-FROM node:18.12.1-alpine3.16 AS frontend
-
+FROM node:18.12.1-bullseye-slim AS frontend-build
 WORKDIR /code
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --prod --frozen-lockfile
+RUN corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
 COPY ./bin/ ./bin/
@@ -20,164 +34,128 @@ COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN pnpm build
 
 #
-# Build the plugin-server artifacts. Note that we still need to install the
-# runtime deps in the main image
+# ---------------------------------------------------------
 #
-FROM node:18.12.1-alpine3.16 AS plugin-server
-
+FROM node:18.12.1-bullseye-slim AS plugin-server-build
 WORKDIR /code/plugin-server
-
-# Install python, make and gcc as they are needed for the pnpm install
-RUN apk --update --no-cache add \
-    "make~=4.3" \
-    "g++~=11.2" \
-    "gcc~=11.2" \
-    "python3~=3.10"
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Compile and install pnpm dependencies.
-#
-# Notes:
-#
-# - we explicitly COPY the files so that we don't need to rebuild
-#   the container every time a dependency changes
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-RUN corepack enable && pnpm install
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "make" \
+    "g++" \
+    "gcc" \
+    "python3" \
+    && rm -rf /var/lib/apt/lists/* && \
+    corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    rm -rf /tmp/pnpm-store
 
-# Build the plugin server
+# Build the plugin server.
 #
 # Note: we run the build as a separate actions to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 RUN pnpm build
 
-# Build the posthog image, incorporating the Django app along with the frontend,
-# as well as the plugin-server
-FROM python:3.8.14-alpine3.16
+#
+# ---------------------------------------------------------
+#
+FROM python:3.8.14-slim-bullseye AS posthog-build
+WORKDIR /code
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# Compile and install Python dependencies.
+# We install those dependencies to a custom folder that we will
+# then copy to the final image.
+COPY requirements.txt ./
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "build-essential" \
+    "git" \
+    "libpq-dev" \
+    "libxmlsec1" \
+    "libxmlsec1-dev" \
+    "pkg-config" \
+    && rm -rf /var/lib/apt/lists/* && \
+    pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+
+#
+# ---------------------------------------------------------
+#
+FROM python:3.8.14-slim-bullseye
+WORKDIR /code
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
 
-WORKDIR /code
-
-# Install OS dependencies needed to run PostHog
+# Install OS runtime dependencies.
 #
 # Note: please add in this section runtime dependences only.
 # If you temporary need a package to build a Python or npm
 # dependency take a look at the sections below.
-RUN apk --update --no-cache add \
-    "libpq~=14" \
-    "libxslt~=1.1" \
-    "nodejs-current~=18" \
-    "chromium~=102" \
-    "chromium-chromedriver~=102" \
-    "xmlsec~=1.2"
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "chromium" \
+    "chromium-driver" \
+    "libpq-dev" \
+    "libxmlsec1" \
+    "libxmlsec1-dev" \
+    "libxml2"
 
-# Curl the GeoLite2-City database that will be used for IP geolocation within Django
-#
-# Notes:
-#
-# - We are doing this here because it makes sense to ensure the stack will work
-#   even if the database is not available at the time of boot.
-#   It's better here to fail at build then it is to fail at boot time.
+# Install NodeJS 18.
+RUN apt-get install -y --no-install-recommends "curl" && \
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y --no-install-recommends "nodejs"
 
-RUN apk --update --no-cache --virtual .geolite-deps add \
-    "curl~=7" \
-    "brotli~=1.0.9" \
+# Add in the compiled plugin-server.
+COPY --from=plugin-server-build /code/plugin-server/dist/ /code/plugin-server/dist/
+
+# Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
+RUN apt-get install -y --no-install-recommends \
+    "curl" \
+    "brotli" \
     && \
-    mkdir share \
-    && \
-    ( curl -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) \
-    && \
-    chmod -R 755 ./share/GeoLite2-City.mmdb \
-    && \
-    apk del .geolite-deps
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir share && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
+    chmod -R 755 ./share/GeoLite2-City.mmdb
 
+# Copy the Python dependencies from the posthog-build stage.
+COPY --from=posthog-build /python-runtime /python-runtime
+ENV PATH=/python-runtime/bin:$PATH
+ENV PYTHONPATH=/python-runtime
 
-# Compile and install Python dependencies.
-#
-# Notes:
-#
-# - we explicitly COPY the files so that we don't need to rebuild
-#   the container every time a dependency changes
-#
-# - we need few additional OS packages for this. Let's install
-#   and then uninstall them when the compilation is completed.
-COPY requirements.txt ./
-RUN apk --update --no-cache --virtual .build-deps add \
-    "bash~=5.1" \
-    "g++~=11.2" \
-    "gcc~=11.2" \
-    "cargo~=1.60" \
-    "git~=2" \
-    "make~=4.3" \
-    "libffi-dev~=3.4" \
-    "libxml2-dev~=2.9" \
-    "libxslt-dev~=1.1" \
-    "xmlsec-dev~=1.2" \
-    "postgresql13-dev~=13" \
-    "libmaxminddb~=1.6" \
-    && \
-    pip install -r requirements.txt --compile --no-cache-dir \
-    && \
-    apk del .build-deps
-
-RUN addgroup -S posthog && \
-    adduser -S posthog -G posthog
-
-RUN chown posthog.posthog /code
-
-USER posthog
-
-# Add in Django deps and generate Django's static files
+# Add in Django deps and generate Django's static files.
 COPY manage.py manage.py
 COPY posthog posthog/
 COPY ee ee/
-COPY --from=frontend /code/frontend/dist /code/frontend/dist
-
+COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
-# Add in the plugin-server compiled code, as well as the runtime dependencies
-WORKDIR /code/plugin-server
-COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./
-
-# Switch to root and install pnpm so we can install runtime deps. Note that we
-# still need pnpm to run the plugin-server so we do not remove it.
-USER root
-
-# NOTE: we need make and g++ for node-gyp
-# NOTE: npm is required for re2
-RUN apk --update --no-cache add "make~=4.3" "g++~=11.2" "npm~=8" --virtual .build-deps \
-    && corepack enable \
-    && mkdir /tmp/pnpm-store \
-    && pnpm install --frozen-lockfile --prod --store-dir /tmp/pnpm-store \
-    && rm -rf /tmp/pnpm-store \
-    && apk del .build-deps
-
-USER posthog
-
-# Add in the compiled plugin-server
-COPY --from=plugin-server /code/plugin-server/dist/ ./dist/
-
-WORKDIR /code/
-USER root
-COPY ./plugin-server/package.json ./plugin-server/
-
-# We need bash to run the bin scripts
-RUN apk --update --no-cache add "bash~=5.1"
+# Add in Gunicorn config and custom bin files.
+COPY gunicorn.config.py ./
 COPY ./bin ./bin/
-USER posthog
 
-ENV CHROME_BIN=/usr/bin/chromium-browser \
+# Setup ENV.
+ENV NODE_ENV=production \
+    CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver
 
-COPY gunicorn.config.py ./
+# Use a non-root user.
+RUN groupadd posthog && \
+    useradd -r -g posthog posthog && \
+    chown posthog:posthog -R /code
 
-ENV NODE_ENV=production
+USER posthog
 
-# Expose container port and run entry point script
+# Expose container port and run entry point script.
 EXPOSE 8000
 
-# Expose the port from which we serve OpenMetrics data
+# Expose the port from which we serve OpenMetrics data.
 EXPOSE 8001
 
 CMD ["./bin/docker"]
