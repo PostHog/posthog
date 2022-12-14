@@ -121,7 +121,7 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
         >
             <LemonButton
                 data-attr="export-button"
-                sideIcon={<IconPlus />}
+                icon={<IconPlus />}
                 active={showPlaylistPopup}
                 onClick={() => setShowPlaylistPopup(!showPlaylistPopup)}
                 size={isFullScreen ? 'small' : 'medium'}
