@@ -17,9 +17,6 @@ export enum WebhookType {
     Teams = 'teams',
 }
 
-/** Hook request timeout in ms. */
-const HOOK_TIMEOUT = 10 * 1000
-
 export function determineWebhookType(url: string): WebhookType {
     url = url.toLowerCase()
     if (url.includes('slack.com')) {
@@ -168,6 +165,9 @@ export class HookCommander {
     siteUrlManager: SiteUrlManager
     statsd: StatsD | undefined
 
+    /** Hook request timeout in ms. */
+    EXTERNAL_REQUEST_TIEMOUT = 10 * 1000
+
     constructor(
         db: DB,
         teamManager: TeamManager,
@@ -244,17 +244,13 @@ export class HookCommander {
             }
         }
 
-        const signal = AbortSignal.timeout(HOOK_TIMEOUT)
-        signal.addEventListener('abort', () => {
-            this.statsd?.increment('webhook_timeouts', {
-                team_id: event.teamId.toString(),
-            })
-        })
         await fetch(webhookUrl, {
             method: 'POST',
             body: JSON.stringify(message, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
-            signal,
+            signal: this.getTrackedTimeoutSignal('webhook_timeouts', {
+                team_id: event.teamId.toString(),
+            }),
         })
         this.statsd?.increment('webhook_firings', {
             team_id: event.teamId.toString(),
@@ -287,22 +283,26 @@ export class HookCommander {
             data: { ...event, person: sendablePerson },
         }
 
-        const signal = AbortSignal.timeout(HOOK_TIMEOUT)
-        signal.addEventListener('abort', () => {
-            this.statsd?.increment('webhook_timeouts', {
-                team_id: event.teamId.toString(),
-            })
-        })
         const request = await fetch(hook.target, {
             method: 'POST',
             body: JSON.stringify(payload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
-            signal,
+            signal: this.getTrackedTimeoutSignal('rest_hook_timeouts', {
+                team_id: event.teamId.toString(),
+            }),
         })
         if (request.status === 410) {
             // Delete hook on our side if it's gone on Zapier's
             await this.db.deleteRestHook(hook.id)
         }
         this.statsd?.increment('rest_hook_firings')
+    }
+
+    private getTrackedTimeoutSignal(metricName: string, metricTags?: Record<string, string>): AbortSignal {
+        const signal = AbortSignal.timeout(this.EXTERNAL_REQUEST_TIEMOUT)
+        signal.addEventListener('abort', () => {
+            this.statsd?.increment(metricName, metricTags)
+        })
+        return signal
     }
 }
