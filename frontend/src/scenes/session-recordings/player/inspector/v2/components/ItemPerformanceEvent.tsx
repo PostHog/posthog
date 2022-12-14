@@ -1,3 +1,4 @@
+import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { humanizeBytes } from 'lib/utils'
 import { useState } from 'react'
@@ -11,38 +12,41 @@ export function ItemPerformanceEvent({ item }: ItemPerformanceEvent): JSX.Elemen
     const [expanded, setExpanded] = useState(false)
     const duration = item.duration || 0
     const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || 0)
-    const hightlightColor = duration > 2000 ? 'danger' : duration > 500 ? 'warning' : ''
 
     return (
-        <div
-            className={clsx(
-                'flex-1 border-b border-b-border-light cursor-pointer',
-                hightlightColor && `bg-${hightlightColor}-highlight`,
-                hightlightColor && `text-${hightlightColor}-dark`,
-                expanded && 'bg-light'
-            )}
-            onClick={() => setExpanded(!expanded)}
-        >
-            <div className="flex gap-2 items-center h-10 p-2 whitespace-nowrap">
+        <div className={clsx('rounded bg-light border')}>
+            <div className="flex gap-2 items-start p-2 text-xs cursor-pointer" onClick={() => setExpanded(!expanded)}>
                 {['resource', 'navigation'].includes(item.entry_type || '') && (
                     <>
-                        <span className="text-xs truncate flex-1">{item.name}</span>
-                        <span className="text-xs font-semibold">{bytes}</span>
-                        <span className="text-xs font-semibold">{duration}ms</span>
+                        <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>{item.name}</span>
+                        <span className={clsx('font-semibold')}>{bytes}</span>
+                        <span
+                            className={clsx('font-semibold', {
+                                'text-danger-dark': duration >= 2000,
+                                'text-warning-dark': duration > 500 && duration < 2000,
+                            })}
+                        >
+                            {duration}ms
+                        </span>
                     </>
                 )}
             </div>
 
             {expanded && (
-                <div className="p-2 text-sm">
+                <div className="p-2 text-xs border-t">
+                    <div className="flex justify-end">
+                        <LemonButton type="secondary" size="small">
+                            Copy
+                        </LemonButton>
+                    </div>
                     <>
                         <p>
-                            started at {item.start_time || item.fetch_start}ms and took {item.duration}ms to complete
+                            started at <b>{item.start_time || item.fetch_start}ms</b> and took <b>{item.duration}ms</b>{' '}
+                            to complete
                         </p>
 
-                        {item.decoded_body_size && item.encoded_body_size && (
+                        {item.decoded_body_size && item.encoded_body_size ? (
                             <>
-                                <hr />
                                 Resource is {humanizeBytes(item.decoded_body_size)}
                                 {item.encoded_body_size !== item.decoded_body_size && (
                                     <p>
@@ -56,7 +60,11 @@ export function ItemPerformanceEvent({ item }: ItemPerformanceEvent): JSX.Elemen
                                     </p>
                                 )}
                             </>
-                        )}
+                        ) : null}
+
+                        <pre>
+                            <code>{JSON.stringify(item, null, 2)}</code>
+                        </pre>
                     </>
                 </div>
             )}

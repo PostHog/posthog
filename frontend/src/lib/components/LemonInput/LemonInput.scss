@@ -46,23 +46,32 @@
         flex-shrink: 0;
     }
 
-    &.LemonInput--hascontent {
+    &--small {
+        min-height: 2rem;
+        padding: 0.125rem 0.25rem;
+
+        .LemonIcon {
+            font-size: 1.25rem;
+        }
+    }
+
+    &--hascontent {
         > .LemonIcon {
             color: var(--primary);
         }
     }
 
-    &.LemonInput--focused {
+    &--focused {
         &:not(.LemonInput--disabled) {
             border: 1px solid var(--primary);
         }
     }
 
-    &.LemonInput--type-search {
+    &--type-search {
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
     }
-    &.LemonInput--fullwidth {
+    &--fullwidth {
         width: 100%;
         max-width: 100%;
     }

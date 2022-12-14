@@ -8,7 +8,7 @@ import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/
 import { EventDetails } from 'scenes/events'
 import React from 'react'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
-import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge, IconMagnifier } from 'lib/components/icons'
+import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge } from 'lib/components/icons'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { Tooltip } from 'antd'
@@ -254,16 +254,25 @@ export function PlayerInspectorControls({
                 ) : null}
             </div>
             {tab === SessionRecordingPlayerTab.PERFORMANCE ? (
-                <div className="flex items-center gap-2 flex-wrap relative">
-                    <IconMagnifier className="absolute left-0 top-0 text-xl m-2 text-muted-alt pointer-events-none" />
-                    <input
-                        className="flex-1 bg-side py-2 pl-8 text-sm rounded-sm"
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="Search..."
-                        type="search"
-                        value={searchQuery}
-                    />
-                </div>
+                <>
+                    <div className="flex items-center gap-2 px-2">
+                        <LemonInput
+                            size="small"
+                            onChange={(e) => setSearchQuery(e)}
+                            placeholder="Search..."
+                            type="search"
+                            value={searchQuery}
+                            fullWidth
+                        />
+                    </div>
+
+                    <div className="flex items-center gap-1 flex-wrap px-2 text-xs mb-2 mt-1 font-medium">
+                        <span className="cursor-pointer p-1 px-1 rounded bg-primary-alt-highlight">All</span>
+                        <span className="cursor-pointer p-1 px-1 rounded text-muted">XHR / Fetch</span>
+                        <span className="cursor-pointer p-1 px-1 rounded text-muted">Assets</span>
+                        <span className="cursor-pointer p-1 px-1 rounded text-muted">Other</span>
+                    </div>
+                </>
             ) : null}
         </div>
     )

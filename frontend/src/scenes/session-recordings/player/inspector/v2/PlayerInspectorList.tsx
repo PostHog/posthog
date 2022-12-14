@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
 import { sharedListLogic } from '../sharedListLogic'
@@ -8,9 +9,11 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
 
     return (
         <div className="flex flex-col bg-side flex-1 overflow-hidden relative">
-            <ul className="flex-1 overflow-y-auto absolute inset-0">
+            <ul className="flex-1 overflow-y-auto absolute inset-0 p-2">
                 {items.map((item, i) => (
-                    <li key={i}>{item.type === 'performance' && <ItemPerformanceEvent item={item.data} />}</li>
+                    <li className={clsx(i > 0 && 'mt-1')} key={i}>
+                        {item.type === 'performance' && <ItemPerformanceEvent item={item.data} />}
+                    </li>
                 ))}
             </ul>
         </div>

@@ -36,6 +36,8 @@ type LemonInputPropsBase = Pick<
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
 
+    size?: 'small' | 'medium'
+
     'data-attr'?: string
     'aria-label'?: string
 }
@@ -73,6 +75,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         type,
         value,
         transparentBackground,
+        size,
         ...textProps
     },
     ref
@@ -93,7 +96,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     allowClear = allowClear ?? (type === 'search' ? true : false)
     fullWidth = fullWidth ?? (type === 'search' ? false : true)
     prefix = prefix ?? (type === 'search' ? <IconMagnifier /> : undefined)
-
     // Type=password has some special overrides
     suffix =
         suffix ??
@@ -117,7 +119,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         allowClear && value ? (
             <LemonButton
                 size="small"
-                noPadding
                 icon={<IconClose />}
                 status="primary-alt"
                 tooltip="Clear input"
@@ -144,6 +145,7 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 fullWidth && 'LemonInput--fullwidth',
                 type && `LemonInput--type-${type}`,
                 transparentBackground && 'LemonInput--transparent-background',
+                size && `LemonInput--${size}`,
                 className
             )}
             onKeyDown={(event) => {
