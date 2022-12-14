@@ -100,7 +100,8 @@
         }
 
         h1 {
-            margin: 0
+            margin: 0;
+            text-align: center;
         }
 
         .flex {
@@ -324,7 +325,7 @@
         <picture class="badge my-8">
             <source type="image/webp" srcset="{% static image_webp %}" width="326" height="326" >
             <source type="image/png" srcset="{% static image_png %}" width="326" height="326" >
-            <img src="{% static image_png %}" alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}">
+            <img class="badge" src="{% static image_png %}" width="326" height="326" alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}">
         </picture>
 
         <h1 class="highlight text-2xl">{{ human_badge }}</h1>
