@@ -45,7 +45,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/react'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
@@ -768,6 +768,14 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
+        isUsingDataExploration: [
+            (s) => [s.featureFlags, s.filters],
+            (featureFlags: FeatureFlagsSet, filters: Partial<FilterType>): boolean => {
+                const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+                const isLifecycle = isLifecycleFilter(filters)
+                return !!featureDataExploration && isLifecycle
+            },
+        ],
     }),
     listeners(({ actions, selectors, values }) => ({
         setFiltersMerge: ({ filters }) => {
@@ -809,7 +817,9 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                actions.loadResults()
+                if (!values.isUsingDataExploration) {
+                    actions.loadResults()
+                }
             }
         },
         reportInsightViewedForRecentInsights: async () => {
