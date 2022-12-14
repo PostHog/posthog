@@ -903,6 +903,7 @@ export interface PerformanceEvent {
 
     // RESOURCE_EVENT_COLUMNS
     start_time?: number
+    duration?: number
     redirect_start?: number
     redirect_end?: number
     worker_start?: number

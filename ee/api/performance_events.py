@@ -39,7 +39,7 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
         PerformanceEventSerializer(data=results, many=True)
 
-        return Response(results)
+        return Response({"results": results})
 
     # def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
     #     filters = request.GET.dict()

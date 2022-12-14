@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { sum, toParams } from 'lib/utils'
 import {
     EventType,
+    PerformanceEvent,
     PlayerPosition,
     RecordingEventsFilters,
     RecordingEventType,
@@ -405,17 +406,17 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         peformanceEvents: [
-            null as null | any[],
+            null as null | PerformanceEvent[],
             {
                 loadPerformanceEvents: async ({}, breakpoint) => {
-                    if (!values.eventsApiParams) {
-                        return values.sessionEventsData
-                    }
                     // Use `nextUrl` if there is a `next` url to fetch
                     const response = await api.performanceEvents.list({
                         session_id: props.sessionRecordingId,
                     })
+
                     breakpoint()
+
+                    console.log(response)
 
                     return response.results ?? []
                 },

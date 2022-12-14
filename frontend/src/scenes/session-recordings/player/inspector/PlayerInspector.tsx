@@ -8,7 +8,7 @@ import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/
 import { EventDetails } from 'scenes/events'
 import React from 'react'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
-import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge } from 'lib/components/icons'
+import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge, IconMagnifier } from 'lib/components/icons'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { Tooltip } from 'antd'
@@ -30,7 +30,7 @@ export function PlayerInspector(props: SessionRecordingPlayerLogicProps): JSX.El
 
     return (
         <>
-            <PlayerFilter {...props} />
+            <PlayerInspectorControls {...props} />
             <LemonDivider className="my-0" />
 
             {tab === SessionRecordingPlayerTab.PERFORMANCE ? (
@@ -144,14 +144,14 @@ export function PlayerInspector(props: SessionRecordingPlayerLogicProps): JSX.El
     )
 }
 
-export function PlayerFilter({
+export function PlayerInspectorControls({
     sessionRecordingId,
     playerKey,
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, showOnlyMatching, tab } = useValues(sharedListLogic(logicProps))
-    const { setWindowIdFilter, setShowOnlyMatching, setTab } = useActions(sharedListLogic(logicProps))
+    const { windowIdFilter, showOnlyMatching, tab, searchQuery } = useValues(sharedListLogic(logicProps))
+    const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery } = useActions(sharedListLogic(logicProps))
     const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
     const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
     const { consoleListLocalFilters } = useValues(consoleLogsListLogic(logicProps))
@@ -164,91 +164,105 @@ export function PlayerFilter({
     })
 
     return (
-        <div ref={ref} className="PlayerFilter flex justify-between gap-2 bg-side p-2 flex-wrap">
-            <div className="flex flex-1 items-center gap-1">
-                {[
-                    SessionRecordingPlayerTab.EVENTS,
-                    SessionRecordingPlayerTab.CONSOLE,
-                    SessionRecordingPlayerTab.PERFORMANCE,
-                ].map((tabId) => (
-                    <LemonButton
-                        key={tabId}
-                        size="small"
-                        icon={TabToIcon[tabId]}
-                        status={tab === tabId ? 'primary' : 'primary-alt'}
-                        active={tab === tabId}
-                        onClick={() => setTab(tabId)}
-                    >
-                        {size === 'compact' ? '' : capitalizeFirstLetter(tabId)}
-                    </LemonButton>
-                ))}
-            </div>
+        <div className="bg-side">
+            <div ref={ref} className="flex justify-between gap-2 p-2 flex-wrap">
+                <div className="flex flex-1 items-center gap-1">
+                    {[
+                        SessionRecordingPlayerTab.EVENTS,
+                        SessionRecordingPlayerTab.CONSOLE,
+                        SessionRecordingPlayerTab.PERFORMANCE,
+                    ].map((tabId) => (
+                        <LemonButton
+                            key={tabId}
+                            size="small"
+                            icon={TabToIcon[tabId]}
+                            status={tab === tabId ? 'primary' : 'primary-alt'}
+                            active={tab === tabId}
+                            onClick={() => setTab(tabId)}
+                        >
+                            {size === 'compact' ? '' : capitalizeFirstLetter(tabId)}
+                        </LemonButton>
+                    ))}
+                </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
-                {tab === SessionRecordingPlayerTab.EVENTS ? (
-                    <>
-                        <LemonInput
-                            key="event-list-search-input"
-                            onChange={(query) => setEventListLocalFilters({ query })}
-                            placeholder="Search events"
-                            type="search"
-                            value={eventListLocalFilters.query}
-                        />
-                        {matching?.length ? (
-                            <LemonSwitch
-                                checked={showOnlyMatching}
-                                bordered
-                                label={
-                                    <span className="flex items-center gap-2 whitespace-nowrap">
-                                        Only show matching events
-                                        <Tooltip
-                                            title="Display only the events that match the global filter."
-                                            className="text-base text-muted-alt mr-2"
-                                        >
-                                            <IconInfo />
-                                        </Tooltip>
-                                    </span>
-                                }
-                                onChange={setShowOnlyMatching}
+                <div className="flex items-center gap-2 flex-wrap">
+                    {tab === SessionRecordingPlayerTab.EVENTS ? (
+                        <>
+                            <LemonInput
+                                key="event-list-search-input"
+                                onChange={(query) => setEventListLocalFilters({ query })}
+                                placeholder="Search events"
+                                type="search"
+                                value={eventListLocalFilters.query}
                             />
-                        ) : null}
-                    </>
-                ) : tab === SessionRecordingPlayerTab.CONSOLE ? (
-                    <LemonInput
-                        key="console-list-search-input"
-                        onChange={(query) => setConsoleListLocalFilters({ query })}
-                        placeholder="Search console logs"
-                        type="search"
-                        value={consoleListLocalFilters.query}
-                    />
+                            {matching?.length ? (
+                                <LemonSwitch
+                                    checked={showOnlyMatching}
+                                    bordered
+                                    label={
+                                        <span className="flex items-center gap-2 whitespace-nowrap">
+                                            Only show matching events
+                                            <Tooltip
+                                                title="Display only the events that match the global filter."
+                                                className="text-base text-muted-alt mr-2"
+                                            >
+                                                <IconInfo />
+                                            </Tooltip>
+                                        </span>
+                                    }
+                                    onChange={setShowOnlyMatching}
+                                />
+                            ) : null}
+                        </>
+                    ) : tab === SessionRecordingPlayerTab.CONSOLE ? (
+                        <LemonInput
+                            key="console-list-search-input"
+                            onChange={(query) => setConsoleListLocalFilters({ query })}
+                            placeholder="Search console logs"
+                            type="search"
+                            value={consoleListLocalFilters.query}
+                        />
+                    ) : null}
+                </div>
+
+                {windowIds.length > 1 ? (
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <LemonSelect
+                            data-attr="player-window-select"
+                            value={windowIdFilter ?? undefined}
+                            onChange={(val) => setWindowIdFilter(val as WindowOption)}
+                            options={[
+                                {
+                                    value: RecordingWindowFilter.All,
+                                    label: 'All windows',
+                                    icon: <IconWindow value="A" className="text-muted" />,
+                                },
+                                ...windowIds.map((windowId, index) => ({
+                                    value: windowId,
+                                    label: `Window ${index + 1}`,
+                                    icon: <IconWindow value={index + 1} className="text-muted" />,
+                                })),
+                            ]}
+                        />
+                        <Tooltip
+                            title="Each recording window translates to a distinct browser tab or window."
+                            className="text-base text-muted-alt mr-2"
+                        >
+                            <IconInfo />
+                        </Tooltip>
+                    </div>
                 ) : null}
             </div>
-
-            {windowIds.length > 1 ? (
-                <div className="flex items-center gap-2 flex-wrap">
-                    <LemonSelect
-                        data-attr="player-window-select"
-                        value={windowIdFilter ?? undefined}
-                        onChange={(val) => setWindowIdFilter(val as WindowOption)}
-                        options={[
-                            {
-                                value: RecordingWindowFilter.All,
-                                label: 'All windows',
-                                icon: <IconWindow value="A" className="text-muted" />,
-                            },
-                            ...windowIds.map((windowId, index) => ({
-                                value: windowId,
-                                label: `Window ${index + 1}`,
-                                icon: <IconWindow value={index + 1} className="text-muted" />,
-                            })),
-                        ]}
+            {tab === SessionRecordingPlayerTab.PERFORMANCE ? (
+                <div className="flex items-center gap-2 flex-wrap relative">
+                    <IconMagnifier className="absolute left-0 top-0 text-xl m-2 text-muted-alt pointer-events-none" />
+                    <input
+                        className="flex-1 bg-side py-2 pl-8 text-sm rounded-sm"
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Search..."
+                        type="search"
+                        value={searchQuery}
                     />
-                    <Tooltip
-                        title="Each recording window translates to a distinct browser tab or window."
-                        className="text-base text-muted-alt mr-2"
-                    >
-                        <IconInfo />
-                    </Tooltip>
                 </div>
             ) : null}
         </div>
