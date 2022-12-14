@@ -10,7 +10,7 @@ import {
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { PlayerInspector } from 'scenes/session-recordings/player/PlayerInspector'
+import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 import { PlayerMeta } from './PlayerMeta'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import clsx from 'clsx'

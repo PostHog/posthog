@@ -2,7 +2,7 @@ import { actions, kea, reducers, path, listeners, connect, props, key } from 'ke
 import { PlayerPosition, RecordingWindowFilter, SessionRecordingPlayerTab } from '~/types'
 import type { sharedListLogicType } from './sharedListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
+import { consoleLogsListLogic } from 'scenes/session-recordings/player/inspector/consoleLogsListLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 

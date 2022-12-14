@@ -6,7 +6,7 @@ import {
     parseMetadataResponse,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'

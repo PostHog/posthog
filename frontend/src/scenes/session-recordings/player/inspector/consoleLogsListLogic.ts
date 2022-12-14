@@ -15,9 +15,9 @@ import {
     getPlayerTimeFromPlayerPosition,
 } from 'scenes/session-recordings/player/playerUtils'
 import { colonDelimitedDuration } from 'lib/utils'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { parseConsoleLogPayload } from 'scenes/session-recordings/player/list/consoleLogsUtils'
+import { parseConsoleLogPayload } from 'scenes/session-recordings/player/inspector/consoleLogsUtils'
 import Fuse from 'fuse.js'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 

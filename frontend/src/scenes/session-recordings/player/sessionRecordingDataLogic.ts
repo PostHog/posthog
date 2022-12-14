@@ -159,6 +159,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setRecordingMeta: (metadata: Partial<SessionPlayerMetaData>) => ({ metadata }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
+        loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
     }),
     reducers(({ cache }) => ({
         filters: [
@@ -224,6 +225,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
+            actions.loadPerformanceEvents()
         },
         loadRecordingSnapshotsSuccess: () => {
             // If there is more data to poll for load the next batch.
@@ -398,6 +400,24 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         next: response?.next,
                         events: allEvents,
                     }
+                },
+            },
+        ],
+
+        peformanceEvents: [
+            null as null | any[],
+            {
+                loadPerformanceEvents: async ({}, breakpoint) => {
+                    if (!values.eventsApiParams) {
+                        return values.sessionEventsData
+                    }
+                    // Use `nextUrl` if there is a `next` url to fetch
+                    const response = await api.performanceEvents.list({
+                        session_id: props.sessionRecordingId,
+                    })
+                    breakpoint()
+
+                    return response.results ?? []
                 },
             },
         ],

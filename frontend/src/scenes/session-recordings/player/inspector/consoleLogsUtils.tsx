@@ -2,7 +2,7 @@ import { Link } from 'lib/components/Link'
 import React from 'react'
 import { RecordingConsoleLog, RecordingTimeMixinType, RRWebRecordingConsoleLogPayload } from '~/types'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/list/ConsoleDetails'
+import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/inspector/ConsoleDetails'
 import md5 from 'md5'
 
 const STRING_INCLUDES_URL = new RegExp(

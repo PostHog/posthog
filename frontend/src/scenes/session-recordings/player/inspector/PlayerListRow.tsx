@@ -1,12 +1,12 @@
 import React, { CSSProperties, ReactElement, useMemo } from 'react'
-import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
+import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
 import clsx from 'clsx'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { IconEllipsis, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { boxToSections } from 'lib/components/LemonSelect'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { PlayerListExpandableConfig } from 'scenes/session-recordings/player/list/PlayerList'
+import { PlayerListExpandableConfig } from 'scenes/session-recordings/player/inspector/PlayerList'
 import { LemonSelectOptionLeaf } from '@posthog/lemon-ui'
 
 export interface ListRowOption<T> extends Pick<LemonSelectOptionLeaf<T>, 'value' | 'label' | 'tooltip' | 'data-attr'> {

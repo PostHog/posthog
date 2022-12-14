@@ -22,7 +22,7 @@ import {
     getSegmentFromPlayerPosition,
 } from './playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import equal from 'fast-deep-equal'
 import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
