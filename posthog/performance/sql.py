@@ -1,12 +1,11 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
-from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import Distributed, MergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
 # TODO
 # explode server timing from Resource events into their own columns
-# /* time origin is in milliseconds e.g. 1670900799301.7 */
 
 """
 # expected queries
@@ -34,21 +33,17 @@ ORDER BY timestamp DESC
 ## all other queries are expected to be based on aggregating materialized views built from this fact table
 """
 
-BASE_PERFORMANCE_EVENT_COLUMNS = """
+PERFORMANCE_EVENT_COLUMNS = """
 uuid UUID,
 session_id String,
 window_id String,
 pageview_id String,
 distinct_id String,
-time_origin DateTime64(3, 'UTC',
+time_origin DateTime64(3, 'UTC'),
 entry_type LowCardinality(String),
 name String,
 team_id Int64,
 current_url String,
-""".strip()
-
-"""https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming"""
-RESOURCE_EVENT_COLUMNS = """
 start_time Int64,
 redirect_start Int64,
 redirect_end Int64,
@@ -69,20 +64,12 @@ next_hop_protocol LowCardinality(String),
 render_blocking_status LowCardinality(String),
 response_status Int64,
 transfer_size Int64,
-""".strip()
-
-"""https://developer.mozilla.org/en-US/docs/Web/API/LargestContentfulPaint"""
-LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS = """
 largest_contentful_paint_element String,
 largest_contentful_paint_render_time Int64,
 largest_contentful_paint_load_time Int64,
 largest_contentful_paint_size Int64,
 largest_contentful_paint_id String,
 largest_contentful_paint_url String,
-""".strip()
-
-"""https://developer.mozilla.org/en-US/docs/Web/API/PerformanceNavigationTiming"""
-NAVIGATION_EVENT_COLUMNS = """
 dom_complete Int64,
 dom_content_loaded_event Int64,
 dom_interactive Int64,
@@ -92,20 +79,11 @@ redirect_count Int64,
 navigation_type LowCardinality(String),
 unload_event_end Int64,
 unload_event_start Int64,
-""".strip()
-
-columns = ",".join(
-    [
-        BASE_PERFORMANCE_EVENT_COLUMNS.rstrip(","),
-        RESOURCE_EVENT_COLUMNS.rstrip(","),
-        LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS.rstrip(","),
-        NAVIGATION_EVENT_COLUMNS.rstrip(","),
-    ]
+""".strip().rstrip(
+    ","
 )
 
-PERFORMANCE_EVENT_TABLE_ENGINE = lambda: ReplacingMergeTree(
-    "performance_events", ver="_timestamp", replication_scheme=ReplicationScheme.SHARDED
-)
+PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTree("performance_events", replication_scheme=ReplicationScheme.SHARDED)
 
 PERFORMANCE_EVENTS_TABLE_BASE_SQL = """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -134,12 +112,12 @@ OR
 """
 PERFORMANCE_EVENTS_TABLE_SQL = (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL
-    + """PARTITION BY toYYYYMM(origin_timestamp)
+    + """PARTITION BY toYYYYMM(time_origin)
 ORDER BY (team_id, session_id, pageview_id)
 {storage_policy}
 """
 ).format(
-    columns=columns,
+    columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="sharded_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
@@ -148,7 +126,7 @@ ORDER BY (team_id, session_id, pageview_id)
 )
 
 KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
-    columns=columns,
+    columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="kafka_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
@@ -176,7 +154,7 @@ AS SELECT
 {extra_fields}
 FROM {database}.kafka_performance_events
 """.format(
-    columns=_column_names_from_column_definitions(columns),
+    columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
     target_table="sharded_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
@@ -185,7 +163,7 @@ FROM {database}.kafka_performance_events
 
 # This table is responsible for reading from events on a cluster setting
 DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
-    columns=columns,
+    columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
