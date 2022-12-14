@@ -172,6 +172,7 @@ class BillingViewset(viewsets.GenericViewSet):
             products = self._get_products(license, org)
             response["products"] = products["standard"]
             response["products_enterprise"] = products["enterprise"]
+            response["plans"] = products["plans"]
 
             calculated_usage = get_cached_current_usage(org) if org else None
 

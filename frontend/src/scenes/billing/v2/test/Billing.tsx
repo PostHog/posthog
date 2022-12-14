@@ -17,7 +17,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { IconDelete, IconEdit } from 'lib/components/icons'
-import { PlanTable } from './PlanTable'
+// import { PlanTable } from './PlanTable'
+import { PlanTable as PlanTableV2 } from './PlanTableV2'
 import { BillingHero } from './BillingHero'
 
 export type BillingV2Props = {
@@ -93,7 +94,8 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     {preflight?.cloud && (
                         <>
                             <div className="mb-18 flex justify-center">
-                                <PlanTable redirectPath={redirectPath} />
+                                {/* <PlanTable redirectPath={redirectPath} /> */}
+                                <PlanTableV2 redirectPath={redirectPath} plans={billing?.plans ?? []} />
                             </div>
                         </>
                     )}

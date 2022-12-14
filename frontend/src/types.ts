@@ -931,6 +931,32 @@ export interface BillingProductV2Type {
     unit_amount_usd: string | null
 }
 
+export type Feature = {
+    key: string
+    description: string
+    unit: string
+    value: boolean | number
+    hide_from_ui: boolean
+}
+
+export type FeatureList = {
+    key: string
+    description: string
+    features: Feature[]
+}
+
+export type BillingPlan = {
+    key: string
+    name: string
+    description: string
+    pricing_description: string
+    // basePrice: string
+    // cta: string
+    signup_link: string
+    feature_list: FeatureList
+    // products: BillingProductV2Type[]
+}
+
 export interface BillingV2Type {
     customer_id: string
     has_active_subscription: boolean
@@ -940,6 +966,7 @@ export interface BillingV2Type {
     current_total_amount_usd?: string
     products: BillingProductV2Type[]
     products_enterprise?: BillingProductV2Type[]
+    plans: BillingPlan[]
 
     custom_limits_usd?: {
         [key: string]: string | null | undefined
