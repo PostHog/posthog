@@ -333,31 +333,26 @@ export const experimentLogic = kea<experimentLogicType>([
         launchExperiment: async () => {
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
-            values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
+            values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
         },
         endExperiment: async () => {
             const endDate = dayjs()
             actions.updateExperiment({ end_date: endDate.toISOString() })
-            const duration = endDate.diff(values.experimentData?.start_date, 'second')
-            values.experimentData &&
-                actions.reportExperimentCompleted(
-                    values.experimentData,
-                    endDate,
-                    duration,
-                    values.areResultsSignificant
-                )
+            const duration = endDate.diff(values.experiment?.start_date, 'second')
+            values.experiment &&
+                actions.reportExperimentCompleted(values.experiment, endDate, duration, values.areResultsSignificant)
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
-            values.experimentData && actions.reportExperimentArchived(values.experimentData)
+            values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new') {
                 actions.createNewExperimentInsight()
             } else if (values.editingExistingExperiment) {
-                actions.createNewExperimentInsight({ properties: values.experimentData?.filters?.properties })
+                actions.createNewExperimentInsight({ properties: values.experiment?.filters?.properties })
             } else {
-                actions.createNewExperimentInsight(values.experimentData?.filters)
+                actions.createNewExperimentInsight(values.experiment?.filters)
             }
         },
         updateExperimentSuccess: async ({ experiment }) => {
@@ -503,7 +498,7 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 loadSecondaryMetricResults: async () => {
                     return await Promise.all(
-                        (values.experimentData?.secondary_metrics || []).map(async (_, index) => {
+                        (values.experiment?.secondary_metrics || []).map(async (_, index) => {
                             try {
                                 const secResults = await api.get(
                                     `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${index}`
@@ -524,58 +519,54 @@ export const experimentLogic = kea<experimentLogicType>([
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
-        experimentData: [(s) => [s.experiment], (experiment) => experiment],
         breadcrumbs: [
-            (s) => [s.experimentData, s.experimentId],
-            (experimentData, experimentId): Breadcrumb[] => [
+            (s) => [s.experiment, s.experimentId],
+            (experiment, experimentId): Breadcrumb[] => [
                 {
                     name: 'Experiments',
                     path: urls.experiments(),
                 },
                 {
-                    name: experimentData?.name || 'New',
+                    name: experiment?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },
             ],
         ],
         variants: [
-            (s) => [s.experiment, s.experimentData],
-            (newExperimentData, experimentData): MultivariateFlagVariant[] => {
-                if (experimentData?.start_date) {
-                    return experimentData?.parameters?.feature_flag_variants || []
+            (s) => [s.experiment, s.experiment],
+            (newexperiment, experiment): MultivariateFlagVariant[] => {
+                if (experiment?.start_date) {
+                    return experiment?.parameters?.feature_flag_variants || []
                 }
 
                 return (
-                    newExperimentData?.parameters?.feature_flag_variants ||
-                    experimentData?.parameters?.feature_flag_variants ||
+                    newexperiment?.parameters?.feature_flag_variants ||
+                    experiment?.parameters?.feature_flag_variants ||
                     []
                 )
             },
         ],
         taxonomicGroupTypesForSelection: [
             (s) => [s.experiment, s.groupsTaxonomicTypes],
-            (newExperimentData, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
-                if (
-                    newExperimentData?.filters?.aggregation_group_type_index != null &&
-                    groupsTaxonomicTypes.length > 0
-                ) {
-                    return [groupsTaxonomicTypes[newExperimentData.filters.aggregation_group_type_index]]
+            (newexperiment, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+                if (newexperiment?.filters?.aggregation_group_type_index != null && groupsTaxonomicTypes.length > 0) {
+                    return [groupsTaxonomicTypes[newexperiment.filters.aggregation_group_type_index]]
                 }
 
                 return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
             },
         ],
         parsedSecondaryMetrics: [
-            (s) => [s.experiment, s.experimentData],
-            (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
-                const secondaryMetrics = newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
+            (s) => [s.experiment, s.experiment],
+            (newexperiment: Partial<Experiment>, experiment: Experiment): SecondaryExperimentMetric[] => {
+                const secondaryMetrics = newexperiment?.secondary_metrics || experiment?.secondary_metrics || []
                 return secondaryMetrics
             },
         ],
         minimumDetectableChange: [
             (s) => [s.experiment],
-            (newExperimentData): number => {
-                return newExperimentData?.parameters?.minimum_detectable_effect || 5
+            (newexperiment): number => {
+                return newexperiment?.parameters?.minimum_detectable_effect || 5
             },
         ],
         minimumSampleSizePerVariant: [
@@ -767,14 +758,14 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         sortedExperimentResultVariants: [
-            (s) => [s.experimentResults, s.experimentData],
-            (experimentResults, experimentData): string[] => {
+            (s) => [s.experimentResults, s.experiment],
+            (experimentResults, experiment): string[] => {
                 if (experimentResults) {
                     const sortedResults = Object.keys(experimentResults.probability).sort(
                         (a, b) => experimentResults.probability[b] - experimentResults.probability[a]
                     )
 
-                    experimentData?.parameters?.feature_flag_variants?.forEach((variant) => {
+                    experiment?.parameters?.feature_flag_variants?.forEach((variant) => {
                         if (!sortedResults.includes(variant.key)) {
                             sortedResults.push(variant.key)
                         }
