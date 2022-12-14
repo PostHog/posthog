@@ -248,9 +248,7 @@ export class HookCommander {
             method: 'POST',
             body: JSON.stringify(message, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
-            signal: this.trackedTimeoutSignal('webhook_timeouts', {
-                team_id: event.teamId.toString(),
-            }),
+            timeout: this.EXTERNAL_REQUEST_TIMEOUT,
         })
         this.statsd?.increment('webhook_firings', {
             team_id: event.teamId.toString(),
@@ -287,22 +285,12 @@ export class HookCommander {
             method: 'POST',
             body: JSON.stringify(payload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
-            signal: this.trackedTimeoutSignal('rest_hook_timeouts', {
-                team_id: event.teamId.toString(),
-            }),
+            timeout: this.EXTERNAL_REQUEST_TIMEOUT,
         })
         if (request.status === 410) {
             // Delete hook on our side if it's gone on Zapier's
             await this.db.deleteRestHook(hook.id)
         }
         this.statsd?.increment('rest_hook_firings')
-    }
-
-    private trackedTimeoutSignal(metricName: string, metricTags?: Record<string, string>): AbortSignal {
-        const signal = AbortSignal.timeout(this.EXTERNAL_REQUEST_TIMEOUT)
-        signal.addEventListener('abort', () => {
-            this.statsd?.increment(metricName, metricTags)
-        })
-        return signal
     }
 }
