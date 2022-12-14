@@ -1,7 +1,8 @@
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { LemonTableColumns } from 'lib/components/LemonTable'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
-import { AccessLevel, Resource } from '~/types'
+import { AccessLevel, Resource, RoleType } from '~/types'
 import { permissionsLogic } from './permissionsLogic'
 import { CreateRoleModal } from './Roles/CreateRoleModal'
 import { rolesLogic } from './Roles/rolesLogic'
@@ -11,11 +12,10 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
     const { updatePermission } = useActions(permissionsLogic)
     const { roles, rolesLoading } = useValues(rolesLogic)
     const { setRoleInFocus, openCreateRoleModal } = useActions(rolesLogic)
-    const columns = [
+    const columns: LemonTableColumns<RoleType> = [
         {
             key: 'role',
             title: '',
-            dataIndex: 'role',
             width: 150,
             render: function RenderRole(_, role) {
                 return (
@@ -31,7 +31,7 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                 )
             },
         },
-        ...resourceRolesAccess.flatMap((resource) => {
+        ...(resourceRolesAccess.flatMap((resource) => {
             const name = Object.keys(resource)[0] as Resource
             return [
                 {
@@ -41,7 +41,6 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                             {name} <br /> View
                         </div>
                     ),
-                    dataIndex: 'view',
                     align: 'center',
                     render: function RenderView() {
                         return (
@@ -58,7 +57,6 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                             {name} <br /> Edit
                         </div>
                     ),
-                    dataIndex: 'edit',
                     align: 'center',
                     render: function RenderEdit(_, role) {
                         return (
@@ -74,28 +72,27 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                     },
                 },
             ]
-        }),
+        }) as LemonTableColumns<RoleType>),
     ]
 
     return (
         <>
             <div className="flex flex-row justify-between items-center mb-4">
-                <p className="text-muted-alt">
+                <div className="text-muted-alt">
                     Edit organizational default permission levels for posthog resources. Use roles to apply permissions
                     to specific sets of users.
-                </p>
+                </div>
                 {!isRestricted && (
                     <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
                         Create role
                     </LemonButton>
                 )}
             </div>
-
             <LemonTable
                 bordered
                 columns={columns}
                 loading={rolesLoading || organizationResourcePermissionsLoading}
-                dataSource={[{ name: 'organization_default' }, ...roles]}
+                dataSource={[{ name: 'organization_default' } as RoleType, ...roles]}
             />
             <CreateRoleModal />
         </>

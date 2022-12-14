@@ -6,6 +6,7 @@ import type { permissionsLogicType } from './permissionsLogicType'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { rolesLogic } from './Roles/rolesLogic'
+import { lemonToast } from '@posthog/lemon-ui'
 
 const ResourceDisplayMapping: Record<Resource, string> = {
     [Resource.FEATURE_FLAGS]: 'Feature Flags',
@@ -73,14 +74,19 @@ export const permissionsLogic = kea<permissionsLogicType>([
                 const updatedRole = await api.roles.update(role.id, {
                     [ResourceAccessLevelMapping[resourceType]]: accessLevel,
                 })
-                actions.updateRole(updatedRole)
+                if (updatedRole) {
+                    actions.updateRole(updatedRole)
+                    lemonToast.success(`${role.name} edit access updated`)
+                }
             } else {
-                // update organization default permission
                 actions.updateOrganizationResourcePermission({
                     id: resourceId,
                     access_level: accessLevel,
                 })
             }
+        },
+        updateOrganizationResourcePermissionSuccess: () => {
+            lemonToast.success('Organizational edit access updated')
         },
     })),
     selectors({
@@ -126,9 +132,10 @@ export const permissionsLogic = kea<permissionsLogicType>([
                     },
                 }))
                 for (const role of roles) {
-                    resources.forEach(
-                        (source) => (source[Object.keys(source)[0]][`${role.name}`] = role.feature_flags_access_level)
-                    )
+                    for (const source of resources) {
+                        const resourceType = Object.keys(source)[0]
+                        source[resourceType][`${role.name}`] = role[ResourceAccessLevelMapping[resourceType]]
+                    }
                 }
                 return resources
             },
