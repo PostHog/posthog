@@ -12,6 +12,7 @@ class Command(BaseCommand):
         parser.add_argument("--recordings_free_price_id", type=str, help="Price ID for free recordings")
         parser.add_argument("--limit", type=int, help="Limit the number of orgs to process")
         parser.add_argument("--organization-id", type=str, help="Only migrate this organization ID")
+        parser.add_argument("--ignore-ids", type=str, help="Comma-separated list of org IDs to ignore")
 
     def handle(self, *args, **options):
         try:
@@ -25,13 +26,19 @@ class Command(BaseCommand):
         recordings_free_price_id = options["recordings_free_price_id"]
         limit = options["limit"]
         organization_id = options["organization_id"]
+        ignore_ids = options["ignore_ids"]
+        if ignore_ids:
+            ignore_ids = ignore_ids.split(",")
+        else:
+            ignore_ids = []
 
         migrated_orgs = migrate_billing(
             events_price_map,
             recordings_free_price_id,
             dry_run=dry_run,
             limit=limit,
-            only_organization_id=organization_id,
+            organization_id=organization_id,
+            ignore_ids=ignore_ids,
         )
 
         if dry_run:
