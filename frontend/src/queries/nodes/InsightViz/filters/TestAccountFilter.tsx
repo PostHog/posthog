@@ -17,8 +17,6 @@ export function TestAccountFilter({ query, setQuery }: TestAccountFilterProps): 
         <LemonSwitch
             checked={hasFilters ? !!query.filterTestAccounts : false}
             onChange={(checked: boolean) => {
-                console.log('checked', checked)
-                console.log('setQuery', setQuery)
                 localStorage.setItem('default_filter_test_accounts', checked.toString())
                 setQuery({ ...query, filterTestAccounts: checked })
             }}
