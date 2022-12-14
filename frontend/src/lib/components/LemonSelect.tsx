@@ -1,5 +1,5 @@
 import { LemonDivider } from '@posthog/lemon-ui'
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { createRef, useEffect, useMemo, useRef, useState } from 'react'
 import { IconClose } from './icons'
 import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from './LemonButton'
 import { PopupProps } from './Popup/Popup'
@@ -138,7 +138,7 @@ export function LemonSelect<T>({
 
     const [sections, allLeafOptions] = useMemo(() => boxToSections(options), [options])
 
-    const elementsRef = useRef(allLeafOptions.map(() => useRef<HTMLButtonElement>(null)))
+    const elementsRef = useRef(allLeafOptions.map(() => createRef<HTMLButtonElement>()))
 
     useEffect(() => {
         if (focusedOptionIndex > -1) {
