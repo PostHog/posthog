@@ -170,6 +170,8 @@ class CHQueries:
             kind="request",
             id=request.path,
             route_id=route.route,
+            client_query_id=self._get_param(request, "client_query_id"),
+            session_id=self._get_param(request, "session_id"),
         )
 
         if hasattr(user, "current_team_id") and user.current_team_id:
@@ -184,6 +186,13 @@ class CHQueries:
             return response
         finally:
             reset_query_tags()
+
+    def _get_param(self, request: HttpRequest, name: str):
+        if name in request.GET:
+            return request.GET[name]
+        if name in request.POST:
+            return request.POST[name]
+        return None
 
 
 def shortcircuitmiddleware(f):
