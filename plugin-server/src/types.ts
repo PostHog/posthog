@@ -869,6 +869,7 @@ export interface RawPerformanceEvent {
     response_end: number
     decoded_body_size: number
     encoded_body_size: number
+    duration: number
 
     initiator_type: string
     next_hop_protocol: string
@@ -942,6 +943,9 @@ export const PerformanceEventReverseMapping: { [key: number]: keyof RawPerforman
     35: 'navigation_type',
     36: 'unload_event_end',
     37: 'unload_event_start',
+
+    // Added after v1
+    39: 'duration',
 }
 
 export enum TimestampFormat {

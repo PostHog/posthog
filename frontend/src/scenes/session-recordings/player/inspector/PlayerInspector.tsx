@@ -266,8 +266,9 @@ export function PlayerInspectorControls({
                         />
                     </div>
 
-                    <div className="flex items-center gap-1 flex-wrap px-2 text-xs mb-2 mt-1 font-medium">
+                    <div className="flex items-center gap-1 flex-wrap px-2 text-xs my-2 font-medium">
                         <span className="cursor-pointer p-1 px-1 rounded bg-primary-alt-highlight">All</span>
+                        <span className="cursor-pointer p-1 px-1 rounded text-muted">Page</span>
                         <span className="cursor-pointer p-1 px-1 rounded text-muted">XHR / Fetch</span>
                         <span className="cursor-pointer p-1 px-1 rounded text-muted">Assets</span>
                         <span className="cursor-pointer p-1 px-1 rounded text-muted">Other</span>

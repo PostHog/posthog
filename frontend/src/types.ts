@@ -889,6 +889,7 @@ export interface SessionRecordingEvents {
 
 export interface PerformanceEvent {
     uuid: string
+    timestamp: string
     distinct_id: string
     session_id: string
     window_id: string
@@ -896,8 +897,7 @@ export interface PerformanceEvent {
     current_url: string
 
     // BASE_EVENT_COLUMNS
-    time_origin?: number
-    origin_timestamp?: string
+    time_origin?: string
     entry_type?: string
     name?: string
 

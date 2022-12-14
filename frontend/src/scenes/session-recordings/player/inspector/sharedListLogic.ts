@@ -14,11 +14,12 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import Fuse from 'fuse.js'
+import { Dayjs, dayjs } from 'lib/dayjs'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
 type SharedListItemBase = {
-    timestamp: Date
+    timestamp: Dayjs
     search: string
 }
 
@@ -68,7 +69,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
         tab: [
-            SessionRecordingPlayerTab.EVENTS as SessionRecordingPlayerTab,
+            SessionRecordingPlayerTab.PERFORMANCE as SessionRecordingPlayerTab,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -90,17 +91,18 @@ export const sharedListLogic = kea<sharedListLogicType>([
         allItems: [
             (s) => [s.peformanceEvents],
             (peformanceEvents): SharedListItem[] => {
-                console.log({ peformanceEvents })
                 const items: SharedListItem[] = []
 
                 for (const event of peformanceEvents || []) {
                     items.push({
                         type: 'performance',
-                        timestamp: new Date(),
+                        timestamp: dayjs(event.timestamp).add(event.start_time || 0, 'ms'),
                         search: event.name || '',
                         data: event,
                     })
                 }
+
+                items.sort((a, b) => a.timestamp.diff(b.timestamp))
 
                 return items
 
@@ -136,6 +138,24 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
 
+        lastItemTimestamp: [
+            (s) => [s.allItems],
+            (allItems): Dayjs | undefined => {
+                if (allItems.length === 0) {
+                    return undefined
+                }
+                let maxTimestamp = allItems[0].timestamp
+
+                for (const item of allItems) {
+                    if (item.timestamp.isAfter(maxTimestamp)) {
+                        maxTimestamp = item.timestamp
+                    }
+                }
+
+                return maxTimestamp
+            },
+        ],
+
         fuse: [
             (s) => [s.allItems],
             (allItems): Fuse<SharedListItem> =>
@@ -144,7 +164,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     keys: ['search'],
                     findAllMatches: true,
                     ignoreLocation: true,
-                    sortFn: (a, b) => a.score - b.score,
+                    sortFn: (a, b) => allItems[a.idx].timestamp.diff(allItems[b.idx].timestamp) || a.score - b.score,
                 }),
         ],
 
