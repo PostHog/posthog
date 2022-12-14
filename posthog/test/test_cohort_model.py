@@ -56,7 +56,7 @@ class TestCohort(BaseTest):
             row[0]
             for row in sync_execute(GET_COHORTPEOPLE_BY_COHORT_ID, {"cohort_id": cohort.pk, "team_id": self.team.pk})
         ]
-        self.assertCountEqual(uuids, [person1.uuid, person3.uuid])
+        self.assertCountEqual(uuids, [str(person1.uuid), str(person3.uuid)])
 
     def test_empty_query(self):
         cohort2 = Cohort.objects.create(

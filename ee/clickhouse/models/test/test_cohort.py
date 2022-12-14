@@ -596,7 +596,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = self._get_cohortpeople(cohort1)
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0], p1.uuid)
+        self.assertEqual(results[0][0], str(p1.uuid))
 
     def test_cohort_change(self):
         p1 = Person.objects.create(
@@ -624,7 +624,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         results = self._get_cohortpeople(cohort1)
 
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0], p1.uuid)
+        self.assertEqual(results[0][0], str(p1.uuid))
 
         cohort1.groups = [
             {
@@ -640,7 +640,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         results = self._get_cohortpeople(cohort1)
         self.assertEqual(len(results), 1)
-        self.assertEqual(results[0][0], p2.uuid)
+        self.assertEqual(results[0][0], str(p2.uuid))
 
     def test_static_cohort_precalculated(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["1"])
@@ -831,7 +831,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1.calculate_people_ch(pending_version=0)
 
         result = self._get_cohortpeople(cohort1)
-        self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in result])
+        self.assertCountEqual([str(p1.uuid), str(p3.uuid)], [r[0] for r in result])
 
     def test_update_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"$some_prop": "something"})
