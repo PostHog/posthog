@@ -1,8 +1,14 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
+
+KAFKA_COLUMNS_WITH_PARTITION = """
+, _timestamp Nullable(DateTime)
+, _offset UInt64
+, _partition UInt64
+"""
 
 # TODO
 # explode server timing from Resource events into their own columns
@@ -45,6 +51,7 @@ name String,
 team_id Int64,
 current_url String,
 start_time Float64,
+duration Float64,
 redirect_start Float64,
 redirect_end Float64,
 worker_start Float64,
@@ -146,6 +153,22 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     return ",".join([clean_line(line).split(" ")[0] for line in column_definitions.split("\n") if clean_line(line)])
 
 
+DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
+    columns=PERFORMANCE_EVENT_COLUMNS,
+    table_name="performance_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+)
+
+WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
+    columns=PERFORMANCE_EVENT_COLUMNS,
+    table_name="writeable_performance_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+)
+
 PERFORMANCE_EVENTS_TABLE_MV_SQL = """
 CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
@@ -159,20 +182,4 @@ FROM {database}.kafka_performance_events
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
     extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
-)
-
-WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
-    columns=PERFORMANCE_EVENT_COLUMNS,
-    table_name="writeable_performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
-)
-
-DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
-    columns=PERFORMANCE_EVENT_COLUMNS,
-    table_name="performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
