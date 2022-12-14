@@ -198,6 +198,10 @@ export const userLogic = kea<userLogicType>([
     }),
 
     urlToAction(({ values }) => ({
-        '/year_in_posthog/2022': () => (window.location.href = `/year_in_posthog/2022/${values.user?.uuid}`),
+        '/year_in_posthog/2022': () => {
+            if (values.user?.uuid) {
+                window.location.href = `/year_in_posthog/2022/${values.user?.uuid}`
+            }
+        },
     })),
 ])
