@@ -64,22 +64,28 @@ export function CreateRoleModal(): JSX.Element {
             isOpen={createRoleModalShown}
             title={isNewRole ? 'Create role' : `Edit ${roleInFocus.name} role`}
             footer={
-                <div className="flex flex-row justify-between w-full">
-                    {!isNewRole && (
-                        <LemonButton
-                            htmlType="submit"
-                            type="primary"
-                            status={'danger'}
-                            onClick={() => deleteRole(roleInFocus)}
-                            data-attr="role-delete-submit"
-                        >
-                            Delete role
+                rolesLoading ? (
+                    <Spinner monocolor />
+                ) : (
+                    <div className="flex flex-row justify-between w-full">
+                        <div>
+                            {!isNewRole && (
+                                <LemonButton
+                                    htmlType="submit"
+                                    type="primary"
+                                    status={'danger'}
+                                    onClick={() => deleteRole(roleInFocus)}
+                                    data-attr="role-delete-submit"
+                                >
+                                    Delete role
+                                </LemonButton>
+                            )}
+                        </div>
+                        <LemonButton type="primary" onClick={handleSubmit}>
+                            Save
                         </LemonButton>
-                    )}
-                    <LemonButton type="primary" disabled={rolesLoading} onClick={handleSubmit}>
-                        {rolesLoading ? <Spinner monocolor /> : 'Save'}
-                    </LemonButton>
-                </div>
+                    </div>
+                )
             }
         >
             {isNewRole && (

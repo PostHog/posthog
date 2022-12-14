@@ -76,7 +76,7 @@ export const permissionsLogic = kea<permissionsLogicType>([
                 })
                 if (updatedRole) {
                     actions.updateRole(updatedRole)
-                    lemonToast.success(`${role.name} edit access updated`)
+                    lemonToast.success(`${role.name} role ${resourceType} edit access updated`)
                 }
             } else {
                 actions.updateOrganizationResourcePermission({
