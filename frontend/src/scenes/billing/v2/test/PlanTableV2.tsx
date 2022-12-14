@@ -45,6 +45,8 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    console.log(plans, 'THE PLANS')
+
     const upgradeButtons = plans.map((plan) => (
         <td key={`${plan.key}-cta`}>
             <LemonButton
@@ -65,6 +67,8 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
         </td>
     ))
 
+    console.log(plans, 'THE PLANS')
+
     return (
         <div className="PlanTable space-x-4">
             <table className="w-full table-fixed">
@@ -72,7 +76,7 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                     <tr>
                         <td />
                         {plans.map((plan) => (
-                            <td key={plan.name}>
+                            <td key={`plan-name-${plan.name}`}>
                                 <h3 className="font-bold">{plan.name}</h3>
                                 <p className="ml-0 text-xs">{plan.description}</p>
                                 {featureFlags[FEATURE_FLAGS.BILLING_PLAN_MOST_POPULAR_EXPERIMENT] === 'test' &&
@@ -92,28 +96,32 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                             <span>Pricing</span>
                         </th>
                     </tr>
-                    {/* <tr className="PlanTable__tr__border">
+                    <tr className="PlanTable__tr__border">
                         <td className="font-bold">Monthly base price</td>
                         {plans.map((plan) => (
                             <td key={`${plan.name}-basePrice`} className="text-sm font-bold">
-                                {plan.basePrice}
+                                {/* {plan.basePrice} */}
+                                ADD BASE PRICE
                             </td>
                         ))}
-                    </tr> */}
-                    {/* {Object.keys(plans[0].products).map((product, i) => (
+                    </tr>
+                    {Object.keys(plans[0].feature_list).map((product, i) => (
                         <tr
-                            key={product}
+                            key={`plan-pricing-${product}`}
                             className={
-                                i !== Object.keys(billingPlans[0].products).length - 1 ? 'PlanTable__tr__border' : ''
+                                i !== Object.keys(plans[0].feature_list).length - 1 ? 'PlanTable__tr__border' : ''
                             }
                         >
                             <th scope="row">
-                                {billingPlans[0].products[product].name}
-                                <p className="ml-0 text-xs text-muted mt-1">{billingPlans[0].products[product].note}</p>
+                                {plans[0].feature_list[product].description}
+                                <p className="ml-0 text-xs text-muted mt-1">
+                                    {plans[0].feature_list[product].note || 'ADD NOTES'}
+                                </p>
                             </th>
-                            {billingPlans.map((plan) => (
-                                <td key={`${plan.name}-${product}`}>
-                                    {plan.products[i].tiers.map((tier) => (
+                            {plans.map((plan) => (
+                                <td key={`plan-tiers-${plan.name}-${product}`}>
+                                    ADD PRICING TIERS
+                                    {/* {plan.feature_list[i].tiers.map((tier) => (
                                         <div
                                             key={`${plan.name}-${product}-${tier.description}`}
                                             className="flex justify-between items-center"
@@ -121,7 +129,7 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                                             <span className="text-xs">{tier.description}</span>
                                             <span className="font-bold">{tier.price}</span>
                                         </div>
-                                    ))}
+                                    ))} */}
                                     {plan.name !== 'PostHog Cloud Lite' ? (
                                         <Link
                                             to="https://posthog.com/pricing"
@@ -134,7 +142,7 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                                 </td>
                             ))}
                         </tr>
-                    ))} */}
+                    ))}
                     <tr>
                         <td />
                         {upgradeButtons}
@@ -161,23 +169,24 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                     {Object.keys(plans[0].feature_list).map((feature, i) => (
                         <>
                             <tr
-                                key={feature}
+                                key={`plan-product-features-${feature}`}
                                 className={
                                     // Show the bottom border if it's not the last feature in the list and it doesn't have subfeatures
                                     i !== Object.keys(plans[0].feature_list).length - 1 &&
-                                    !plans[0].feature_list[feature].subfeatures
+                                    !plans[0].feature_list[feature].features
                                         ? 'PlanTable__tr__border'
                                         : ''
                                 }
                             >
-                                <th>{plans[0].feature_list[feature].name}</th>
+                                <th>{plans[0].feature_list[feature].description}</th>
                                 {plans.map((plan) => (
-                                    <td key={`${plan.name}-${feature}`}>
+                                    <td key={`plan-product-features-2-${plan.name}-${feature}`}>
                                         <PlanIcon
                                             value={plan.feature_list[feature].value}
                                             note={plan.feature_list[feature].description}
                                             className={'text-xl'}
                                         />
+                                        CALCULATE FROM SUBFEATURES
                                     </td>
                                 ))}
                             </tr>
@@ -193,15 +202,14 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                                           }
                                       >
                                           <th className="PlanTable__th__subfeature text-muted text-xs">
-                                              {plans[0].feature_list[feature].features[subfeature].name}
+                                              {plans[0].feature_list[feature].features[subfeature].description}
                                           </th>
                                           {plans.map((plan) => (
                                               <td key={`${plan.name}-${subfeature}`}>
                                                   <PlanIcon
-                                                      value={plan.feature_list[feature].subfeatures[subfeature]?.value}
+                                                      value={plan.feature_list[feature].features[subfeature]?.value}
                                                       note={
-                                                          plan.feature_list[feature].subfeatures[subfeature]
-                                                              ?.description
+                                                          plan.feature_list[feature].features[subfeature]?.description
                                                       }
                                                       className={'text-base'}
                                                   />
