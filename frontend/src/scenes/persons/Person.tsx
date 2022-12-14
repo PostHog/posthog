@@ -163,6 +163,7 @@ export function Person(): JSX.Element | null {
                         <Query
                             query={{
                                 kind: NodeKind.DataTableNode,
+                                hiddenColumns: ['person'],
                                 source: {
                                     kind: NodeKind.EventsNode,
                                     personId: person.id,

@@ -122,6 +122,8 @@ export interface DataTableNode extends Node {
     source: EventsNode | PersonsNode
     /** Columns shown in the table  */
     columns?: DataTableColumn[]
+    /** Columns that aren't shown in the table, even if in columns */
+    hiddenColumns?: DataTableColumn[]
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */

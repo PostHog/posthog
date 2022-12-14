@@ -29,6 +29,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 return {
                     kind,
                     columns: columns,
+                    hiddenColumns: [],
                     source,
                     ...sortedKeys({
                         ...rest,
