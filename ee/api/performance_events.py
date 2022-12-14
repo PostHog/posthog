@@ -67,7 +67,7 @@ class PerformanceEvents:
     @classmethod
     def query(cls, session_id: str, pageview_id: str, team_id: int) -> List[Dict]:
         query = """
-                select toDateTime(time_origin + (start_time/1000)) as timestamp, * from performance_events
+                select toDateTime64(time_origin + (start_time/1000), 3, 'UTC') as timestamp, * from performance_events
                 prewhere team_id = %(team_id)s
                 and session_id = %(session_id)s
                 order by timestamp
