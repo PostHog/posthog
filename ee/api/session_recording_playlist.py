@@ -7,13 +7,12 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotAuthenticated, PermissionDenied
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
-from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.api.session_recording import SessionRecordingSerializer
+from posthog.api.session_recording import list_recordings
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import (
     SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS,
@@ -23,12 +22,9 @@ from posthog.constants import (
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.person.person import PersonDistinctId
-from posthog.models.session_recording_event.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.utils import relative_date_parse
 
@@ -229,50 +225,10 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         serialized.is_valid(raise_exception=False)
 
         filter = SessionRecordingsFilter(request=request)
-
         # Copy the filter and extend with the pinned recordings
         filter = filter.with_data({SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS: json.dumps(serialized.data)})
 
-        # TODO: Everything from here on is copy-pasted from session_recordings.py - this should be unified somehow
-        (session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=self.team).run()
-
-        if not request.user.is_authenticated:  # for mypy
-            raise NotAuthenticated()
-        viewed_session_recordings = set(
-            SessionRecordingViewed.objects.filter(team=self.team, user=request.user).values_list(
-                "session_id", flat=True
-            )
-        )
-
-        distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
-        person_distinct_ids = PersonDistinctId.objects.filter(
-            distinct_id__in=distinct_ids, team=self.team
-        ).select_related("person")
-        distinct_id_to_person = {}
-        for person_distinct_id in person_distinct_ids:
-            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
-
-        session_recordings = list(
-            map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings}, session_recordings)
-        )
-
-        session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)
-        session_recording_serializer.is_valid(raise_exception=True)
-        session_recording_serializer_with_person = list(
-            map(
-                lambda session_recording: {
-                    **session_recording,
-                    "person": PersonSerializer(
-                        instance=distinct_id_to_person.get(session_recording["distinct_id"])
-                    ).data,
-                },
-                session_recording_serializer.data,
-            )
-        )
-
-        return response.Response(
-            {"results": session_recording_serializer_with_person, "has_next": more_recordings_available}
-        )
+        return response.Response(list_recordings(filter, request, self.team))
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @action(methods=["POST", "DELETE"], detail=True, url_path="recordings/(?P<session_recording_id>[^/.]+)")

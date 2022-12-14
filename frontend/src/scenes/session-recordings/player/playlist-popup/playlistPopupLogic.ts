@@ -52,18 +52,18 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             },
 
             addToPlaylist: async ({ playlist }) => {
-                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
+                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
-                await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
+                await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
         },
     })),
     reducers(() => ({
-        searchQuery: ['', { setSearchQuery: (_, { query }) => query, submitNewPlaylistSuccess: () => '' }],
+        searchQuery: ['', { setSearchQuery: (_, { query }) => query }],
         newFormShowing: [
             false,
             {
@@ -96,18 +96,17 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 const newPlaylist = await createPlaylist({
                     name,
                 })
-                breakpoint()
 
                 if (!newPlaylist) {
                     // This indicates the billing popup has been shown so we should close the modal
-
                     actions.setShowPlaylistPopup(false)
                     return
                 }
 
+                actions.addToPlaylist(newPlaylist)
                 actions.setNewFormShowing(false)
                 actions.resetNewPlaylist()
-                actions.loadPlaylists()
+                actions.setSearchQuery('')
             },
         },
     })),

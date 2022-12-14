@@ -18,6 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
@@ -30,6 +31,8 @@ export function SessionsRecordings(): JSX.Element {
     if (!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]) {
         visibleTabs.push(SessionRecordingsTabs.FilePlayback)
     }
+
+    const newPlaylistHandler = useAsyncHandler(() => createPlaylist({}, true))
 
     return (
         <div>
@@ -50,8 +53,9 @@ export function SessionsRecordings(): JSX.Element {
                         {tab === SessionRecordingsTabs.Playlists && (
                             <LemonButton
                                 type="primary"
-                                onClick={() => createPlaylist({}, true)}
+                                onClick={newPlaylistHandler.onEvent}
                                 data-attr="save-recordings-playlist-button"
+                                loading={newPlaylistHandler.loading}
                             >
                                 New playlist
                             </LemonButton>

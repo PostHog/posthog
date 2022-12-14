@@ -14,7 +14,7 @@ export interface LemonButtonPropsBase
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     extends Pick<
         React.ButtonHTMLAttributes<HTMLElement>,
-        'title' | 'id' | 'tabIndex' | 'form' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave'
+        'title' | 'onClick' | 'id' | 'tabIndex' | 'form' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave'
     > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'
@@ -32,8 +32,6 @@ export interface LemonButtonPropsBase
     targetBlank?: boolean
     /** External URL to link to. */
     className?: string
-
-    onClick?: (e: React.MouseEvent<HTMLButtonElement>) => any | Promise<any>
 
     icon?: React.ReactElement | null
     sideIcon?: React.ReactElement | null
@@ -79,40 +77,20 @@ function LemonButtonInternal(
         to,
         targetBlank,
         disableClientSideRouting,
-        onClick,
         ...buttonProps
     }: LemonButtonProps,
     ref: React.Ref<HTMLElement>
 ): JSX.Element {
-    const [clickLoading, setClickLoading] = useState<boolean | null>(null)
+    if (loading) {
+        icon = <Spinner monocolor />
+    }
 
     const ButtonComponent = to ? Link : 'button'
+
     const linkOnlyProps = to ? { disableClientSideRouting } : {}
-
-    const localOnClick = (e: any): void => {
-        if (clickLoading) {
-            return
-        }
-
-        const clickPromise = onClick?.(e)
-        if (!clickPromise?.finally) {
-            return
-        }
-
-        setClickLoading(true)
-        clickPromise?.finally(() => {
-            setClickLoading(false)
-        })
-    }
 
     if (ButtonComponent === 'button' && !buttonProps['aria-label'] && typeof tooltip === 'string') {
         buttonProps['aria-label'] = tooltip
-    }
-
-    buttonProps['onClick'] = onClick ? localOnClick : undefined
-
-    if (loading || clickLoading) {
-        icon = <Spinner monocolor />
     }
 
     let workingButton = (
@@ -137,7 +115,6 @@ function LemonButtonInternal(
             disabled={disabled || loading}
             to={disabled ? undefined : to}
             target={targetBlank ? '_blank' : undefined}
-            onClick={onClick ? localOnClick : undefined}
             {...linkOnlyProps}
             {...buttonProps}
         >

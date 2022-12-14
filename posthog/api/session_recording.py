@@ -16,6 +16,7 @@ from posthog.models.filters.session_recordings_filter import SessionRecordingsFi
 from posthog.models.person import Person
 from posthog.models.session_recording import SessionRecording as SessionRecordingModel
 from posthog.models.session_recording_event import SessionRecordingViewed
+from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.session_recordings.session_recording import SessionRecording
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
@@ -80,43 +81,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         filter = SessionRecordingsFilter(request=request)
-        (session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=self.team).run()
-
-        if not request.user.is_authenticated:  # for mypy
-            raise exceptions.NotAuthenticated()
-        viewed_session_recordings = set(
-            SessionRecordingViewed.objects.filter(team=self.team, user=request.user).values_list(
-                "session_id", flat=True
-            )
-        )
-
-        distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
-        person_distinct_ids = PersonDistinctId.objects.filter(
-            distinct_id__in=distinct_ids, team=self.team
-        ).select_related("person")
-        distinct_id_to_person = {}
-        for person_distinct_id in person_distinct_ids:
-            distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
-
-        session_recordings = list(
-            map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings}, session_recordings)
-        )
-
-        session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)
-        session_recording_serializer.is_valid(raise_exception=True)
-        session_recording_serializer_with_person = list(
-            map(
-                lambda session_recording: {
-                    **session_recording,
-                    "person": PersonSerializer(
-                        instance=distinct_id_to_person.get(session_recording["distinct_id"])
-                    ).data,
-                },
-                session_recording_serializer.data,
-            )
-        )
-
-        return Response({"results": session_recording_serializer_with_person, "has_next": more_recordings_available})
+        return Response(list_recordings(filter, request, self.team))
 
     # Returns metadata about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
@@ -259,3 +224,39 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             }
         )
         return session_recording_serializer, session_recording_meta_data
+
+
+def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team) -> dict:
+    (session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
+
+    if not request.user.is_authenticated:  # for mypy
+        raise exceptions.NotAuthenticated()
+    viewed_session_recordings = set(
+        SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
+    )
+
+    distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
+    person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
+        "person"
+    )
+    distinct_id_to_person = {}
+    for person_distinct_id in person_distinct_ids:
+        distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
+
+    session_recordings = list(
+        map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings}, session_recordings)
+    )
+
+    session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)
+    session_recording_serializer.is_valid(raise_exception=True)
+    results = list(
+        map(
+            lambda session_recording: {
+                **session_recording,
+                "person": PersonSerializer(instance=distinct_id_to_person.get(session_recording["distinct_id"])).data,
+            },
+            session_recording_serializer.data,
+        )
+    )
+
+    return {"results": results, "has_next": more_recordings_available}
