@@ -13,6 +13,7 @@ import {
     NodeKind,
     InsightQueryNode,
     PersonsNode,
+    InsightVizNode,
 } from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsNode | ActionsNode | PersonsNode {
@@ -33,6 +34,10 @@ export function isPersonsNode(node?: Node): node is PersonsNode {
 
 export function isDataTableNode(node?: Node): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
+}
+
+export function isInsightVizNode(node?: Node): node is InsightVizNode {
+    return node?.kind === NodeKind.InsightVizNode
 }
 
 export function isLegacyQuery(node?: Node): node is LegacyQuery {
