@@ -6,6 +6,7 @@ import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import type { insightLogicType } from './insightLogicType'
 import {
     ActionType,
+    BaseMathType,
     FilterType,
     InsightLogicProps,
     InsightModel,
@@ -47,7 +48,7 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/react'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -90,7 +91,18 @@ export const createEmptyInsight = (
 
 const getDefaultQuery = (): InsightVizNode => ({
     kind: NodeKind.InsightVizNode,
-    source: { kind: NodeKind.TrendsQuery, series: [] },
+    source: {
+        kind: NodeKind.LifecycleQuery,
+        series: [
+            {
+                kind: NodeKind.EventsNode,
+                name: '$pageview',
+                event: '$pageview',
+                math: BaseMathType.TotalCount,
+            },
+        ],
+        lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
+    },
 })
 
 export const insightLogic = kea<insightLogicType>([

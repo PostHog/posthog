@@ -1,5 +1,5 @@
 import { DataNode, EventsNode, PersonsNode } from './schema'
-import { isEventsNode, isLegacyQuery, isPersonsNode } from './utils'
+import { isEventsNode, isInsightQueryNode, isLegacyQuery, isPersonsNode } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { AnyPartialFilterType } from '~/types'
@@ -13,6 +13,7 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { toParams } from 'lib/utils'
+import { queryNodeToFilter } from './nodes/InsightQuery/queryNodeToFilter'
 
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
@@ -23,6 +24,13 @@ export async function query<N extends DataNode = DataNode>(
         return await api.get(getEventsEndpoint(query))
     } else if (isPersonsNode(query)) {
         return await api.get(getPersonsEndpoint(query))
+    } else if (isInsightQueryNode(query)) {
+        const filters = queryNodeToFilter(query)
+        const [response] = await legacyInsightQuery({
+            filters,
+            currentTeamId: getCurrentTeamId(),
+        })
+        return await response.json()
     } else if (isLegacyQuery(query)) {
         const [response] = await legacyInsightQuery({
             filters: query.filters,
