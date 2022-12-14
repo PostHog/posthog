@@ -1,4 +1,4 @@
-from typing import Dict
+from typing import Dict, Optional
 
 import requests
 
@@ -12,7 +12,7 @@ def migrate_billing(
     recordings_price_id: str,
     dry_run: bool = False,
     limit: int = 10,
-    organization_id: int = None,
+    organization_id: Optional[int] = None,
     ignore_ids: list = [],
 ) -> int:
     try:
@@ -21,8 +21,10 @@ def migrate_billing(
         from multi_tenancy.stripe import _init_stripe  # noqa: F401
     except ImportError:
         print("Couldn't import multi_tenancy models")  # noqa T201
-        return
+        return 0
     license = License.objects.first_valid()
+    if not license:  # mypy
+        return 0
     _init_stripe()
 
     migrated_orgs = 0
