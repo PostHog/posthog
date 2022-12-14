@@ -377,7 +377,15 @@ GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
 """
 
-GET_EVENTS_VOLUME = "SELECT event, count() AS count, max(timestamp) AS last_seen_at FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
+GET_EVENTS_VOLUME = """
+SELECT event, count() AS count, max(timestamp) AS last_seen_at
+FROM events
+PREWHERE team_id = %(team_id)s
+AND timestamp > %(timestamp)s
+GROUP BY event ORDER BY count DESC
+"""
+
+
 GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
     WITH property_tuples AS (
         SELECT DISTINCT ON (property_tuple.1)

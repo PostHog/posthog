@@ -1,5 +1,6 @@
 import inspect
-from typing import Any, Counter, Dict, Literal, Optional, Union
+from collections import Counter
+from typing import Any, Dict, Literal, Optional, Union
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError

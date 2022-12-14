@@ -135,8 +135,13 @@ export function getPlayerPositionFromEpochTime(
         const windowStartTime = startAndEndTimesByWindowId[windowId].startTimeEpochMs
         const windowEndTime = startAndEndTimesByWindowId[windowId].endTimeEpochMs
 
-        if (windowStartTime > epochTime || windowEndTime < epochTime) {
-            return null
+        // We clamp the events to always be within the window range
+        // This way events that are offset by a few seconds don't get lost
+        if (windowStartTime > epochTime) {
+            epochTime = windowStartTime
+        }
+        if (windowEndTime < epochTime) {
+            epochTime = windowEndTime
         }
 
         return {

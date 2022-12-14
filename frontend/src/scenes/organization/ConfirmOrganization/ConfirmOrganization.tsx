@@ -22,7 +22,7 @@ export function ConfirmOrganization(): JSX.Element {
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
 
     return (
-        <BridgePage view="org-creation-confirmation">
+        <BridgePage view="org-creation-confirmation" hedgehog>
             <h2>Create a new organization</h2>
             <div className="flex-1">
                 <p className="text-center">

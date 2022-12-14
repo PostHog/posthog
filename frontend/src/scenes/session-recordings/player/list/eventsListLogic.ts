@@ -144,12 +144,14 @@ export const eventsListLogic = kea<eventsListLogicType>([
                     : eventsBeforeFiltering
 
                 const matchingEventIds = new Set(matchingEvents.map((e) => e.uuid))
+                const shouldShowOnlyMatching = matchingEvents.length > 0 && showOnlyMatching
+
                 return events
                     .filter(
                         (e) =>
                             (windowIdFilter === RecordingWindowFilter.All ||
                                 e.playerPosition?.windowId === windowIdFilter) &&
-                            (!showOnlyMatching || matchingEventIds.has(String(e.id)))
+                            (!shouldShowOnlyMatching || matchingEventIds.has(String(e.id)))
                     )
                     .map((e) => ({
                         ...e,

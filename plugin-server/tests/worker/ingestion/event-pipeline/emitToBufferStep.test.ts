@@ -60,6 +60,10 @@ beforeEach(() => {
             kafkaProducer: {
                 queueMessage: jest.fn(),
             },
+            teamManager: {
+                setTeamIngestedEvent: jest.fn(),
+                fetchTeam: jest.fn().mockResolvedValue({ id: 2, ingested_event: false }),
+            },
         },
     }
 })
@@ -86,6 +90,14 @@ describe('emitToBufferStep()', () => {
         })
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
+
+        // We should have also set `posthog_team.ingested_event` to true, even
+        // though the event hasn't been completely processed but is being
+        // delayed instead.
+        expect(runner.hub.teamManager.setTeamIngestedEvent).toHaveBeenCalledWith(
+            { id: 2, ingested_event: false },
+            { foo: 'bar' }
+        )
     })
 
     it('calls `pluginsProcessEventStep` next if not buffering', async () => {

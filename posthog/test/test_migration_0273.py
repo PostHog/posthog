@@ -1,14 +1,15 @@
 import json
 from datetime import timedelta
 
+from django.core.management import call_command
 from django.utils import timezone
 from freezegun.api import freeze_time
 
-from posthog.test.base import TestMigrations
+from posthog.test.base import NonAtomicTestMigrations
 
 
 @freeze_time("2021-08-25T13:00:00Z")
-class MarkInactiveExportsAsFinished(TestMigrations):
+class MarkInactiveExportsAsFinished(NonAtomicTestMigrations):
     migrate_from = "0272_alter_organization_plugins_access_level"
     migrate_to = "0273_mark_inactive_exports_as_finished"
 
@@ -150,7 +151,7 @@ class MarkInactiveExportsAsFinished(TestMigrations):
             plugin_config_id=self.plugin_configs[5].pk, key="EXPORT_PARAMETERS", value=json.dumps({"id": "7"})
         )
 
-    def test_migration(self):
+    def _test_migration(self):
         ActivityLog = self.apps.get_model("posthog", "ActivityLog")  # type: ignore
 
         entries = ActivityLog.objects.filter(activity="export_fail", is_system=True)
@@ -160,6 +161,16 @@ class MarkInactiveExportsAsFinished(TestMigrations):
             set(entry.detail["trigger"]["failure_reason"] for entry in entries),
             {"Export was killed after too much inactivity"},
         )
+
+    def test_migration(self):
+        try:
+            self._test_migration()
+        finally:
+            # As we are using NonAtomicTestMigrations, we can't rely on the usual
+            # transaction rollback that Djangos test runner would usually do.
+            # Instead, the runner will call `django-admin.py flush` to clean up,
+            # which requires that we are up to date on applied migrations.
+            call_command("migrate", "posthog", verbosity=0)
 
     def create_entry(self, apps, plugin_config_id, activity, created_at, detail):
         ActivityLog = apps.get_model("posthog", "ActivityLog")

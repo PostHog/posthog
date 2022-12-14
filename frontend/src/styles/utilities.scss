@@ -642,32 +642,36 @@
 }
 
 .rounded-sm {
-    border-radius: 0.125rem; /* 2px */
+    border-radius: calc(var(--radius) / 2); /* 2px */
 }
 .rounded {
-    border-radius: 0.25rem; /* 4px */
+    border-radius: var(--radius); /* 4px */
 }
 .rounded-t {
-    border-top-left-radius: 0.25rem; /* 4px */
-    border-top-right-radius: 0.25rem; /* 4px */
+    border-top-left-radius: var(--radius); /* 4px */
+    border-top-right-radius: var(--radius); /* 4px */
+}
+.rounded-b {
+    border-bottom-left-radius: var(--radius); /* 4px */
+    border-bottom-right-radius: var(--radius); /* 4px */
 }
 .rounded-md {
-    border-radius: 0.375rem; /* 6px */
+    border-radius: calc(var(--radius) * 1.5); /* 6px */
 }
 .rounded-lg {
-    border-radius: 0.5rem; /* 8px */
+    border-radius: calc(var(--radius) * 2); /* 8px */
 }
 .rounded-xl {
-    border-radius: 0.75rem; /* 12px */
+    border-radius: calc(var(--radius) * 3); /* 12px */
 }
 .rounded-2xl {
-    border-radius: 1rem; /* 16px */
+    border-radius: calc(var(--radius) * 4); /* 16px */
 }
 .rounded-3xl {
-    border-radius: 1.5rem; /* 24px */
+    border-radius: calc(var(--radius) * 6); /* 24px */
 }
 .rounded-full {
-    border-radius: 9999px;
+    border-radius: 1000rem;
 }
 
 .overflow-auto {
@@ -871,4 +875,8 @@
 
 .hidden {
     display: none;
+}
+
+.resize-y {
+    resize: vertical;
 }

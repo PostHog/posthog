@@ -555,7 +555,7 @@ const api = {
         },
         async list(
             filters: EventsListQueryParams,
-            limit: number = 10,
+            limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
@@ -563,7 +563,7 @@ const api = {
         },
         determineListEndpoint(
             filters: EventsListQueryParams,
-            limit: number = 10,
+            limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
@@ -816,7 +816,7 @@ const api = {
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },
-        async updateProperty(id: number, property: string, value: any): Promise<void> {
+        async updateProperty(id: string, property: string, value: any): Promise<void> {
             return new ApiRequest()
                 .person(id)
                 .withAction('update_property')
@@ -827,7 +827,7 @@ const api = {
                     },
                 })
         },
-        async deleteProperty(id: number, property: string): Promise<void> {
+        async deleteProperty(id: string, property: string): Promise<void> {
             return new ApiRequest()
                 .person(id)
                 .withAction('delete_property')

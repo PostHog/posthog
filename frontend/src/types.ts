@@ -275,6 +275,8 @@ export interface TeamType extends TeamBasicType {
      * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
      */
     correlation_config: CorrelationConfigType | null
+    person_on_events_querying_enabled: boolean
+    groups_on_events_querying_enabled: boolean
 }
 
 export interface ActionType {
@@ -642,7 +644,7 @@ export interface FunnelStepRangeEntityFilter {
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
-    id?: number
+    id?: string
     uuid?: string
     name?: string
     distinct_ids: string[]
@@ -820,7 +822,7 @@ export interface RecordingTimeMixinType {
     playerTime: number | null
     playerPosition: PlayerPosition | null
     colonTimestamp?: string
-    isOutOfBand?: boolean // Did the event or console log not originate from the same client library as the recording
+    capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
@@ -1397,6 +1399,7 @@ export interface EventsListQueryParams {
     orderBy?: string[]
     action_id?: number
     after?: string
+    before?: string
     limit?: number
 }
 
@@ -2027,6 +2030,8 @@ export interface AppContext {
     switched_team: TeamType['id'] | null
     /** First day of the week (0 = Sun, 1 = Mon, ...) */
     week_start: number
+
+    year_in_hog_url?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

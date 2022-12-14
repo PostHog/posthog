@@ -4,10 +4,12 @@ from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
 import pytz
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
@@ -16,7 +18,7 @@ from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.team.util import person_on_events_ready
+from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -210,7 +212,16 @@ class Team(UUIDClassicModel):
         return self.get_effective_membership_level_for_parent_membership(requesting_parent_membership)
 
     @property
-    def actor_on_events_querying_enabled(self) -> bool:
+    def person_on_events_querying_enabled(self) -> bool:
+        result = self._person_on_events_querying_enabled
+        tag_queries(person_on_events_enabled=result)
+        return result
+
+    @property
+    def _person_on_events_querying_enabled(self) -> bool:
+        if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
+            return settings.PERSON_ON_EVENTS_OVERRIDE
+
         # on PostHog Cloud, use the feature flag
         if is_cloud():
             return posthoganalytics.feature_enabled(
@@ -224,7 +235,7 @@ class Team(UUIDClassicModel):
             )
 
         # If the async migration is not complete, don't enable actor on events querying.
-        if not person_on_events_ready():
+        if not actor_on_events_ready():
             return False
 
         # on self-hosted, use the instance setting
@@ -284,7 +295,7 @@ def groups_on_events_querying_enabled():
 
     Remove all usages of this when the feature is released to everyone.
     """
-    return person_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
+    return actor_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
 
 
 def get_available_features_for_team(team_id: int):

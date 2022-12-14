@@ -1,0 +1,15 @@
+#
+# This Dockerfile is used for locally running Playwright in a linux environment.
+# We do this to ensure our reference images for visual regression tests are the 
+# same during development and in CI.
+#
+
+FROM mcr.microsoft.com/playwright:v1.28.0-focal
+
+RUN curl -f https://get.pnpm.io/v6.16.js | node - add --global pnpm
+
+WORKDIR /work
+
+RUN pnpm install -D @playwright/test
+
+COPY playwright.config.ts ./
