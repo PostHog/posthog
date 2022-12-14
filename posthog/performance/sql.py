@@ -119,7 +119,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 PERFORMANCE_EVENTS_TABLE_SQL = (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(origin_timestamp)
-ORDER BY (team_id, toDate(origin_timestamp), session_id, pageview_id)
+ORDER BY (team_id, session_id, pageview_id)
 {storage_policy}
 """
 ).format(
