@@ -32,6 +32,7 @@ export function CreateRoleModal(): JSX.Element {
         addRoleMembers,
         setPermission,
         setPermissionInPlace,
+        deleteRole,
     } = useActions(rolesLogic)
 
     const { isAdminOrOwner } = useValues(organizationLogic)
@@ -63,11 +64,22 @@ export function CreateRoleModal(): JSX.Element {
             isOpen={createRoleModalShown}
             title={isNewRole ? 'Create role' : `Edit ${roleInFocus.name} role`}
             footer={
-                isNewRole && (
+                <div className="flex flex-row justify-between w-full">
+                    {!isNewRole && (
+                        <LemonButton
+                            htmlType="submit"
+                            type="primary"
+                            status={'danger'}
+                            onClick={() => deleteRole(roleInFocus)}
+                            data-attr="role-delete-submit"
+                        >
+                            Delete role
+                        </LemonButton>
+                    )}
                     <LemonButton type="primary" disabled={rolesLoading} onClick={handleSubmit}>
-                        {rolesLoading ? <Spinner monocolor /> : 'Create role'}
+                        {rolesLoading ? <Spinner monocolor /> : 'Save'}
                     </LemonButton>
-                )
+                </div>
             }
         >
             {isNewRole && (

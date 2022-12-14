@@ -127,6 +127,9 @@ export const rolesLogic = kea<rolesLogicType>([
                 actions.updateRole(newRole)
             }
         },
+        deleteRoleSuccess: () => {
+            actions.setCreateRoleModalShown(false)
+        },
     })),
     selectors({
         addableMembers: [
