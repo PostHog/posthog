@@ -36,7 +36,7 @@ def migrate_billing(
                 stripe_customer_id__exact=""
             )[:limit]
         for billing in query:
-            if billing.organization.id in ignore_ids:
+            if str(billing.organization.id) in ignore_ids:
                 print("Ignoring: ", billing.organization.name)  # noqa T201
                 continue
             try:
