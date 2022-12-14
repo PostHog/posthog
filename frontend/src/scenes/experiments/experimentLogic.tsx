@@ -533,17 +533,9 @@ export const experimentLogic = kea<experimentLogicType>([
             ],
         ],
         variants: [
-            (s) => [s.experiment, s.experiment],
-            (newexperiment, experiment): MultivariateFlagVariant[] => {
-                if (experiment?.start_date) {
-                    return experiment?.parameters?.feature_flag_variants || []
-                }
-
-                return (
-                    newexperiment?.parameters?.feature_flag_variants ||
-                    experiment?.parameters?.feature_flag_variants ||
-                    []
-                )
+            (s) => [s.experiment],
+            (experiment): MultivariateFlagVariant[] => {
+                return experiment?.parameters?.feature_flag_variants || []
             },
         ],
         taxonomicGroupTypesForSelection: [
