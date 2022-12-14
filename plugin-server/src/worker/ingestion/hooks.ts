@@ -166,7 +166,7 @@ export class HookCommander {
     statsd: StatsD | undefined
 
     /** Hook request timeout in ms. */
-    EXTERNAL_REQUEST_TIEMOUT = 10 * 1000
+    EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
 
     constructor(
         db: DB,
@@ -299,7 +299,7 @@ export class HookCommander {
     }
 
     private trackedTimeoutSignal(metricName: string, metricTags?: Record<string, string>): AbortSignal {
-        const signal = AbortSignal.timeout(this.EXTERNAL_REQUEST_TIEMOUT)
+        const signal = AbortSignal.timeout(this.EXTERNAL_REQUEST_TIMEOUT)
         signal.addEventListener('abort', () => {
             this.statsd?.increment(metricName, metricTags)
         })
