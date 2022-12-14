@@ -13,6 +13,7 @@ import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
 import { AlertMessage } from '../AlertMessage'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
@@ -121,14 +122,17 @@ export const Loading = (): JSX.Element => {
 }
 
 export const LoadingViaOnClick = (): JSX.Element => {
+    const { loading, onEvent } = useAsyncHandler(async () => await delay(1000))
+
     return (
         <div className="space-y-2">
             <p>
                 For simple use-cases, you may want to use a button click to trigger something async and show a loading
-                state. This is simplified by simply using an async function as the <code>onClick</code> handler.
+                state. Generally speaking this should exist in a <code>kea logic</code> but for simple cases you can use
+                the <code>useAsyncHandler</code>
             </p>
             <div className="flex items-center gap-2">
-                <LemonButton type="secondary" onClick={async () => await delay(1000)}>
+                <LemonButton type="secondary" loading={loading} onClick={onEvent}>
                     I load for one second
                 </LemonButton>
             </div>

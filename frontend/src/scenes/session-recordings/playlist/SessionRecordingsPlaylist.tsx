@@ -19,6 +19,7 @@ import { DurationFilter } from '../filters/DurationFilter'
 import { SessionRecordingsList } from './SessionRecordingsList'
 import { StickyView } from 'lib/components/StickyView/StickyView'
 import { createPlaylist } from './playlistUtils'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 
 const MARGIN_TOP = 16
 
@@ -85,6 +86,8 @@ export function SessionRecordingsPlaylist({
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
 
+    const newPlaylistHandler = useAsyncHandler(() => createPlaylist({ filters }, true))
+
     const offset = filters.offset ?? 0
     const nextLength = offset + (sessionRecordingsResponseLoading ? RECORDINGS_LIMIT : sessionRecordings.length)
 
@@ -138,7 +141,8 @@ export function SessionRecordingsPlaylist({
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                onClick={() => createPlaylist({ filters }, true)}
+                                onClick={newPlaylistHandler.onEvent}
+                                loading={newPlaylistHandler.loading}
                                 data-attr="save-recordings-playlist-button"
                                 tooltip="Save the current filters as a playlist that you can come back to."
                             >
