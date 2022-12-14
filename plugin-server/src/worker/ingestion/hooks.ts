@@ -17,6 +17,7 @@ export enum WebhookType {
     Teams = 'teams',
 }
 
+/** Hook request timeout in ms. */
 const HOOK_TIMEOUT = 10 * 1000
 
 export function determineWebhookType(url: string): WebhookType {
@@ -242,22 +243,18 @@ export class HookCommander {
                 text: messageMarkdown,
             }
         }
-        const statsd = this.statsd
-        ;(AbortSignal as any).timeout ??= function timeout(ms: number) {
-            const ctrl = new AbortController()
-            setTimeout(() => {
-                ctrl.abort()
-                statsd?.increment('webhook_timeouts', {
-                    team_id: event.teamId.toString(),
-                })
-            }, ms)
-            return ctrl.signal
-        }
+
+        const signal = AbortSignal.timeout(HOOK_TIMEOUT)
+        signal.addEventListener('abort', () => {
+            this.statsd?.increment('webhook_timeouts', {
+                team_id: event.teamId.toString(),
+            })
+        })
         await fetch(webhookUrl, {
             method: 'POST',
             body: JSON.stringify(message, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
-            signal: (AbortSignal as any).timeout(HOOK_TIMEOUT),
+            signal,
         })
         this.statsd?.increment('webhook_firings', {
             team_id: event.teamId.toString(),
@@ -289,10 +286,18 @@ export class HookCommander {
             hook: { id: hook.id, event: hook.event, target: hook.target },
             data: { ...event, person: sendablePerson },
         }
+
+        const signal = AbortSignal.timeout(HOOK_TIMEOUT)
+        signal.addEventListener('abort', () => {
+            this.statsd?.increment('webhook_timeouts', {
+                team_id: event.teamId.toString(),
+            })
+        })
         const request = await fetch(hook.target, {
             method: 'POST',
             body: JSON.stringify(payload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
+            signal,
         })
         if (request.status === 410) {
             // Delete hook on our side if it's gone on Zapier's
