@@ -158,19 +158,19 @@
   name String,
   team_id Int64,
   current_url String,
-  start_time Int64,
-  redirect_start Int64,
-  redirect_end Int64,
-  worker_start Int64,
-  fetch_start Int64,
-  domain_lookup_start Int64,
-  domain_lookup_end Int64,
-  connect_start Int64,
-  secure_connection_start Int64,
-  connect_end Int64,
-  request_start Int64,
-  response_start Int64,
-  response_end Int64,
+  start_time Float64,
+  redirect_start Float64,
+  redirect_end Float64,
+  worker_start Float64,
+  fetch_start Float64,
+  domain_lookup_start Float64,
+  domain_lookup_end Float64,
+  connect_start Float64,
+  secure_connection_start Float64,
+  connect_end Float64,
+  request_start Float64,
+  response_start Float64,
+  response_end Float64,
   decoded_body_size Int64,
   encoded_body_size Int64,
   initiator_type LowCardinality(String),
@@ -179,20 +179,20 @@
   response_status Int64,
   transfer_size Int64,
   largest_contentful_paint_element String,
-  largest_contentful_paint_render_time Int64,
-  largest_contentful_paint_load_time Int64,
-  largest_contentful_paint_size Int64,
+  largest_contentful_paint_render_time Float64,
+  largest_contentful_paint_load_time Float64,
+  largest_contentful_paint_size Float64,
   largest_contentful_paint_id String,
   largest_contentful_paint_url String,
-  dom_complete Int64,
-  dom_content_loaded_event Int64,
-  dom_interactive Int64,
-  load_event_end Int64,
-  load_event_start Int64,
+  dom_complete Float64,
+  dom_content_loaded_event Float64,
+  dom_interactive Float64,
+  load_event_end Float64,
+  load_event_start Float64,
   redirect_count Int64,
   navigation_type LowCardinality(String),
-  unload_event_end Int64,
-  unload_event_start Int64
+  unload_event_end Float64,
+  unload_event_start Float64
       
   , _timestamp DateTime
   , _offset UInt64
@@ -685,19 +685,19 @@
   name String,
   team_id Int64,
   current_url String,
-  start_time Int64,
-  redirect_start Int64,
-  redirect_end Int64,
-  worker_start Int64,
-  fetch_start Int64,
-  domain_lookup_start Int64,
-  domain_lookup_end Int64,
-  connect_start Int64,
-  secure_connection_start Int64,
-  connect_end Int64,
-  request_start Int64,
-  response_start Int64,
-  response_end Int64,
+  start_time Float64,
+  redirect_start Float64,
+  redirect_end Float64,
+  worker_start Float64,
+  fetch_start Float64,
+  domain_lookup_start Float64,
+  domain_lookup_end Float64,
+  connect_start Float64,
+  secure_connection_start Float64,
+  connect_end Float64,
+  request_start Float64,
+  response_start Float64,
+  response_end Float64,
   decoded_body_size Int64,
   encoded_body_size Int64,
   initiator_type LowCardinality(String),
@@ -706,20 +706,20 @@
   response_status Int64,
   transfer_size Int64,
   largest_contentful_paint_element String,
-  largest_contentful_paint_render_time Int64,
-  largest_contentful_paint_load_time Int64,
-  largest_contentful_paint_size Int64,
+  largest_contentful_paint_render_time Float64,
+  largest_contentful_paint_load_time Float64,
+  largest_contentful_paint_size Float64,
   largest_contentful_paint_id String,
   largest_contentful_paint_url String,
-  dom_complete Int64,
-  dom_content_loaded_event Int64,
-  dom_interactive Int64,
-  load_event_end Int64,
-  load_event_start Int64,
+  dom_complete Float64,
+  dom_content_loaded_event Float64,
+  dom_interactive Float64,
+  load_event_end Float64,
+  load_event_start Float64,
   redirect_count Int64,
   navigation_type LowCardinality(String),
-  unload_event_end Int64,
-  unload_event_start Int64
+  unload_event_end Float64,
+  unload_event_start Float64
       
   , _timestamp DateTime
   , _offset UInt64
@@ -828,19 +828,19 @@
   name String,
   team_id Int64,
   current_url String,
-  start_time Int64,
-  redirect_start Int64,
-  redirect_end Int64,
-  worker_start Int64,
-  fetch_start Int64,
-  domain_lookup_start Int64,
-  domain_lookup_end Int64,
-  connect_start Int64,
-  secure_connection_start Int64,
-  connect_end Int64,
-  request_start Int64,
-  response_start Int64,
-  response_end Int64,
+  start_time Float64,
+  redirect_start Float64,
+  redirect_end Float64,
+  worker_start Float64,
+  fetch_start Float64,
+  domain_lookup_start Float64,
+  domain_lookup_end Float64,
+  connect_start Float64,
+  secure_connection_start Float64,
+  connect_end Float64,
+  request_start Float64,
+  response_start Float64,
+  response_end Float64,
   decoded_body_size Int64,
   encoded_body_size Int64,
   initiator_type LowCardinality(String),
@@ -849,20 +849,20 @@
   response_status Int64,
   transfer_size Int64,
   largest_contentful_paint_element String,
-  largest_contentful_paint_render_time Int64,
-  largest_contentful_paint_load_time Int64,
-  largest_contentful_paint_size Int64,
+  largest_contentful_paint_render_time Float64,
+  largest_contentful_paint_load_time Float64,
+  largest_contentful_paint_size Float64,
   largest_contentful_paint_id String,
   largest_contentful_paint_url String,
-  dom_complete Int64,
-  dom_content_loaded_event Int64,
-  dom_interactive Int64,
-  load_event_end Int64,
-  load_event_start Int64,
+  dom_complete Float64,
+  dom_content_loaded_event Float64,
+  dom_interactive Float64,
+  load_event_end Float64,
+  load_event_start Float64,
   redirect_count Int64,
   navigation_type LowCardinality(String),
-  unload_event_end Int64,
-  unload_event_start Int64
+  unload_event_end Float64,
+  unload_event_start Float64
       
   , _timestamp DateTime
   , _offset UInt64
@@ -876,10 +876,10 @@
   '
   
   CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER 'posthog'
-  TO posthog_test.sharded_performance_events
+  TO posthog_test.writeable_performance_events
   AS SELECT
   uuid,session_id,window_id,pageview_id,distinct_id,time_origin,entry_type,name,team_id,current_url,start_time,redirect_start,redirect_end,worker_start,fetch_start,domain_lookup_start,domain_lookup_end,connect_start,secure_connection_start,connect_end,request_start,response_start,response_end,decoded_body_size,encoded_body_size,initiator_type,next_hop_protocol,render_blocking_status,response_status,transfer_size,largest_contentful_paint_element,largest_contentful_paint_render_time,largest_contentful_paint_load_time,largest_contentful_paint_size,largest_contentful_paint_id,largest_contentful_paint_url,dom_complete,dom_content_loaded_event,dom_interactive,load_event_end,load_event_start,redirect_count,navigation_type,unload_event_end,unload_event_start
-  _timestamp,_offset,_partition
+  ,_timestamp,_offset,_partition
   FROM posthog_test.kafka_performance_events
   
   '
@@ -1219,19 +1219,19 @@
   name String,
   team_id Int64,
   current_url String,
-  start_time Int64,
-  redirect_start Int64,
-  redirect_end Int64,
-  worker_start Int64,
-  fetch_start Int64,
-  domain_lookup_start Int64,
-  domain_lookup_end Int64,
-  connect_start Int64,
-  secure_connection_start Int64,
-  connect_end Int64,
-  request_start Int64,
-  response_start Int64,
-  response_end Int64,
+  start_time Float64,
+  redirect_start Float64,
+  redirect_end Float64,
+  worker_start Float64,
+  fetch_start Float64,
+  domain_lookup_start Float64,
+  domain_lookup_end Float64,
+  connect_start Float64,
+  secure_connection_start Float64,
+  connect_end Float64,
+  request_start Float64,
+  response_start Float64,
+  response_end Float64,
   decoded_body_size Int64,
   encoded_body_size Int64,
   initiator_type LowCardinality(String),
@@ -1240,26 +1240,26 @@
   response_status Int64,
   transfer_size Int64,
   largest_contentful_paint_element String,
-  largest_contentful_paint_render_time Int64,
-  largest_contentful_paint_load_time Int64,
-  largest_contentful_paint_size Int64,
+  largest_contentful_paint_render_time Float64,
+  largest_contentful_paint_load_time Float64,
+  largest_contentful_paint_size Float64,
   largest_contentful_paint_id String,
   largest_contentful_paint_url String,
-  dom_complete Int64,
-  dom_content_loaded_event Int64,
-  dom_interactive Int64,
-  load_event_end Int64,
-  load_event_start Int64,
+  dom_complete Float64,
+  dom_content_loaded_event Float64,
+  dom_interactive Float64,
+  load_event_end Float64,
+  load_event_start Float64,
   redirect_count Int64,
   navigation_type LowCardinality(String),
-  unload_event_end Int64,
-  unload_event_start Int64
+  unload_event_end Float64,
+  unload_event_start Float64
       
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/ee45bc2f-bf7a-4017-8421-693f38ffe78a_{shard}/posthog.performance_events', '{replica}')
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/f1420fdf-a998-40a1-8eb5-c2f9fece5186_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(time_origin)
   ORDER BY (team_id, session_id, pageview_id)
   
@@ -1346,6 +1346,65 @@
   , _offset UInt64
   
   ) ENGINE = Distributed('posthog', 'posthog_test', 'session_recording_events', sipHash64(distinct_id))
+  
+  '
+---
+# name: test_create_table_query[writeable_performance_events]
+  '
+  
+  CREATE TABLE IF NOT EXISTS writeable_performance_events ON CLUSTER 'posthog'
+  (
+      uuid UUID,
+  session_id String,
+  window_id String,
+  pageview_id String,
+  distinct_id String,
+  time_origin DateTime64(3, 'UTC'),
+  entry_type LowCardinality(String),
+  name String,
+  team_id Int64,
+  current_url String,
+  start_time Float64,
+  redirect_start Float64,
+  redirect_end Float64,
+  worker_start Float64,
+  fetch_start Float64,
+  domain_lookup_start Float64,
+  domain_lookup_end Float64,
+  connect_start Float64,
+  secure_connection_start Float64,
+  connect_end Float64,
+  request_start Float64,
+  response_start Float64,
+  response_end Float64,
+  decoded_body_size Int64,
+  encoded_body_size Int64,
+  initiator_type LowCardinality(String),
+  next_hop_protocol LowCardinality(String),
+  render_blocking_status LowCardinality(String),
+  response_status Int64,
+  transfer_size Int64,
+  largest_contentful_paint_element String,
+  largest_contentful_paint_render_time Float64,
+  largest_contentful_paint_load_time Float64,
+  largest_contentful_paint_size Float64,
+  largest_contentful_paint_id String,
+  largest_contentful_paint_url String,
+  dom_complete Float64,
+  dom_content_loaded_event Float64,
+  dom_interactive Float64,
+  load_event_end Float64,
+  load_event_start Float64,
+  redirect_count Int64,
+  navigation_type LowCardinality(String),
+  unload_event_end Float64,
+  unload_event_start Float64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  , _partition UInt64
+  
+  ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_performance_events', sipHash64(session_id))
   
   '
 ---
@@ -1636,19 +1695,19 @@
   name String,
   team_id Int64,
   current_url String,
-  start_time Int64,
-  redirect_start Int64,
-  redirect_end Int64,
-  worker_start Int64,
-  fetch_start Int64,
-  domain_lookup_start Int64,
-  domain_lookup_end Int64,
-  connect_start Int64,
-  secure_connection_start Int64,
-  connect_end Int64,
-  request_start Int64,
-  response_start Int64,
-  response_end Int64,
+  start_time Float64,
+  redirect_start Float64,
+  redirect_end Float64,
+  worker_start Float64,
+  fetch_start Float64,
+  domain_lookup_start Float64,
+  domain_lookup_end Float64,
+  connect_start Float64,
+  secure_connection_start Float64,
+  connect_end Float64,
+  request_start Float64,
+  response_start Float64,
+  response_end Float64,
   decoded_body_size Int64,
   encoded_body_size Int64,
   initiator_type LowCardinality(String),
@@ -1657,26 +1716,26 @@
   response_status Int64,
   transfer_size Int64,
   largest_contentful_paint_element String,
-  largest_contentful_paint_render_time Int64,
-  largest_contentful_paint_load_time Int64,
-  largest_contentful_paint_size Int64,
+  largest_contentful_paint_render_time Float64,
+  largest_contentful_paint_load_time Float64,
+  largest_contentful_paint_size Float64,
   largest_contentful_paint_id String,
   largest_contentful_paint_url String,
-  dom_complete Int64,
-  dom_content_loaded_event Int64,
-  dom_interactive Int64,
-  load_event_end Int64,
-  load_event_start Int64,
+  dom_complete Float64,
+  dom_content_loaded_event Float64,
+  dom_interactive Float64,
+  load_event_end Float64,
+  load_event_start Float64,
   redirect_count Int64,
   navigation_type LowCardinality(String),
-  unload_event_end Int64,
-  unload_event_start Int64
+  unload_event_end Float64,
+  unload_event_start Float64
       
   , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/ee45bc2f-bf7a-4017-8421-693f38ffe78a_{shard}/posthog.performance_events', '{replica}')
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/f1420fdf-a998-40a1-8eb5-c2f9fece5186_{shard}/posthog.performance_events', '{replica}')
   PARTITION BY toYYYYMM(time_origin)
   ORDER BY (team_id, session_id, pageview_id)
   
