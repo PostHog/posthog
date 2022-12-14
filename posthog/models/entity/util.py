@@ -14,7 +14,9 @@ def get_entity_filtering_params(
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     person_id_joined_alias: str = "person_id",
 ) -> Tuple[Dict, Dict]:
-    """Return SQL condition for filtering by"""
+    """Return SQL condition for filtering events by allowed entities (events/actions).
+
+    Events matching _at least one_ entity are included. If no entities are provided, _all_ events are included."""
     if not allowed_entities:
         return {}, {}
 
