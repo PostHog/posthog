@@ -115,6 +115,23 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 ) ENGINE = {engine}
 """
 
+"""
+I think this says store the data on disk grouped by team_id,
+within that group it by session id,
+within that group it by pageview id,
+
+thus in order to query it we are supporting
+
+`where team_id=X`
+
+OR
+
+`where team_id=X and session_id=Y`
+
+OR
+
+`where team_id=X and session_id=Y and pageview_id=Z`
+"""
 PERFORMANCE_EVENTS_TABLE_SQL = (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(origin_timestamp)
