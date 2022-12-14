@@ -128,7 +128,8 @@ export const LoadingViaOnClick = (): JSX.Element => {
         <div className="space-y-2">
             <p>
                 For simple use-cases, you may want to use a button click to trigger something async and show a loading
-                state. This is simplified with <code>useAsyncHandler</code>
+                state. Generally speaking this should exist in a <code>kea logic</code> but for simple cases you can use
+                the <code>useAsyncHandler</code>
             </p>
             <div className="flex items-center gap-2">
                 <LemonButton type="secondary" loading={loading} onClick={onEvent}>
