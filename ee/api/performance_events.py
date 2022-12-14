@@ -67,9 +67,10 @@ class PerformanceEvents:
     @classmethod
     def query(cls, session_id: str, pageview_id: str, team_id: int) -> List[Dict]:
         query = """
-                select * from performance_events
+                select toDateTime(time_origin + (start_time/1000)) as timestamp, * from performance_events
                 prewhere team_id = %(team_id)s
                 and session_id = %(session_id)s
+                order by timestamp
                 """
 
         if pageview_id:
@@ -79,7 +80,7 @@ class PerformanceEvents:
             {"team_id": team_id, "session_id": session_id, "pageview_id": pageview_id},
         )
 
-        columns = [
+        columns = ["timestamp"] + [
             col.strip() for col in _column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS).split(", ") if col
         ]
         columnized_results = []
