@@ -52,12 +52,12 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             },
 
             addToPlaylist: async ({ playlist }) => {
-                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId)
+                await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
-                await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId)
+                await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId, true)
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
         },
