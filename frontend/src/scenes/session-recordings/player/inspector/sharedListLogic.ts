@@ -2,7 +2,7 @@ import { actions, kea, reducers, path, listeners, connect, props, key, selectors
 import {
     PerformanceEvent,
     PlayerPosition,
-    RecordingConsoleLog,
+    RecordingConsoleLogBase,
     RecordingEventType,
     RecordingWindowFilter,
     SessionRecordingPlayerTab,
@@ -23,17 +23,17 @@ type SharedListItemBase = {
     search: string
 }
 
-type SharedListItemEvent = SharedListItemBase & {
+export type SharedListItemEvent = SharedListItemBase & {
     type: 'event'
     data: RecordingEventType
 }
 
-type SharedListItemConsole = SharedListItemBase & {
+export type SharedListItemConsole = SharedListItemBase & {
     type: 'console'
-    data: RecordingConsoleLog
+    data: RecordingConsoleLogBase
 }
 
-type SharedListItemPerformance = SharedListItemBase & {
+export type SharedListItemPerformance = SharedListItemBase & {
     type: 'performance'
     data: PerformanceEvent
 }
@@ -47,7 +47,12 @@ export const sharedListLogic = kea<sharedListLogicType>([
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
-        values: [playerSettingsLogic, ['showOnlyMatching'], sessionRecordingDataLogic(props), ['peformanceEvents']],
+        values: [
+            playerSettingsLogic,
+            ['showOnlyMatching'],
+            sessionRecordingDataLogic(props),
+            ['peformanceEvents', 'consoleLogs'],
+        ],
         actions: [playerSettingsLogic, ['setShowOnlyMatching']],
     })),
     actions(() => ({
@@ -88,18 +93,42 @@ export const sharedListLogic = kea<sharedListLogicType>([
     })),
 
     selectors(() => ({
+        V2Tabs: [
+            (s) => [s.tab],
+            (tab): SessionRecordingPlayerTab[] => {
+                return [
+                    SessionRecordingPlayerTab.ALL,
+                    SessionRecordingPlayerTab.CONSOLE,
+                    SessionRecordingPlayerTab.PERFORMANCE,
+                ]
+            },
+        ],
+
         allItems: [
-            (s) => [s.peformanceEvents],
-            (peformanceEvents): SharedListItem[] => {
+            (s) => [s.tab, s.peformanceEvents, s.consoleLogs],
+            (tab, peformanceEvents, consoleLogs): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
-                for (const event of peformanceEvents || []) {
-                    items.push({
-                        type: 'performance',
-                        timestamp: dayjs(event.timestamp).add(event.start_time || 0, 'ms'),
-                        search: event.name || '',
-                        data: event,
-                    })
+                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE) {
+                    for (const event of peformanceEvents || []) {
+                        items.push({
+                            type: 'performance',
+                            timestamp: dayjs(event.timestamp).add(event.start_time || 0, 'ms'),
+                            search: event.name || '',
+                            data: event,
+                        })
+                    }
+                }
+
+                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
+                    for (const event of consoleLogs || []) {
+                        items.push({
+                            type: 'console',
+                            timestamp: dayjs(event.timestamp),
+                            search: event.rawString,
+                            data: event,
+                        })
+                    }
                 }
 
                 items.sort((a, b) => a.timestamp.diff(b.timestamp))

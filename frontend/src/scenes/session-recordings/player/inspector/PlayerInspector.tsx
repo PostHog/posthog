@@ -26,14 +26,14 @@ const TabToIcon = {
 
 export function PlayerInspector(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { sessionRecordingId, playerKey } = props
-    const { tab } = useValues(sharedListLogic(props))
+    const { tab, V2Tabs } = useValues(sharedListLogic(props))
 
     return (
         <>
             <PlayerInspectorControls {...props} />
             <LemonDivider className="my-0" />
 
-            {tab === SessionRecordingPlayerTab.PERFORMANCE ? (
+            {V2Tabs.includes(tab) ? (
                 <PlayerInspectorList {...props} />
             ) : (
                 <PlayerList
@@ -150,7 +150,7 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, showOnlyMatching, tab, searchQuery } = useValues(sharedListLogic(logicProps))
+    const { windowIdFilter, showOnlyMatching, tab, searchQuery, V2Tabs } = useValues(sharedListLogic(logicProps))
     const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery } = useActions(sharedListLogic(logicProps))
     const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
     const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
@@ -168,6 +168,7 @@ export function PlayerInspectorControls({
             <div ref={ref} className="flex justify-between gap-2 p-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
                     {[
+                        SessionRecordingPlayerTab.ALL,
                         SessionRecordingPlayerTab.EVENTS,
                         SessionRecordingPlayerTab.CONSOLE,
                         SessionRecordingPlayerTab.PERFORMANCE,
@@ -180,51 +181,52 @@ export function PlayerInspectorControls({
                             active={tab === tabId}
                             onClick={() => setTab(tabId)}
                         >
-                            {size === 'compact' ? '' : capitalizeFirstLetter(tabId)}
+                            {capitalizeFirstLetter(tabId)}
                         </LemonButton>
                     ))}
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
-                    {tab === SessionRecordingPlayerTab.EVENTS ? (
-                        <>
-                            <LemonInput
-                                key="event-list-search-input"
-                                onChange={(query) => setEventListLocalFilters({ query })}
-                                placeholder="Search events"
-                                type="search"
-                                value={eventListLocalFilters.query}
-                            />
-                            {matching?.length ? (
-                                <LemonSwitch
-                                    checked={showOnlyMatching}
-                                    bordered
-                                    label={
-                                        <span className="flex items-center gap-2 whitespace-nowrap">
-                                            Only show matching events
-                                            <Tooltip
-                                                title="Display only the events that match the global filter."
-                                                className="text-base text-muted-alt mr-2"
-                                            >
-                                                <IconInfo />
-                                            </Tooltip>
-                                        </span>
-                                    }
-                                    onChange={setShowOnlyMatching}
+                {!V2Tabs.includes(tab) ? (
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {tab === SessionRecordingPlayerTab.EVENTS ? (
+                            <>
+                                <LemonInput
+                                    key="event-list-search-input"
+                                    onChange={(query) => setEventListLocalFilters({ query })}
+                                    placeholder="Search events"
+                                    type="search"
+                                    value={eventListLocalFilters.query}
                                 />
-                            ) : null}
-                        </>
-                    ) : tab === SessionRecordingPlayerTab.CONSOLE ? (
-                        <LemonInput
-                            key="console-list-search-input"
-                            onChange={(query) => setConsoleListLocalFilters({ query })}
-                            placeholder="Search console logs"
-                            type="search"
-                            value={consoleListLocalFilters.query}
-                        />
-                    ) : null}
-                </div>
-
+                                {matching?.length ? (
+                                    <LemonSwitch
+                                        checked={showOnlyMatching}
+                                        bordered
+                                        label={
+                                            <span className="flex items-center gap-2 whitespace-nowrap">
+                                                Only show matching events
+                                                <Tooltip
+                                                    title="Display only the events that match the global filter."
+                                                    className="text-base text-muted-alt mr-2"
+                                                >
+                                                    <IconInfo />
+                                                </Tooltip>
+                                            </span>
+                                        }
+                                        onChange={setShowOnlyMatching}
+                                    />
+                                ) : null}
+                            </>
+                        ) : tab === SessionRecordingPlayerTab.CONSOLE ? (
+                            <LemonInput
+                                key="console-list-search-input"
+                                onChange={(query) => setConsoleListLocalFilters({ query })}
+                                placeholder="Search console logs"
+                                type="search"
+                                value={consoleListLocalFilters.query}
+                            />
+                        ) : null}
+                    </div>
+                ) : null}
                 {windowIds.length > 1 ? (
                     <div className="flex items-center gap-2 flex-wrap">
                         <LemonSelect
@@ -253,7 +255,7 @@ export function PlayerInspectorControls({
                     </div>
                 ) : null}
             </div>
-            {tab === SessionRecordingPlayerTab.PERFORMANCE ? (
+            {V2Tabs.includes(tab) ? (
                 <>
                     <div className="flex items-center gap-2 px-2">
                         <LemonInput

@@ -510,7 +510,8 @@ export interface RRWebRecordingConsoleLogPayload {
     trace: string[]
 }
 
-export interface RecordingConsoleLog extends RecordingTimeMixinType {
+export interface RecordingConsoleLogBase {
+    timestamp: number
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
     count?: number // Number of duplicate console logs
@@ -520,6 +521,8 @@ export interface RecordingConsoleLog extends RecordingTimeMixinType {
     rawString: string // Raw text used for fuzzy search
     level: LogLevel
 }
+
+export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinType
 
 export interface RecordingSegment {
     startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000
@@ -564,6 +567,7 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingPlayerTab {
+    ALL = 'all',
     EVENTS = 'events',
     CONSOLE = 'console',
     PERFORMANCE = 'performance',
