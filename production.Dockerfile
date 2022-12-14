@@ -41,7 +41,7 @@ RUN apk --update --no-cache add \
 # - we explicitly COPY the files so that we don't need to rebuild
 #   the container every time a dependency changes
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
-RUN corepack enable && pnpm install
+RUN corepack enable && pnpm install --prod --frozen-lockfile
 
 # Build the plugin server
 #
