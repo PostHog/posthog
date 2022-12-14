@@ -106,7 +106,7 @@ HAVING sum(sign) > 0
 GET_COHORTS_BY_ACTOR_ID = """
 SELECT DISTINCT cohort_id
 FROM cohort_actors
-WHERE team_id = %(team_id)s AND actor_id = %(person_id)s
+WHERE team_id = %(team_id)s AND actor_id = %(actor_id)s
 """
 
 GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID = f"""
