@@ -12,7 +12,7 @@ FROM node:18.12.1-alpine3.16 AS frontend
 WORKDIR /code
 
 COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+RUN corepack enable && pnpm install --prod --frozen-lockfile
 
 COPY frontend/ frontend/
 COPY ./bin/ ./bin/
