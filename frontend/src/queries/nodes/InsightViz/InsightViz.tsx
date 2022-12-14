@@ -1,15 +1,15 @@
 import { useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import clsx from 'clsx'
 
-import { InsightEditorFilterGroup, InsightEditorFilter } from '~/types'
-import { EditorFilterGroup } from 'scenes/insights/EditorFilters/EditorFilterGroup'
+import { QueryInsightEditorFilterGroup, QueryInsightEditorFilter } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
-import { InsightVizNode } from '../../schema'
+import { InsightQueryNode, InsightVizNode } from '../../schema'
 
+import { EditorFilterGroup } from './EditorFilterGroup'
 import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
 
 type InsightVizProps = {
@@ -19,7 +19,7 @@ type InsightVizProps = {
 
 let uniqueNode = 0
 
-export function InsightViz({ query }: InsightVizProps): JSX.Element {
+export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueNode++}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
@@ -38,7 +38,7 @@ export function InsightViz({ query }: InsightVizProps): JSX.Element {
     const isLifecycle = true
     const showFilters = true // TODO: implement with insightVizLogic
 
-    const editorFilters: InsightEditorFilterGroup[] = [
+    const editorFilters: QueryInsightEditorFilterGroup[] = [
         {
             title: 'Filters',
             count: filterPropertiesCount,
@@ -63,26 +63,36 @@ export function InsightViz({ query }: InsightVizProps): JSX.Element {
         },
     ]
 
+    const setQuerySource = (source: InsightQueryNode): void => {
+        setQuery?.({ ...query, source })
+    }
+
     return (
         <>
-            <CSSTransition in={showFilters} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-                <div
-                    className={clsx('EditorFiltersWrapper', {
-                        'EditorFiltersWrapper--singlecolumn': isFunnels,
-                    })}
-                >
-                    <div className="EditorFilters">
-                        {editorFilters.map((editorFilterGroup) => (
-                            <EditorFilterGroup
-                                key={editorFilterGroup.title}
-                                editorFilterGroup={editorFilterGroup}
-                                insight={insight}
-                                insightProps={insightProps}
-                            />
-                        ))}
+            {/* <BindLogic logic={dataTableLogic} props={dataTableLogicProps}> */}
+            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+                <CSSTransition in={showFilters} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
+                    <div
+                        className={clsx('EditorFiltersWrapper', {
+                            'EditorFiltersWrapper--singlecolumn': isFunnels,
+                        })}
+                    >
+                        <div className="EditorFilters">
+                            {editorFilters.map((editorFilterGroup) => (
+                                <EditorFilterGroup
+                                    key={editorFilterGroup.title}
+                                    editorFilterGroup={editorFilterGroup}
+                                    insight={insight}
+                                    insightProps={insightProps}
+                                    query={query.source}
+                                    setQuery={setQuerySource}
+                                />
+                            ))}
+                        </div>
                     </div>
-                </div>
-            </CSSTransition>
+                </CSSTransition>
+            </BindLogic>
+            {/* </BindLogic> */}
             <div>
                 <h3>InsightViz</h3>
                 <h4>Query</h4>
@@ -94,6 +104,6 @@ export function InsightViz({ query }: InsightVizProps): JSX.Element {
     )
 }
 
-function filterFalsy(a: (InsightEditorFilter | false | null | undefined)[]): InsightEditorFilter[] {
-    return a.filter((e) => !!e) as InsightEditorFilter[]
+function filterFalsy(a: (QueryInsightEditorFilter | false | null | undefined)[]): QueryInsightEditorFilter[] {
+    return a.filter((e) => !!e) as QueryInsightEditorFilter[]
 }

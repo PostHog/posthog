@@ -45,7 +45,7 @@ export function Query(props: QueryProps): JSX.Element {
     } else if (isDataNode(query)) {
         component = <DataNode query={query} />
     } else if (isInsightVizNode(query)) {
-        component = <InsightViz query={query} />
+        component = <InsightViz query={query} setQuery={setQuery} />
     } else if (isInsightQueryNode(query)) {
         component = <InsightQuery query={query} />
     }

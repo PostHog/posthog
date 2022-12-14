@@ -59,7 +59,7 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
-import { InsightVizNode, NodeKind } from '~/queries/schema'
+import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000

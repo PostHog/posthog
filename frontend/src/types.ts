@@ -25,6 +25,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { Layout } from 'react-grid-layout'
+import { InsightQueryNode } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -1415,11 +1416,11 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export type InsightEditorFilterGroup = {
+export type InsightEditorFilterGroup<T = InsightEditorFilter> = {
     title?: string
-    editorFilters: InsightEditorFilter[]
-    defaultExpanded?: boolean
     count?: number
+    editorFilters: T[]
+    defaultExpanded?: boolean
 }
 
 export interface EditorFilterProps {
@@ -1429,15 +1430,24 @@ export interface EditorFilterProps {
     value: any
 }
 
-export interface InsightEditorFilter {
+export interface QueryEditorFilterProps {
+    query: InsightQueryNode
+    setQuery: (node: InsightQueryNode) => void
+}
+
+export interface InsightEditorFilter<T = EditorFilterProps> {
     key: string
-    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
+    label?: string | ((props: T) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
-    component?: (props: EditorFilterProps) => JSX.Element | null
+    component?: (props: T) => JSX.Element | null
 }
+
+export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
+
+export type QueryInsightEditorFilterGroup = InsightEditorFilterGroup<QueryInsightEditorFilter>
 
 export interface SystemStatusSubrows {
     columns: string[]

@@ -1,26 +1,26 @@
 import { useValues } from 'kea'
 
-import { FilterType } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { IconSettings } from 'lib/components/icons'
+import { InsightQueryNode } from '~/queries/schema'
 
-export function TestAccountFilter({
-    filters,
-    onChange,
-}: {
-    filters: Partial<FilterType>
-    onChange: (filters: Partial<FilterType>) => void
-}): JSX.Element | null {
+type TestAccountFilterProps = {
+    query: InsightQueryNode
+    setQuery: (query: InsightQueryNode) => void
+}
+
+export function TestAccountFilter({ query, setQuery }: TestAccountFilterProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
-
     return (
         <LemonSwitch
-            checked={hasFilters ? !!filters.filter_test_accounts : false}
+            checked={hasFilters ? !!query.filterTestAccounts : false}
             onChange={(checked: boolean) => {
+                console.log('checked', checked)
+                console.log('setQuery', setQuery)
                 localStorage.setItem('default_filter_test_accounts', checked.toString())
-                onChange({ filter_test_accounts: checked })
+                setQuery({ ...query, filterTestAccounts: checked })
             }}
             id="test-account-filter"
             bordered
