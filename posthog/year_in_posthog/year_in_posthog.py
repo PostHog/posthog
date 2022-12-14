@@ -56,7 +56,7 @@ def stats_for_badge(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
                 else []
             )
         elif badge == "curator":
-            return [{"count": stats["dashboard_created_count"], "description": "Dashboards created"}]
+            return [{"count": stats["dashboards_created_count"], "description": "Dashboards created"}]
         elif badge == "flag_raiser":
             return [{"count": stats["flag_created_count"], "description": "Feature flags created"}]
         elif badge == "popcorn_muncher":
@@ -100,7 +100,8 @@ def render_2022(request, user_uuid: str) -> HttpResponse:
             "badge": badge,
             "human_badge": human_badge.get(badge),
             "highlight_color": highlight_color.get(badge),
-            "image": f"badges/2022_{badge}.png",
+            "image_png": f"badges/2022_{badge}.png",
+            "image_webp": f"badges/2022_{badge}.webp",
             "opengraph_image": f"open-graph/2022_{badge}.png",
             "explanation": explanation.get(badge),
             "stats": stats,

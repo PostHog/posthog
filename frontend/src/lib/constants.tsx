@@ -140,6 +140,7 @@ export const FEATURE_FLAGS = {
     RECORDINGS_EXPORT: 'recordings-export', // owner: #team-session-recordings
     SOCIAL_AUTH_BUTTONS_EXPERIMENT: 'social-auth-buttons-experiment', // owner: #team-growth
     YEAR_IN_HOG: 'year-in-hog', // owner: @pauldambra
+    YULE_HOG: 'yule-hog', // owner: @benjackwhite
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
