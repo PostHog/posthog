@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingTestLogic } from './billingTestLogic'
-import { BillingPlan } from '~/types'
+import { BillingPlan, Feature } from '~/types'
 import './PlanTable.scss'
 
 export function PlanIcon({
@@ -66,6 +66,14 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
             </LemonButton>
         </td>
     ))
+
+    const calculateValueFromSubfeatures = (subfeatures: Feature[]): boolean | string => {
+        return subfeatures.every((subfeature) => subfeature.value === true)
+            ? true
+            : subfeatures.every((subfeature) => subfeature.value === false)
+            ? false
+            : 'limited'
+    }
 
     console.log(plans, 'THE PLANS')
 
@@ -182,41 +190,48 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                                 {plans.map((plan) => (
                                     <td key={`plan-product-features-2-${plan.name}-${feature}`}>
                                         <PlanIcon
-                                            value={plan.feature_list[feature].value}
+                                            value={calculateValueFromSubfeatures(plan.feature_list[feature].features)}
                                             note={plan.feature_list[feature].description}
                                             className={'text-xl'}
                                         />
-                                        CALCULATE FROM SUBFEATURES
                                     </td>
                                 ))}
                             </tr>
                             {plans[0].feature_list[feature].features
-                                ? Object.keys(plans[0].feature_list[feature].features).map((subfeature, j) => (
-                                      <tr
-                                          key={subfeature}
-                                          className={
-                                              // Show the bottom border on the row if it's the last subfeature in the list
-                                              j === Object.keys(plans[0].feature_list[feature].features).length - 1
-                                                  ? 'PlanTable__tr__border'
-                                                  : ''
-                                          }
-                                      >
-                                          <th className="PlanTable__th__subfeature text-muted text-xs">
-                                              {plans[0].feature_list[feature].features[subfeature].description}
-                                          </th>
-                                          {plans.map((plan) => (
-                                              <td key={`${plan.name}-${subfeature}`}>
-                                                  <PlanIcon
-                                                      value={plan.feature_list[feature].features[subfeature]?.value}
-                                                      note={
-                                                          plan.feature_list[feature].features[subfeature]?.description
-                                                      }
-                                                      className={'text-base'}
-                                                  />
-                                              </td>
-                                          ))}
-                                      </tr>
-                                  ))
+                                ? Object.keys(
+                                      plans[0].feature_list[feature].features.filter((f: Feature) => !f.hide_from_ui)
+                                  ).map((subfeature, j) => {
+                                      if (plans[0].feature_list[feature].features[subfeature].hide_from_ui) {
+                                          return null
+                                      }
+                                      return (
+                                          <tr
+                                              key={subfeature}
+                                              className={
+                                                  // Show the bottom border on the row if it's the last subfeature in the list
+                                                  j === Object.keys(plans[0].feature_list[feature].features).length - 1
+                                                      ? 'PlanTable__tr__border'
+                                                      : ''
+                                              }
+                                          >
+                                              <th className="PlanTable__th__subfeature text-muted text-xs">
+                                                  {plans[0].feature_list[feature].features[subfeature].description}
+                                              </th>
+                                              {plans.map((plan) => (
+                                                  <td key={`${plan.name}-${subfeature}`}>
+                                                      <PlanIcon
+                                                          value={plan.feature_list[feature].features[subfeature]?.value}
+                                                          note={
+                                                              plan.feature_list[feature].features[subfeature]
+                                                                  ?.description
+                                                          }
+                                                          className={'text-base'}
+                                                      />
+                                                  </td>
+                                              ))}
+                                          </tr>
+                                      )
+                                  })
                                 : null}
                         </>
                     ))}
