@@ -148,18 +148,18 @@ RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collec
 COPY gunicorn.config.py ./
 COPY ./bin ./bin/
 
+# Use a non-root user.
+RUN groupadd posthog && \
+    useradd -r -g posthog posthog && \
+    chown posthog:posthog /code
+
+USER posthog
+
 # Setup ENV.
 ENV NODE_ENV=production \
     CHROME_BIN=/usr/bin/chromium \
     CHROME_PATH=/usr/lib/chromium/ \
     CHROMEDRIVER_BIN=/usr/bin/chromedriver
-
-# Use a non-root user.
-RUN groupadd posthog && \
-    useradd -r -g posthog posthog && \
-    chown posthog:posthog -R /code
-
-USER posthog
 
 # Expose container port and run entry point script.
 EXPOSE 8000
