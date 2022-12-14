@@ -1,8 +1,8 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# Note: for PostHog Cloud remember to update 'Dockerfile.cloud'
-#       as appropriate.
+# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’
+# as appropriate.
 #
 # The first 3 stages are used to build:
 #
@@ -10,11 +10,10 @@
 # - plugin-server (Node.js app)
 # - PostHog (Django app)
 #
-# while in the last and final stage we import the artifacts
+# while in the last and final stage, we import the artifacts
 # from the previous stages add some runtime dependencies
-# and build the final image.
+# and build the last image.
 #
-
 #
 # ---------------------------------------------------------
 #
@@ -25,7 +24,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 COPY package.json pnpm-lock.yaml ./
 RUN corepack enable && \
     mkdir /tmp/pnpm-store && \
-    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
 
 COPY frontend/ frontend/
@@ -40,7 +39,7 @@ FROM node:18.12.1-bullseye-slim AS plugin-server-build
 WORKDIR /code/plugin-server
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Compile and install pnpm dependencies.
+# Compile and install Node.js dependencies.
 COPY ./plugin-server/package.json ./plugin-server/pnpm-lock.yaml ./plugin-server/tsconfig.json ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -56,10 +55,18 @@ RUN apt-get update && \
 
 # Build the plugin server.
 #
-# Note: we run the build as a separate actions to increase
+# Note: we run the build as a separate action to increase
 # the cache hit ratio of the layers above.
 COPY ./plugin-server/src/ ./src/
 RUN pnpm build
+
+# As the plugin-server is now built, let’s keep
+# only prod dependencies in the node_module folder
+# as we will copy it to the last image.
+RUN corepack enable && \
+    mkdir /tmp/pnpm-store && \
+    pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
+    rm -rf /tmp/pnpm-store
 
 #
 # ---------------------------------------------------------
@@ -69,8 +76,8 @@ WORKDIR /code
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # Compile and install Python dependencies.
-# We install those dependencies to a custom folder that we will
-# then copy to the final image.
+# We install those dependencies on a custom folder that we will
+# then copy to the last image.
 COPY requirements.txt ./
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -94,8 +101,8 @@ ENV PYTHONUNBUFFERED 1
 # Install OS runtime dependencies.
 #
 # Note: please add in this section runtime dependences only.
-# If you temporary need a package to build a Python or npm
-# dependency take a look at the sections below.
+# If you temporarily need a package to build a Python or Node.js
+# dependency, look at the stages above.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "chromium" \
@@ -110,8 +117,10 @@ RUN apt-get install -y --no-install-recommends "curl" && \
     curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
     apt-get install -y --no-install-recommends "nodejs"
 
-# Add in the compiled plugin-server.
-COPY --from=plugin-server-build /code/plugin-server/dist/ /code/plugin-server/dist/
+# Add in the compiled plugin-server & its runtime dependencies.
+COPY --from=plugin-server-build /code/plugin-server/dist /code/plugin-server/dist
+COPY --from=plugin-server-build /code/plugin-server/node_modules /code/plugin-server/node_modules
+COPY --from=plugin-server-build /code/plugin-server/package.json /code/plugin-server/package.json
 
 # Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
 RUN apt-get install -y --no-install-recommends \
@@ -135,7 +144,7 @@ COPY ee ee/
 COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
 RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
 
-# Add in Gunicorn config and custom bin files.
+# Add in the Gunicorn config and the custom bin files.
 COPY gunicorn.config.py ./
 COPY ./bin ./bin/
 
