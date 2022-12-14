@@ -1,8 +1,14 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
+
+KAFKA_COLUMNS_WITH_PARTITION = """
+, _timestamp Nullable(DateTime)
+, _offset UInt64
+, _partition UInt64
+"""
 
 # TODO
 # explode server timing from Resource events into their own columns
@@ -44,19 +50,20 @@ entry_type LowCardinality(String),
 name String,
 team_id Int64,
 current_url String,
-start_time Int64,
-redirect_start Int64,
-redirect_end Int64,
-worker_start Int64,
-fetch_start Int64,
-domain_lookup_start Int64,
-domain_lookup_end Int64,
-connect_start Int64,
-secure_connection_start Int64,
-connect_end Int64,
-request_start Int64,
-response_start Int64,
-response_end Int64,
+start_time Float64,
+duration Float64,
+redirect_start Float64,
+redirect_end Float64,
+worker_start Float64,
+fetch_start Float64,
+domain_lookup_start Float64,
+domain_lookup_end Float64,
+connect_start Float64,
+secure_connection_start Float64,
+connect_end Float64,
+request_start Float64,
+response_start Float64,
+response_end Float64,
 decoded_body_size Int64,
 encoded_body_size Int64,
 initiator_type LowCardinality(String),
@@ -65,20 +72,20 @@ render_blocking_status LowCardinality(String),
 response_status Int64,
 transfer_size Int64,
 largest_contentful_paint_element String,
-largest_contentful_paint_render_time Int64,
-largest_contentful_paint_load_time Int64,
-largest_contentful_paint_size Int64,
+largest_contentful_paint_render_time Float64,
+largest_contentful_paint_load_time Float64,
+largest_contentful_paint_size Float64,
 largest_contentful_paint_id String,
 largest_contentful_paint_url String,
-dom_complete Int64,
-dom_content_loaded_event Int64,
-dom_interactive Int64,
-load_event_end Int64,
-load_event_start Int64,
+dom_complete Float64,
+dom_content_loaded_event Float64,
+dom_interactive Float64,
+load_event_end Float64,
+load_event_start Float64,
 redirect_count Int64,
 navigation_type LowCardinality(String),
-unload_event_end Int64,
-unload_event_start Int64,
+unload_event_end Float64,
+unload_event_start Float64,
 """.strip().rstrip(
     ","
 )
@@ -146,26 +153,33 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     return ",".join([clean_line(line).split(" ")[0] for line in column_definitions.split("\n") if clean_line(line)])
 
 
-PERFORMANCE_EVENTS_TABLE_MV_SQL = """
-CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER '{cluster}'
-TO {database}.{target_table}
-AS SELECT
-{columns}
-{extra_fields}
-FROM {database}.kafka_performance_events
-""".format(
-    columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
-    target_table="sharded_performance_events",
-    cluster=settings.CLICKHOUSE_CLUSTER,
-    database=settings.CLICKHOUSE_DATABASE,
-    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
-)
-
-# This table is responsible for reading from events on a cluster setting
 DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
     extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+)
+
+WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
+    columns=PERFORMANCE_EVENT_COLUMNS,
+    table_name="writeable_performance_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+)
+
+PERFORMANCE_EVENTS_TABLE_MV_SQL = """
+CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER '{cluster}'
+TO {database}.{target_table}
+AS SELECT
+{columns}
+,{extra_fields}
+FROM {database}.kafka_performance_events
+""".format(
+    columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
+    target_table="writeable_performance_events",
+    cluster=settings.CLICKHOUSE_CLUSTER,
+    database=settings.CLICKHOUSE_DATABASE,
+    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
 )
