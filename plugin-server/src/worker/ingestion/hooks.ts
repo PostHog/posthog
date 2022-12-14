@@ -248,7 +248,7 @@ export class HookCommander {
             method: 'POST',
             body: JSON.stringify(message, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
-            signal: this.getTrackedTimeoutSignal('webhook_timeouts', {
+            signal: this.trackedTimeoutSignal('webhook_timeouts', {
                 team_id: event.teamId.toString(),
             }),
         })
@@ -287,7 +287,7 @@ export class HookCommander {
             method: 'POST',
             body: JSON.stringify(payload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
-            signal: this.getTrackedTimeoutSignal('rest_hook_timeouts', {
+            signal: this.trackedTimeoutSignal('rest_hook_timeouts', {
                 team_id: event.teamId.toString(),
             }),
         })
@@ -298,7 +298,7 @@ export class HookCommander {
         this.statsd?.increment('rest_hook_firings')
     }
 
-    private getTrackedTimeoutSignal(metricName: string, metricTags?: Record<string, string>): AbortSignal {
+    private trackedTimeoutSignal(metricName: string, metricTags?: Record<string, string>): AbortSignal {
         const signal = AbortSignal.timeout(this.EXTERNAL_REQUEST_TIEMOUT)
         signal.addEventListener('abort', () => {
             this.statsd?.increment(metricName, metricTags)

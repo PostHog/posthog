@@ -15,6 +15,4 @@ function fetchWrapper(...args: Parameters<typeof fetch>): Promise<Response> {
     )
 }
 
-fetchWrapper.isRedirect = fetch.isRedirect
-
 export default fetchWrapper
