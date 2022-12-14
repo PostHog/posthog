@@ -14,22 +14,30 @@ from posthog.models.group.sql import INSERT_GROUP_SQL
 
 
 def raw_create_group_ch(
-    team_id: int, group_type_index: GroupTypeIndex, group_key: str, properties: Dict, timestamp: datetime.datetime
+    team_id: int,
+    group_type_index: GroupTypeIndex,
+    group_key: str,
+    properties: Dict,
+    created_at: datetime.datetime,
+    timestamp: Optional[datetime.datetime] = None,
+    sync: bool = False,
 ):
     """Create ClickHouse-only Group record.
 
     DON'T USE DIRECTLY - `create_group` is the correct option,
     unless you specifically want to sync Postgres state from ClickHouse yourself."""
+    if timestamp is None:
+        timestamp = now().astimezone(pytz.utc)
     data = {
         "group_type_index": group_type_index,
         "group_key": group_key,
         "team_id": team_id,
         "group_properties": json.dumps(properties),
-        "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "created_at": created_at.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "_timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S"),
     }
     p = ClickhouseProducer()
-    p.produce(topic=KAFKA_GROUPS, sql=INSERT_GROUP_SQL, data=data)
+    p.produce(topic=KAFKA_GROUPS, sql=INSERT_GROUP_SQL, data=data, sync=sync)
 
 
 def create_group(
@@ -38,7 +46,8 @@ def create_group(
     group_key: str,
     properties: Optional[Dict] = None,
     timestamp: Optional[Union[datetime.datetime, str]] = None,
-):
+    sync: bool = False,
+) -> Group:
     """Create proper Group record (ClickHouse + Postgres)."""
     if not properties:
         properties = {}
@@ -51,8 +60,8 @@ def create_group(
     else:
         timestamp = timestamp.astimezone(pytz.utc)
 
-    raw_create_group_ch(team_id, group_type_index, group_key, properties, timestamp)
-    Group.objects.create(
+    raw_create_group_ch(team_id, group_type_index, group_key, properties, timestamp, timestamp=timestamp, sync=sync)
+    group = Group.objects.create(
         team_id=team_id,
         group_type_index=group_type_index,
         group_key=group_key,
@@ -60,6 +69,7 @@ def create_group(
         created_at=timestamp,
         version=0,
     )
+    return group
 
 
 def get_aggregation_target_field(

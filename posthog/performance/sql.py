@@ -25,7 +25,7 @@ shard by session id so that when querying for all in session or pageview all dat
 SELECT * FROM performance_events
 WHERE team_id = 1
 AND session_id = 'my-session-uuid'
-ORDER BY timestamp DESC
+ORDER BY start_time
 
 ## get all performance events for a given team's pageview
 
@@ -33,8 +33,9 @@ allows us to show performance events in a waterfall chart for a given pageview
 
 SELECT * FROM performance_events
 WHERE team_id = 1
+AND session_id = 'my-session-uuid'
 AND pageview_id = 'my-page-view-uuid' -- sent by SDK
-ORDER BY timestamp DESC
+ORDER BY start_time
 
 ## all other queries are expected to be based on aggregating materialized views built from this fact table
 """
@@ -150,7 +151,12 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     def clean_line(line: str) -> str:
         return line.strip().strip(",").strip()
 
-    return ",".join([clean_line(line).split(" ")[0] for line in column_definitions.split("\n") if clean_line(line)])
+    column_names = []
+    for line in column_definitions.splitlines():
+        column_name = clean_line(line).split(" ")[0]
+        column_names.append(column_name)
+
+    return ", ".join([cl for cl in column_names if cl])
 
 
 DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(

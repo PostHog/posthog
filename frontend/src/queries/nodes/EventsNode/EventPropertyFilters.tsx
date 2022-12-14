@@ -10,7 +10,7 @@ interface EventPropertyFiltersProps {
 
 let uniqueNode = 0
 export function EventPropertyFilters({ query, setQuery }: EventPropertyFiltersProps): JSX.Element {
-    const [id] = useState(uniqueNode++)
+    const [id] = useState(() => uniqueNode++)
     return !query.properties || Array.isArray(query.properties) ? (
         <PropertyFilters
             propertyFilters={query.properties || []}
