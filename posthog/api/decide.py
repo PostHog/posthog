@@ -161,7 +161,12 @@ def get_decide(request: HttpRequest):
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
-                response["sessionRecording"] = {"endpoint": "/s/", "consoleLogRecordingEnabled": capture_console_logs}
+                capture_performance = True if team.capture_performance_opt_in else False
+                response["sessionRecording"] = {
+                    "endpoint": "/s/",
+                    "consoleLogRecordingEnabled": capture_console_logs,
+                    "capturePerformance": capture_performance,
+                }
 
             response["siteApps"] = get_decide_site_apps(team) if team.inject_web_apps else []
 

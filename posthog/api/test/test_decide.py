@@ -99,6 +99,18 @@ class TestDecide(BaseTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": True})
 
+    def test_user_performance_opt_in(self):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"], False)
+
+        self.team.session_recording_opt_in = True
+        self.team.capture_performance_opt_in = True
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "capturePerformance": True})
+
     def test_user_session_recording_opt_in_wildcard_domain(self):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()

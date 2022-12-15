@@ -70,6 +70,25 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
             </div>
 
             <div className="space-y-2">
+                <LemonSwitch
+                    data-attr="opt-in-capture-performance-switch"
+                    onChange={(checked) => {
+                        updateCurrentTeam({ capture_performance_opt_in: checked })
+                    }}
+                    label="Capture network requests and performance information within recordings"
+                    labelClassName={inModal ? 'text-base font-semibold' : ''}
+                    bordered={!inModal}
+                    fullWidth={inModal}
+                    checked={!!currentTeam?.capture_performance_opt_in}
+                    disabled={!currentTeam?.session_recording_opt_in}
+                />
+                <p>
+                    This setting controls if performance and network information will be captured alongside recordings.
+                    The network requests and timings will be shown in the recording player to help you debug any issues.
+                </p>
+            </div>
+
+            <div className="space-y-2">
                 <LemonLabel className="text-base">Authorized domains for recordings</LemonLabel>
 
                 <p>

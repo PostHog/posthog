@@ -109,6 +109,7 @@ export function PlayerList<T extends Record<string, any>>({
                                     width={width}
                                     onRowsRendered={setRenderedRows}
                                     noRowsRenderer={() =>
+                                        // TODO @benjackwhite - add upsell for performance too
                                         tab === SessionRecordingPlayerTab.CONSOLE &&
                                         !currentTeam?.capture_console_log_opt_in ? (
                                             <div className="flex flex-col items-center h-full w-full pt-16 px-4 bg-white">
