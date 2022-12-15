@@ -47,7 +47,7 @@ export function CreateOrganizationModal({
                 'data-attr': 'create-organization-ok',
             }}
             onCancel={closeModal}
-            visible={isVisible}
+            open={isVisible}
             mask={mask}
             wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
             closeIcon={null}
