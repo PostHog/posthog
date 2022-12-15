@@ -90,7 +90,7 @@ def render_2022(request, user_uuid: str) -> HttpResponse:
     try:
         data = calculate_year_in_posthog_2022(user_uuid)
 
-        badge = sort_list_based_on_preference(data["badges"])
+        badge = sort_list_based_on_preference(data["badges"] or ["astronaut"])
 
         stats = stats_for_badge(data, badge)
 

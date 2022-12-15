@@ -19,7 +19,7 @@ from posthog.helpers.session_recording import (
     get_active_segments_from_event_list,
     parse_snapshot_timestamp,
 )
-from posthog.models import SessionRecordingPlaylistItem, Team
+from posthog.models import Team
 
 
 class SessionRecording:
@@ -127,18 +127,10 @@ class SessionRecording:
             statsd.incr("session_recordings.metadata_parsed_from_snapshot_data")
             segments, start_and_end_times_by_window_id = self._get_recording_segments_from_snapshot(snapshots)
 
-        playlists = list(
-            SessionRecordingPlaylistItem.objects.filter(session_id=self._session_recording_id)
-            .exclude(deleted=True)
-            .values_list("playlist_id", flat=True)
-            .distinct()
-        )
-
         return RecordingMetadata(
             segments=segments,
             start_and_end_times_by_window_id=start_and_end_times_by_window_id,
             distinct_id=cast(str, distinct_id),
-            playlists=playlists,
         )
 
     def _get_events_summary_by_window_id(
