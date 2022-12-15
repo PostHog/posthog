@@ -666,30 +666,27 @@ export function Experiment(): JSX.Element {
                                 </div>
                             )}
                             {experiment && experiment.start_date && !experiment.end_date && (
-                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                    Stop
-                                </LemonButton>
+                                <div className="flex flex-row gap-2">
+                                    <LemonButton
+                                        tooltip="Reset this experiment and go back to draft mode. Previous data will be unused."
+                                        type="secondary"
+                                        status="primary"
+                                        onClick={() => restartExperiment()}
+                                    >
+                                        Reset
+                                    </LemonButton>
+
+                                    <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                        Stop
+                                    </LemonButton>
+                                </div>
                             )}
                             {experiment?.end_date &&
                                 dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
                                 !experiment.archived && (
-                                    <div className="flex flex-row gap-2">
-                                        <LemonButton
-                                            tooltip="Restart this experiment to today's date. Previous data will be unused."
-                                            type="secondary"
-                                            status="primary"
-                                            onClick={() => restartExperiment()}
-                                        >
-                                            Restart
-                                        </LemonButton>
-                                        <LemonButton
-                                            type="secondary"
-                                            status="danger"
-                                            onClick={() => archiveExperiment()}
-                                        >
-                                            <b>Archive</b>
-                                        </LemonButton>
-                                    </div>
+                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
+                                        <b>Archive</b>
+                                    </LemonButton>
                                 )}
                         </Row>
                     </Row>
