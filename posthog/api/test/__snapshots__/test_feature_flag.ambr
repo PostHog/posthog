@@ -63,17 +63,11 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(1)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
@@ -93,6 +87,32 @@
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
+  '
+  
+  SELECT count(1)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < NULL
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.6
   '
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -124,7 +144,7 @@
      HAVING max(is_deleted) = 0)
   '
 ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.7
   '
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -209,17 +229,11 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '
   
-  SELECT count(*)
-  FROM
-    (SELECT 1
-     FROM cohortpeople
-     WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+  SELECT count(1)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < NULL
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
@@ -239,6 +253,32 @@
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.7
+  '
+  
+  SELECT count(1)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < NULL
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.8
   '
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -330,6 +370,16 @@
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
+  '
+  
+  SELECT count(1)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < NULL
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.5
   '
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
