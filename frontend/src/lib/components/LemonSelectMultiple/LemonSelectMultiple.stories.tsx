@@ -66,9 +66,10 @@ Loading.args = {
     loading: true,
 }
 
-export const NoOptions = Template.bind({})
-NoOptions.args = {
+export const NoDropdown = Template.bind({})
+NoDropdown.args = {
     mode: 'multiple-custom',
-    placeholder: 'No options...',
+    placeholder: 'data-attr',
+    hideDropdown: true,
     options: [],
 }
