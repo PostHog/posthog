@@ -75,6 +75,10 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
             : 'limited'
     }
 
+    const getSubfeatureNote = (subfeature: Feature): string => {
+        return typeof subfeature.value === 'number' ? `${subfeature.value} ${subfeature.unit}` : ''
+    }
+
     console.log(plans, 'THE PLANS')
 
     return (
@@ -224,13 +228,12 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                                                   {plans[0].feature_list[feature].features[subfeature].description}
                                               </th>
                                               {plans.map((plan) => (
-                                                  <td key={`${plan.name}-${subfeature}`}>
+                                                  <td key={`icon-${plan.name}-${subfeature}`}>
                                                       <PlanIcon
                                                           value={plan.feature_list[feature].features[subfeature]?.value}
-                                                          note={
+                                                          note={getSubfeatureNote(
                                                               plan.feature_list[feature].features[subfeature]
-                                                                  ?.description
-                                                          }
+                                                          )}
                                                           className={'text-base'}
                                                       />
                                                   </td>
