@@ -1,5 +1,5 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, Node, PersonsNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, EventsNode, EventsQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
 import { useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -23,7 +23,7 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
-import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -82,11 +82,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         ...columns.map((key, index) => ({
             dataIndex: key as any,
             title:
-                isEventsNode(query.source) && query.source.select && key.includes('#')
-                    ? key.split('#')[1].trim()
-                    : renderTitle(key, context),
+                isEventsQuery(query.source) && key.includes('#') ? key.split('#')[1].trim() : renderTitle(key, context),
             render: function RenderDataTableColumn(_: any, record: EventType) {
-                const arrayOfArrays = isEventsNode(query.source) && !!query.source.select
+                const arrayOfArrays = isEventsQuery(query.source)
                 const value = arrayOfArrays ? record[index] : record[key]
                 return renderColumn(key, value, record, query, setQuery, context)
             },
@@ -105,7 +103,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             : []),
     ]
     const dataSource = (response as null | EventsNode['response'])?.results ?? []
-    const setQuerySource = (source: EventsNode | PersonsNode): void => setQuery?.({ ...query, source })
+    const setQuerySource = (source: EventsNode | EventsQuery | PersonsNode): void => setQuery?.({ ...query, source })
 
     const showFilters = showSearch || showEventFilter || showPropertyFilter
     const showTools = showReload || showExport || showColumnConfigurator
@@ -117,13 +115,13 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                 <div className="space-y-4 relative">
                     {showFilters && (
                         <div className="flex gap-4">
-                            {showEventFilter && isEventsNode(query.source) && (
+                            {showEventFilter && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
                                 <EventName query={query.source} setQuery={setQuerySource} />
                             )}
                             {showSearch && isPersonsNode(query.source) && (
                                 <PersonsSearch query={query.source} setQuery={setQuerySource} />
                             )}
-                            {showPropertyFilter && isEventsNode(query.source) && (
+                            {showPropertyFilter && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
                                 <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
                             )}
                             {showPropertyFilter && isPersonsNode(query.source) && (
@@ -144,7 +142,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     {showTools && (
                         <div className="flex gap-4">
                             <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
-                            {showColumnConfigurator && isEventsNode(query.source) && (
+                            {showColumnConfigurator && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
                                 <ColumnConfigurator query={query} setQuery={setQuery} />
                             )}
                             {showExport && <DataTableExport query={query} setQuery={setQuery} />}
@@ -156,7 +154,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             ) : null}
                         </div>
                     )}
-                    {showEventsBufferWarning && isEventsNode(query.source) && (
+                    {showEventsBufferWarning && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
                     {inlineRow === 0 ? (

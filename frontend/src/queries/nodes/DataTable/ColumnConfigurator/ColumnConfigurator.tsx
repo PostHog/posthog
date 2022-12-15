@@ -21,7 +21,7 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableColumns } from '../defaults'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
-import { isEventsNode } from '~/queries/utils'
+import { isEventsNode, isEventsQuery } from '~/queries/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -35,6 +35,20 @@ interface ColumnConfiguratorProps {
     setQuery?: (node: DataTableNode) => void
 }
 
+// When to detect that we need to switch from "live events" to "explore"
+const containsHogQl = (expr: string): boolean => {
+    return !!(
+        expr.includes('(') ||
+        expr.includes('+') ||
+        expr.includes('-') ||
+        expr.includes('*') ||
+        expr.includes('/') ||
+        expr.includes('%') ||
+        expr.includes('^') ||
+        expr.match(/.*\..*\..*/)
+    )
+}
+
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {
     const { columns } = useValues(dataTableLogic)
 
@@ -43,8 +57,30 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         key,
         columns,
         setColumns: (columns: string[]) => {
-            if (isEventsNode(query.source) && query.source.select) {
+            if (isEventsQuery(query.source)) {
                 setQuery?.({ ...query, source: { ...query.source, select: columns } })
+            } else if (isEventsNode(query.source)) {
+                if (columns.find(containsHogQl)) {
+                    const { columns: _, ...restOfQuery } = query
+                    const { kind: __, response: ___, ...restOfSource } = query.source
+                    const select = columns.map((column) => {
+                        if (column === 'person') {
+                            return 'person.properties.email'
+                        }
+                        if (column === 'url') {
+                            return 'coalesce(properties.$current_url, properties.$screen_name) # Url / Screen'
+                        }
+                        return column
+                    })
+                    // TODO: transform some things?
+                    const newQuery: DataTableNode = {
+                        ...restOfQuery,
+                        source: { kind: NodeKind.EventsQuery, ...restOfSource, select },
+                    }
+                    setQuery?.(newQuery)
+                } else {
+                    setQuery?.({ ...query, columns })
+                }
             } else {
                 setQuery?.({ ...query, columns })
             }

@@ -3,7 +3,7 @@ import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableColumn } from '~/queries/schema'
 import { defaultsForDataTable } from './defaults'
 import { sortedKeys } from 'lib/utils'
-import { isEventsNode } from '~/queries/utils'
+import { isEventsNode, isEventsQuery } from '~/queries/utils'
 import { Sorting } from 'lib/components/LemonTable'
 
 export interface DataTableLogicProps {
@@ -34,14 +34,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     source,
                     ...sortedKeys({
                         ...rest,
-                        expandable:
-                            isEventsNode(query.source) && query.source.select ? false : query.expandable ?? true,
+                        expandable: isEventsQuery(query.source) ? false : query.expandable ?? true,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? false,
                         showEventFilter: query.showEventFilter ?? false,
                         showSearch: query.showSearch ?? false,
-                        showActions:
-                            isEventsNode(query.source) && query.source.select ? false : query.showActions ?? true,
+                        showActions: isEventsQuery(query.source) ? false : query.showActions ?? true,
                         showExport: query.showExport ?? false,
                         showReload: query.showReload ?? false,
                         showColumnConfigurator: query.showColumnConfigurator ?? false,
@@ -50,14 +48,16 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 }
             },
         ],
-        canSort: [
-            (s) => [s.queryWithDefaults],
-            (query: DataTableNode): boolean => isEventsNode(query.source) && !!query.source.select,
-        ],
+        canSort: [(s) => [s.queryWithDefaults], (query: DataTableNode): boolean => isEventsQuery(query.source)],
         sorting: [
             (s) => [s.queryWithDefaults, s.canSort],
             (query, canSort): Sorting | null => {
-                if (canSort && isEventsNode(query.source) && query.source.orderBy && query.source.orderBy.length > 0) {
+                if (
+                    canSort &&
+                    (isEventsNode(query.source) || isEventsQuery(query.source)) &&
+                    query.source.orderBy &&
+                    query.source.orderBy.length > 0
+                ) {
                     return query.source.orderBy[0] === '-'
                         ? {
                               columnKey: query.source.orderBy[0].substring(1),

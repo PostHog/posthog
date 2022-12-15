@@ -1,5 +1,5 @@
-import { DataNode, EventsNode, PersonsNode } from './schema'
-import { isEventsNode, isLegacyQuery, isPersonsNode } from './utils'
+import { DataNode, EventsNode, EventsQuery, PersonsNode } from './schema'
+import { isEventsNode, isEventsQuery, isLegacyQuery, isPersonsNode } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { AnyPartialFilterType } from '~/types'
@@ -21,7 +21,7 @@ export async function query<N extends DataNode = DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions
 ): Promise<N['response']> {
-    if (isEventsNode(query)) {
+    if (isEventsNode(query) || isEventsQuery(query)) {
         return await api.get(getEventsEndpoint(query))
     } else if (isPersonsNode(query)) {
         return await api.get(getPersonsEndpoint(query))
@@ -36,13 +36,13 @@ export async function query<N extends DataNode = DataNode>(
     throw new Error(`Unsupported query: ${query.kind}`)
 }
 
-export function getEventsEndpoint(query: EventsNode): string {
+export function getEventsEndpoint(query: EventsNode | EventsQuery): string {
     return api.events.determineListEndpoint(
         {
             properties: [...(query.fixedProperties || []), ...(query.properties || [])],
             ...(query.event ? { event: query.event } : {}),
-            ...(query.select ? { select: query.select } : {}),
-            ...(query.where ? { where: query.where } : {}),
+            ...('select' in query && query.select ? { select: query.select } : {}),
+            ...('where' in query && query.where ? { where: query.where } : {}),
             ...(query.actionId ? { action_id: query.actionId } : {}),
             ...(query.personId ? { person_id: query.personId } : {}),
             ...(query.before ? { before: query.before } : {}),

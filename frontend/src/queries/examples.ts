@@ -3,6 +3,7 @@ import {
     ActionsNode,
     DataTableNode,
     EventsNode,
+    EventsQuery,
     FunnelsQuery,
     LegacyQuery,
     LifecycleQuery,
@@ -49,8 +50,8 @@ const EventsTableFull: DataTableNode = {
     showEventsBufferWarning: true,
 }
 
-const TotalEvents: EventsNode = {
-    kind: NodeKind.EventsNode,
+const TotalEvents: EventsQuery = {
+    kind: NodeKind.EventsQuery,
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
@@ -62,8 +63,8 @@ const TotalEventsTable: DataTableNode = {
     source: TotalEvents,
 }
 
-const PropertyFormulas: EventsNode = {
-    kind: NodeKind.EventsNode,
+const PropertyFormulas: EventsQuery = {
+    kind: NodeKind.EventsQuery,
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
@@ -85,7 +86,7 @@ const PropertyFormulasTable: DataTableNode = {
 const EventAggegations: DataTableNode = {
     kind: NodeKind.DataTableNode,
     source: {
-        kind: NodeKind.EventsNode,
+        kind: NodeKind.EventsQuery,
         select: [
             "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
             'event',

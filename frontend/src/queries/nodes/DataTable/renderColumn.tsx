@@ -7,7 +7,7 @@ import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { DataTableNode, QueryContext } from '~/queries/schema'
-import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
@@ -20,7 +20,7 @@ export function renderColumn(
     setQuery?: (node: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
-    if (key === 'event' && isEventsNode(query.source)) {
+    if (key === 'event' && (isEventsNode(query.source) || isEventsQuery(query.source))) {
         const eventRecord = record as EventType
         if (value === '$autocapture') {
             return autoCaptureEventToDescription(eventRecord)
@@ -40,7 +40,11 @@ export function renderColumn(
     } else if (!Array.isArray(record) && (key.startsWith('properties.') || key === 'url')) {
         const propertyKey =
             key === 'url' ? (record.properties['$screen_name'] ? '$screen_name' : '$current_url') : key.substring(11)
-        if (setQuery && (isEventsNode(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
+        if (
+            setQuery &&
+            (isEventsNode(query.source) || isEventsQuery(query.source) || isPersonsNode(query.source)) &&
+            query.showPropertyFilter
+        ) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
                 value: record.properties[propertyKey],
@@ -86,7 +90,7 @@ export function renderColumn(
     } else if (key.startsWith('person.properties.')) {
         const eventRecord = record as EventType
         const propertyKey = key.substring(18)
-        if (setQuery && isEventsNode(query.source)) {
+        if (setQuery && (isEventsNode(query.source) || isEventsQuery(query.source))) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
                 value: eventRecord.person?.properties[propertyKey],

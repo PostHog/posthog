@@ -22,6 +22,7 @@ import {
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
+    EventsQuery = 'EventsQuery',
     ActionsNode = 'ActionsNode',
     PersonsNode = 'PersonsNode',
 
@@ -41,6 +42,7 @@ export enum NodeKind {
 export type QuerySchema =
     // Data nodes (see utils.ts)
     | EventsNode
+    | EventsQuery
     | ActionsNode
     | PersonsNode
 
@@ -95,11 +97,22 @@ export interface EventsNode extends EntityNode {
     /** Columns to order by */
     orderBy?: string[]
     /** Return a limited set of data */
-    select?: DataTableColumn[]
-    where?: DataTableColumn[]
     response?: {
         results: EventType[]
         next?: string
+    }
+}
+
+export interface EventsQuery extends Omit<EventsNode, 'kind' | 'response'> {
+    kind: NodeKind.EventsQuery
+    /** Return a limited set of data */
+    select?: DataTableColumn[]
+    /** Filters to apply before and after data is returned */
+    where?: DataTableColumn[]
+    response?: {
+        columns: string[]
+        types: string[]
+        results: any[][]
     }
 }
 
@@ -124,7 +137,7 @@ export interface PersonsNode extends DataNode {
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | PersonsNode
+    source: EventsNode | EventsQuery | PersonsNode
     /** Columns shown in the table  */
     columns?: DataTableColumn[]
     /** Include an event filter above the table (EventsNode only) */
