@@ -25,6 +25,7 @@ export interface Filters {
     event: string
     properties: AnyPropertyFilter[]
     event_type: EventDefinitionType
+    ordering?: string
 }
 
 function cleanFilters(filter: Partial<Filters>): Filters {
@@ -32,6 +33,7 @@ function cleanFilters(filter: Partial<Filters>): Filters {
         event: '',
         properties: [],
         event_type: EventDefinitionType.Event,
+        ordering: '-volume_30_day',
         ...filter,
     }
 }
@@ -299,7 +301,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
             actions.loadEventDefinitions(
                 normalizeEventDefinitionEndpointUrl({
                     url: values.eventDefinitions.current,
-                    searchParams: { search: values.filters.event },
+                    searchParams: { search: values.filters.event, ordering: values.filters.ordering },
                     full: true,
                     eventTypeFilter: values.filters.event_type,
                 })

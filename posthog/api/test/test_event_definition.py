@@ -73,6 +73,12 @@ class TestEventDefinitionAPI(APIBaseTest):
                 (dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds(), 0
             )
 
+        # Test ordering
+        response = self.client.get("/api/projects/@current/event_definitions/?ordering=volume_30_day")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["volume_30_day"], 1)
+
     def test_pagination_of_event_definitions(self):
         EventDefinition.objects.bulk_create(
             [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]

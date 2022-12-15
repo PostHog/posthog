@@ -333,7 +333,11 @@ def safe_clickhouse_string(s: str) -> str:
 
 
 def create_event_definitions_sql(
-    event_type: EventDefinitionType, is_enterprise: bool = False, conditions: str = ""
+    event_type: EventDefinitionType,
+    is_enterprise: bool = False,
+    conditions: str = "",
+    order_UNSAFE: str = "",
+    order_direction: str = "DESC",
 ) -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     if is_enterprise:
@@ -364,11 +368,7 @@ def create_event_definitions_sql(
 
     # Only return event definitions
     raw_event_definition_fields = ",".join(event_definition_fields)
-    ordering = (
-        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
-        if is_enterprise
-        else "ORDER BY name ASC"
-    )
+    ordering = f"ORDER BY {order_UNSAFE} {order_direction} NULLS LAST, name ASC"
 
     if event_type == EventDefinitionType.EVENT_CUSTOM:
         shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
