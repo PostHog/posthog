@@ -675,7 +675,7 @@ export function Experiment(): JSX.Element {
                                 !experiment.archived && (
                                     <div className="flex flex-row gap-2">
                                         <LemonButton
-                                            tooltip="Restart this experiment and go back to draft mode"
+                                            tooltip="Restart this experiment to today's date. Previous data will be unused."
                                             type="secondary"
                                             status="primary"
                                             onClick={() => restartExperiment()}
