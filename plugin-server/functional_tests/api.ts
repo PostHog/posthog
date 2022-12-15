@@ -2,6 +2,7 @@ import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
 import { Producer } from 'kafkajs'
 import { Pool } from 'pg'
+import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 
 import {
     ActionStep,
@@ -222,4 +223,26 @@ export const createUser = async (pgClient: Pool, teamId: number, email: string) 
 export const getPropertyDefinitions = async (pgClient: Pool, teamId: number) => {
     const { rows } = await pgClient.query(`SELECT * FROM posthog_propertydefinition WHERE team_id = $1`, [teamId])
     return rows
+}
+
+export const getMetric = async ({ name, type, labels }: Record<string, any>) => {
+    // Requests `/_metrics` and extracts the value of the first metric we find
+    // that matches name, type, and labels.
+    //
+    // Returns 0 if no metric is found.
+    const openMetrics = await (await fetch('http://localhost:6738/_metrics')).text()
+    return Number.parseFloat(
+        parsePrometheusTextFormat(openMetrics)
+            .filter((metric) => objectDeepContains(metric, { name, type }))[0]
+            ?.metrics.filter((values) => objectDeepContains(values, { labels }))[0]?.value ?? 0
+    )
+}
+
+const objectDeepContains = (obj: Record<string, any>, other: Record<string, any>): boolean => {
+    return Object.keys(other).every((key) => {
+        if (typeof other[key] === 'object') {
+            return objectDeepContains(obj[key], other[key])
+        }
+        return obj[key] === other[key]
+    })
 }
