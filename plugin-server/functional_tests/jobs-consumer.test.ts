@@ -93,7 +93,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     const metricBefore = await getMetric({
         name: 'latest_processed_timestamp_ms',
         type: 'GAUGE',
-        labels: { topic: 'jobs', partition: '0', consumer: 'jobs_consumer' },
+        labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
     })
 
     await producer.send({
@@ -108,7 +108,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
             await getMetric({
                 name: 'latest_processed_timestamp_ms',
                 type: 'GAUGE',
-                labels: { topic: 'jobs', partition: '0', consumer: 'jobs_consumer' },
+                labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
             }),
         ].filter((value) => value > metricBefore)
     )
