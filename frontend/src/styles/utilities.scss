@@ -14,103 +14,103 @@
 @each $space in $spaces {
     .space-y-#{$space} {
         & > * + * {
-            margin-top: #{$space/4}rem;
+            margin-top: #{$space * 0.25}rem;
         }
     }
 
     .space-x-#{$space} {
         & > * + * {
-            margin-left: #{$space/4}rem;
+            margin-left: #{$space * 0.25}rem;
         }
     }
 
     .gap-#{$space} {
-        gap: #{$space/4}rem;
+        gap: #{$space * 0.25}rem;
     }
 
     .gap-x-#{$space} {
-        column-gap: #{$space/4}rem;
+        column-gap: #{$space * 0.25}rem;
     }
 
     .gap-y-#{$space} {
-        row-gap: #{$space/4}rem;
+        row-gap: #{$space * 0.25}rem;
     }
 
     .w-#{$space} {
-        width: #{$space/4}rem;
+        width: #{$space * 0.25}rem;
     }
 
     .h-#{$space} {
-        height: #{$space/4}rem;
+        height: #{$space * 0.25}rem;
     }
 
     .max-w-#{$space} {
-        max-width: #{$space/4}rem;
+        max-width: #{$space * 0.25}rem;
     }
     .max-h-#{$space} {
-        max-height: #{$space/4}rem;
+        max-height: #{$space * 0.25}rem;
     }
 
     .min-w-#{$space} {
-        min-width: #{$space/4}rem;
+        min-width: #{$space * 0.25}rem;
     }
     .min-h-#{$space} {
-        min-height: #{$space/4}rem;
+        min-height: #{$space * 0.25}rem;
     }
 
     .m-#{$space} {
-        margin: #{$space/4}rem;
+        margin: #{$space * 0.25}rem;
     }
 
     .-m-#{$space} {
-        margin: #{-$space/4}rem;
+        margin: #{-$space * 0.25}rem;
     }
 
     .mx-#{$space} {
-        margin-left: #{$space/4}rem;
-        margin-right: #{$space/4}rem;
+        margin-left: #{$space * 0.25}rem;
+        margin-right: #{$space * 0.25}rem;
     }
 
     .-mx-#{$space} {
-        margin-left: #{-$space/4}rem;
-        margin-right: #{-$space/4}rem;
+        margin-left: #{-$space * 0.25}rem;
+        margin-right: #{-$space * 0.25}rem;
     }
 
     .my-#{$space} {
-        margin-top: #{$space/4}rem;
-        margin-bottom: #{$space/4}rem;
+        margin-top: #{$space * 0.25}rem;
+        margin-bottom: #{$space * 0.25}rem;
     }
 
     .-my-#{$space} {
-        margin-top: #{-$space/4}rem;
-        margin-bottom: #{-$space/4}rem;
+        margin-top: #{-$space * 0.25}rem;
+        margin-bottom: #{-$space * 0.25}rem;
     }
 
     .px-#{$space} {
-        padding-left: #{$space/4}rem;
-        padding-right: #{$space/4}rem;
+        padding-left: #{$space * 0.25}rem;
+        padding-right: #{$space * 0.25}rem;
     }
 
     .py-#{$space} {
-        padding-top: #{$space/4}rem;
-        padding-bottom: #{$space/4}rem;
+        padding-top: #{$space * 0.25}rem;
+        padding-bottom: #{$space * 0.25}rem;
     }
 
     .p-#{$space} {
-        padding: #{$space/4}rem;
+        padding: #{$space * 0.25}rem;
     }
 
     @each $side in $sides {
         .m#{str-slice($side, 0, 1)}-#{$space} {
-            margin-#{$side}: #{$space/4}rem;
+            margin-#{$side}: #{$space * 0.25}rem;
         }
 
         .-m#{str-slice($side, 0, 1)}-#{$space} {
-            margin-#{$side}: #{-$space/4}rem;
+            margin-#{$side}: #{-$space * 0.25}rem;
         }
 
         .p#{str-slice($side, 0, 1)}-#{$space} {
-            padding-#{$side}: #{$space/4}rem;
+            padding-#{$side}: #{$space * 0.25}rem;
         }
     }
 }
@@ -625,7 +625,7 @@
 
 @each $space in $spaces {
     .leading-#{$space} {
-        line-height: #{$space/4}rem;
+        line-height: #{$space * 0.25}rem;
     }
 }
 
