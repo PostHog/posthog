@@ -42,6 +42,7 @@ export interface Player {
 export interface SessionRecordingPlayerLogicProps {
     sessionRecordingId: SessionRecordingId
     sessionRecordingData?: SessionPlayerData
+    playlistShortId?: string
     playerKey: string
     matching?: MatchedRecording[]
     recordingStartTime?: string

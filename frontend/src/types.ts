@@ -604,7 +604,6 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
-    static_recordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -855,8 +854,6 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
-    playlist_items?: Pick<SessionRecordingType, 'id'>[] // only id is exposed by api to minimize data passed through components
-    is_static?: boolean
 }
 
 export interface SessionRecordingType {

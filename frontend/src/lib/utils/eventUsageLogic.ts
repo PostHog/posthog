@@ -391,6 +391,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         }),
         reportRecordingExportedToFile: true,
         reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
+        reportRecordingListVisibilityToggled: (type: string, visible: boolean) => ({ type, visible }),
+        reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
+        reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -987,6 +990,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingLoadedFromFile: (properties) => {
             posthog.capture('recording loaded from file', properties)
         },
+        reportRecordingListVisibilityToggled: (properties) => {
+            posthog.capture('recording list visibility toggled', properties)
+        },
+        reportRecordingPinnedToList: (properties) => {
+            posthog.capture('recording pinned to list', properties)
+        },
+        reportRecordingPlaylistCreated: (properties) => {
+            posthog.capture('recording playlist created', properties)
+        },
+
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
                 name: experiment.name,
