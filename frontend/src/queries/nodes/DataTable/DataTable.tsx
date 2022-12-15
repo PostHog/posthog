@@ -166,6 +166,22 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         columns={lemonColumns}
                         key={columns.join('::') /* Bust the LemonTable cache when columns change */}
                         dataSource={dataSource}
+                        rowKey={(record) => {
+                            if (isEventsQuery(query.source)) {
+                                if (columns.includes('*')) {
+                                    return record[columns.indexOf('*')].uuid
+                                } else if (columns.includes('uuid')) {
+                                    return record[columns.indexOf('uuid')]
+                                }
+                                return JSON.stringify(record)
+                            } else {
+                                return (
+                                    record.id ??
+                                    ('uuid' in record ? (record as any).uuid : null) ??
+                                    JSON.stringify(record)
+                                )
+                            }
+                        }}
                         sorting={canSort && setQuery ? sorting : undefined}
                         useURLForSorting={false}
                         onSort={
@@ -202,7 +218,6 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                   }
                                 : undefined
                         }
-                        rowKey={(row) => row.id ?? undefined}
                         rowClassName={(row) =>
                             clsx('DataTable__row', { 'DataTable__row--highlight_once': highlightedRows[row?.id] })
                         }
