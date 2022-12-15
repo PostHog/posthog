@@ -1,143 +1,114 @@
-# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_seven_events_but_only_two_relevant_changes
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
          properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
+         end_event_number - start_event_number AS relevant_event_count
   FROM
     (SELECT timestamp,
             properties,
-            is_pre_range,
             start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+            leadInFrame(start_event_number) OVER person_points AS end_event_number
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               is_pre_range,
                array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
                                                                                                                row_number() OVER person_events AS start_event_number
         FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
-              UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
-                 FROM events e
-                 WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-4000-8000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")) WINDOW person_events AS (
+                                                                             ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL WINDOW person_points AS (
+                                                     ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+  WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_seven_events_but_only_two_relevant_changes_without_events
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes_without_events
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
          properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
+         end_event_number - start_event_number AS relevant_event_count
   FROM
     (SELECT timestamp,
             properties,
-            is_pre_range,
             start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+            leadInFrame(start_event_number) OVER person_points AS end_event_number
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               is_pre_range,
                array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
                                                                                                                row_number() OVER person_events AS start_event_number
         FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
-                 FROM events e
-                 WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
-                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
-              UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
                    AND person_id = '00000000-0000-4000-8000-000000000000'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")) WINDOW person_events AS (
+                                                                             ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL WINDOW person_points AS (
+                                                     ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+  WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_seven_events_but_only_two_relevant_changes_without_filters
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes_without_filters
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
          properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
+         end_event_number - start_event_number AS relevant_event_count
   FROM
     (SELECT timestamp,
             properties,
-            is_pre_range,
             start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+            leadInFrame(start_event_number) OVER person_points AS end_event_number
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               is_pre_range,
                array() AS relevant_property_values,
                lagInFrame(array()) OVER person_events AS previous_relevant_property_values,
                                         row_number() OVER person_events AS start_event_number
         FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
-                 FROM events e
-                 WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
-              UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
                    AND person_id = '00000000-0000-4000-8000-000000000000'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")) WINDOW person_events AS (
+                                                                             ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL WINDOW person_points AS (
+                                                     ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+  WHERE timestamp IS NOT NULL
   '
 ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value
@@ -145,95 +116,37 @@
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
          properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
+         end_event_number - start_event_number AS relevant_event_count
   FROM
     (SELECT timestamp,
             properties,
-            is_pre_range,
             start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+            leadInFrame(start_event_number) OVER person_points AS end_event_number
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               is_pre_range,
                array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
                                                                                                                row_number() OVER person_events AS start_event_number
         FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
-                 FROM events e
-                 WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
-              UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
                    AND person_id = '00000000-0000-4000-8000-000000000000'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
-     WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
-  '
----
-# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_two_events
-  '
-  /* user_id:0 request:_snapshot_ */
-  SELECT timestamp,
-         properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
-  FROM
-    (SELECT timestamp,
-            properties,
-            is_pre_range,
-            start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
-     FROM
-       (SELECT timestamp,
-               person_properties AS properties,
-               is_pre_range,
-               array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
-               lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
-                                                                                                               row_number() OVER person_events AS start_event_number
-        FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
-                 FROM events e
-                 WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
+                 ORDER BY timestamp ASC)
               UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
-                 FROM events e
-                 WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")) WINDOW person_events AS (
+                                                                             ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL WINDOW person_points AS (
+                                                     ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+  WHERE timestamp IS NOT NULL
   '
 ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_new_person_with_one_event_before_range
@@ -241,47 +154,37 @@
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
          properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
+         end_event_number - start_event_number AS relevant_event_count
   FROM
     (SELECT timestamp,
             properties,
-            is_pre_range,
             start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+            leadInFrame(start_event_number) OVER person_points AS end_event_number
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               is_pre_range,
                array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
                                                                                                                row_number() OVER person_events AS start_event_number
         FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
-                 FROM events e
-                 WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
-              UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
                    AND person_id = '00000000-0000-4000-8000-000000000000'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")) WINDOW person_events AS (
+                                                                             ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL WINDOW person_points AS (
+                                                     ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+  WHERE timestamp IS NOT NULL
   '
 ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_new_person_with_one_event_before_range_materialized
@@ -289,47 +192,39 @@
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
          properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
+         end_event_number - start_event_number AS relevant_event_count
   FROM
     (SELECT timestamp,
             properties,
-            is_pre_range,
             start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+            leadInFrame(start_event_number) OVER person_points AS end_event_number
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               is_pre_range,
                array("mat_pp_bar") AS relevant_property_values,
                lagInFrame(array("mat_pp_bar")) OVER person_events AS previous_relevant_property_values,
                                                     row_number() OVER person_events AS start_event_number
         FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."mat_pp_bar" as "mat_pp_bar",
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
+                (SELECT e.timestamp AS timestamp,
+                        e."mat_pp_bar" AS "mat_pp_bar",
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
               UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."mat_pp_bar" as "mat_pp_bar",
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+                (SELECT NULL AS timestamp,
+                        '' AS "mat_pp_bar",
+                        '' AS "person_properties")) WINDOW person_events AS (
+                                                                             ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL WINDOW person_points AS (
+                                                     ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+  WHERE timestamp IS NOT NULL
   '
 ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_new_person_with_one_event_in_range
@@ -337,47 +232,37 @@
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
          properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
+         end_event_number - start_event_number AS relevant_event_count
   FROM
     (SELECT timestamp,
             properties,
-            is_pre_range,
             start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+            leadInFrame(start_event_number) OVER person_points AS end_event_number
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               is_pre_range,
                array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', '')) AS relevant_property_values,
                lagInFrame(array(replaceRegexpAll(JSONExtractRaw(person_properties, 'bar'), '^"|"$', ''))) OVER person_events AS previous_relevant_property_values,
                                                                                                                row_number() OVER person_events AS start_event_number
         FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
-                 FROM events e
-                 WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
-              UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
+                (SELECT e.timestamp AS timestamp,
+                        e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
                    AND person_id = '00000000-0000-4000-8000-000000000000'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+                 ORDER BY timestamp ASC)
+              UNION ALL
+                (SELECT NULL AS timestamp,
+                        '' AS "person_properties")) WINDOW person_events AS (
+                                                                             ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL WINDOW person_points AS (
+                                                     ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+  WHERE timestamp IS NOT NULL
   '
 ---
 # name: TestPersonPropertiesTimeline.test_timeline_for_new_person_with_one_event_in_range_materialized
@@ -385,46 +270,38 @@
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
          properties,
-         if(NOT is_pre_range
-            AND start_event_number = 1, 0, start_event_number - previous_start_event_number) AS relevant_events_since_previous_point
+         end_event_number - start_event_number AS relevant_event_count
   FROM
     (SELECT timestamp,
             properties,
-            is_pre_range,
             start_event_number,
-            lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+            leadInFrame(start_event_number) OVER person_points AS end_event_number
      FROM
        (SELECT timestamp,
                person_properties AS properties,
-               is_pre_range,
                array("mat_pp_bar") AS relevant_property_values,
                lagInFrame(array("mat_pp_bar")) OVER person_events AS previous_relevant_property_values,
                                                     row_number() OVER person_events AS start_event_number
         FROM (
-                (SELECT e.timestamp as timestamp,
-                        e."mat_pp_bar" as "mat_pp_bar",
-                        e."person_properties" as "person_properties",
-                        true AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') < toDateTime('2020-01-01 00:00:00', 'UTC')
-                 ORDER BY timestamp DESC
-                 LIMIT 1)
+                (SELECT e.timestamp AS timestamp,
+                        e."mat_pp_bar" AS "mat_pp_bar",
+                        e."person_properties" AS "person_properties"
+                 FROM events e
+                 WHERE team_id = 2
+                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND event = '$pageview'
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
+                 ORDER BY timestamp ASC)
               UNION ALL
-                (SELECT e.timestamp as timestamp,
-                        e."mat_pp_bar" as "mat_pp_bar",
-                        e."person_properties" as "person_properties",
-                        false AS is_pre_range
-                 FROM events e PREWHERE team_id = 2
-                 AND person_id = '00000000-0000-4000-8000-000000000000'
-                 AND event = '$pageview'
-                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
-                 ORDER BY timestamp ASC)) WINDOW person_events AS (
-                                                                   ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
+                (SELECT NULL AS timestamp,
+                        '' AS "mat_pp_bar",
+                        '' AS "person_properties")) WINDOW person_events AS (
+                                                                             ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING))
      WHERE start_event_number = 1
-       OR relevant_property_values != previous_relevant_property_values WINDOW person_points AS (
-                                                                                                 ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+       OR relevant_property_values != previous_relevant_property_values
+       OR timestamp IS NULL WINDOW person_points AS (
+                                                     ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) )
+  WHERE timestamp IS NOT NULL
   '
 ---

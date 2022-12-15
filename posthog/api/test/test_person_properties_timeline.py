@@ -46,7 +46,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "properties": {"foo": "abc", "bar": 123},
-                    "relevant_events_since_previous_point": 0,  # 0 here means the person was created within range
+                    "relevant_event_count": 1,  # 0 here means the person was created within range
                     "timestamp": "2020-01-01T00:00:00Z",
                 }
             ],
@@ -79,61 +79,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             timeline,
-            [
-                {
-                    "properties": {"foo": "abc", "bar": 123},
-                    "relevant_events_since_previous_point": 1,  # 1 in first entry means this person existed pre-range
-                    "timestamp": "2019-12-27T00:00:00Z",
-                }
-            ],
-        )
-
-    @snapshot_clickhouse_queries
-    @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
-    def test_timeline_for_existing_person_with_two_events(self):
-        person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="1",
-            person_properties={"foo": "abc", "bar": 456},
-            timestamp="2019-12-27T00:00:00Z",  # Before date_from
-        )
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="1",
-            person_properties={"foo": "abc", "bar": 123},
-            timestamp="2020-01-01T00:00:00Z",  # Exactly the same as date_from
-        )
-        flush_persons_and_events()
-
-        timeline = self._get_person_properties_timeline(
-            str(person.uuid),
-            events=[
-                {
-                    "id": "$pageview",
-                }
-            ],
-            properties=[{"key": "bar", "value": "xyz", "type": "person"}],
-            date_from=dt.datetime(2020, 1, 1),
-            date_to=dt.datetime(2020, 1, 5),
-        )
-
-        self.assertEqual(
-            timeline,
-            [
-                {
-                    "properties": {"foo": "abc", "bar": 456},  # Initial bar
-                    "relevant_events_since_previous_point": 1,  # 1 in first entry means this person existed pre-range
-                    "timestamp": "2019-12-27T00:00:00Z",
-                },
-                {
-                    "properties": {"foo": "abc", "bar": 123},  # Changed bar
-                    "relevant_events_since_previous_point": 1,
-                    "timestamp": "2020-01-01T00:00:00Z",
-                },
-            ],
+            [],  # No relevant events in range
         )
 
     @snapshot_clickhouse_queries
@@ -180,17 +126,17 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "properties": {"foo": "abc", "bar": 456},
-                    "relevant_events_since_previous_point": 0,  # 0 here means the person was created within range
+                    "relevant_event_count": 1,  # 0 here means the person was created within range
                     "timestamp": "2020-01-02T00:00:00Z",
                 },
                 {
                     "properties": {"foo": "abc", "bar": 123},
-                    "relevant_events_since_previous_point": 1,
+                    "relevant_event_count": 1,
                     "timestamp": "2020-01-03T00:00:00Z",
                 },
                 {
                     "properties": {"foo": "abc", "bar": 456},
-                    "relevant_events_since_previous_point": 1,
+                    "relevant_event_count": 1,
                     "timestamp": "2020-01-04T00:00:00Z",
                 },
             ],
@@ -198,15 +144,8 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
-    def test_timeline_for_existing_person_with_seven_events_but_only_two_relevant_changes(self):
+    def test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes(self):
         person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="1",
-            person_properties={"foo": "abc", "bar": 456},  # Initial bar
-            timestamp="2019-12-27T00:00:00Z",  # Before date_from
-        )
         _create_event(
             team=self.team,
             event="$pageview",
@@ -268,32 +207,25 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "properties": {"foo": "abc", "bar": 456},
-                    "relevant_events_since_previous_point": 1,  # 1 in first entry means this person existed pre-range
-                    "timestamp": "2019-12-27T00:00:00Z",
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
                 },
                 {
                     "properties": {"foo": "abc", "bar": 123},
-                    "relevant_events_since_previous_point": 2,
+                    "relevant_event_count": 3,
                     "timestamp": "2020-01-02T01:00:00Z",
                 },
                 {
                     "properties": {"foo": "abc", "bar": 789},
-                    "relevant_events_since_previous_point": 3,
+                    "relevant_event_count": 1,
                     "timestamp": "2020-01-04T19:00:01Z",
                 },
             ],
         )
 
     @snapshot_clickhouse_queries
-    def test_timeline_for_existing_person_with_seven_events_but_only_two_relevant_changes_without_filters(self):
+    def test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes_without_filters(self):
         person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="1",
-            person_properties={"foo": "abc", "bar": 456},  # Initial bar
-            timestamp="2019-12-27T00:00:00Z",  # Before date_from
-        )
         _create_event(
             team=self.team,
             event="$pageview",
@@ -354,22 +286,15 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "properties": {"foo": "abc", "bar": 456},
-                    "relevant_events_since_previous_point": 1,  # 1 in first entry means this person existed pre-range
-                    "timestamp": "2019-12-27T00:00:00Z",
+                    "relevant_event_count": 5,
+                    "timestamp": "2020-01-01T00:00:00Z",
                 },
             ],
         )
 
     @snapshot_clickhouse_queries
-    def test_timeline_for_existing_person_with_seven_events_but_only_two_relevant_changes_without_events(self):
+    def test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes_without_events(self):
         person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
-        _create_event(
-            team=self.team,
-            event="$pageview",
-            distinct_id="1",
-            person_properties={"foo": "abc", "bar": 456},  # Initial bar
-            timestamp="2019-12-27T00:00:00Z",  # Before date_from
-        )
         _create_event(
             team=self.team,
             event="$pageview",
@@ -426,17 +351,17 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             [
                 {
                     "properties": {"foo": "abc", "bar": 456},
-                    "relevant_events_since_previous_point": 1,  # 1 in first entry means this person existed pre-range
-                    "timestamp": "2019-12-27T00:00:00Z",
+                    "relevant_event_count": 1,
+                    "timestamp": "2020-01-01T00:00:00Z",
                 },
                 {
                     "properties": {"foo": "abc", "bar": 123},
-                    "relevant_events_since_previous_point": 2,
+                    "relevant_event_count": 4,
                     "timestamp": "2020-01-01T01:00:00Z",  # whatever event
                 },
                 {
                     "properties": {"foo": "abc", "bar": 789},
-                    "relevant_events_since_previous_point": 4,
+                    "relevant_event_count": 1,
                     "timestamp": "2020-01-04T19:00:01Z",
                 },
             ],
@@ -462,21 +387,3 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         properties_timeline = self.client.get(url)
         self.assertEqual(properties_timeline.status_code, expected_status)
         return properties_timeline.json()
-
-
-[
-    {
-        "id": "$pageview",
-        "name": "$pageview",
-        "type": "events",
-        "order": 0,
-        "properties": [
-            {
-                "key": "$geoip_continent_name",
-                "value": ["Europe", "North America"],
-                "operator": "exact",
-                "type": "person",
-            }
-        ],
-    }
-]

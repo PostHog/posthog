@@ -13,30 +13,24 @@ from .properties_timeline_event_query import PropertiesTimelineEventQuery
 class PropertiesTimelinePoint(TypedDict):
     timestamp: str
     properties: Dict[str, Any]
-    relevant_events_since_previous_point: int
+    relevant_event_count: int
 
 
 PROPERTIES_TIMELINE_SQL = """
 SELECT
     timestamp,
     properties,
-    if(
-        NOT is_pre_range AND start_event_number = 1,
-        0, /* If the event is first-ever for this person, relevant_events_since_previous_point will be 0 */
-        start_event_number - previous_start_event_number
-    ) AS relevant_events_since_previous_point
+    end_event_number - start_event_number AS relevant_event_count
 FROM (
     SELECT
         timestamp,
         properties,
-        is_pre_range,
         start_event_number,
-        lagInFrame(start_event_number) OVER person_points AS previous_start_event_number
+        leadInFrame(start_event_number) OVER person_points AS end_event_number
     FROM (
         SELECT
             timestamp,
             person_properties AS properties,
-            is_pre_range,
             {crucial_property_columns} AS relevant_property_values, -- TODO make this dynamic
             lagInFrame({crucial_property_columns}) OVER person_events AS previous_relevant_property_values,
             row_number() OVER person_events AS start_event_number
@@ -44,9 +38,10 @@ FROM (
         WINDOW person_events AS (ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
     )
     -- TODO union to including pre-timeline properties instead of `start_event_number = 1`
-    WHERE start_event_number = 1 OR relevant_property_values != previous_relevant_property_values
+    WHERE start_event_number = 1 OR relevant_property_values != previous_relevant_property_values OR timestamp IS NULL
     WINDOW person_points AS (ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
 )
+WHERE timestamp IS NOT NULL
 """
 
 
@@ -88,9 +83,9 @@ class PropertiesTimeline:
             PropertiesTimelinePoint(
                 timestamp=timestamp,
                 properties=json.loads(properties),
-                relevant_events_since_previous_point=relevant_events_since_previous_point,
+                relevant_event_count=relevant_event_count,
             )
-            for timestamp, properties, relevant_events_since_previous_point in raw_result
+            for timestamp, properties, relevant_event_count in raw_result
         ]
 
         return parsed_result
