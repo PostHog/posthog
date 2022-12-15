@@ -52,15 +52,11 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
 
     const dataTableLogicProps: DataTableLogicProps = { query, key }
     const {
-        columns: dataTableQueryColumns,
+        columns: columnsFromQuery,
         queryWithDefaults,
         canSort,
         sorting,
     } = useValues(dataTableLogic(dataTableLogicProps))
-    const columns =
-        response?.columns && Array.isArray(response.columns) && !response.columns.find((c) => typeof c !== 'string')
-            ? (response?.columns as string[])
-            : dataTableQueryColumns
 
     const {
         showActions,
@@ -74,21 +70,28 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         expandable,
     } = queryWithDefaults
 
+    const columnsInResponse: string[] | null =
+        response?.columns && Array.isArray(response.columns) && !response.columns.find((c) => typeof c !== 'string')
+            ? (response?.columns as string[])
+            : null
+
+    const columns: string[] = columnsInResponse ?? columnsFromQuery
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
         ...columns.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
             render: function RenderDataTableColumn(_: any, record: EventType) {
-                const arrayOfArrays = isEventsQuery(query.source)
-                const value = arrayOfArrays ? record[index] : record[key]
-                return renderColumn(key, value, record, query, setQuery, context)
+                if (isEventsQuery(query.source)) {
+                    return renderColumn(key, record[index], record, query, setQuery, context)
+                }
+                return renderColumn(key, record[key], record, query, setQuery, context)
             },
             sorter: canSort || undefined, // we sort on the backend
         })),
         ...(showActions && isEventsNode(query.source)
             ? [
                   {
-                      dataIndex: 'more' as any,
+                      dataIndex: '__more' as any,
                       title: '',
                       render: function RenderMore(_: any, record: EventType) {
                           return <EventRowActions event={record} />
@@ -97,8 +100,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                   },
               ]
             : []),
-    ]
-    const dataSource = (response as null | EventsNode['response'])?.results ?? []
+    ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex))
+
+    const dataSource =
+        (response as null | EventsNode['response'] | EventsQuery['response'] | PersonsNode['response'])?.results ?? []
     const setQuerySource = (source: EventsNode | EventsQuery | PersonsNode): void => setQuery?.({ ...query, source })
 
     const showFilters = showSearch || showEventFilter || showPropertyFilter
@@ -162,7 +167,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
-                        key={lemonColumns.join('::') /* Bust the LemonTable cache when columns change */}
+                        key={columns.join('::') /* Bust the LemonTable cache when columns change */}
                         dataSource={dataSource}
                         sorting={canSort && setQuery ? sorting : undefined}
                         useURLForSorting={false}
@@ -181,12 +186,21 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 : undefined
                         }
                         expandable={
-                            expandable
+                            expandable &&
+                            (isEventsNode(query.source) || (isEventsQuery(query.source) && columns.includes('*')))
                                 ? {
                                       expandedRowRender: function renderExpand(event) {
-                                          return event && <EventDetails event={event} />
+                                          if (isEventsQuery(query.source) && Array.isArray(event)) {
+                                              return (
+                                                  <EventDetails
+                                                      event={event[columns.indexOf('*')] ?? {}}
+                                                      useReactJsonView
+                                                  />
+                                              )
+                                          }
+                                          return event ? <EventDetails event={event} useReactJsonView /> : null
                                       },
-                                      rowExpandable: () => true,
+                                      rowExpandable: (event) => !!event,
                                       noIndent: true,
                                   }
                                 : undefined

@@ -11,6 +11,7 @@ import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
+import ReactJson from 'react-json-view'
 
 export function renderColumn(
     key: string,
@@ -20,9 +21,26 @@ export function renderColumn(
     setQuery?: (node: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
-    if (key === 'event' && (isEventsNode(query.source) || isEventsQuery(query.source))) {
+    if (key === 'event' && isEventsNode(query.source)) {
         const eventRecord = record as EventType
         if (value === '$autocapture') {
+            return autoCaptureEventToDescription(eventRecord)
+        } else {
+            const content = <PropertyKeyInfo value={value} type="event" />
+            const $sentry_url = eventRecord?.properties?.$sentry_url
+            return $sentry_url ? (
+                <Link to={$sentry_url} target="_blank">
+                    {content}
+                </Link>
+            ) : (
+                content
+            )
+        }
+    } else if (key === 'event' && isEventsQuery(query.source)) {
+        const resultRow = record as any[]
+        const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
+
+        if (value === '$autocapture' && eventRecord) {
             return autoCaptureEventToDescription(eventRecord)
         } else {
             const content = <PropertyKeyInfo value={value} type="event" />
@@ -164,6 +182,9 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else {
+        if (typeof value === 'object') {
+            return <ReactJson src={value} name={key} collapsed={1} />
+        }
         return String(value)
     }
 }

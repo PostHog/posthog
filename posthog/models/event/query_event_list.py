@@ -1,6 +1,6 @@
 import json
-from datetime import timedelta
-from typing import Dict, List, Optional, Tuple, Union
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
@@ -10,12 +10,38 @@ from posthog.client import query_with_columns, sync_execute
 from posthog.hogql.expr_parser import ExprParserContext, translate_hql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
+from posthog.models.element import chain_to_elements
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
     SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS,
 )
+from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
+
+SELECT_STAR_FROM_EVENTS_FIELDS = [
+    "uuid",
+    "event",
+    "properties",
+    "timestamp",
+    "team_id",
+    "distinct_id",
+    "elements_chain",
+    "created_at",
+    "person_id",
+    "person_created_at",
+    "person_properties",
+    "group0_properties",
+    "group1_properties",
+    "group2_properties",
+    "group3_properties",
+    "group4_properties",
+    "group0_created_at",
+    "group1_created_at",
+    "group2_created_at",
+    "group3_created_at",
+    "group4_created_at",
+]
 
 
 def determine_event_conditions(
@@ -66,13 +92,20 @@ def query_events_list(
     selected_columns: List[str] = []
     group_by_columns: List[str] = []
 
-    if select:
+    if isinstance(select, list):
+        if len(select) == 0:
+            select = ["*"]
         for column in select:
-            context = ExprParserContext()
-            clickhouse_sql = translate_hql(column, context)
-            selected_columns.append(clickhouse_sql)
-            if not context.is_aggregation:
+            if column == "*":
+                clickhouse_sql = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
+                selected_columns.append(clickhouse_sql)
                 group_by_columns.append(clickhouse_sql)
+            else:
+                context = ExprParserContext()
+                clickhouse_sql = translate_hql(column, context)
+                selected_columns.append(clickhouse_sql)
+                if not context.is_aggregation:
+                    group_by_columns.append(clickhouse_sql)
 
     conditions, condition_params = determine_event_conditions(
         team,
@@ -114,10 +147,11 @@ def query_events_list(
         order_by_list = []
         if order_by:
             for fragment in order_by:
+                order_direction = "ASC"
                 if fragment.startswith("-"):
-                    order_by_list.append(translate_hql(fragment[1:]) + " DESC")
-                else:
-                    order_by_list.append(translate_hql(fragment) + " ASC")
+                    order_direction = "DESC"
+                    fragment = fragment[1:]
+                order_by_list.append(translate_hql(fragment) + " " + order_direction)
         else:
             order_by_list.append(selected_columns[0])
 
@@ -134,6 +168,14 @@ def query_events_list(
             {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
             with_column_types=True,
         )
+
+        # Convert star result from tuple to dict
+        if "*" in select:
+            star = select.index("*")
+            for index, result in enumerate(results):
+                results[index] = list(result)
+                results[index][star] = convert_star_select_to_dict(result[star])
+
         return {
             "results": results,
             "columns": select,
@@ -159,6 +201,38 @@ def parse_order_by(order_by_param: Optional[str], select: Optional[List[str]]) -
         return list(json.loads(order_by_param))
     if not select:
         return ["-timestamp"]
-    if any(["total()" in column for column in select]):
+    if "total()" in select:
         return ["-total()"]
+    if "*" in select:
+        return ["-timestamp"]
+
     return [select[0]]
+
+
+def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
+    new_result = dict(zip(SELECT_STAR_FROM_EVENTS_FIELDS, select))
+    new_result["properties"] = json.loads(new_result["properties"])
+    new_result["person"] = {
+        "id": new_result["person_id"],
+        "created_at": new_result["person_created_at"],
+        "properties": json.loads(new_result["person_properties"]),
+    }
+    new_result.pop("person_id")
+    new_result.pop("person_created_at")
+    new_result.pop("person_properties")
+    for i in range(5):
+        if (
+            isinstance(new_result[f"group{i}_created_at"], datetime)
+            and new_result[f"group{i}_created_at"].timestamp() != 0
+        ):
+            new_result[f"group{i}"] = {
+                "created_at": new_result[f"group{i}_created_at"],
+                "properties": json.loads(new_result[f"group{i}_properties"])
+                if new_result[f"group{i}_properties"]
+                else {},
+            }
+        new_result.pop(f"group{i}_properties")
+        new_result.pop(f"group{i}_created_at")
+    if new_result["elements_chain"]:
+        new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
+    return new_result

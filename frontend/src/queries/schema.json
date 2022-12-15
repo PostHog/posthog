@@ -1272,6 +1272,13 @@
                     "description": "Can expand row to show raw event data (default: true)",
                     "type": "boolean"
                 },
+                "hiddenColumns": {
+                    "description": "Columns that aren't shown in the table, even if in columns",
+                    "items": {
+                        "$ref": "#/definitions/DataTableColumn"
+                    },
+                    "type": "array"
+                },
                 "kind": {
                     "const": "DataTableNode",
                     "type": "string"
@@ -1640,7 +1647,7 @@
                     "type": "object"
                 },
                 "select": {
-                    "description": "Return a limited set of data",
+                    "description": "Return a limited set of data. Required.",
                     "items": {
                         "$ref": "#/definitions/DataTableColumn"
                     },
@@ -1654,7 +1661,7 @@
                     "type": "array"
                 }
             },
-            "required": ["kind"],
+            "required": ["kind", "select"],
             "type": "object"
         },
         "FilterLogicalOperator": {

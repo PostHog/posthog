@@ -1,7 +1,8 @@
-import { DataNode, DataTableColumn, DataTableNode, NodeKind } from '~/queries/schema'
-import { isEventsQuery } from '~/queries/utils'
+import { DataNode, DataTableColumn, DataTableNode } from '~/queries/schema'
+import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 
 export const defaultDataTableEventColumns: DataTableColumn[] = [
+    '*',
     'event',
     'person',
     'url',
@@ -12,19 +13,21 @@ export const defaultDataTableEventColumns: DataTableColumn[] = [
 export const defaultDataTablePersonColumns: DataTableColumn[] = ['person', 'id', 'created_at', 'person.$delete']
 
 export function defaultDataTableColumns(query: DataNode): DataTableColumn[] {
-    return query.kind === NodeKind.PersonsNode ? defaultDataTablePersonColumns : defaultDataTableEventColumns
+    return isPersonsNode(query)
+        ? defaultDataTablePersonColumns
+        : isEventsQuery(query)
+        ? defaultDataTableEventColumns
+        : isEventsNode(query)
+        ? defaultDataTableEventColumns.filter((c) => c !== '*')
+        : []
 }
 
-export function defaultsForDataTable(query: DataTableNode): DataTableColumn[] {
-    let columns =
+export function defaultColumns(query: DataTableNode): DataTableColumn[] {
+    return (
         query.columns ??
         (isEventsQuery(query.source) && Array.isArray(query.source.select) && query.source.select.length > 0
             ? query.source.select
             : null) ??
         defaultDataTableColumns(query.source)
-    if (query.hiddenColumns) {
-        columns = columns.filter((column) => !query.hiddenColumns?.includes(column))
-    }
-
-    return columns
+    )
 }

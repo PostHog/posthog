@@ -52,9 +52,6 @@ const EventsTableFull: DataTableNode = {
 
 const TotalEvents: EventsQuery = {
     kind: NodeKind.EventsQuery,
-    properties: [
-        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
-    ],
     select: ['total()'],
 }
 
@@ -65,9 +62,6 @@ const TotalEventsTable: DataTableNode = {
 
 const PropertyFormulas: EventsQuery = {
     kind: NodeKind.EventsQuery,
-    properties: [
-        { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
-    ],
     select: [
         '1 + 2 + 3',
         'event',

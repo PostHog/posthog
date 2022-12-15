@@ -1,7 +1,7 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableColumn } from '~/queries/schema'
-import { defaultsForDataTable } from './defaults'
+import { defaultColumns } from './defaults'
 import { sortedKeys } from 'lib/utils'
 import { isEventsNode, isEventsQuery } from '~/queries/utils'
 import { Sorting } from 'lib/components/LemonTable'
@@ -17,7 +17,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumns: (columns: DataTableColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
-        columns: [defaultsForDataTable(props.query), { setColumns: (_, { columns }) => columns }],
+        columns: [defaultColumns(props.query), { setColumns: (_, { columns }) => columns }],
     })),
     selectors({
         queryWithDefaults: [
@@ -31,7 +31,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     source,
                     ...sortedKeys({
                         ...rest,
-                        expandable: isEventsQuery(query.source) ? false : query.expandable ?? true,
+                        expandable: isEventsQuery(query.source) ? columns.includes('*') : query.expandable ?? true,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
                         showPropertyFilter: query.showPropertyFilter ?? false,
                         showEventFilter: query.showEventFilter ?? false,
@@ -70,8 +70,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        const newColumns = defaultsForDataTable(props.query)
-        const oldColumns = defaultsForDataTable(oldProps.query)
+        const newColumns = defaultColumns(props.query)
+        const oldColumns = defaultColumns(oldProps.query)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
             actions.setColumns(newColumns)
         }

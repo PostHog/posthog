@@ -105,8 +105,8 @@ export interface EventsNode extends EntityNode {
 
 export interface EventsQuery extends Omit<EventsNode, 'kind' | 'response'> {
     kind: NodeKind.EventsQuery
-    /** Return a limited set of data */
-    select?: DataTableColumn[]
+    /** Return a limited set of data. Required. */
+    select: DataTableColumn[]
     /** Filters to apply before and after data is returned */
     where?: DataTableColumn[]
     response?: {

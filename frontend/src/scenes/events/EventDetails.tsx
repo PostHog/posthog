@@ -10,15 +10,18 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { pluralize } from 'lib/utils'
 import { LemonTableProps } from 'lib/components/LemonTable'
+import ReactJson from 'react-json-view'
 
 const { TabPane } = Tabs
 
 interface EventDetailsProps {
     event: EventType
     tableProps?: Partial<LemonTableProps<Record<string, any>>>
+    /** Used under data exploration tables */
+    useReactJsonView?: boolean
 }
 
-export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Element {
+export function EventDetails({ event, tableProps, useReactJsonView }: EventDetailsProps): JSX.Element {
     const [showHiddenProps, setShowHiddenProps] = useState(false)
 
     const displayedEventProperties: Properties = {}
@@ -63,8 +66,12 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                 </div>
             </TabPane>
             <TabPane tab="JSON" key="json">
-                <div className="px-2">
-                    <EventJSON event={event} />
+                <div className={useReactJsonView ? 'px-4 py-4' : 'px-2'}>
+                    {useReactJsonView ? (
+                        <ReactJson src={event} name={'event'} collapsed={1} collapseStringsAfterLength={80} sortKeys />
+                    ) : (
+                        <EventJSON event={event} />
+                    )}
                 </div>
             </TabPane>
             {event.elements && event.elements.length > 0 && (
