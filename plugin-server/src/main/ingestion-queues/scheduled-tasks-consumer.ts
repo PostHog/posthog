@@ -45,7 +45,7 @@ export const startScheduledTasksConsumer = async ({
 
     */
 
-    const groupId = 'scheduled-tasks-consumer'
+    const groupId = 'scheduled-tasks-runner'
     const consumer = kafka.consumer({ groupId })
     setupEventHandlers(consumer)
 
