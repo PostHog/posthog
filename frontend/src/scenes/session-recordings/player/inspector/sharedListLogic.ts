@@ -20,6 +20,7 @@ export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId'
 
 type SharedListItemBase = {
     timestamp: Dayjs
+    timeInRecording: number
     search: string
 }
 
@@ -51,7 +52,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             playerSettingsLogic,
             ['showOnlyMatching'],
             sessionRecordingDataLogic(props),
-            ['peformanceEvents', 'consoleLogs'],
+            ['peformanceEvents', 'consoleLogs', 'sessionPlayerMetaData'],
         ],
         actions: [playerSettingsLogic, ['setShowOnlyMatching']],
     })),
@@ -104,16 +105,29 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
 
+        recordingTimeInfo: [
+            (s) => [s.sessionPlayerMetaData],
+            (sessionPlayerMetaData): { start: Dayjs; end: Dayjs; duration: number } => {
+                const { startTimeEpochMs } = sessionPlayerMetaData?.metadata?.segments[0] || {}
+                const start = dayjs(startTimeEpochMs)
+                const duration = sessionPlayerMetaData?.metadata?.recordingDurationMs || 0
+                const end = start.add(duration, 'ms')
+                return { start, end, duration }
+            },
+        ],
+
         allItems: [
-            (s) => [s.tab, s.peformanceEvents, s.consoleLogs],
-            (tab, peformanceEvents, consoleLogs): SharedListItem[] => {
+            (s) => [s.tab, s.recordingTimeInfo, s.peformanceEvents, s.consoleLogs],
+            (tab, recordingTimeInfo, peformanceEvents, consoleLogs): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE) {
                     for (const event of peformanceEvents || []) {
+                        const timestamp = dayjs(event.timestamp)
                         items.push({
                             type: 'performance',
-                            timestamp: dayjs(event.timestamp),
+                            timestamp,
+                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
                             data: event,
                         })
@@ -122,9 +136,11 @@ export const sharedListLogic = kea<sharedListLogicType>([
 
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
                     for (const event of consoleLogs || []) {
+                        const timestamp = dayjs(event.timestamp)
                         items.push({
                             type: 'console',
-                            timestamp: dayjs(event.timestamp),
+                            timestamp,
+                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.rawString,
                             data: event,
                         })
