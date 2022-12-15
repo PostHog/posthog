@@ -19,7 +19,7 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableColumns } from '../defaults'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
-import { isEventsNode, isEventsQuery } from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -33,20 +33,6 @@ interface ColumnConfiguratorProps {
     setQuery?: (node: DataTableNode) => void
 }
 
-// When to detect that we need to switch from "live events" to "explore"
-const containsHogQl = (expr: string): boolean => {
-    return !!(
-        expr.includes('(') ||
-        expr.includes('+') ||
-        expr.includes('-') ||
-        expr.includes('*') ||
-        expr.includes('/') ||
-        expr.includes('%') ||
-        expr.includes('^') ||
-        expr.match(/.*\..*\..*/)
-    )
-}
-
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {
     const { columns } = useValues(dataTableLogic)
 
@@ -57,28 +43,6 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
                 setQuery?.({ ...query, source: { ...query.source, select: columns } })
-            } else if (isEventsNode(query.source)) {
-                if (columns.find(containsHogQl)) {
-                    const { columns: _, ...restOfQuery } = query
-                    const { kind: __, response: ___, ...restOfSource } = query.source
-                    const select = columns.map((column) => {
-                        if (column === 'person') {
-                            return 'person.properties.email'
-                        }
-                        if (column === 'url') {
-                            return 'coalesce(properties.$current_url, properties.$screen_name) # Url / Screen'
-                        }
-                        return column
-                    })
-                    // TODO: transform some things?
-                    const newQuery: DataTableNode = {
-                        ...restOfQuery,
-                        source: { kind: NodeKind.EventsQuery, ...restOfSource, select },
-                    }
-                    setQuery?.(newQuery)
-                } else {
-                    setQuery?.({ ...query, columns })
-                }
             } else {
                 setQuery?.({ ...query, columns })
             }
@@ -96,12 +60,12 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
             >
                 Configure columns
             </LemonButton>
-            <ColumnConfiguratorModal />
+            <ColumnConfiguratorModal query={query} setQuery={setQuery} />
         </BindLogic>
     )
 }
 
-function ColumnConfiguratorModal(): JSX.Element {
+function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Element {
     // the virtualised list doesn't support gaps between items in the list
     // setting the container to be larger than we need
     // and adding a container with a smaller height to each row item
@@ -131,8 +95,10 @@ function ColumnConfiguratorModal(): JSX.Element {
             columnKey = column.substring(11)
         }
 
-        // const SelectedColumn = (props: { column: string; dataIndex: number }): JSX.Element => {
-        //     const { column, dataIndex } = props
+        if (columnKey.includes('#')) {
+            columnKey = columnKey.split('#')[1].trim()
+        }
+
         return (
             <div className={clsx(['SelectedColumn', 'selected'])} style={{ height: rowItemHeight }}>
                 <DragHandle />
@@ -245,7 +211,7 @@ function ColumnConfiguratorModal(): JSX.Element {
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.EventFeatureFlags,
                                             TaxonomicFilterGroupType.PersonProperties,
-                                            ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS]
+                                            ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] && isEventsQuery(query)
                                                 ? [TaxonomicFilterGroupType.HogQLExpression]
                                                 : []),
                                         ]}
