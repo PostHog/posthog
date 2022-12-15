@@ -232,15 +232,19 @@ export const getMetric = async ({ name, type, labels }: Record<string, any>) => 
     const openMetrics = await (await fetch('http://localhost:6738/_metrics')).text()
     return Number.parseFloat(
         parsePrometheusTextFormat(openMetrics)
-            .filter((metric) => objectDeepContains(metric, { name, type }))[0]
-            ?.metrics.filter((values) => objectDeepContains(values, { labels }))[0]?.value ?? 0
+            .filter((metric) => deepObjectContains(metric, { name, type }))[0]
+            ?.metrics.filter((values) => deepObjectContains(values, { labels }))[0]?.value ?? 0
     )
 }
 
-const objectDeepContains = (obj: Record<string, any>, other: Record<string, any>): boolean => {
+const deepObjectContains = (obj: Record<string, any>, other: Record<string, any>): boolean => {
+    // Returns true if `obj` contains all the keys in `other` and their values
+    // are equal. If the values are objects, recursively checks if they contain
+    // the keys in `other`.
+
     return Object.keys(other).every((key) => {
         if (typeof other[key] === 'object') {
-            return objectDeepContains(obj[key], other[key])
+            return deepObjectContains(obj[key], other[key])
         }
         return obj[key] === other[key]
     })

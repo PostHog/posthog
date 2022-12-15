@@ -176,5 +176,7 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
             labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
         })
         expect(metricAfter).toBeGreaterThan(metricBefore)
+        expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
+        expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
     })
 })
