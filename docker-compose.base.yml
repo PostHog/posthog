@@ -13,7 +13,6 @@ services:
             POSTGRES_USER: posthog
             POSTGRES_DB: posthog
             POSTGRES_PASSWORD: posthog
-        command: postgres -c 'max_connections=1000'
 
     redis:
         image: redis:6.2.7-alpine
@@ -59,3 +58,53 @@ services:
     maildev:
         image: maildev/maildev:2.0.5
         restart: on-failure
+    worker: &worker
+        command: ./bin/docker-worker-celery --with-scheduler
+        restart: on-failure
+        environment:
+            DISABLE_SECURE_SSL_REDIRECT: 'true'
+            IS_BEHIND_PROXY: 'true'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            KAFKA_URL: 'kafka://kafka'
+            REDIS_URL: 'redis://redis:6379/'
+            PGHOST: db
+            PGUSER: posthog
+            PGPASSWORD: posthog
+            DEPLOYMENT: hobby
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+
+    web:
+        <<: *worker
+        command: /compose/start
+        restart: on-failure
+
+    plugins:
+        command: ./bin/plugin-server --no-restart-loop
+        restart: on-failure
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis:6379/'
+            CLICKHOUSE_HOST: 'clickhouse'
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+
+    asyncmigrationscheck:
+        <<: *worker
+        command: python manage.py run_async_migrations --check
+        restart: 'no'
+        deploy:
+            replicas: 0

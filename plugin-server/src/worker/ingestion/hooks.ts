@@ -165,6 +165,9 @@ export class HookCommander {
     siteUrlManager: SiteUrlManager
     statsd: StatsD | undefined
 
+    /** Hook request timeout in ms. */
+    EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
+
     constructor(
         db: DB,
         teamManager: TeamManager,
@@ -240,10 +243,12 @@ export class HookCommander {
                 text: messageMarkdown,
             }
         }
+
         await fetch(webhookUrl, {
             method: 'POST',
             body: JSON.stringify(message, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
+            timeout: this.EXTERNAL_REQUEST_TIMEOUT,
         })
         this.statsd?.increment('webhook_firings', {
             team_id: event.teamId.toString(),
@@ -275,10 +280,12 @@ export class HookCommander {
             hook: { id: hook.id, event: hook.event, target: hook.target },
             data: { ...event, person: sendablePerson },
         }
+
         const request = await fetch(hook.target, {
             method: 'POST',
             body: JSON.stringify(payload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
+            timeout: this.EXTERNAL_REQUEST_TIMEOUT,
         })
         if (request.status === 410) {
             // Delete hook on our side if it's gone on Zapier's

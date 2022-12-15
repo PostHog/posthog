@@ -106,7 +106,7 @@ class FOSSCohortQuery(EventQuery):
     SEQUENCE_FIELD_ALIAS = "steps"
     _fields: List[str]
     _events: List[str]
-    _earliest_time_for_event_query: Union[Relative_Date, None]
+    _earliest_time_for_event_query: Optional[Relative_Date]
     _restrict_event_query_by_time: bool
 
     def __init__(
@@ -141,7 +141,7 @@ class FOSSCohortQuery(EventQuery):
             extra_event_properties=extra_event_properties,
             extra_person_fields=extra_person_fields,
             override_aggregate_users_by_distinct_id=override_aggregate_users_by_distinct_id,
-            using_person_on_events=team.actor_on_events_querying_enabled,
+            using_person_on_events=team.person_on_events_querying_enabled,
             **kwargs,
         )
 
@@ -255,7 +255,6 @@ class FOSSCohortQuery(EventQuery):
         {q}
         WHERE 1 = 1
         {conditions}
-        SETTINGS allow_experimental_window_functions = 1
         """
 
         return final_query, self.params

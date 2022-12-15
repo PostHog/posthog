@@ -39,7 +39,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_SASL_PASSWORD: null,
         KAFKA_CONSUMPTION_TOPIC: KAFKA_EVENTS_PLUGIN_INGESTION,
         KAFKA_PRODUCER_MAX_QUEUE_SIZE: isTestEnv() ? 0 : 1000,
-        KAFKA_MAX_MESSAGE_BATCH_SIZE: 900_000,
+        KAFKA_MAX_MESSAGE_BATCH_SIZE: isDevEnv() ? 0 : 900_000,
         KAFKA_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 500,
         APP_METRICS_FLUSH_FREQUENCY_MS: isTestEnv() ? 5 : 20_000,
         REDIS_URL: 'redis://127.0.0.1',
@@ -48,7 +48,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_REDIS_PORT: 6379,
         BASE_DIR: '.',
         PLUGINS_RELOAD_PUBSUB_CHANNEL: 'reload-plugins',
-        WORKER_CONCURRENCY: coreCount,
+        WORKER_CONCURRENCY: isDevEnv() ? 1 : coreCount,
         TASK_TIMEOUT: 30,
         TASKS_PER_WORKER: 10,
         LOG_LEVEL: isTestEnv() ? LogLevel.Warn : LogLevel.Info,
@@ -83,10 +83,10 @@ export function getDefaultConfig(): PluginsServerConfig {
         KAFKA_PARTITIONS_CONSUMED_CONCURRENTLY: 1,
         CLICKHOUSE_DISABLE_EXTERNAL_SCHEMAS_TEAMS: '',
         CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: KAFKA_EVENTS_JSON,
-        CONVERSION_BUFFER_ENABLED: !isTestEnv(),
+        CONVERSION_BUFFER_ENABLED: isDevEnv() ? true : !isTestEnv(),
         CONVERSION_BUFFER_ENABLED_TEAMS: '',
         CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS: '',
-        BUFFER_CONVERSION_SECONDS: 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
+        BUFFER_CONVERSION_SECONDS: isDevEnv() ? 2 : 60, // KEEP IN SYNC WITH posthog/settings/ingestion.py
         PERSON_INFO_CACHE_TTL: 5 * 60, // 5 min
         KAFKA_HEALTHCHECK_SECONDS: 20,
         OBJECT_STORAGE_ENABLED: false,
@@ -101,8 +101,9 @@ export function getDefaultConfig(): PluginsServerConfig {
         HISTORICAL_EXPORTS_MAX_RETRY_COUNT: 15,
         HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW: 10 * 60 * 1000,
         HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER: 1.5,
-        APP_METRICS_GATHERED_FOR_ALL: false,
+        APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
+        USE_KAFKA_FOR_SCHEDULED_TASKS: true,
     }
 }
 
@@ -184,6 +185,7 @@ export function getConfigHelp(): Record<keyof PluginsServerConfig, string> {
         OBJECT_STORAGE_BUCKET: 'the object storage bucket name',
         HISTORICAL_EXPORTS_ENABLED: 'enables historical exports for export apps',
         APP_METRICS_GATHERED_FOR_ALL: 'whether to gather app metrics for all teams',
+        USE_KAFKA_FOR_SCHEDULED_TASKS: 'distribute scheduled tasks across the scheduler workers',
     }
 }
 

@@ -8,8 +8,6 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import { router } from 'kea-router'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 
@@ -31,10 +29,9 @@ export function PlayerUpNext({
     const { endReached } = useValues(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const { reportNextRecordingTriggered } = useActions(sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }))
     const [animate, setAnimate] = useState(false)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { autoplayEnabled } = useValues(playerSettingsLogic)
 
-    if (!autoplayEnabled || !featureFlags[FEATURE_FLAGS.RECORDING_AUTOPLAY]) {
+    if (!autoplayEnabled) {
         nextSessionRecording = undefined
     }
 

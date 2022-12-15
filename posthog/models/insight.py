@@ -4,7 +4,6 @@ import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models.signals import pre_save
-from django.dispatch import receiver
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
@@ -12,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
+from posthog.models.signals import mutable_receiver
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
@@ -72,6 +72,20 @@ class Insight(models.Model):
 
     # Changing these fields materially alters the Insight, so these count for the "last_modified_*" fields
     MATERIAL_INSIGHT_FIELDS = {"name", "description", "filters"}
+
+    @property
+    def is_sharing_enabled(self):
+        # uses .all and not .first so that prefetching can be used
+        sharing_configurations = self.sharingconfiguration_set.all()
+        return sharing_configurations[0].enabled if sharing_configurations and sharing_configurations[0] else False
+
+    @property
+    def caching_state(self):
+        # uses .all and not .first so that prefetching can be used
+        for state in self.caching_states.all():
+            if state.dashboard_tile_id is None:
+                return state
+        return None
 
     class Meta:
         db_table = "posthog_dashboarditem"
@@ -160,7 +174,7 @@ class InsightViewed(models.Model):
     last_viewed_at: models.DateTimeField = models.DateTimeField()
 
 
-@receiver(pre_save, sender=Insight)
+@mutable_receiver(pre_save, sender=Insight)
 def insight_saving(sender, instance: Insight, **kwargs):
     update_fields = kwargs.get("update_fields")
     if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"filters"})]:

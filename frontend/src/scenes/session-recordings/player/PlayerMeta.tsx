@@ -2,7 +2,7 @@ import './PlayerMeta.scss'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useActions, useValues } from 'kea'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils'
@@ -19,8 +19,9 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { PlayerMetaLinks } from './PlayerMetaLinks'
 
-export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const {
         sessionPerson,
         resolution,
@@ -30,7 +31,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         recordingStartTime,
         sessionPlayerMetaDataLoading,
         windowIds,
-    } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
+    } = useValues(playerMetaLogic(props))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
@@ -60,7 +61,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
             )}
 
             <div
-                className={clsx('flex items-center gap-2 shrink-0', {
+                className={clsx('PlayerMeta__top flex items-center gap-2 shrink-0', {
                     'p-3 border-b': !isFullScreen,
                     'px-3 p-1 text-xs': isFullScreen,
                 })}
@@ -69,14 +70,10 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-12 h-12" />
                     ) : (
-                        <ProfilePicture
-                            name={sessionPerson?.name}
-                            email={sessionPerson?.properties?.$email}
-                            size={!isFullScreen ? 'xxl' : 'md'}
-                        />
+                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xxl' : 'md'} />
                     )}
                 </div>
-                <div className="flex-1 overflow-hidden ph-no-capture">
+                <div className="overflow-hidden ph-no-capture">
                     <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -136,6 +133,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         ) : null}
                     </div>
                 </div>
+
                 <LemonButton
                     className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
                     status="stealth"
@@ -145,6 +143,8 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
                     tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
                 />
+
+                <div className="flex-1">{props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}</div>
             </div>
             {sessionPerson && (
                 <CSSTransition
@@ -164,10 +164,13 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                 </CSSTransition>
             )}
             <div
-                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden', {
-                    'p-3': !isFullScreen,
-                    'p-1 px-3 text-xs h-12': isFullScreen,
-                })}
+                className={clsx(
+                    'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
+                    {
+                        'p-3': !isFullScreen,
+                        'p-1 px-3 text-xs h-12': isFullScreen,
+                    }
+                )}
             >
                 {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
                     <LemonSkeleton className="w-1/3 my-1" />

@@ -27,17 +27,15 @@ export function SessionPlayerModal(): JSX.Element | null {
                 ) : null}
             </header>
             <LemonModal.Content embedded>
-                <div className="SessionPlayerModal">
-                    {activeSessionRecording?.id && (
-                        <SessionRecordingPlayer
-                            playerKey="modal"
-                            sessionRecordingId={activeSessionRecording?.id}
-                            matching={activeSessionRecording?.matching_events}
-                            includeMeta={false}
-                            noBorder
-                        />
-                    )}
-                </div>
+                {activeSessionRecording?.id && (
+                    <SessionRecordingPlayer
+                        playerKey="modal"
+                        sessionRecordingId={activeSessionRecording?.id}
+                        matching={activeSessionRecording?.matching_events}
+                        includeMeta={false}
+                        noBorder
+                    />
+                )}
             </LemonModal.Content>
         </LemonModal>
     )

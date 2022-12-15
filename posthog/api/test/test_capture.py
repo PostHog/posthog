@@ -4,10 +4,11 @@ import json
 import random
 import string
 import zlib
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from datetime import timezone as tz
-from typing import Any, Counter, Dict, List, Union
+from typing import Any, Dict, List, Union
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote

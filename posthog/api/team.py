@@ -1,24 +1,23 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
-from dateutil.relativedelta import relativedelta
-from django.conf import settings
 from django.core.cache import cache
 from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
+from sentry_sdk import capture_exception
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.demo.matrix.manager import MatrixManager
 from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Insight, Organization, Team, User
+from posthog.models import InsightCachingState, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -63,6 +62,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 class TeamSerializer(serializers.ModelSerializer):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
+    groups_on_events_querying_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -95,6 +95,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
+            "person_on_events_querying_enabled",
+            "groups_on_events_querying_enabled",
         )
         read_only_fields = (
             "id",
@@ -106,6 +108,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "person_on_events_querying_enabled",
+            "groups_on_events_querying_enabled",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -113,6 +117,9 @@ class TeamSerializer(serializers.ModelSerializer):
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
+
+    def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
+        return groups_on_events_querying_enabled()
 
     def validate(self, attrs: Any) -> Any:
         if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
@@ -135,33 +142,29 @@ class TeamSerializer(serializers.ModelSerializer):
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
-        serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        request = self.context["request"]
-        organization = self.context["view"].organization  # Use the org we used to validate permissions
-        if validated_data.get("is_demo", False):
-            matrix = HedgeboxMatrix(n_clusters=settings.DEMO_MATRIX_N_CLUSTERS)
-            manager = MatrixManager(matrix, use_pre_save=True)
-        with transaction.atomic():
-            team = Team.objects.create_with_data(**validated_data, organization=organization)
-            request.user.current_team = team
-            request.user.save()
-            if "manager" in locals():
-                manager.run_on_team(team, request.user)
+        try:
+            serializers.raise_errors_on_nested_writes("create", self, validated_data)
+            request = self.context["request"]
+            organization = self.context["view"].organization  # Use the org we used to validate permissions
+            with transaction.atomic():
+                team = Team.objects.create_with_data(**validated_data, organization=organization)
+                request.user.current_team = team
+                request.user.save()
+                if validated_data.get("is_demo", False):
+                    MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
+        except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
+            capture_exception()
+            raise e
         return team
 
-    def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
-        hashes = (
-            Insight.objects.filter(team=team, last_refresh__gt=now() - relativedelta(days=7))
-            .exclude(filters_hash=None)
-            .values_list("filters_hash", flat=True)
-        )
+    def _handle_timezone_update(self, team: Team) -> None:
+        # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
+        hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
-
-        return
 
     def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance, validated_data["timezone"])
+            self._handle_timezone_update(instance)
 
         return super().update(instance, validated_data)
 

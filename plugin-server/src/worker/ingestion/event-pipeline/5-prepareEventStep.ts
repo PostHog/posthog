@@ -11,12 +11,15 @@ export async function prepareEventStep(
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
     const { ip, site_url, team_id, uuid } = event
+    const invalidTimestampCallback = function () {
+        runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id) })
+    }
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
         String(event.distinct_id),
         ip,
         event,
         team_id,
-        parseEventTimestamp(event, runner.hub.statsd),
+        parseEventTimestamp(event, invalidTimestampCallback),
         uuid! // it will throw if it's undefined,
     )
 

@@ -73,7 +73,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
@@ -132,7 +132,7 @@
              AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
@@ -191,7 +191,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
@@ -372,7 +372,7 @@
            GROUP BY person_id)
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
@@ -505,7 +505,7 @@
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
+            count(DISTINCT pdi.person_id) as count
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -565,24 +565,24 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT counts as total,
-                            timestamp as day_start,
+           UNION ALL SELECT counts AS total,
+                            timestamp AS day_start,
                                          breakdown_value
            FROM
              (SELECT d.timestamp,
                      COUNT(DISTINCT person_id) counts,
                      breakdown_value
               FROM
-                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as timestamp
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp
                  FROM events e
                  WHERE team_id = 2
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                  GROUP BY timestamp) d
               CROSS JOIN
-                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as timestamp,
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -706,7 +706,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging.1
@@ -742,7 +742,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval
@@ -778,7 +778,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval.1
@@ -814,7 +814,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
@@ -841,10 +841,11 @@
              AND event = '$pageview'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND (NOT has([''], "$group_0")) )
+             AND (NOT has([''], "$group_0"))
+             AND "$group_0" != '' )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
@@ -861,7 +862,8 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0")
-            AND NOT has([''], "$group_0")) )
+            AND NOT has([''], "$group_0"))
+       AND "$group_0" != '' )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -895,7 +897,7 @@
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') )
         GROUP BY date)
      group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1

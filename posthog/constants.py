@@ -28,6 +28,7 @@ class AvailableFeature(str, Enum):
     APP_METRICS = "app_metrics"
     RECORDINGS_PLAYLISTS = "recordings_playlists"
     ROLE_BASED_ACCESS = "role_based_access"
+    RECORDINGS_FILE_EXPORT = "recordings_file_export"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
@@ -225,6 +226,7 @@ class AnalyticsDBMS(str, Enum):
 
 
 UNIQUE_USERS = "dau"
+UNIQUE_GROUPS = "unique_group"
 WEEKLY_ACTIVE = "weekly_active"
 MONTHLY_ACTIVE = "monthly_active"
 

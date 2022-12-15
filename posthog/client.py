@@ -26,7 +26,7 @@ from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
-from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import (
     CLICKHOUSE_CA,
@@ -40,8 +40,7 @@ from posthog.settings import (
     CLICKHOUSE_VERIFY,
     TEST,
 )
-from posthog.timer import get_timer_thread
-from posthog.utils import generate_short_id
+from posthog.utils import generate_short_id, patchable
 
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
@@ -49,7 +48,6 @@ QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
 CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
-QUERY_TIMEOUT_THREAD = get_timer_thread("posthog.client", SLOW_QUERY_THRESHOLD_MS)
 
 
 @lru_cache(maxsize=1)
@@ -130,23 +128,23 @@ def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, setti
         return result
 
 
-def validate_client_query_id(
-    client_query_id: Optional[str], client_query_team_id: Optional[int] = None
-) -> Optional[str]:
+def validated_client_query_id() -> Optional[str]:
+    client_query_id = get_query_tag_value("client_query_id")
+    client_query_team_id = get_query_tag_value("team_id")
+
     if client_query_id and not client_query_team_id:
         raise Exception("Query needs to have a team_id arg if you've passed client_query_id")
     random_id = generate_short_id()
     return f"{client_query_team_id}_{client_query_id}_{random_id}"
 
 
+@patchable
 def sync_execute(
     query,
     args=None,
     settings=None,
     with_column_types=False,
     flush=True,
-    client_query_id: Optional[str] = None,
-    client_query_team_id: Optional[int] = None,
 ):
     if TEST and flush:
         try:
@@ -161,8 +159,6 @@ def sync_execute(
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
 
-        timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
-
         settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
 
         try:
@@ -171,7 +167,7 @@ def sync_execute(
                 params=prepared_args,
                 settings=settings,
                 with_column_types=with_column_types,
-                query_id=validate_client_query_id(client_query_id, client_query_team_id),
+                query_id=validated_client_query_id(),
             )
         except Exception as err:
             err = wrap_query_error(err)
@@ -181,7 +177,6 @@ def sync_execute(
         finally:
             execution_time = perf_counter() - start_time
 
-            QUERY_TIMEOUT_THREAD.cancel(timeout_task)
             statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
             if app_settings.SHELL_PLUS_PRINT_SQL:
@@ -267,8 +262,6 @@ def execute_with_progress(
 
     prepared_sql, prepared_args, tags = _prepare_query(client=ch_client, query=query, args=args)
 
-    timeout_task = QUERY_TIMEOUT_THREAD.schedule(_notify_of_slow_query_failure)
-
     query_status = QueryStatus(team_id, task_id=task_id)
 
     start_time = time.time()
@@ -332,7 +325,6 @@ def execute_with_progress(
 
         execution_time = perf_counter() - start_time
 
-        QUERY_TIMEOUT_THREAD.cancel(timeout_task)
         statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
         if app_settings.SHELL_PLUS_PRINT_SQL:
@@ -430,6 +422,7 @@ def substitute_params(query, params):
     return cast(SyncClient, ch_client).substitute_params(query, params)
 
 
+@patchable
 def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     """
     Given a string query with placeholders we do one of two things:
@@ -522,10 +515,6 @@ def _annotate_tagged_query(query, args):
         query = f"/*{user_id} {tags.get('kind')}:{tags.get('id', '').replace('/', '_')} */ {query}"
 
     return query, tags
-
-
-def _notify_of_slow_query_failure():
-    statsd.incr("clickhouse_sync_execution_failure", tags={"failed": True, "reason": "timeout"})
 
 
 def format_sql(rendered_sql, colorize=True):

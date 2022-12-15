@@ -1,16 +1,8 @@
 import re
-from typing import (
-    Any,
-    Callable,
-    Counter,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    Tuple,
-    Union,
-    cast,
-)
+from collections import Counter
+from typing import Any, Callable
+from typing import Counter as TCounter
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
@@ -755,7 +747,7 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIdentifier]:
+def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
     return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)
 
 

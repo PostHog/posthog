@@ -8,7 +8,6 @@ import {
     ChartEvent,
     ChartItem,
     ChartOptions,
-    ChartPluginsOptions,
     ChartType,
     Color,
     InteractionItem,
@@ -354,7 +353,7 @@ export function LineGraph_({
             itemSort: (a, b) => a.label.localeCompare(b.label),
         }
 
-        const options: ChartOptions & { plugins: ChartPluginsOptions } = {
+        const options: ChartOptions = {
             responsive: true,
             maintainAspectRatio: false,
             elements: {

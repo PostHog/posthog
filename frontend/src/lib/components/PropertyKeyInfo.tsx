@@ -331,6 +331,11 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Plugin Metric',
             description: 'Performance metrics for a given plugin.',
         },
+        $creator_event_uuid: {
+            label: 'Creator Event ID',
+            description: 'Unique ID for the event, which created this person.',
+            examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
 
         // UTM tags
         utm_source: {

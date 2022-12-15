@@ -1,9 +1,10 @@
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import structlog
 from sentry_sdk import capture_exception
 
 from posthog.caching.utils import ensure_is_date
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import (
     INSIGHT_FUNNELS,
     INSIGHT_PATHS,
@@ -15,9 +16,11 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.logging.timing import timed
-from posthog.models import EventDefinition, Filter, RetentionFilter, Team
+from posthog.models import Dashboard, DashboardTile, EventDefinition, Filter, Insight, RetentionFilter, Team
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.utils import get_filter
+from posthog.models.insight import generate_insight_cache_key
 from posthog.queries.funnels import ClickhouseFunnelTimeToConvert, ClickhouseFunnelTrends
 from posthog.queries.funnels.utils import get_funnel_order_class
 from posthog.queries.paths import Paths
@@ -34,6 +37,16 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 }
 
 logger = structlog.get_logger(__name__)
+
+
+def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
+    insight = target if isinstance(target, Insight) else target.insight
+    dashboard = target.dashboard if isinstance(target, DashboardTile) else None
+
+    if insight is None or not insight.filters:
+        return None
+
+    return generate_insight_cache_key(insight, dashboard)
 
 
 def get_cache_type(filter: FilterType) -> CacheType:
@@ -53,15 +66,31 @@ def get_cache_type(filter: FilterType) -> CacheType:
         return CacheType.TRENDS
 
 
-def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, key: str, team: Team) -> List[Dict[str, Any]]:
+def calculate_result_by_insight(
+    team: Team, insight: Insight, dashboard: Optional[Dashboard]
+) -> Tuple[str, str, List[Dict[str, Any]]]:
+    filter = get_filter(data=insight.dashboard_filters(dashboard), team=team)
+    cache_key = generate_insight_cache_key(insight, dashboard)
+    cache_type = get_cache_type(filter)
+
+    tag_queries(
+        team_id=team.pk,
+        insight_id=insight.pk,
+        cache_type=cache_type,
+        cache_key=cache_key,
+    )
+    return cache_key, cache_type, calculate_result_by_cache_type(cache_type, filter, team)
+
+
+def calculate_result_by_cache_type(cache_type: CacheType, filter: Filter, team: Team) -> List[Dict[str, Any]]:
     if cache_type == CacheType.FUNNEL:
-        return _calculate_funnel(filter, key, team)
+        return _calculate_funnel(filter, team)
     else:
-        return _calculate_by_filter(filter, key, team, cache_type)
+        return _calculate_by_filter(filter, team, cache_type)
 
 
 @timed("update_cache_item_timer.calculate_by_filter")
-def _calculate_by_filter(filter: FilterType, key: str, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
+def _calculate_by_filter(filter: FilterType, team: Team, cache_type: CacheType) -> List[Dict[str, Any]]:
     insight_class = CACHE_TYPE_TO_INSIGHT_CLASS[cache_type]
 
     if cache_type == CacheType.PATHS:
@@ -72,7 +101,7 @@ def _calculate_by_filter(filter: FilterType, key: str, team: Team, cache_type: C
 
 
 @timed("update_cache_item_timer.calculate_funnel")
-def _calculate_funnel(filter: Filter, key: str, team: Team) -> List[Dict[str, Any]]:
+def _calculate_funnel(filter: Filter, team: Team) -> List[Dict[str, Any]]:
     if filter.funnel_viz_type == FunnelVizType.TRENDS:
         result = ClickhouseFunnelTrends(team=team, filter=filter).run()
     elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:

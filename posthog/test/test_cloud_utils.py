@@ -9,7 +9,7 @@ from posthog.test.base import BaseTest
 
 class TestCloudUtils(BaseTest):
     def setUp(self):
-        assert len(License.objects.all()) == 0
+        assert License.objects.count() == 0
 
     @pytest.mark.ee
     def test_is_cloud_returns_correctly(self):

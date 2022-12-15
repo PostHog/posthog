@@ -1,7 +1,8 @@
 import os
 import time
 from random import randrange
-from typing import Any, Dict, List
+from typing import Optional
+from uuid import UUID
 
 from celery import Celery
 from celery.schedules import crontab
@@ -96,16 +97,18 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
-    # Send the emails at 3 PM UTC every day
-    sender.add_periodic_task(crontab(hour=15, minute=0), send_first_ingestion_reminder_emails.s())
-    sender.add_periodic_task(crontab(hour=15, minute=0), send_second_ingestion_reminder_emails.s())
-
     # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
+    sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
+    if sync_insight_cache_states_schedule:
+        sender.add_periodic_task(
+            sync_insight_cache_states_schedule, sync_insight_cache_states_task.s(), name="sync insight cache states"
+        )
+
     sender.add_periodic_task(
         settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
-        check_cached_items.s(),
+        schedule_cache_updates_task.s(),
         name="check dashboard items",
     )
 
@@ -174,7 +177,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         )
 
         sender.add_periodic_task(
-            crontab(hour="*"), check_flags_to_rollback.s(), name="check feature flags that should be rolled back"
+            crontab(minute=0, hour="*"),
+            check_flags_to_rollback.s(),
+            name="check feature flags that should be rolled back",
         )
 
 
@@ -474,21 +479,31 @@ def calculate_cohort():
 
 
 @app.task(ignore_result=True)
-def check_cached_items():
-    from posthog.caching.update_cache import update_cached_items
+def sync_insight_cache_states_task():
+    from posthog.caching.insight_caching_state import sync_insight_cache_states
 
-    update_cached_items()
+    sync_insight_cache_states()
 
 
-@app.task(ignore_result=False)
-def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str, Any]]:
-    """
-    Tasks used in a group (as this is) must not ignore their results
-    https://docs.celeryq.dev/en/latest/userguide/canvas.html#groups:~:text=Similarly%20to%20chords%2C%20tasks%20used%20in%20a%20group%20must%20not%20ignore%20their%20results.
-    """
-    from posthog.caching.update_cache import update_cache_item
+@app.task(ignore_result=True)
+def schedule_cache_updates_task():
+    from posthog.caching.insight_cache import schedule_cache_updates
 
-    return update_cache_item(key, cache_type, payload)
+    schedule_cache_updates()
+
+
+@app.task(ignore_result=True)
+def update_cache_task(caching_state_id: UUID):
+    from posthog.caching.insight_cache import update_cache
+
+    update_cache(caching_state_id)
+
+
+@app.task(ignore_result=True)
+def sync_insight_caching_state(team_id: int, insight_id: Optional[int] = None, dashboard_tile_id: Optional[int] = None):
+    from posthog.caching.insight_caching_state import sync_insight_caching_state
+
+    sync_insight_caching_state(team_id, insight_id, dashboard_tile_id)
 
 
 @app.task(ignore_result=True)
@@ -552,20 +567,6 @@ def calculate_billing_daily_usage():
         pass
     else:
         compute_daily_usage_for_organizations()
-
-
-@app.task(ignore_result=True)
-def send_first_ingestion_reminder_emails():
-    from posthog.tasks.email import send_first_ingestion_reminder_emails
-
-    send_first_ingestion_reminder_emails()
-
-
-@app.task(ignore_result=True)
-def send_second_ingestion_reminder_emails():
-    from posthog.tasks.email import send_second_ingestion_reminder_emails
-
-    send_second_ingestion_reminder_emails()
 
 
 @app.task(ignore_result=True)

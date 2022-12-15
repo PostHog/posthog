@@ -257,6 +257,17 @@ class Property:
             return False
         if isinstance(value, int):
             return value
+
+        # `json.loads()` converts strings to numbers if possible
+        # and we don't want this behavior, as if we wanted a number
+        # we would have passed it as a number
+        try:
+            # tests if string is a number & returns string if it is a number
+            float(value)
+            return value
+        except (ValueError, TypeError):
+            pass
+
         try:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
@@ -365,9 +376,8 @@ class PropertyGroup:
         return PropertyGroup(operator, [self, property_group])
 
     def to_dict(self):
-        result: Dict = {}
         if not self.values:
-            return result
+            return {}
 
         return {"type": self.type.value, "values": [prop.to_dict() for prop in self.values]}
 

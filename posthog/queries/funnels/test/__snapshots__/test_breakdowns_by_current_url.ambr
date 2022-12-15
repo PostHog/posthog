@@ -93,12 +93,12 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestBreakdownsByCurrentURL.test_breakdown_by_pathname
@@ -196,11 +196,11 @@
                          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---

@@ -76,159 +76,154 @@ export interface ActionFilterProps {
     }: Record<string, JSX.Element | string | undefined>) => JSX.Element
 }
 
-export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
-    (
-        {
-            setFilters,
-            filters,
-            typeKey,
-            addFilterDefaultOptions = {},
-            mathAvailability = MathAvailability.All,
-            buttonCopy = '',
-            disabled = false,
-            sortable = false,
-            showSeriesIndicator = false,
-            seriesIndicatorType = 'alpha',
-            hideFilter = false,
-            hideRename = false,
-            hideDuplicate = false,
-            propertyFiltersPopover,
-            customRowSuffix,
-            entitiesLimit,
-            showNestedArrow = false,
-            actionsTaxonomicGroupTypes,
-            propertiesTaxonomicGroupTypes,
-            hideDeleteBtn,
-            renderRow,
-            buttonType = 'tertiary',
-            readOnly = false,
-            bordered = false,
-        },
-        ref
-    ): JSX.Element => {
-        const { currentTeamId } = useValues(teamLogic)
-        const logic = entityFilterLogic({
-            teamId: currentTeamId,
-            setFilters,
-            filters,
-            typeKey,
-            addFilterDefaultOptions,
-        })
-        const { reportFunnelStepReordered } = useActions(eventUsageLogic)
+export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(function ActionFilter(
+    {
+        setFilters,
+        filters,
+        typeKey,
+        addFilterDefaultOptions = {},
+        mathAvailability = MathAvailability.All,
+        buttonCopy = '',
+        disabled = false,
+        sortable = false,
+        showSeriesIndicator = false,
+        seriesIndicatorType = 'alpha',
+        hideFilter = false,
+        hideRename = false,
+        hideDuplicate = false,
+        propertyFiltersPopover,
+        customRowSuffix,
+        entitiesLimit,
+        showNestedArrow = false,
+        actionsTaxonomicGroupTypes,
+        propertiesTaxonomicGroupTypes,
+        hideDeleteBtn,
+        renderRow,
+        buttonType = 'tertiary',
+        readOnly = false,
+        bordered = false,
+    },
+    ref
+): JSX.Element {
+    const { currentTeamId } = useValues(teamLogic)
+    const logic = entityFilterLogic({
+        teamId: currentTeamId,
+        setFilters,
+        filters,
+        typeKey,
+        addFilterDefaultOptions,
+    })
+    const { reportFunnelStepReordered } = useActions(eventUsageLogic)
 
-        const { localFilters } = useValues(logic)
-        const { addFilter, setLocalFilters, showModal } = useActions(logic)
+    const { localFilters } = useValues(logic)
+    const { addFilter, setLocalFilters, showModal } = useActions(logic)
 
-        // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
-        // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
-        useEffect(() => {
-            setLocalFilters(filters)
-        }, [filters])
+    // No way around this. Somehow the ordering of the logic calling each other causes stale "localFilters"
+    // to be shown on the /funnels page, even if we try to use a selector with props to hydrate it
+    useEffect(() => {
+        setLocalFilters(filters)
+    }, [filters])
 
-        function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
-            function move(arr: LocalFilter[], from: number, to: number): LocalFilter[] {
-                const clone = [...arr]
-                Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
-                return clone.map((child, order) => ({ ...child, order }))
-            }
-            setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
-            if (oldIndex !== newIndex) {
-                reportFunnelStepReordered()
-            }
+    function onSortEnd({ oldIndex, newIndex }: { oldIndex: number; newIndex: number }): void {
+        function move(arr: LocalFilter[], from: number, to: number): LocalFilter[] {
+            const clone = [...arr]
+            Array.prototype.splice.call(clone, to, 0, Array.prototype.splice.call(clone, from, 1)[0])
+            return clone.map((child, order) => ({ ...child, order }))
         }
-
-        const singleFilter = entitiesLimit === 1
-
-        const commonProps = {
-            logic: logic as any,
-            showSeriesIndicator,
-            seriesIndicatorType,
-            mathAvailability,
-            customRowSuffix,
-            hasBreakdown: !!filters.breakdown,
-            actionsTaxonomicGroupTypes,
-            propertiesTaxonomicGroupTypes,
-            propertyFiltersPopover,
-            hideDeleteBtn,
-            disabled,
-            readOnly,
-            renderRow,
-            hideRename,
-            hideDuplicate,
-            onRenameClick: showModal,
-            sortable,
+        setFilters(toFilters(move(localFilters, oldIndex, newIndex)))
+        if (oldIndex !== newIndex) {
+            reportFunnelStepReordered()
         }
+    }
 
-        const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
+    const singleFilter = entitiesLimit === 1
 
-        return (
-            <div
-                className={clsx('ActionFilter', {
-                    'ActionFilter--bordered': bordered,
-                })}
-                ref={ref}
-            >
-                {!hideRename && !readOnly && (
-                    <BindLogic
-                        logic={entityFilterLogic}
-                        props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}
-                    >
-                        <RenameModal view={filters.insight} typeKey={typeKey} />
-                    </BindLogic>
-                )}
-                {localFilters ? (
-                    sortable ? (
-                        <SortableActionFilterContainer onSortEnd={onSortEnd} lockAxis="y" distance={5} useDragHandle>
-                            {localFilters.map((filter, index) => (
-                                <SortableActionFilterRow
-                                    key={index}
-                                    typeKey={typeKey}
-                                    filter={filter as ActionFilterType}
-                                    index={index}
-                                    filterIndex={index}
-                                    filterCount={localFilters.length}
-                                    showNestedArrow={showNestedArrow}
-                                    {...commonProps}
-                                />
-                            ))}
-                        </SortableActionFilterContainer>
-                    ) : (
-                        localFilters.map((filter, index) => (
-                            <ActionFilterRow
-                                filter={filter as ActionFilterType}
-                                index={index}
+    const commonProps = {
+        logic: logic as any,
+        showSeriesIndicator,
+        seriesIndicatorType,
+        mathAvailability,
+        customRowSuffix,
+        hasBreakdown: !!filters.breakdown,
+        actionsTaxonomicGroupTypes,
+        propertiesTaxonomicGroupTypes,
+        propertyFiltersPopover,
+        hideDeleteBtn,
+        disabled,
+        readOnly,
+        renderRow,
+        hideRename,
+        hideDuplicate,
+        onRenameClick: showModal,
+        sortable,
+    }
+
+    const reachedLimit: boolean = Boolean(entitiesLimit && localFilters.length >= entitiesLimit)
+
+    return (
+        <div
+            className={clsx('ActionFilter', {
+                'ActionFilter--bordered': bordered,
+            })}
+            ref={ref}
+        >
+            {!hideRename && !readOnly && (
+                <BindLogic logic={entityFilterLogic} props={{ setFilters, filters, typeKey, addFilterDefaultOptions }}>
+                    <RenameModal view={filters.insight} typeKey={typeKey} />
+                </BindLogic>
+            )}
+            {localFilters ? (
+                sortable ? (
+                    <SortableActionFilterContainer onSortEnd={onSortEnd} lockAxis="y" distance={5} useDragHandle>
+                        {localFilters.map((filter, index) => (
+                            <SortableActionFilterRow
                                 key={index}
                                 typeKey={typeKey}
-                                singleFilter={singleFilter}
-                                hideFilter={hideFilter || readOnly}
+                                filter={filter as ActionFilterType}
+                                index={index}
+                                filterIndex={index}
                                 filterCount={localFilters.length}
                                 showNestedArrow={showNestedArrow}
                                 {...commonProps}
                             />
-                        ))
-                    )
-                ) : null}
-                {!singleFilter && (
-                    <div className="ActionFilter-footer">
-                        {!singleFilter && (
-                            <LemonButton
-                                type={buttonType}
-                                onClick={() => addFilter()}
-                                data-attr="add-action-event-button"
-                                icon={<IconPlusMini />}
-                                disabled={reachedLimit || disabled || readOnly}
-                                fullWidth
-                            >
-                                {!reachedLimit
-                                    ? buttonCopy || 'Action or event'
-                                    : `Reached limit of ${entitiesLimit} ${
-                                          filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
-                                      }`}
-                            </LemonButton>
-                        )}
-                    </div>
-                )}
-            </div>
-        )
-    }
-)
+                        ))}
+                    </SortableActionFilterContainer>
+                ) : (
+                    localFilters.map((filter, index) => (
+                        <ActionFilterRow
+                            filter={filter as ActionFilterType}
+                            index={index}
+                            key={index}
+                            typeKey={typeKey}
+                            singleFilter={singleFilter}
+                            hideFilter={hideFilter || readOnly}
+                            filterCount={localFilters.length}
+                            showNestedArrow={showNestedArrow}
+                            {...commonProps}
+                        />
+                    ))
+                )
+            ) : null}
+            {!singleFilter && (
+                <div className="ActionFilter-footer">
+                    {!singleFilter && (
+                        <LemonButton
+                            type={buttonType}
+                            onClick={() => addFilter()}
+                            data-attr="add-action-event-button"
+                            icon={<IconPlusMini />}
+                            disabled={reachedLimit || disabled || readOnly}
+                            fullWidth
+                        >
+                            {!reachedLimit
+                                ? buttonCopy || 'Action or event'
+                                : `Reached limit of ${entitiesLimit} ${
+                                      filters.insight === InsightType.FUNNELS ? 'steps' : 'series'
+                                  }`}
+                        </LemonButton>
+                    )}
+                </div>
+            )}
+        </div>
+    )
+})

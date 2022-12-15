@@ -1,5 +1,6 @@
 import inspect
-from typing import Any, Counter, Dict, Literal, Optional, Union
+from collections import Counter
+from typing import Any, Dict, Literal, Optional, Union
 
 from django.conf import settings
 from rest_framework.exceptions import ValidationError
@@ -19,15 +20,19 @@ MathType = Literal[
     "monthly_active",
     "unique_group",
     "unique_session",
+    # TODO: When we are finally on Python 3.11+, inline the below as *PROPERTY_MATH_FUNCTIONS.keys()
     "sum",
     "min",
     "max",
+    "avg",
     "median",
     "p90",
     "p95",
     "p99",
+    # TODO: When we are finally on Python 3.11+, inline the below as *COUNT_PER_ACTOR_MATH_FUNCTIONS.keys()
     "min_count_per_actor",
     "max_count_per_actor",
+    "avg_count_per_actor",
     "median_count_per_actor",
     "p90_count_per_actor",
     "p95_count_per_actor",

@@ -1,19 +1,27 @@
-from typing import Dict, List, Optional
+import json
+from typing import Any, Dict, List, Optional
 
 import structlog
-from django.db.models import Prefetch, Q, QuerySet
+from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import request, serializers, viewsets
+from rest_framework import request, response, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.api.session_recording import list_recordings
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import SESSION_RECORDINGS_PLAYLIST_FREE_COUNT, AvailableFeature
+from posthog.constants import (
+    SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS,
+    SESSION_RECORDINGS_PLAYLIST_FREE_COUNT,
+    AvailableFeature,
+)
 from posthog.models import SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
+from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -59,7 +67,7 @@ class SessionRecordingPlaylistItemSerializer(serializers.Serializer):
     def to_representation(self, instance):
         return {
             "id": instance.session_id,
-            "created_at": instance.created_at,
+            "created_at": instance.created_at.isoformat(),
         }
 
 
@@ -79,8 +87,6 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "filters",
             "last_modified_at",
             "last_modified_by",
-            "is_static",
-            "playlist_items",
         ]
         read_only_fields = [
             "id",
@@ -90,12 +96,10 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
             "created_by",
             "last_modified_at",
             "last_modified_by",
-            "playlist_items",
         ]
 
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
-    playlist_items = SessionRecordingPlaylistItemSerializer(many=True, read_only=True, default=list)
 
     def create(self, validated_data: Dict, *args, **kwargs) -> SessionRecordingPlaylist:
         request = self.context["request"]
@@ -185,13 +189,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         if order:
             queryset = queryset.order_by(order)
         else:
-            queryset = queryset.order_by("last_modified_at")
-
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "playlist_items", queryset=SessionRecordingPlaylistItem.objects.exclude(deleted=True).order_by("id")
-            )
-        )
+            queryset = queryset.order_by("-last_modified_at")
 
         return queryset
 
@@ -203,8 +201,6 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
                 queryset = queryset.filter(created_by=request.user)
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
-            elif key == "static":
-                queryset = queryset.filter(is_static=True)
             elif key == "date_from":
                 queryset = queryset.filter(last_modified_at__gt=relative_date_parse(request.GET["date_from"]))
             elif key == "date_to":
@@ -213,4 +209,52 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
                 queryset = queryset.filter(
                     Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
                 )
+            elif key == "session_recording_id":
+                queryset = queryset.filter(playlist_items__session_id=request.GET["session_recording_id"])
         return queryset
+
+    # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
+    @action(methods=["GET"], detail=True, url_path="recordings")
+    def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        playlist = self.get_object()
+        playlist_items = (
+            SessionRecordingPlaylistItem.objects.filter(playlist=playlist).exclude(deleted=True).order_by("-created_at")
+        )
+
+        serialized = SessionRecordingPlaylistItemSerializer(data=playlist_items, many=True)
+        serialized.is_valid(raise_exception=False)
+
+        filter = SessionRecordingsFilter(request=request)
+        # Copy the filter and extend with the pinned recordings
+        filter = filter.with_data({SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS: json.dumps(serialized.data)})
+
+        return response.Response(list_recordings(filter, request, self.team))
+
+    # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
+    @action(methods=["POST", "DELETE"], detail=True, url_path="recordings/(?P<session_recording_id>[^/.]+)")
+    def modify_recordings(
+        self, request: request.Request, session_recording_id: str, *args: Any, **kwargs: Any
+    ) -> response.Response:
+        playlist = self.get_object()
+
+        # TODO: Maybe we need to save the created_at date here properly to help with filtering
+        if request.method == "POST":
+            playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
+                playlist=playlist,
+                session_id=session_recording_id,
+            )
+
+            return response.Response({"success": True})
+
+        if request.method == "DELETE":
+            playlist_item = SessionRecordingPlaylistItem.objects.get(
+                playlist=playlist,
+                session_id=session_recording_id,
+            )
+
+            if playlist_item:
+                playlist_item.delete()
+
+            return response.Response({"success": True})
+
+        raise NotImplementedError()

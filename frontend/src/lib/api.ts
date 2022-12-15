@@ -46,7 +46,6 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/even
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { UpdatedRecordingResponse } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -555,7 +554,7 @@ const api = {
         },
         async list(
             filters: EventsListQueryParams,
-            limit: number = 10,
+            limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
@@ -563,7 +562,7 @@ const api = {
         },
         determineListEndpoint(
             filters: EventsListQueryParams,
-            limit: number = 10,
+            limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
             const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
@@ -816,7 +815,7 @@ const api = {
         async update(id: number, person: Partial<PersonType>): Promise<PersonType> {
             return new ApiRequest().person(id).update({ data: person })
         },
-        async updateProperty(id: number, property: string, value: any): Promise<void> {
+        async updateProperty(id: string, property: string, value: any): Promise<void> {
             return new ApiRequest()
                 .person(id)
                 .withAction('update_property')
@@ -827,7 +826,7 @@ const api = {
                     },
                 })
         },
-        async deleteProperty(id: number, property: string): Promise<void> {
+        async deleteProperty(id: string, property: string): Promise<void> {
             return new ApiRequest()
                 .person(id)
                 .withAction('delete_property')
@@ -957,7 +956,7 @@ const api = {
             recordingId: SessionRecordingType['id'],
             recording: Partial<SessionRecordingType>,
             params?: string
-        ): Promise<UpdatedRecordingResponse> {
+        ): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
         },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
@@ -974,6 +973,39 @@ const api = {
             playlist: Partial<SessionRecordingPlaylistType>
         ): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
+        },
+
+        async listPlaylistRecordings(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            params: string
+        ): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withQueryString(params)
+                .get()
+        },
+
+        async addRecordingToPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction(session_recording_id)
+                .create()
+        },
+
+        async removeRecordingFromPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction(session_recording_id)
+                .delete()
         },
     },
 

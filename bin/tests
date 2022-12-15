@@ -3,7 +3,7 @@ set -e
 
 if ! command -v nodemon &> /dev/null
 then
-    echo "Please install nodemon (npm install -g nodemon) to automatically run tests."
+    echo "Please install nodemon (pnpm install -g nodemon) to automatically run tests."
     exit
 fi
 

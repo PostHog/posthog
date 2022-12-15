@@ -89,8 +89,6 @@ class Paths:
             self.params,
             query_type="paths",
             filter=self._filter,
-            client_query_id=self._filter.client_query_id,
-            client_query_team_id=self._team.pk,
         )
 
     def get_query(self) -> str:
@@ -157,7 +155,7 @@ class Paths:
             team=self._team,
             extra_fields=self._extra_event_fields,
             extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.actor_on_events_querying_enabled,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
         ).get_query()
         self.params.update(params)
 

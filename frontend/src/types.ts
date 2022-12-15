@@ -51,6 +51,7 @@ export enum AvailableFeature {
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     ROLE_BASED_ACCESS = 'role_based_access',
+    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
 }
 
 export enum LicensePlan {
@@ -274,6 +275,8 @@ export interface TeamType extends TeamBasicType {
      * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
      */
     correlation_config: CorrelationConfigType | null
+    person_on_events_querying_enabled: boolean
+    groups_on_events_querying_enabled: boolean
 }
 
 export interface ActionType {
@@ -390,6 +393,7 @@ export enum SavedInsightsTabs {
 export enum SessionRecordingsTabs {
     Recent = 'recent',
     Playlists = 'playlists',
+    FilePlayback = 'file-playback',
 }
 
 export enum ExperimentsTabs {
@@ -595,7 +599,6 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
-    static_recordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -640,7 +643,7 @@ export interface FunnelStepRangeEntityFilter {
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
-    id?: number
+    id?: string
     uuid?: string
     name?: string
     distinct_ids: string[]
@@ -818,7 +821,7 @@ export interface RecordingTimeMixinType {
     playerTime: number | null
     playerPosition: PlayerPosition | null
     colonTimestamp?: string
-    isOutOfBand?: boolean // Did the event or console log not originate from the same client library as the recording
+    capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
@@ -846,8 +849,6 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
-    playlist_items?: Pick<SessionRecordingType, 'id'>[] // only id is exposed by api to minimize data passed through components
-    is_static?: boolean
 }
 
 export interface SessionRecordingType {
@@ -1395,6 +1396,7 @@ export interface EventsListQueryParams {
     orderBy?: string[]
     action_id?: number
     after?: string
+    before?: string
     limit?: number
 }
 
@@ -1665,7 +1667,8 @@ export interface SetInsightOptions {
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
-    variant?: string
+    variant: string | null
+    users_affected?: number
 }
 
 export interface MultivariateFlagVariant {
@@ -1712,6 +1715,11 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface UserBlastRadiusType {
+    users_affected: number
+    total_users: number
 }
 
 export interface PrevalidatedInvite {
@@ -1911,13 +1919,13 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     // ID of feature flag
-    feature_flag: number
+    feature_flag?: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
-        feature_flag_variants?: MultivariateFlagVariant[]
+        feature_flag_variants: MultivariateFlagVariant[]
     }
     start_date?: string
     end_date?: string
@@ -2019,6 +2027,8 @@ export interface AppContext {
     switched_team: TeamType['id'] | null
     /** First day of the week (0 = Sun, 1 = Mon, ...) */
     week_start: number
+
+    year_in_hog_url?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -2380,6 +2390,8 @@ export interface RoleType {
     id: string
     name: string
     feature_flags_access_level: AccessLevel
+    members: RoleMemberType[]
+    associated_flags: { id: number; key: string }[]
     created_at: string
     created_by: UserBasicType | null
 }
