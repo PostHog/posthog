@@ -1,12 +1,13 @@
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
+from django.test.client import Client
 from rest_framework import status
 
 from posthog.models.team import Team
 
 
 class DashboardAPI:
-    def __init__(self, client, team: Team, assertEqual):
+    def __init__(self, client: Client, team: Team, assertEqual):
         self.client = client
         self.team = team
         self.assertEqual = assertEqual
@@ -97,6 +98,23 @@ class DashboardAPI:
 
         response_json = response.json()
         return response_json
+
+    def list_insights(
+        self,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+        query_params: Optional[Dict] = None,
+    ) -> Dict:
+        if team_id is None:
+            team_id = self.team.id
+
+        if not query_params:
+            query_params = {}
+
+        response = self.client.get(f"/api/projects/{team_id}/insights/", data=query_params)
+        self.assertEqual(response.status_code, expected_status)
+
+        return response.json()
 
     def get_insight(
         self,
