@@ -74,7 +74,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
         tab: [
-            SessionRecordingPlayerTab.PERFORMANCE as SessionRecordingPlayerTab,
+            SessionRecordingPlayerTab.ALL as SessionRecordingPlayerTab,
             {
                 setTab: (_, { tab }) => tab,
             },

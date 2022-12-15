@@ -33,9 +33,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
         <div className="p-3 bg-light flex flex-col select-none space-y-2">
             <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             <div className="flex justify-between items-center h-8 gap-2">
-                <div className="flex-1">
-                    <PlayerMetaLinks sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                </div>
+                <div className="flex-1" />
                 <div className="flex items-center gap-1">
                     <SeekSkip sessionRecordingId={sessionRecordingId} playerKey={playerKey} direction="backward" />
                     <LemonButton status="primary-alt" size="small" onClick={togglePlayPause}>
