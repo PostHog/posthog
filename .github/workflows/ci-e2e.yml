@@ -237,18 +237,19 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v3
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
             - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
                   node-version: 18
                   cache: pnpm
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 7.x.x
-                  run_install: |
-                      - args: ["'--filter', 'cypress...', '--filter', '"cypress-*"...', '--filter', '"@cypress/*"...']
+            - name: Install package.json dependencies with pnpm (Cypress-only)
+              run: pnpm install --frozen-lockfile --filter "cypress..." --filter "cypress-*..." --filter "@cypress/*..."]
 
             - name: Stop/Start stack with Docker Compose
               run: |
