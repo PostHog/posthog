@@ -13,14 +13,14 @@ export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimesta
     if (data['sent_at']) {
         sentAt = DateTime.fromISO(data['sent_at']).toUTC()
         if (!sentAt.isValid) {
-            callback?.('sent_at', data['sent_at'], sentAt.invalidExplanation ?? '')
+            callback?.('sent_at', data['sent_at'], sentAt.invalidExplanation || 'unknown error')
             sentAt = null
         }
     }
 
     const parsedTs = handleTimestamp(data, now, sentAt)
     if (!parsedTs.isValid) {
-        callback?.('timestamp', data['timestamp'] ?? '', parsedTs.invalidExplanation ?? '')
+        callback?.('timestamp', data['timestamp'] ?? '', parsedTs.invalidExplanation || 'unknown error')
         return DateTime.utc()
     }
     return parsedTs
