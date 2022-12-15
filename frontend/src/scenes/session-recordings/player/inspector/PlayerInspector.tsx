@@ -18,6 +18,8 @@ import { eventsListLogic } from './eventsListLogic'
 import { playerMetaLogic } from '../playerMetaLogic'
 import { PlayerInspectorList } from './v2/PlayerInspectorList'
 import clsx from 'clsx'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -27,14 +29,16 @@ const TabToIcon = {
 
 export function PlayerInspector(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { sessionRecordingId, playerKey } = props
-    const { tab, V2Tabs } = useValues(sharedListLogic(props))
+    const { tab } = useValues(sharedListLogic(props))
+    const { featureFlags } = useValues(featureFlagLogic)
+    const inspectorV2 = !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_V2]
 
     return (
         <>
             <PlayerInspectorControls {...props} />
             <LemonDivider className="my-0" />
 
-            {V2Tabs.includes(tab) ? (
+            {inspectorV2 ? (
                 <PlayerInspectorList {...props} />
             ) : (
                 <PlayerList
@@ -151,15 +155,25 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, showOnlyMatching, tab, searchQuery, V2Tabs, miniFilters } = useValues(
-        sharedListLogic(logicProps)
-    )
+    const { windowIdFilter, showOnlyMatching, tab, searchQuery, miniFilters } = useValues(sharedListLogic(logicProps))
     const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery } = useActions(sharedListLogic(logicProps))
     const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
     const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
     const { consoleListLocalFilters } = useValues(consoleLogsListLogic(logicProps))
     const { setConsoleListLocalFilters } = useActions(consoleLogsListLogic(logicProps))
     const { windowIds } = useValues(playerMetaLogic(logicProps))
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const inspectorV2 = !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_V2]
+
+    const tabs = inspectorV2
+        ? [
+              SessionRecordingPlayerTab.ALL,
+              SessionRecordingPlayerTab.EVENTS,
+              SessionRecordingPlayerTab.CONSOLE,
+              SessionRecordingPlayerTab.PERFORMANCE,
+          ]
+        : [SessionRecordingPlayerTab.EVENTS, SessionRecordingPlayerTab.CONSOLE]
 
     const { ref, size } = useResizeBreakpoints({
         0: 'compact',
@@ -170,12 +184,7 @@ export function PlayerInspectorControls({
         <div className="bg-side">
             <div ref={ref} className="flex justify-between gap-2 p-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
-                    {[
-                        SessionRecordingPlayerTab.ALL,
-                        SessionRecordingPlayerTab.EVENTS,
-                        SessionRecordingPlayerTab.CONSOLE,
-                        SessionRecordingPlayerTab.PERFORMANCE,
-                    ].map((tabId) => (
+                    {tabs.map((tabId) => (
                         <LemonButton
                             key={tabId}
                             size="small"
@@ -189,7 +198,7 @@ export function PlayerInspectorControls({
                     ))}
                 </div>
 
-                {!V2Tabs.includes(tab) ? (
+                {!inspectorV2 ? (
                     <div className="flex items-center gap-2 flex-wrap">
                         {tab === SessionRecordingPlayerTab.EVENTS ? (
                             <>
@@ -258,7 +267,7 @@ export function PlayerInspectorControls({
                     </div>
                 ) : null}
             </div>
-            {V2Tabs.includes(tab) ? (
+            {inspectorV2 ? (
                 <>
                     <div className="flex items-center gap-2 px-2">
                         <LemonInput

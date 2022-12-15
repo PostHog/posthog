@@ -15,6 +15,8 @@ import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import Fuse from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
@@ -59,6 +61,8 @@ export const sharedListLogic = kea<sharedListLogicType>([
             ['showOnlyMatching'],
             sessionRecordingDataLogic(props),
             ['peformanceEvents', 'consoleLogs', 'sessionPlayerMetaData'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [playerSettingsLogic, ['setShowOnlyMatching']],
     })),
@@ -67,7 +71,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
         setWindowIdFilter: (windowId: WindowOption) => ({ windowId }),
         setSearchQuery: (search: string) => ({ search }),
     })),
-    reducers(() => ({
+    reducers(({ values }) => ({
         searchQuery: [
             '',
             {
@@ -81,7 +85,9 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
         tab: [
-            SessionRecordingPlayerTab.ALL as SessionRecordingPlayerTab,
+            (values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_V2]
+                ? SessionRecordingPlayerTab.ALL
+                : SessionRecordingPlayerTab.EVENTS) as SessionRecordingPlayerTab,
             {
                 setTab: (_, { tab }) => tab,
             },
@@ -100,17 +106,6 @@ export const sharedListLogic = kea<sharedListLogicType>([
     })),
 
     selectors(() => ({
-        V2Tabs: [
-            (s) => [s.tab],
-            (tab): SessionRecordingPlayerTab[] => {
-                return [
-                    SessionRecordingPlayerTab.ALL,
-                    SessionRecordingPlayerTab.CONSOLE,
-                    SessionRecordingPlayerTab.PERFORMANCE,
-                ]
-            },
-        ],
-
         miniFilters: [
             (s) => [s.tab],
             (tab): SharedListFilter[] => {
