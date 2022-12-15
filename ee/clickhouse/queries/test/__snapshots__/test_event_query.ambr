@@ -33,6 +33,16 @@
 # name: TestEventQuery.test_account_filters.2
   '
   
+  SELECT count(1)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < NULL
+  '
+---
+# name: TestEventQuery.test_account_filters.3
+  '
+  
   SELECT e.timestamp as timestamp,
          pdi.person_id as person_id
   FROM events e
