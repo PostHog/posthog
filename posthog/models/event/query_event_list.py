@@ -7,7 +7,7 @@ from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.client import query_with_columns, sync_execute
-from posthog.hogql.expr_parser import ExprParserContext, translate_hql
+from posthog.hogql.expr_parser import SELECT_STAR_FROM_EVENTS_FIELDS, ExprParserContext, translate_hql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.element import chain_to_elements
@@ -18,30 +18,6 @@ from posthog.models.event.sql import (
 )
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
-
-SELECT_STAR_FROM_EVENTS_FIELDS = [
-    "uuid",
-    "event",
-    "properties",
-    "timestamp",
-    "team_id",
-    "distinct_id",
-    "elements_chain",
-    "created_at",
-    "person_id",
-    "person_created_at",
-    "person_properties",
-    "group0_properties",
-    "group1_properties",
-    "group2_properties",
-    "group3_properties",
-    "group4_properties",
-    "group0_created_at",
-    "group1_created_at",
-    "group2_created_at",
-    "group3_created_at",
-    "group4_created_at",
-]
 
 
 def determine_event_conditions(
@@ -96,16 +72,11 @@ def query_events_list(
         if len(select) == 0:
             select = ["*"]
         for column in select:
-            if column == "*":
-                clickhouse_sql = f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
-                selected_columns.append(clickhouse_sql)
+            context = ExprParserContext()
+            clickhouse_sql = translate_hql(column, context)
+            selected_columns.append(clickhouse_sql)
+            if not context.is_aggregation:
                 group_by_columns.append(clickhouse_sql)
-            else:
-                context = ExprParserContext()
-                clickhouse_sql = translate_hql(column, context)
-                selected_columns.append(clickhouse_sql)
-                if not context.is_aggregation:
-                    group_by_columns.append(clickhouse_sql)
 
     conditions, condition_params = determine_event_conditions(
         team,
@@ -169,12 +140,19 @@ def query_events_list(
             with_column_types=True,
         )
 
-        # Convert star result from tuple to dict
+        # Convert star field from tuple to dict
         if "*" in select:
             star = select.index("*")
             for index, result in enumerate(results):
                 results[index] = list(result)
                 results[index][star] = convert_star_select_to_dict(result[star])
+
+        # Convert person field from tuple to dict
+        if "person" in select:
+            person = select.index("person")
+            for index, result in enumerate(results):
+                results[index] = list(result)
+                results[index][person] = convert_person_select_to_dict(result[person])
 
         return {
             "results": results,
@@ -236,3 +214,12 @@ def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result
+
+
+def convert_person_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
+    return {
+        "id": select[1],
+        "created_at": select[2],
+        "properties": {"name": select[3], "email": select[4]},
+        "distinct_ids": [select[0]],
+    }

@@ -133,6 +133,17 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(translate_hql("event < 'E'"), "less(event, 'E')")
         self.assertEqual(translate_hql("event <= 'E'"), "lessOrEquals(event, 'E')")
 
+    def test_hogql_special_root_properties(self):
+        self.assertEqual(
+            translate_hql("*"),
+            "tuple(uuid,event,properties,timestamp,team_id,distinct_id,elements_chain,created_at,person_id,person_created_at,person_properties,group0_properties,group1_properties,group2_properties,group3_properties,group4_properties,group0_created_at,group1_created_at,group2_created_at,group3_created_at,group4_created_at)",
+        )
+        self.assertEqual(
+            translate_hql("person"),
+            "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, 'name'), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^\"|\"$', ''))",
+        )
+        self._assert_value_error("person + 1", 'Can not use the field "person" in an expression')
+
     def _assert_value_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:
             translate_hql(expr)

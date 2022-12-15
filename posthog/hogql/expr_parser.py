@@ -73,6 +73,8 @@ CLICKHOUSE_FUNCTIONS = {
     "notLike": "notLike",
     "replace": "replace",
     "replaceOne": "replaceOne",
+    # array functions
+    "tuple": "tuple",
     # conditional
     "if": "if",
     "multiIf": "multiIf",
@@ -92,6 +94,30 @@ HOGQL_AGGREGATIONS = [
 ]
 KEYWORDS = ["true", "false", "null"]
 
+SELECT_STAR_FROM_EVENTS_FIELDS = [
+    "uuid",
+    "event",
+    "properties",
+    "timestamp",
+    "team_id",
+    "distinct_id",
+    "elements_chain",
+    "created_at",
+    "person_id",
+    "person_created_at",
+    "person_properties",
+    "group0_properties",
+    "group1_properties",
+    "group2_properties",
+    "group3_properties",
+    "group4_properties",
+    "group0_created_at",
+    "group1_created_at",
+    "group2_created_at",
+    "group3_created_at",
+    "group4_created_at",
+]
+
 
 @dataclass
 class ExprParserContext:
@@ -106,6 +132,13 @@ def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
         # Until we swap out the AST parser, we're limited to Python's dialect.
         # This means "properties.$bla" fails. The following is a hack to get around that fofr now.
         hql = re.sub(r"properties\.(\$[$a-zA-Z0-9_\-]+)", r"properties['\1']", hql)
+
+        # Expression overrides that are not usable as regular fields/properties
+        if hql == "*":
+            return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
+        if hql == "person":
+            hql = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
+
         node = ast.parse(hql)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
@@ -294,6 +327,8 @@ def property_access_to_clickhouse(chain: List[str]):
             return chain[0]
         elif chain[0].lower() in KEYWORDS:
             return chain[0].lower()
+        elif chain[0] == "person":
+            raise ValueError(f'Can not use the field "person" in an expression')
         else:
             raise ValueError(f"Unknown event field '{chain[0]}'")
 

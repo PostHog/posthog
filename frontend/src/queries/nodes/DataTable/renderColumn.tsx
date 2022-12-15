@@ -158,6 +158,14 @@ export function renderColumn(
                 <PersonHeader noLink withIcon person={eventRecord.person} />
             </Link>
         )
+    } else if (key === 'person' && isEventsQuery(query.source)) {
+        const personRecord = value as PersonType
+        return (
+            <Link to={urls.person(personRecord.distinct_ids[0])}>
+                <PersonHeader noLink withIcon person={personRecord} />
+            </Link>
+        )
+        return <PersonHeader noLink withIcon person={value} />
     } else if (key === 'person' && isPersonsNode(query.source)) {
         const personRecord = record as PersonType
         return (
