@@ -83,7 +83,7 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperiment,
         removeExperimentGroup,
-        setExperimentInsightType,
+        createNewExperimentInsight,
         archiveExperiment,
         loadExperiment,
         setExposureAndSampleSize,
@@ -440,9 +440,11 @@ export function Experiment(): JSX.Element {
                                         <LemonSelect
                                             value={experimentInsightType}
                                             onChange={(val) => {
-                                                if (val) {
-                                                    setExperimentInsightType(val)
-                                                }
+                                                val &&
+                                                    createNewExperimentInsight({
+                                                        insight: val,
+                                                        properties: experiment?.filters?.properties,
+                                                    })
                                             }}
                                             dropdownMatchSelectWidth={false}
                                             options={[
