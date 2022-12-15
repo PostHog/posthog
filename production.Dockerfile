@@ -1,19 +1,20 @@
 #
 # This Dockerfile is used for self-hosted production builds.
 #
-# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’
-# as appropriate.
+# Note: for PostHog Cloud remember to update ‘Dockerfile.cloud’ as appropriate.
 #
-# The first 3 stages are used to build:
+# The stages are used to:
 #
-# - static assets
-# - plugin-server (Node.js app)
-# - PostHog (Django app)
+# - frontend-build: build the frontend (static assets)
+# - plugin-server-build: build plugin-server (Node.js app) & fetch its runtime dependencies
+# - posthog-build: fetch PostHog (Django app) dependencies & build Django collectstatic
+# - fetch-geoip-db: fetch the GeoIP database
 #
-# while in the last and final stage, we import the artifacts
-# from the previous stages add some runtime dependencies
-# and build the last image.
+# In the last stage, we import the artifacts from the previous
+# stages, add some runtime dependencies and build the final image.
 #
+
+
 #
 # ---------------------------------------------------------
 #
@@ -32,6 +33,7 @@ COPY ./bin/ ./bin/
 COPY babel.config.js tsconfig.json webpack.config.js ./
 RUN pnpm build
 
+
 #
 # ---------------------------------------------------------
 #
@@ -47,7 +49,8 @@ RUN apt-get update && \
     "g++" \
     "gcc" \
     "python3" \
-    && rm -rf /var/lib/apt/lists/* && \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
     corepack enable && \
     mkdir /tmp/pnpm-store && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store && \
@@ -68,6 +71,7 @@ RUN corepack enable && \
     pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store --prod && \
     rm -rf /tmp/pnpm-store
 
+
 #
 # ---------------------------------------------------------
 #
@@ -87,8 +91,40 @@ RUN apt-get update && \
     "libxmlsec1" \
     "libxmlsec1-dev" \
     "pkg-config" \
-    && rm -rf /var/lib/apt/lists/* && \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
     pip install -r requirements.txt --compile --no-cache-dir --target=/python-runtime
+
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime
+
+# Add in Django deps and generate Django's static files.
+COPY manage.py manage.py
+COPY posthog posthog/
+COPY ee ee/
+COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
+RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
+
+
+#
+# ---------------------------------------------------------
+#
+FROM debian:bullseye-slim AS fetch-geoip-db
+WORKDIR /code
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+# Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    "ca-certificates" \
+    "curl" \
+    "brotli" \
+    && \
+    rm -rf /var/lib/apt/lists/* && \
+    mkdir share && \
+    ( curl -s -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
+    chmod -R 755 ./share/GeoLite2-City.mmdb
+
 
 #
 # ---------------------------------------------------------
@@ -99,10 +135,7 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ENV PYTHONUNBUFFERED 1
 
 # Install OS runtime dependencies.
-#
-# Note: please add in this section runtime dependences only.
-# If you temporarily need a package to build a Python or Node.js
-# dependency, look at the stages above.
+# Note: please add in this stage runtime dependences only!
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "chromium" \
@@ -113,47 +146,45 @@ RUN apt-get update && \
     "libxml2"
 
 # Install NodeJS 18.
-RUN apt-get install -y --no-install-recommends "curl" && \
-    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
-    apt-get install -y --no-install-recommends "nodejs"
-
-# Add in the compiled plugin-server & its runtime dependencies.
-COPY --from=plugin-server-build /code/plugin-server/dist /code/plugin-server/dist
-COPY --from=plugin-server-build /code/plugin-server/node_modules /code/plugin-server/node_modules
-COPY --from=plugin-server-build /code/plugin-server/package.json /code/plugin-server/package.json
-
-# Fetch the GeoLite2-City database that will be used for IP geolocation within Django.
 RUN apt-get install -y --no-install-recommends \
     "curl" \
-    "brotli" \
     && \
-    rm -rf /var/lib/apt/lists/* && \
-    mkdir share && \
-    ( curl -s -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb ) && \
-    chmod -R 755 ./share/GeoLite2-City.mmdb
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash - && \
+    apt-get install -y --no-install-recommends \
+    "nodejs" \
+    && \
+    rm -rf /var/lib/apt/lists/*
 
-# Copy the Python dependencies from the posthog-build stage.
-COPY --from=posthog-build /python-runtime /python-runtime
-ENV PATH=/python-runtime/bin:$PATH
-ENV PYTHONPATH=/python-runtime
-
-# Add in Django deps and generate Django's static files.
-COPY manage.py manage.py
-COPY posthog posthog/
-COPY ee ee/
-COPY --from=frontend-build /code/frontend/dist /code/frontend/dist
-RUN SKIP_SERVICE_VERSION_REQUIREMENTS=1 SECRET_KEY='unsafe secret key for collectstatic only' DATABASE_URL='postgres:///' REDIS_URL='redis:///' python manage.py collectstatic --noinput
-
-# Add in the Gunicorn config and the custom bin files.
-COPY gunicorn.config.py ./
-COPY ./bin ./bin/
-
-# Use a non-root user.
+# Install and use a non-root user.
 RUN groupadd posthog && \
     useradd -r -g posthog posthog && \
     chown posthog:posthog /code
-
 USER posthog
+
+# Add in the compiled plugin-server & its runtime dependencies from the plugin-server-build stage.
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/dist /code/plugin-server/dist
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/node_modules /code/plugin-server/node_modules
+COPY --from=plugin-server-build --chown=posthog:posthog /code/plugin-server/package.json /code/plugin-server/package.json
+
+# Copy the Python dependencies and Django staticfiles from the posthog-build stage.
+COPY --from=posthog-build --chown=posthog:posthog /code/staticfiles /code/staticfiles
+COPY --from=posthog-build --chown=posthog:posthog /python-runtime /python-runtime
+ENV PATH=/python-runtime/bin:$PATH \
+    PYTHONPATH=/python-runtime
+
+# Copy the frontend assets from the frontend-build stage.
+# TODO: this copy should not be necessary, we should remove it once we verify everything still works.
+COPY --from=frontend-build --chown=posthog:posthog /code/frontend/dist /code/frontend/dist
+
+# Copy the GeoLite2-City database from the fetch-geoip-db stage.
+COPY --from=fetch-geoip-db --chown=posthog:posthog /code/share/GeoLite2-City.mmdb /code/share/GeoLite2-City.mmdb
+
+# Add in the Gunicorn config, custom bin files and Django deps.
+COPY --chown=posthog:posthog gunicorn.config.py ./
+COPY --chown=posthog:posthog ./bin ./bin/
+COPY --chown=posthog:posthog manage.py manage.py
+COPY --chown=posthog:posthog posthog posthog/
+COPY --chown=posthog:posthog ee ee/
 
 # Setup ENV.
 ENV NODE_ENV=production \
