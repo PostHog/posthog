@@ -1928,7 +1928,7 @@ export interface Experiment {
         feature_flag_variants: MultivariateFlagVariant[]
     }
     start_date?: string
-    end_date?: string
+    end_date?: string | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string

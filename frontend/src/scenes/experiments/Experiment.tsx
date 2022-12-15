@@ -85,6 +85,7 @@ export function Experiment(): JSX.Element {
         removeExperimentGroup,
         setExperimentInsightType,
         archiveExperiment,
+        restartExperiment,
         loadExperiment,
         setExposureAndSampleSize,
         setExperimentValue,
@@ -672,9 +673,22 @@ export function Experiment(): JSX.Element {
                             {experiment?.end_date &&
                                 dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
                                 !experiment.archived && (
-                                    <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
-                                        <b>Archive</b>
-                                    </LemonButton>
+                                    <div className="flex flex-row gap-2">
+                                        <LemonButton
+                                            type="secondary"
+                                            status="primary"
+                                            onClick={() => restartExperiment()}
+                                        >
+                                            Restart
+                                        </LemonButton>
+                                        <LemonButton
+                                            type="secondary"
+                                            status="danger"
+                                            onClick={() => archiveExperiment()}
+                                        >
+                                            <b>Archive</b>
+                                        </LemonButton>
+                                    </div>
                                 )}
                         </Row>
                     </Row>
