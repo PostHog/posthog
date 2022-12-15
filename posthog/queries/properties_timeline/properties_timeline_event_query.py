@@ -44,7 +44,7 @@ class PropertiesTimelineEventQuery(EventQuery):
                     {date_query}
                 ORDER BY timestamp ASC
             ) UNION ALL (
-                SELECT {sentinel_fields_combined}
+                SELECT {sentinel_fields_combined} /* We need a final sentinel row for relevant_event_count */
             )
         """
 
