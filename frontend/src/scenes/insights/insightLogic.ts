@@ -6,7 +6,6 @@ import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
 import type { insightLogicType } from './insightLogicType'
 import {
     ActionType,
-    BaseMathType,
     FilterType,
     InsightLogicProps,
     InsightModel,
@@ -48,7 +47,7 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/react'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS, ShownAsValue } from 'lib/constants'
+import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -60,7 +59,6 @@ import { toLocalFilters } from './filters/ActionFilter/entityFilterLogic'
 import { loaders } from 'kea-loaders'
 import { legacyInsightQuery } from '~/queries/query'
 import { tagsModel } from '~/models/tagsModel'
-import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -89,22 +87,6 @@ export const createEmptyInsight = (
     result: null,
 })
 
-const getDefaultQuery = (): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: {
-        kind: NodeKind.LifecycleQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                name: '$pageview',
-                event: '$pageview',
-                math: BaseMathType.TotalCount,
-            },
-        ],
-        lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
-    },
-})
-
 export const insightLogic = kea<insightLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -128,7 +110,6 @@ export const insightLogic = kea<insightLogicType>([
     }),
 
     actions({
-        setQuery: (query: Node) => ({ query }),
         setActiveView: (type: InsightType) => ({ type }),
         updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
@@ -440,7 +421,6 @@ export const insightLogic = kea<insightLogicType>([
         ],
     })),
     reducers(({ props }) => ({
-        query: [getDefaultQuery() as Node, { setQuery: (_, { query }) => query }],
         highlightedSeries: [
             null as number | null,
             {

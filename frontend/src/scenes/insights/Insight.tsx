@@ -4,6 +4,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
+import { insightDataLogic } from './insightDataLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { InsightsNav } from './InsightsNav'
@@ -49,7 +50,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
-        query,
         insightProps,
         insightLoading,
         filtersKnown,
@@ -63,14 +63,15 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         isUsingDataExploration,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { setQuery, saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } =
-        useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
+    const { query } = useValues(insightDataLogic(insightProps))
+    const { setQuery } = useActions(insightDataLogic(insightProps))
 
     const { tags } = useValues(tagsModel)
 

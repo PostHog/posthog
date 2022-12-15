@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { CSSTransition } from 'react-transition-group'
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 import clsx from 'clsx'
 
 import { QueryInsightEditorFilterGroup, QueryInsightEditorFilter } from '~/types'
@@ -11,6 +11,7 @@ import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
+import { queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
 
 type InsightVizProps = {
     query: InsightVizNode
@@ -25,7 +26,7 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
     const {
         response,
-        responseLoading,
+        // responseLoading,
         // canLoadNextData,
         // canLoadNewData,
         // nextDataLoading,
@@ -33,6 +34,23 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     } = useValues(dataNodeLogic(dataNodeLogicProps))
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
+    const { setInsight } = useActions(insightLogic)
+
+    // TODO: use connected logic instead of useEffect?
+    useEffect(() => {
+        if (response) {
+            setInsight(
+                {
+                    ...insight,
+                    result: response.result,
+                    next: response.next,
+                    timezone: response.timezone,
+                    filters: queryNodeToFilter(query.source),
+                },
+                {}
+            )
+        }
+    }, [response])
 
     const isFunnels = false // TODO: implement with funnel queries
     const isLifecycle = true
@@ -94,11 +112,8 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
             </BindLogic>
             {/* </BindLogic> */}
             <div>
-                <h3>InsightViz</h3>
                 <h4>Query</h4>
                 <pre>{JSON.stringify(query, null, 2)}</pre>
-                <h4>Response</h4>
-                {responseLoading ? <span>Loading...</span> : <pre>{JSON.stringify(response, null, 2)}</pre>}
             </div>
         </>
     )
