@@ -237,6 +237,19 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v3
 
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+                  run_install: |
+                      - args: ["'--filter', 'cypress...', '--filter', '"cypress-*"...', '--filter', '"@cypress/*"...']
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
@@ -293,6 +306,7 @@ jobs:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.specs }}
+                  install: false
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3
