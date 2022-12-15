@@ -1,8 +1,14 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
-from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
+
+KAFKA_COLUMNS_WITH_NULLABLE_DATETIME = """
+, _timestamp Nullable(DateTime)
+, _offset UInt64
+, _partition UInt64
+"""
 
 # TODO
 # explode server timing from Resource events into their own columns
@@ -150,7 +156,7 @@ ORDER BY (team_id, session_id, pageview_id, start_time)
     table_name="sharded_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
     storage_policy=STORAGE_POLICY(),
 )
 
@@ -159,7 +165,7 @@ KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
 )
 
 
@@ -185,7 +191,7 @@ DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.for
     table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
 )
 
 WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
@@ -193,7 +199,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format
     table_name="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
 )
 
 PERFORMANCE_EVENTS_TABLE_MV_SQL = """
@@ -208,5 +214,5 @@ FROM {database}.kafka_performance_events
     target_table="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
-    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
+    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_NULLABLE_DATETIME),
 )
