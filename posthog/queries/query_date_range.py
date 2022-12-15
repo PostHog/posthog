@@ -1,8 +1,7 @@
 import re
-from abc import ABC
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Dict, Generic, Optional, Tuple, TypeVar, Union
+from typing import Dict, Generic, Optional, Tuple, TypeVar
 
 import pytz
 from dateutil import parser
@@ -16,14 +15,7 @@ from posthog.models.team import Team
 from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
 from posthog.utils import DEFAULT_DATE_FROM_DAYS
 
-
-class DatePlusIntervalMixin(ABC, DateMixin, IntervalMixin):
-    """We need to represent the intersection of DateMixin and IntervalMixin for filter.interval to be known too,
-    but unfortunately there is no intersection support in Python yet (https://github.com/python/mypy/issues/2702).
-    This mixin abstract base class is a manual intersection."""
-
-
-F = TypeVar("F", bound=Union[DateMixin, DatePlusIntervalMixin])
+F = TypeVar("F", DateMixin, IntervalMixin)
 
 
 # Assume that any date being sent from the client is timezone aware according to the timezone that the team has set
