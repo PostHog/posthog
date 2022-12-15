@@ -42,14 +42,13 @@ export async function eachBatch(
             }
             await commitOffsetsIfNecessary()
 
+            // Record that latest messages timestamp, such that we can then, for
+            // instance, alert on if this value is too old.
             latestOffsetTimestampGauge
                 .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
                 .set(Number.parseInt(lastBatchMessage.timestamp))
 
             await heartbeat()
-
-            // Record that latest messages timestamp, such that we can then, for
-            // instance, alert on if this value is too old.
         }
 
         status.debug(
