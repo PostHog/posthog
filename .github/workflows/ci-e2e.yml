@@ -248,8 +248,8 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
-            - name: Install package.json dependencies with pnpm (Cypress-only)
-              run: pnpm install --frozen-lockfile --filter "cypress..." --filter "cypress-*..." --filter "@cypress/*..."]
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install
 
             - name: Stop/Start stack with Docker Compose
               run: |
