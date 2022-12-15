@@ -17,6 +17,8 @@ import Fuse from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { eventToDescription } from 'lib/utils'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
@@ -27,17 +29,17 @@ type SharedListItemBase = {
 }
 
 export type SharedListItemEvent = SharedListItemBase & {
-    type: 'event'
+    type: SessionRecordingPlayerTab.EVENTS
     data: RecordingEventType
 }
 
 export type SharedListItemConsole = SharedListItemBase & {
-    type: 'console'
+    type: SessionRecordingPlayerTab.CONSOLE
     data: RecordingConsoleLogBase
 }
 
 export type SharedListItemPerformance = SharedListItemBase & {
-    type: 'performance'
+    type: SessionRecordingPlayerTab.PERFORMANCE
     data: PerformanceEvent
 }
 
@@ -60,7 +62,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             playerSettingsLogic,
             ['showOnlyMatching'],
             sessionRecordingDataLogic(props),
-            ['peformanceEvents', 'consoleLogs', 'sessionPlayerMetaData'],
+            ['peformanceEvents', 'consoleLogs', 'sessionPlayerMetaData', 'sessionEventsData'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -111,7 +113,62 @@ export const sharedListLogic = kea<sharedListLogicType>([
             (tab): SharedListFilter[] => {
                 let filters: SharedListFilter[] = []
 
-                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
+                if (tab === SessionRecordingPlayerTab.ALL) {
+                    filters = filters.concat([
+                        {
+                            key: 'all-automatic',
+                            name: 'Auto',
+                            enabled: true,
+                        },
+                        {
+                            key: 'all-errors',
+                            name: 'Errors',
+                            enabled: false,
+                        },
+                        {
+                            key: 'all-verbose',
+                            name: 'Verbose',
+                            enabled: false,
+                        },
+                        {
+                            key: 'all-everything',
+                            name: 'Everything',
+                            enabled: false,
+                        },
+                    ])
+                }
+
+                if (tab === SessionRecordingPlayerTab.EVENTS) {
+                    filters = filters.concat([
+                        {
+                            key: 'events-all',
+                            name: 'All',
+                            enabled: true,
+                        },
+                        {
+                            key: 'events-posthog',
+                            name: 'PostHog',
+                            enabled: false,
+                        },
+                        {
+                            key: 'events-custom',
+                            name: 'Custom',
+                            enabled: false,
+                        },
+                        {
+                            key: 'events-actions',
+                            name: 'Pageview / Screen',
+                            enabled: false,
+                        },
+                        {
+                            key: 'events-autocapture',
+                            name: 'Autocapture',
+                            enabled: false,
+                        },
+                    ])
+                }
+
+                if (tab === SessionRecordingPlayerTab.CONSOLE) {
                     filters = filters.concat([
                         {
                             key: 'console-all',
@@ -141,7 +198,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     ])
                 }
 
-                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE) {
+                if (tab === SessionRecordingPlayerTab.PERFORMANCE) {
                     filters = filters.concat([
                         {
                             key: 'performance-all',
@@ -182,15 +239,15 @@ export const sharedListLogic = kea<sharedListLogicType>([
         ],
 
         allItems: [
-            (s) => [s.tab, s.recordingTimeInfo, s.peformanceEvents, s.consoleLogs],
-            (tab, recordingTimeInfo, peformanceEvents, consoleLogs): SharedListItem[] => {
+            (s) => [s.tab, s.recordingTimeInfo, s.peformanceEvents, s.consoleLogs, s.sessionEventsData],
+            (tab, recordingTimeInfo, peformanceEvents, consoleLogs, eventsData): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE) {
                     for (const event of peformanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
                         items.push({
-                            type: 'performance',
+                            type: SessionRecordingPlayerTab.PERFORMANCE,
                             timestamp,
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
@@ -203,7 +260,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     for (const event of consoleLogs || []) {
                         const timestamp = dayjs(event.timestamp)
                         items.push({
-                            type: 'console',
+                            type: SessionRecordingPlayerTab.CONSOLE,
                             timestamp,
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.rawString,
@@ -212,39 +269,26 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     }
                 }
 
+                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.EVENTS) {
+                    for (const event of eventsData?.events || []) {
+                        const timestamp = dayjs(event.timestamp)
+                        const search = `${
+                            getKeyMapping(event.event, 'event')?.label ?? event.event ?? ''
+                        } ${eventToDescription(event)}`.replace(/['"]+/g, '')
+
+                        items.push({
+                            type: SessionRecordingPlayerTab.EVENTS,
+                            timestamp,
+                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                            search: search,
+                            data: event,
+                        })
+                    }
+                }
+
                 items.sort((a, b) => a.timestamp.diff(b.timestamp))
 
                 return items
-
-                // const events: RecordingEventType[] = filters?.query
-                //     ? new Fuse<RecordingEventType>(makeEventsQueryable(eventsBeforeFiltering), {
-                //           threshold: 0.3,
-                //           keys: ['queryValue'],
-                //           findAllMatches: true,
-                //           ignoreLocation: true,
-                //           sortFn: (a, b) =>
-                //               parseInt(eventsBeforeFiltering[a.idx].timestamp) -
-                //                   parseInt(eventsBeforeFiltering[b.idx].timestamp) || a.score - b.score,
-                //       })
-                //           .search(filters.query)
-                //           .map((result) => result.item)
-                //     : eventsBeforeFiltering
-
-                // const matchingEventIds = new Set(matchingEvents.map((e) => e.uuid))
-                // const shouldShowOnlyMatching = matchingEvents.length > 0 && showOnlyMatching
-
-                // return events
-                //     .filter(
-                //         (e) =>
-                //             (windowIdFilter === RecordingWindowFilter.All ||
-                //                 e.playerPosition?.windowId === windowIdFilter) &&
-                //             (!shouldShowOnlyMatching || matchingEventIds.has(String(e.id)))
-                //     )
-                //     .map((e) => ({
-                //         ...e,
-                //         colonTimestamp: colonDelimitedDuration(Math.floor((e.playerTime ?? 0) / 1000)),
-                //         level: matchingEventIds.has(String(e.id)) ? RowStatus.Match : undefined,
-                //     }))
             },
         ],
 
@@ -284,7 +328,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 if (searchQuery === '') {
                     return allItems
                 }
-                const items = fuse.search(searchQuery).map((x) => x.item)
+                const items = fuse.search(searchQuery).map((x: any) => x.item)
 
                 return items
             },

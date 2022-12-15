@@ -9,7 +9,6 @@ import { EventDetails } from 'scenes/events'
 import React from 'react'
 import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge } from 'lib/components/icons'
-import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { Tooltip } from 'antd'
 import { IconWindow } from '../icons'
@@ -175,14 +174,9 @@ export function PlayerInspectorControls({
           ]
         : [SessionRecordingPlayerTab.EVENTS, SessionRecordingPlayerTab.CONSOLE]
 
-    const { ref, size } = useResizeBreakpoints({
-        0: 'compact',
-        200: 'normal',
-    })
-
     return (
         <div className="bg-side">
-            <div ref={ref} className="flex justify-between gap-2 p-2 flex-wrap">
+            <div className="flex justify-between gap-2 m-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
                     {tabs.map((tabId) => (
                         <LemonButton
@@ -280,21 +274,19 @@ export function PlayerInspectorControls({
                     </div>
                 ) : null}
             </div>
-            {inspectorV2 ? (
-                <>
-                    <div className="flex items-center gap-1 flex-wrap px-2 text-xs my-2 font-medium">
-                        {miniFilters.map((filter) => (
-                            <span
-                                key={filter.key}
-                                className={clsx('cursor-pointer p-1 px-1 rounded', {
-                                    'bg-primary-alt-highlight': filter.enabled,
-                                })}
-                            >
-                                {filter.name}
-                            </span>
-                        ))}
-                    </div>
-                </>
+            {inspectorV2 && miniFilters.length ? (
+                <div className="flex items-center gap-1 flex-wrap px-2 text-xs my-2 font-medium">
+                    {miniFilters.map((filter) => (
+                        <span
+                            key={filter.key}
+                            className={clsx('cursor-pointer p-1 px-1 rounded', {
+                                'bg-primary-alt-highlight': filter.enabled,
+                            })}
+                        >
+                            {filter.name}
+                        </span>
+                    ))}
+                </div>
             ) : null}
         </div>
     )
