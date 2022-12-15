@@ -17,6 +17,7 @@ import { consoleLogsListLogic } from './consoleLogsListLogic'
 import { eventsListLogic } from './eventsListLogic'
 import { playerMetaLogic } from '../playerMetaLogic'
 import { PlayerInspectorList } from './v2/PlayerInspectorList'
+import clsx from 'clsx'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -150,7 +151,9 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, showOnlyMatching, tab, searchQuery, V2Tabs } = useValues(sharedListLogic(logicProps))
+    const { windowIdFilter, showOnlyMatching, tab, searchQuery, V2Tabs, miniFilters } = useValues(
+        sharedListLogic(logicProps)
+    )
     const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery } = useActions(sharedListLogic(logicProps))
     const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
     const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
@@ -269,11 +272,16 @@ export function PlayerInspectorControls({
                     </div>
 
                     <div className="flex items-center gap-1 flex-wrap px-2 text-xs my-2 font-medium">
-                        <span className="cursor-pointer p-1 px-1 rounded bg-primary-alt-highlight">All</span>
-                        <span className="cursor-pointer p-1 px-1 rounded text-muted">Page</span>
-                        <span className="cursor-pointer p-1 px-1 rounded text-muted">XHR / Fetch</span>
-                        <span className="cursor-pointer p-1 px-1 rounded text-muted">Assets</span>
-                        <span className="cursor-pointer p-1 px-1 rounded text-muted">Other</span>
+                        {miniFilters.map((filter) => (
+                            <span
+                                key={filter.key}
+                                className={clsx('cursor-pointer p-1 px-1 rounded', {
+                                    'bg-primary-alt-highlight': filter.enabled,
+                                })}
+                            >
+                                {filter.name}
+                            </span>
+                        ))}
                     </div>
                 </>
             ) : null}

@@ -89,8 +89,8 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
                     </div>
                     <>
                         <p>
-                            started at <b>{item.start_time || item.fetch_start}ms</b> and took <b>{item.duration}ms</b>{' '}
-                            to complete
+                            started at <b>{ms(item.start_time || item.fetch_start)}</b> and took{' '}
+                            <b>{ms(item.duration)}</b> to complete
                         </p>
 
                         {item.decoded_body_size && item.encoded_body_size ? (

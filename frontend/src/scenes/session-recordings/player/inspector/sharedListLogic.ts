@@ -41,6 +41,12 @@ export type SharedListItemPerformance = SharedListItemBase & {
 
 export type SharedListItem = SharedListItemEvent | SharedListItemConsole | SharedListItemPerformance
 
+export type SharedListFilter = {
+    key: string
+    name: string
+    enabled: boolean
+}
+
 // Settings local to each recording
 export const sharedListLogic = kea<sharedListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'sharedListLogic', key]),
@@ -102,6 +108,70 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     SessionRecordingPlayerTab.CONSOLE,
                     SessionRecordingPlayerTab.PERFORMANCE,
                 ]
+            },
+        ],
+
+        miniFilters: [
+            (s) => [s.tab],
+            (tab): SharedListFilter[] => {
+                let filters: SharedListFilter[] = []
+
+                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
+                    filters = filters.concat([
+                        {
+                            key: 'console-all',
+                            name: 'All',
+                            enabled: true,
+                        },
+                        {
+                            key: 'console-info',
+                            name: 'Info',
+                            enabled: false,
+                        },
+                        {
+                            key: 'console-log',
+                            name: 'Log',
+                            enabled: false,
+                        },
+                        {
+                            key: 'console-warn',
+                            name: 'Warn',
+                            enabled: false,
+                        },
+                        {
+                            key: 'console-error',
+                            name: 'Error',
+                            enabled: false,
+                        },
+                    ])
+                }
+
+                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE) {
+                    filters = filters.concat([
+                        {
+                            key: 'performance-all',
+                            name: 'All',
+                            enabled: true,
+                        },
+                        {
+                            key: 'performance-xhr',
+                            name: 'XHR / Fetch',
+                            enabled: false,
+                        },
+                        {
+                            key: 'performance-assets',
+                            name: 'Assets',
+                            enabled: false,
+                        },
+                        {
+                            key: 'performance-other',
+                            name: 'Other',
+                            enabled: false,
+                        },
+                    ])
+                }
+
+                return filters
             },
         ],
 
