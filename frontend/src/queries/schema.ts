@@ -162,6 +162,8 @@ export interface DataTableNode extends Node {
     propertiesViaUrl?: boolean
     /** Show warning about live events being buffered max 60 sec (default: false) */
     showEventsBufferWarning?: boolean
+    /** Can the user click on column headers to sort the table? (default: true) */
+    allowSorting?: boolean
 }
 
 // Base class should not be used directly

@@ -31,6 +31,7 @@ const getDefaultQuery = (): DataTableNode => ({
     showExport: true,
     showPropertyFilter: true,
     showReload: true,
+    allowSorting: false,
 })
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([

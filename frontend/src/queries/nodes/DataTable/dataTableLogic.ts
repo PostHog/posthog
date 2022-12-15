@@ -3,7 +3,7 @@ import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableColumn } from '~/queries/schema'
 import { defaultColumns } from './defaults'
 import { sortedKeys } from 'lib/utils'
-import { isEventsNode, isEventsQuery } from '~/queries/utils'
+import { isEventsQuery } from '~/queries/utils'
 import { Sorting } from 'lib/components/LemonTable'
 
 export interface DataTableLogicProps {
@@ -41,20 +41,19 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showReload: query.showReload ?? false,
                         showColumnConfigurator: query.showColumnConfigurator ?? false,
                         showEventsBufferWarning: query.showEventsBufferWarning ?? false,
+                        allowSorting: query.allowSorting ?? true,
                     }),
                 }
             },
         ],
-        canSort: [(s) => [s.queryWithDefaults], (query: DataTableNode): boolean => isEventsQuery(query.source)],
+        canSort: [
+            (s) => [s.queryWithDefaults],
+            (query: DataTableNode): boolean => isEventsQuery(query.source) && !!query.allowSorting,
+        ],
         sorting: [
             (s) => [s.queryWithDefaults, s.canSort],
             (query, canSort): Sorting | null => {
-                if (
-                    canSort &&
-                    (isEventsNode(query.source) || isEventsQuery(query.source)) &&
-                    query.source.orderBy &&
-                    query.source.orderBy.length > 0
-                ) {
+                if (canSort && isEventsQuery(query.source) && query.source.orderBy && query.source.orderBy.length > 0) {
                     return query.source.orderBy[0] === '-'
                         ? {
                               columnKey: query.source.orderBy[0].substring(1),
