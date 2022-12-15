@@ -947,16 +947,29 @@ export const insightLogic = kea<insightLogicType>([
                     filters,
                     deleted,
                     saved: true,
-                    dashboards,
                     tags,
                 }
 
-                savedInsight = insightNumericId
-                    ? await api.update(
-                          `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
-                          insightRequest
-                      )
-                    : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+                if (values.insight.short_id === 'new' && (dashboards?.length || 0) > 1) {
+                    // noinspection ExceptionCaughtLocallyJS
+                    throw new Error('The UI does not support creating an insight onto multiple dashboards at once')
+                }
+
+                if (insightNumericId) {
+                    savedInsight = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
+                        insightRequest
+                    )
+                } else {
+                    savedInsight = await api.create(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/`,
+                        insightRequest
+                    )
+                    if (dashboards?.length) {
+                        await api.dashboardTiles.add(savedInsight.id, dashboards[0])
+                        savedInsight.dashboards = dashboards
+                    }
+                }
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
