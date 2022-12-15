@@ -1,6 +1,6 @@
 // This module wraps node-fetch with a sentry tracing-aware extension
 
-import fetch, { FetchError,Request, Response } from 'node-fetch'
+import fetch, { FetchError, Request, Response } from 'node-fetch'
 
 import { runInSpan } from '../sentry'
 
