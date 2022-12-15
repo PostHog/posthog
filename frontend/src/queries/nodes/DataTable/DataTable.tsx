@@ -172,12 +172,14 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                     return record[columns.indexOf('*')].uuid
                                 } else if (columns.includes('uuid')) {
                                     return record[columns.indexOf('uuid')]
+                                } else if (columns.includes('id')) {
+                                    return record[columns.indexOf('id')]
                                 }
                                 return JSON.stringify(record)
                             } else {
                                 return (
-                                    record.id ??
                                     ('uuid' in record ? (record as any).uuid : null) ??
+                                    record.id ??
                                     JSON.stringify(record)
                                 )
                             }
