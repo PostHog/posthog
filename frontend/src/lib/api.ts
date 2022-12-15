@@ -774,14 +774,10 @@ const api = {
         async delete(roleId: RoleType['id']): Promise<void> {
             return await new ApiRequest().rolesDetail(roleId).delete()
         },
-        async create(
-            roleName: RoleType['name'],
-            featureFlagAccessLevel: RoleType['feature_flags_access_level']
-        ): Promise<RoleType> {
+        async create(roleName: RoleType['name']): Promise<RoleType> {
             return await new ApiRequest().roles().create({
                 data: {
                     name: roleName,
-                    feature_flags_access_level: featureFlagAccessLevel,
                 },
             })
         },

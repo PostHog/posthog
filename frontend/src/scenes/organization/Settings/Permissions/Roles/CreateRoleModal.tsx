@@ -1,5 +1,4 @@
-import { LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
-import { Row } from 'antd'
+import { LemonInput } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconDelete } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -10,7 +9,7 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { useState } from 'react'
 import { organizationLogic } from 'scenes/organizationLogic'
-import { AccessLevel, Resource, RoleMemberType, UserType } from '~/types'
+import { RoleMemberType, UserType } from '~/types'
 import { rolesLogic } from './rolesLogic'
 
 export function CreateRoleModal(): JSX.Element {
@@ -22,18 +21,9 @@ export function CreateRoleModal(): JSX.Element {
         addableMembers,
         rolesLoading,
         roleMembersInFocus,
-        permissionsToSet,
     } = useValues(rolesLogic)
-    const {
-        setCreateRoleModalShown,
-        setRoleMembersToAdd,
-        createRole,
-        deleteRoleMember,
-        addRoleMembers,
-        setPermission,
-        setPermissionInPlace,
-        deleteRole,
-    } = useActions(rolesLogic)
+    const { setCreateRoleModalShown, setRoleMembersToAdd, createRole, deleteRoleMember, addRoleMembers, deleteRole } =
+        useActions(rolesLogic)
 
     const { isAdminOrOwner } = useValues(organizationLogic)
 
@@ -47,13 +37,6 @@ export function CreateRoleModal(): JSX.Element {
     const handleSubmit = (): void => {
         createRole(roleName)
         setRoleName('')
-    }
-
-    const updatePermission = (newValue: null | AccessLevel): void => {
-        if (newValue) {
-            setPermission(Resource.FEATURE_FLAGS, newValue)
-            setPermissionInPlace(Resource.FEATURE_FLAGS, newValue)
-        }
     }
 
     const isNewRole = !roleInFocus
@@ -149,26 +132,6 @@ export function CreateRoleModal(): JSX.Element {
                     )}
                 </>
             )}
-            <LemonDivider />
-            <h5 className="mt-4">Permissions</h5>
-            <Row justify="space-between" align="middle">
-                <b className="">Feature Flags</b>
-                <LemonSelect
-                    disabled={!isAdminOrOwner}
-                    value={permissionsToSet[Resource.FEATURE_FLAGS]}
-                    onChange={updatePermission}
-                    options={[
-                        {
-                            value: AccessLevel.WRITE,
-                            label: 'View & Edit',
-                        },
-                        {
-                            value: AccessLevel.READ,
-                            label: 'View Only',
-                        },
-                    ]}
-                />
-            </Row>
         </LemonModal>
     )
 }

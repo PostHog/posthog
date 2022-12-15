@@ -27,7 +27,7 @@ export const scene: SceneExport = {
 
 export enum OrganizationSettingsTabs {
     GENERAL = 'general',
-    ROLE_ACCESS = 'role_access',
+    ROLE_BASED_ACCESS = 'role_based_access',
 }
 
 function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
@@ -146,7 +146,7 @@ export function OrganizationSettings(): JSX.Element {
                     </div>
                 </Tabs.TabPane>
                 {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                    <Tabs.TabPane tab="Role access" key="role_access">
+                    <Tabs.TabPane tab="Role-based access" key="role_based_access">
                         <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                             <RestrictedArea
                                 Component={PermissionsGrid}
