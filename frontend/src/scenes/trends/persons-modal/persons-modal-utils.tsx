@@ -10,6 +10,7 @@ import {
     FilterType,
     FunnelVizType,
     GraphDataset,
+    LifecycleToggle,
     StepOrderValue,
 } from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
@@ -92,7 +93,9 @@ export const urlsForDatasets = (
                 label: (
                     <InsightLabel
                         seriesColor={
-                            dataset.status ? getBarColorFromStatus(dataset.status) : getSeriesColor(dataset.id)
+                            dataset.status
+                                ? getBarColorFromStatus(dataset.status as LifecycleToggle)
+                                : getSeriesColor(dataset.id)
                         }
                         action={dataset.action}
                         breakdownValue={

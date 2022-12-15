@@ -11,6 +11,7 @@ import {
     TrendsFilterType,
     LifecycleFilterType,
     StickinessFilterType,
+    LifecycleToggle,
 } from '~/types'
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
@@ -45,7 +46,7 @@ export const trendsLogic = kea<trendsLogicType>([
         setDisplay: (display) => ({ display }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
-        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        toggleLifecycle: (lifecycleName: LifecycleToggle) => ({ lifecycleName }),
         setTargetAction: (action: ActionFilter) => ({ action }),
         setIsFormulaOn: (enabled: boolean) => ({ enabled }),
     })),

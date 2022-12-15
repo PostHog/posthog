@@ -17,6 +17,7 @@ import {
     PathsFilterType,
     StickinessFilterType,
     LifecycleFilterType,
+    LifecycleToggle,
 } from '~/types'
 
 export enum NodeKind {
@@ -215,7 +216,10 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
-    lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> & {
+        /** Lifecycles that have been removed from display */
+        toggledLifecycles?: LifecycleToggle[]
+    } // using everything except what it inherits from FilterType
 }
 
 export type InsightQueryNode =

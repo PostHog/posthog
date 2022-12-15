@@ -1376,6 +1376,7 @@ export interface RetentionFilterType extends FilterType {
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
 }
+export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
 export type AnyFilterType =
     | TrendsFilterType
     | StickinessFilterType

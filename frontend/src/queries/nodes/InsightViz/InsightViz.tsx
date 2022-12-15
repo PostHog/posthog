@@ -3,7 +3,7 @@ import { CSSTransition } from 'react-transition-group'
 import { BindLogic, useActions, useValues } from 'kea'
 import clsx from 'clsx'
 
-import { QueryInsightEditorFilterGroup, QueryInsightEditorFilter } from '~/types'
+import { QueryInsightEditorFilterGroup, QueryInsightEditorFilter, QueryEditorFilterProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
@@ -11,6 +11,7 @@ import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
+import { LifecycleToggles } from './LifecycleToggles'
 import { queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
 
 type InsightVizProps = {
@@ -66,17 +67,17 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
                           key: 'properties',
                           label: 'Filters',
                           position: 'right',
-                          component: LifecycleGlobalFilters,
+                          component: LifecycleGlobalFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
                       }
                     : null,
-                // isLifecycle
-                //     ? {
-                //           key: 'toggles',
-                //           label: 'Lifecycle Toggles',
-                //           position: 'right',
-                //           component: LifecycleToggles,
-                //       }
-                //     : null,
+                isLifecycle
+                    ? {
+                          key: 'toggles',
+                          label: 'Lifecycle Toggles',
+                          position: 'right',
+                          component: LifecycleToggles as (props: QueryEditorFilterProps) => JSX.Element | null,
+                      }
+                    : null,
             ]),
         },
     ]

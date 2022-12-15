@@ -1,3 +1,5 @@
+import { LifecycleToggle } from '~/types'
+
 /* Insight series colors. */
 const dataColorVars = [
     'brand-blue',
@@ -60,7 +62,7 @@ export function getSeriesColor(
  *
  * Hexadecimal is necessary as Chart.js doesn't work with CSS vars.
  */
-export function getBarColorFromStatus(status: string, hover?: boolean): string {
+export function getBarColorFromStatus(status: LifecycleToggle, hover?: boolean): string {
     switch (status) {
         case 'new':
         case 'returning':
