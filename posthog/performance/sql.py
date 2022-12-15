@@ -1,14 +1,8 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
-from posthog.clickhouse.kafka_engine import STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
-
-KAFKA_COLUMNS_WITH_PARTITION = """
-, _timestamp Nullable(DateTime)
-, _offset UInt64
-, _partition UInt64
-"""
 
 # TODO
 # explode server timing from Resource events into their own columns
