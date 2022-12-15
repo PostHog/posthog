@@ -4,7 +4,7 @@ from posthog.clickhouse.kafka_engine import STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
-KAFKA_COLUMNS_WITH_PARTITION = """
+KAFKA_COLUMNS_WITH_NULLABLE_DATETIME = """
 , _timestamp Nullable(DateTime)
 , _offset UInt64
 , _partition UInt64
@@ -46,6 +46,7 @@ session_id String,
 window_id String,
 pageview_id String,
 distinct_id String,
+timestamp DateTime64,
 time_origin DateTime64(3, 'UTC'),
 entry_type LowCardinality(String),
 name String,
@@ -117,11 +118,37 @@ OR
 OR
 
 `where team_id=X and session_id=Y and pageview_id=Z`
+
+
+timeorigin is a browser context time that other times are relative to
+so we partition by time origin
+
+However, when we order we want to see events
+within a session or within a pageview in order by wall clock time
+
+That is the time origin plus the start time of the performance event
+
+It should
+
+so we want data on disk to be something like
+
+TEAM     11111111 | 22222222 | 33333333 | 44444444
+SESSION  aaaaabbb | cccddeee | fggghhhh | iijjjkkk
+PAGEVIEW 11122334 | 55566778 | 9000AAAA | BBCCCDDD
+TIME     01201010 | 01201010 | 00120123 | 01012012
+
+I believe this means that:
+
+`select where team, session order  by time`
+and
+`select where team, session, pageview order by time`
+
+will be fast as the table grows
 """
 PERFORMANCE_EVENTS_TABLE_SQL = (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(time_origin)
-ORDER BY (team_id, session_id, pageview_id)
+ORDER BY (team_id, session_id, pageview_id, start_time)
 {storage_policy}
 """
 ).format(
@@ -129,7 +156,7 @@ ORDER BY (team_id, session_id, pageview_id)
     table_name="sharded_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
     storage_policy=STORAGE_POLICY(),
 )
 
@@ -138,7 +165,7 @@ KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
     table_name="kafka_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
 )
 
 
@@ -164,7 +191,7 @@ DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.for
     table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
 )
 
 WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
@@ -172,7 +199,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format
     table_name="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=Distributed(data_table="sharded_performance_events", sharding_key="sipHash64(session_id)"),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
 )
 
 PERFORMANCE_EVENTS_TABLE_MV_SQL = """
@@ -187,5 +214,5 @@ FROM {database}.kafka_performance_events
     target_table="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
-    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
+    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_NULLABLE_DATETIME),
 )

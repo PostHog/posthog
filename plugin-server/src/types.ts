@@ -849,7 +849,7 @@ export interface RawPerformanceEvent {
 
     // BASE_EVENT_COLUMNS
     time_origin: number
-    origin_timestamp: string
+    timestamp: string
     entry_type: string
     name: string
 
@@ -946,6 +946,7 @@ export const PerformanceEventReverseMapping: { [key: number]: keyof RawPerforman
 
     // Added after v1
     39: 'duration',
+    40: 'timestamp',
 }
 
 export enum TimestampFormat {
