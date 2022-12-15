@@ -58,7 +58,7 @@ if TEST:
     @receiver(post_delete, sender=PersonDistinctId)
     def person_distinct_id_deleted(sender, instance: PersonDistinctId, **kwargs):
         _delete_ch_distinct_id(
-            instance.team.pk, str(instance.person.uuid), instance.distinct_id, instance.version or 0, sync=True
+            instance.team.pk, instance.person.uuid, instance.distinct_id, instance.version or 0, sync=True
         )
 
     try:

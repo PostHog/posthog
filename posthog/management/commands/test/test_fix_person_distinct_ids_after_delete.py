@@ -18,7 +18,7 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
     def test_dry_run(self):
         # clickhouse only deleted person and distinct id that should be updated
         ch_only_deleted_person_uuid = create_person(
-            uuid=uuid4(), team_id=self.team.pk, is_deleted=True, version=5, sync=True
+            uuid=str(uuid4()), team_id=self.team.pk, is_deleted=True, version=5, sync=True
         )
         create_person_distinct_id(
             team_id=self.team.pk,
@@ -62,7 +62,7 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
     def test_live_run(self):
         # clickhouse only deleted person and distinct id that should be updated
         ch_only_deleted_person_uuid = create_person(
-            uuid=uuid4(), team_id=self.team.pk, is_deleted=True, version=5, sync=True
+            uuid=str(uuid4()), team_id=self.team.pk, is_deleted=True, version=5, sync=True
         )
         create_person_distinct_id(
             team_id=self.team.pk,
