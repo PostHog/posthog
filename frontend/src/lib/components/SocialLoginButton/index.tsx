@@ -9,6 +9,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { LemonButton } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { router } from 'kea-router'
 
 interface SharedProps {
     queryString?: string
@@ -83,6 +84,10 @@ export function SocialLoginButtons({
     const { preflight } = useValues(preflightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
+    const { searchParams } = useValues(router)
+
+    const loginQueryParams = searchParams?.next ? `?next=${searchParams.next}` : undefined
+
     const order: string[] = Object.keys(SSO_PROVIDER_NAMES)
 
     if (
@@ -105,12 +110,18 @@ export function SocialLoginButtons({
                         .map((provider) =>
                             featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test' ? (
                                 <SocialLoginLinkTestVersion
+                                    queryString={loginQueryParams}
                                     key={provider}
                                     provider={provider as SSOProviders}
                                     {...props}
                                 />
                             ) : (
-                                <SocialLoginLink key={provider} provider={provider as SSOProviders} {...props} />
+                                <SocialLoginLink
+                                    queryString={loginQueryParams}
+                                    key={provider}
+                                    provider={provider as SSOProviders}
+                                    {...props}
+                                />
                             )
                         )}
                 </div>
