@@ -1,9 +1,10 @@
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { humanizeBytes } from 'lib/utils'
 import { useState } from 'react'
 import { PerformanceEvent } from '~/types'
+import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemPerformanceEvent {
     item: PerformanceEvent
@@ -29,6 +30,20 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
     const startTime = item.start_time || item.fetch_start || 0
     const duration = item.duration || 0
     const contextLengthMs = finalTimestamp?.diff(dayjs(item.time_origin), 'ms') || 1000
+
+    const {
+        timestamp,
+        uuid,
+        session_id,
+        window_id,
+        pageview_id,
+        distinct_id,
+        time_origin,
+        entry_type,
+        name,
+        current_url,
+        ...otherProps
+    } = item
 
     return (
         <div className={clsx('rounded bg-light border', expanded && 'border-primary')}>
@@ -82,38 +97,27 @@ export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEv
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
-                    <div className="flex justify-end">
-                        <LemonButton type="secondary" size="small">
-                            Copy
-                        </LemonButton>
-                    </div>
-                    <>
-                        <p>
-                            started at <b>{ms(item.start_time || item.fetch_start)}</b> and took{' '}
-                            <b>{ms(item.duration)}</b> to complete
-                        </p>
-
-                        {item.decoded_body_size && item.encoded_body_size ? (
-                            <>
-                                Resource is {humanizeBytes(item.decoded_body_size)}
-                                {item.encoded_body_size !== item.decoded_body_size && (
-                                    <p>
-                                        Was compressed. Sent {humanizeBytes(item.encoded_body_size)}. Saving{' '}
-                                        {(
-                                            ((item.decoded_body_size - item.encoded_body_size) /
-                                                item.decoded_body_size) *
-                                            100
-                                        ).toFixed(1)}
-                                        %
-                                    </p>
-                                )}
-                            </>
-                        ) : null}
-
-                        <pre>
-                            <code>{JSON.stringify(item, null, 2)}</code>
-                        </pre>
-                    </>
+                    <p>
+                        started at <b>{ms(item.start_time || item.fetch_start)}</b> and took <b>{ms(item.duration)}</b>{' '}
+                        to complete
+                    </p>
+                    {item.decoded_body_size && item.encoded_body_size ? (
+                        <>
+                            Resource is {humanizeBytes(item.decoded_body_size)}
+                            {item.encoded_body_size !== item.decoded_body_size && (
+                                <p>
+                                    Was compressed. Sent {humanizeBytes(item.encoded_body_size)}. Saving{' '}
+                                    {(
+                                        ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) *
+                                        100
+                                    ).toFixed(1)}
+                                    %
+                                </p>
+                            )}
+                        </>
+                    ) : null}
+                    <LemonDivider dashed />
+                    <SimpleKeyValueList item={otherProps} />
                 </div>
             )}
         </div>

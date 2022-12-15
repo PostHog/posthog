@@ -1,4 +1,4 @@
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import structlog
 from rest_framework import request, serializers, viewsets
@@ -19,10 +19,10 @@ class PerformanceEventSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     pageview_id = serializers.CharField()
     distinct_id = serializers.CharField()
+    timestamp = serializers.DateTimeField()
     time_origin = serializers.DateTimeField()
     entry_type = serializers.CharField()  # LowCardinality(String),
     name = serializers.CharField()
-    team_id = serializers.IntegerField()
     current_url = serializers.CharField()
     start_time = serializers.FloatField()
     duration = serializers.FloatField()
@@ -64,9 +64,9 @@ class PerformanceEventSerializer(serializers.Serializer):
 
 class PerformanceEvents:
     @classmethod
-    def query(cls, session_id: str, pageview_id: str, team_id: int) -> List[Dict]:
+    def query(cls, team_id: int, session_id: str, pageview_id: Optional[str] = None) -> List[Dict]:
         query = """
-                select toDateTime64(time_origin + (start_time/1000), 3, 'UTC') as timestamp, * from performance_events
+                select * from performance_events
                 prewhere team_id = %(team_id)s
                 and session_id = %(session_id)s
                 order by timestamp
@@ -79,7 +79,7 @@ class PerformanceEvents:
             {"team_id": team_id, "session_id": session_id, "pageview_id": pageview_id},
         )
 
-        columns = ["timestamp"] + [
+        columns = [
             col.strip() for col in _column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS).split(", ") if col
         ]
         columnized_results = []
@@ -108,11 +108,16 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         if not session_id:
             raise serializers.ValidationError("session_id required")
 
-        results = PerformanceEvents.query(session_id, pageview_id, self.team_id)
+        results = PerformanceEvents.query(
+            self.team_id,
+            session_id,
+            pageview_id,
+        )
 
-        PerformanceEventSerializer(data=results, many=True)
+        serializer = PerformanceEventSerializer(data=results, many=True)
+        serializer.is_valid(raise_exception=False)
 
-        return Response({"results": results})
+        return Response({"results": serializer.data})
 
     # def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
     #     filters = request.GET.dict()

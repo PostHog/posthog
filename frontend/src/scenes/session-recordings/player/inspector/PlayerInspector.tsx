@@ -275,7 +275,7 @@ export function PlayerInspectorControls({
                 ) : null}
             </div>
             {inspectorV2 && miniFilters.length ? (
-                <div className="flex items-center gap-1 flex-wrap px-2 text-xs my-2 font-medium">
+                <div className="flex items-center gap-1 flex-wrap px-2 text-xs my-2 font-medium text-primary-alt">
                     {miniFilters.map((filter) => (
                         <span
                             key={filter.key}

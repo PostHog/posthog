@@ -3,6 +3,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, autoCaptureEventToDescription } from 'lib/utils'
 import { useState } from 'react'
 import { SharedListItemEvent } from '../../sharedListLogic'
+import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
     item: SharedListItemEvent
@@ -17,7 +18,6 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate">
                     <PropertyKeyInfo
                         className="font-medium"
-                        disableIcon
                         disablePopover
                         ellipsis={true}
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
@@ -33,7 +33,7 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
-                    <pre className="whitespace-pre-wrap">{JSON.stringify(item.data)}</pre>
+                    <SimpleKeyValueList item={item.data.properties} />
                 </div>
             )}
         </div>
