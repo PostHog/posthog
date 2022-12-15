@@ -110,6 +110,7 @@ describe('insightLogic', () => {
         useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
         useMocks({
             get: {
+                '/api/projects/:team/tags/': () => [200, []],
                 '/api/projects/:team/insights/trend/': (req) => {
                     if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]

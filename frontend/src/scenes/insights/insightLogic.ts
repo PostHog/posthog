@@ -944,6 +944,7 @@ export const insightLogic = kea<insightLogicType>([
                     derived_name: values.derivedName,
                     description,
                     favorited,
+                    dashboards,
                     filters,
                     deleted,
                     saved: true,
@@ -976,6 +977,7 @@ export const insightLogic = kea<insightLogicType>([
                 throw e
             }
 
+            console.log('savedInsight a', savedInsight)
             actions.setInsight(
                 { ...savedInsight, result: savedInsight.result || values.insight.result },
                 { fromPersistentApi: true, overrideFilter: true }
@@ -987,7 +989,7 @@ export const insightLogic = kea<insightLogicType>([
                     action: () => router.actions.push(urls.savedInsights()),
                 },
             })
-
+            console.log('savedInsight b', savedInsight)
             dashboardsModel.actions.updateDashboardInsight(savedInsight)
 
             const mountedInsightSceneLogic = insightSceneLogic.findMounted()
