@@ -395,6 +395,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
         reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
+        reportExperimentRestarted: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
         reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
@@ -1002,6 +1003,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
 
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+            })
+        },
+        reportExperimentRestarted: ({ experiment }) => {
+            posthog.capture('experiment restarted', {
                 name: experiment.name,
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),

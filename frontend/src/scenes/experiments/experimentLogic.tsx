@@ -84,6 +84,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentLaunched',
                 'reportExperimentCompleted',
                 'reportExperimentArchived',
+                'reportExperimentRestarted',
             ],
         ],
     }),
@@ -349,6 +350,7 @@ export const experimentLogic = kea<experimentLogicType>([
         },
         restartExperiment: async () => {
             actions.updateExperiment({ start_date: dayjs().toISOString(), end_date: null })
+            values.experiment && actions.reportExperimentRestarted(values.experiment)
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new') {
