@@ -68,6 +68,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             null as RecordingFilters | null,
             {
                 getPlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
+                updatePlaylistSuccess: (_, { playlist }) => playlist?.filters || null,
                 setFilters: (_, { filters }) => filters,
             },
         ],
@@ -77,7 +78,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         getPlaylistSuccess: () => {
             if (values.playlist?.derived_name !== values.derivedName) {
                 // This keeps the derived name up to date if the playlist changes
-                actions.updatePlaylist({ derived_name: values.derivedName }, silent)
+                actions.updatePlaylist({ derived_name: values.derivedName }, true)
             }
         },
     })),
@@ -111,6 +112,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         hasChanges: [
             (s) => [s.playlist, s.filters],
             (playlist, filters): boolean => {
+                console.log(playlist?.filters, filters)
                 return !equal(playlist?.filters, filters)
             },
         ],
