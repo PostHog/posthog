@@ -13,6 +13,7 @@ import { EditorFilterGroup } from './EditorFilterGroup'
 import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
+import { TrendsSeries } from './TrendsSeries'
 
 type InsightVizProps = {
     query: InsightVizNode
@@ -56,8 +57,26 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     const isFunnels = false // TODO: implement with funnel queries
     const isLifecycle = true
     const showFilters = true // TODO: implement with insightVizLogic
+    const isTrendsLike = true
 
     const editorFilters: QueryInsightEditorFilterGroup[] = [
+        {
+            title: 'Series',
+            editorFilters: filterFalsy([
+                isTrendsLike && {
+                    key: 'series',
+                    // label: isTrends ? TrendsSeriesLabel : undefined,
+                    component: TrendsSeries,
+                },
+                // isTrends
+                //     ? {
+                //           key: 'formula',
+                //           label: TrendsFormulaLabel,
+                //           component: TrendsFormula,
+                //       }
+                //     : null,
+            ]),
+        },
         {
             title: 'Filters',
             count: filterPropertiesCount,
