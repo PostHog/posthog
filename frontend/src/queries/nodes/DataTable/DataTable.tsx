@@ -12,7 +12,7 @@ import { EventRowActions } from '~/queries/nodes/DataTable/EventRowActions'
 import { DataTableExport } from '~/queries/nodes/DataTable/DataTableExport'
 import { Reload } from '~/queries/nodes/DataNode/Reload'
 import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
-import { renderTitle } from '~/queries/nodes/DataTable/renderTitle'
+import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
@@ -72,7 +72,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
         ...columns.map((key) => ({
             dataIndex: key as any,
-            title: renderTitle(key, context),
+            ...renderColumnMeta(key, context),
             render: function RenderDataTableColumn(_: any, record: EventType) {
                 return renderColumn(key, record, query, setQuery, context)
             },
@@ -85,6 +85,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                       render: function RenderMore(_: any, record: EventType) {
                           return <EventRowActions event={record} />
                       },
+                      width: 0,
                   },
               ]
             : []),

@@ -1,23 +1,23 @@
-import { kea } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import type { propertyFilterLogicType } from './propertyFilterLogicType'
 import { AnyPropertyFilter } from '~/types'
 import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
-export const propertyFilterLogic = kea<propertyFilterLogicType>({
-    path: (key) => ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic', key],
-    props: {} as PropertyFilterLogicProps,
-    key: (props) => props.pageKey,
+export const propertyFilterLogic = kea<propertyFilterLogicType>([
+    path((key) => ['lib', 'components', 'PropertyFilters', 'propertyFilterLogic', key]),
+    props({} as PropertyFilterLogicProps),
+    key((props) => props.pageKey),
 
-    actions: () => ({
+    actions({
         update: true,
         setFilter: (index: number, property: AnyPropertyFilter) => ({ index, property }),
         setFilters: (filters: AnyPropertyFilter[]) => ({ filters }),
         remove: (index: number) => ({ index }),
     }),
 
-    reducers: ({ props }) => ({
+    reducers(({ props }) => ({
         filters: [
             props.propertyFilters ? parseProperties(props.propertyFilters) : ([] as AnyPropertyFilter[]),
             {
@@ -39,9 +39,9 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                 },
             },
         ],
-    }),
+    })),
 
-    listeners: ({ actions, props, values }) => ({
+    listeners(({ actions, props, values }) => ({
         // Only send update if value is set to something
         setFilter: ({ property }) => {
             if (props.sendAllKeyUpdates) {
@@ -53,12 +53,11 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
         remove: () => actions.update(),
         update: () => {
             const cleanedFilters = [...values.filters].filter(isValidPropertyFilter)
-
             props.onChange(cleanedFilters)
         },
-    }),
+    })),
 
-    selectors: {
+    selectors({
         filledFilters: [(s) => [s.filters], (filters) => filters.filter(isValidPropertyFilter)],
         filtersWithNew: [
             (s) => [s.filters],
@@ -70,5 +69,5 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>({
                 }
             },
         ],
-    },
-})
+    }),
+])
