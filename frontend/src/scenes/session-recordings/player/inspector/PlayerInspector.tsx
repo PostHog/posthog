@@ -238,10 +238,23 @@ export function PlayerInspectorControls({
                             />
                         ) : null}
                     </div>
-                ) : null}
+                ) : (
+                    <div className="flex items-center gap-2 flex-1">
+                        <LemonInput
+                            className="min-w-40"
+                            size="small"
+                            onChange={(e) => setSearchQuery(e)}
+                            placeholder="Search..."
+                            type="search"
+                            value={searchQuery}
+                            fullWidth
+                        />
+                    </div>
+                )}
                 {windowIds.length > 1 ? (
                     <div className="flex items-center gap-2 flex-wrap">
                         <LemonSelect
+                            size="small"
                             data-attr="player-window-select"
                             value={windowIdFilter ?? undefined}
                             onChange={(val) => setWindowIdFilter(val as WindowOption)}
@@ -269,17 +282,6 @@ export function PlayerInspectorControls({
             </div>
             {inspectorV2 ? (
                 <>
-                    <div className="flex items-center gap-2 px-2">
-                        <LemonInput
-                            size="small"
-                            onChange={(e) => setSearchQuery(e)}
-                            placeholder="Search..."
-                            type="search"
-                            value={searchQuery}
-                            fullWidth
-                        />
-                    </div>
-
                     <div className="flex items-center gap-1 flex-wrap px-2 text-xs my-2 font-medium">
                         {miniFilters.map((filter) => (
                             <span
