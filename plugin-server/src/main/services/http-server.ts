@@ -1,9 +1,9 @@
 import { createServer, IncomingMessage, Server, ServerResponse } from 'http'
+import * as prometheus from 'prom-client'
 
 import { status } from '../../utils/status'
 import { ServerInstance } from '../pluginsServer'
 import { Hub } from './../../types'
-import * as prometheus from 'prom-client'
 
 export const HTTP_SERVER_PORT = 6738
 

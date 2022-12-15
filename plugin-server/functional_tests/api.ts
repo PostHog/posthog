@@ -1,8 +1,8 @@
 import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
 import { Producer } from 'kafkajs'
-import { Pool } from 'pg'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
+import { Pool } from 'pg'
 
 import {
     ActionStep,
@@ -16,7 +16,6 @@ import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
-// import { beforeAll, afterAll, test, expect } from 'vitest'
 
 export const capture = async (
     producer: Producer,
