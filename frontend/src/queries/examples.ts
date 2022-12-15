@@ -24,7 +24,7 @@ import {
     PropertyOperator,
     StepOrderValue,
 } from '~/types'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { ShownAsValue } from '~/lib/constants'
 
 const Events: EventsNode = {

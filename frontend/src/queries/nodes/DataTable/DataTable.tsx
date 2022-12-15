@@ -103,7 +103,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                   },
               ]
             : []),
-    ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex))
+    ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
     const dataSource =
         (response as null | EventsNode['response'] | EventsQuery['response'] | PersonsNode['response'])?.results ?? []
