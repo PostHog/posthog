@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { defaultConfig } from '../src/config/config'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
 import { getMetric } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
@@ -103,13 +104,12 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         messages: [{ key: '', value: '' }],
     })
 
-    await delayUntilEventIngested(async () =>
-        [
-            await getMetric({
-                name: 'latest_processed_timestamp_ms',
-                type: 'GAUGE',
-                labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
-            }),
-        ].filter((value) => value > metricBefore)
-    )
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+    })
 })

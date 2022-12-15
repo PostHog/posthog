@@ -7,6 +7,7 @@ import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
 import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -318,13 +319,12 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
 
     await capture(producer, teamId, distinctId, new UUIDT().toString(), 'custom event', {})
 
-    await delayUntilEventIngested(async () =>
-        [
-            await getMetric({
-                name: 'latest_processed_timestamp_ms',
-                type: 'GAUGE',
-                labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
-            }),
-        ].filter((value) => value > metricBefore)
-    )
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+    })
 })

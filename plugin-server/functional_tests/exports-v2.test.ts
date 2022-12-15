@@ -15,6 +15,7 @@ import {
     fetchPluginLogEntries,
     getMetric,
 } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -168,13 +169,12 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
     })
 
-    await delayUntilEventIngested(async () =>
-        [
-            await getMetric({
-                name: 'latest_processed_timestamp_ms',
-                type: 'GAUGE',
-                labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
-            }),
-        ].filter((value) => value > metricBefore)
-    )
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+    })
 })
