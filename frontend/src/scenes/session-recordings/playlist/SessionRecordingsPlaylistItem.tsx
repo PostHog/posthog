@@ -8,7 +8,7 @@ import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
-interface SessionRecordingPlaylistItemProps {
+export interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
     recordingProperties?: Record<string, any> // Loaded and rendered later
     recordingPropertiesLoading: boolean
@@ -154,5 +154,14 @@ export function SessionRecordingPlaylistItem({
                 </div>
             </div>
         </li>
+    )
+}
+
+export function SessionRecordingPlaylistItemSkeleton(): JSX.Element {
+    return (
+        <div className="p-4 space-y-2">
+            <LemonSkeleton className="w-1/2" />
+            <LemonSkeleton className="w-1/3" />
+        </div>
     )
 }
