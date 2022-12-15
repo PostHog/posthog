@@ -12,6 +12,7 @@ from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models import Action, Filter, Team
 from posthog.models.action.util import format_action_filter
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
@@ -22,6 +23,7 @@ from posthog.models.cohort.sql import (
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
+    STALE_COHORTPEOPLE,
 )
 from posthog.models.person.sql import (
     GET_LATEST_PERSON_SQL,
@@ -265,6 +267,8 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
 
     count = get_cohort_size(cohort.pk, cohort.team_id)
 
+    clear_stale_cohortpeople(cohort, cohort.version)
+
     if count is not None and before_count is not None:
         logger.info(
             "Recalculating cohortpeople done",
@@ -275,6 +279,20 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
         )
 
     return count
+
+
+def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
+    stale_count_result = sync_execute(
+        STALE_COHORTPEOPLE,
+        {"cohort_id": cohort.pk, "team_id": cohort.team_id, "version": current_version},
+    )
+
+    if stale_count_result and len(stale_count_result) and len(stale_count_result[0]):
+        stale_count = stale_count_result[0][0]
+        if stale_count > 0:
+            AsyncDeletion.objects.create(
+                deletion_type=DeletionType.Cohort_stale, team_id=cohort.team.pk, key=f"{cohort.pk}_{cohort.version}"
+            )
 
 
 def get_cohort_size(cohort_id: int, team_id: int) -> Optional[int]:

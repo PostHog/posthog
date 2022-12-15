@@ -22,8 +22,37 @@ TABLES_TO_DELETE_TEAM_DATA_FROM = [
 
 
 def run_event_table_deletions():
-    queued_deletions = list(AsyncDeletion.objects.filter(delete_verified_at__isnull=True))
-    process_found_event_table_deletions(queued_deletions)
+    queued_event_deletions = AsyncDeletion.objects.filter(
+        delete_verified_at__isnull=True, deletion_type__in=[DeletionType.Team, DeletionType.Person, DeletionType.Group]
+    )
+    process_found_event_table_deletions(list(queued_event_deletions))
+
+    queued_cohortpeople_deletions = AsyncDeletion.objects.filter(
+        delete_verified_at__isnull=True, deletion_type__in=[DeletionType.Cohort_full, DeletionType.Cohort_stale]
+    )
+    process_found_cohort_table_deletions(list(queued_cohortpeople_deletions))
+
+
+def process_found_cohort_table_deletions(deletions: List[AsyncDeletion]):
+    if len(deletions) == 0:
+        logger.debug("No AsyncDeletion for cohorts to perform")
+        return
+
+    logger.info(
+        "Starting AsyncDeletion on `cohortpeople` table in ClickHouse",
+        {"count": len(deletions), "team_ids": list(set(row.team_id for row in deletions))},
+    )
+
+    conditions, args = _conditions(deletions)
+
+    sync_execute(
+        f"""
+        ALTER TABLE cohortpeople
+        ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+        DELETE WHERE {" OR ".join(conditions)}
+        """,
+        args,
+    )
 
 
 def process_found_event_table_deletions(deletions: List[AsyncDeletion]):
@@ -120,9 +149,19 @@ def _verify_by_column(distinct_columns: str, async_deletions: List[AsyncDeletion
 
 
 def _column_name(async_deletion: AsyncDeletion):
-    assert async_deletion.deletion_type in (DeletionType.Person, DeletionType.Group)
+    assert async_deletion.deletion_type in (
+        DeletionType.Person,
+        DeletionType.Group,
+        DeletionType.Cohort_full,
+        DeletionType.Cohort_stale,
+    )
     if async_deletion.deletion_type == DeletionType.Person:
         return "person_id"
+    elif (
+        async_deletion.deletion_type == DeletionType.Cohort_full
+        or async_deletion.deletion_type == DeletionType.Cohort_stale
+    ):
+        return "cohort_id"
     else:
         return f"$group_{async_deletion.group_type_index}"
 
@@ -139,6 +178,25 @@ def _conditions(async_deletions: List[AsyncDeletion]) -> Tuple[List[str], Dict]:
 def _condition(async_deletion: AsyncDeletion, suffix: str) -> Tuple[str, Dict]:
     if async_deletion.deletion_type == DeletionType.Team:
         return f"team_id = %(team_id{suffix})s", {f"team_id{suffix}": async_deletion.team_id}
+    elif async_deletion.deletion_type == DeletionType.Cohort_stale:
+        key_version = async_deletion.key.split("_")
+        if len(key_version) != 2:
+            return
+        key = key_version[0]
+        version = key_version[1]
+        return (
+            f"team_id = %(team_id{suffix})s AND {_column_name(async_deletion)} = %(key{suffix})s AND version < %(version{suffix})s",
+            {f"team_id{suffix}": async_deletion.team_id, f"version{suffix}": version, f"key{suffix}": key},
+        )
+    elif async_deletion.deletion_type == DeletionType.Cohort_full:
+        key_version = async_deletion.key.split("_")
+        if len(key_version) != 1:
+            return
+        key = key_version[0]
+        return f"team_id = %(team_id{suffix})s AND {_column_name(async_deletion)} = %(key{suffix})s", {
+            f"team_id{suffix}": async_deletion.team_id,
+            f"key{suffix}": key,
+        }
     else:
         return (
             f"(team_id = %(team_id{suffix})s AND {_column_name(async_deletion)} = %(key{suffix})s)",

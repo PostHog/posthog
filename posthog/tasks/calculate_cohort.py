@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from posthog.models import Cohort
 from posthog.models.cohort import get_and_update_pending_version
+from posthog.models.cohort.util import clear_stale_cohortpeople
 
 logger = structlog.get_logger(__name__)
 
@@ -36,7 +37,14 @@ def calculate_cohorts() -> None:
 
 def update_cohort(cohort: Cohort) -> None:
     pending_version = get_and_update_pending_version(cohort)
+    clear_stale_cohort.delay(cohort.id, cohort.version)
     calculate_cohort_ch.delay(cohort.id, pending_version)
+
+
+@shared_task(ignore_result=True)
+def clear_stale_cohort(cohort_id: int, current_version: int) -> None:
+    cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+    clear_stale_cohortpeople(cohort, current_version)
 
 
 @shared_task(ignore_result=True, max_retries=2)
