@@ -1,7 +1,8 @@
 import re
+from abc import ABC
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Dict, Optional, Tuple
+from typing import Dict, Generic, Optional, Tuple, TypeVar, Union
 
 import pytz
 from dateutil import parser
@@ -9,33 +10,30 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.models.filters.mixins.common import DateMixin
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.team import Team
 from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
 from posthog.utils import DEFAULT_DATE_FROM_DAYS
 
 
-class QueryDateRange:
-    def __init__(
-        self,
-        filter,
-        team: Team,
-        *,
-        should_round: Optional[bool] = None,
-        table: Optional[str] = None,
-        param_prefix: Optional[str] = None,
-        is_right_open: bool = False,
-    ) -> None:
-        """
-        :param filter: The filter object to use for `date_from` and `date_to`
-        :param team: The relevant project, for timezone awareness
-        :param should_round
-        :param table: The table to select the `date_from` and `date_to` columns from
-        :param param_prefix: The prefix to use for the `date_from` and `date_to` SQL parameters
-        :param is_right_open: Whether the date_to parameter should be exclusive
-        """
-        self._date_from_param_key = f"{param_prefix}_date_from" if param_prefix else "date_from"
-        self._date_to_param_key = f"{param_prefix}_date_to" if param_prefix else "date_to"
-        self._is_right_open = is_right_open
+class DatePlusIntervalMixin(ABC, DateMixin, IntervalMixin):
+    """We need to represent the intersection of DateMixin and IntervalMixin for filter.interval to be known too,
+    but unfortunately there is no intersection support in Python yet (https://github.com/python/mypy/issues/2702).
+    This mixin abstract base class is a manual intersection."""
+
+
+F = TypeVar("F", bound=Union[DateMixin, DatePlusIntervalMixin])
+
+
+# Assume that any date being sent from the client is timezone aware according to the timezone that the team has set
+class QueryDateRange(Generic[F]):
+    _filter: F
+    _team: Team
+    _table: str
+    _should_round: Optional[bool]
+
+    def __init__(self, filter: F, team: Team, should_round: Optional[bool] = None, table="") -> None:
         self._filter = filter
         self._team = team
         self._table = f"{table}." if table else ""
@@ -43,8 +41,7 @@ class QueryDateRange:
 
     @cached_property
     def date_to_param(self) -> datetime:
-
-        if not self._filter._date_to and self._filter.interval == "hour":
+        if isinstance(self._filter, IntervalMixin) and not self._filter._date_to and self._filter.interval == "hour":
             return self._now + relativedelta(minutes=1)
 
         date_to = self._now
@@ -145,7 +142,7 @@ class QueryDateRange:
 
     @cached_property
     def interval_annotation(self) -> str:
-        period = self._filter.interval
+        period = self._filter.interval if isinstance(self._filter, IntervalMixin) else None
         if period is None:
             period = "day"
         ch_function = PERIOD_TO_TRUNC_FUNC.get(period.lower())
@@ -155,12 +152,11 @@ class QueryDateRange:
 
     @cached_property
     def date_to_clause(self):
-        operator = "<" if self._is_right_open else "<="
-        return f"AND toDateTime({self._table}timestamp, 'UTC') {operator} toDateTime(%({self._date_to_param_key})s, %(timezone)s)"
+        return f"AND toDateTime({self._table}timestamp, 'UTC') <= toDateTime(%(date_to)s, %(timezone)s)"
 
     @cached_property
     def date_from_clause(self):
-        return self._get_timezone_aware_date_condition(">=", self._date_from_param_key)
+        return self._get_timezone_aware_date_condition(">=", "date_from")
 
     @cached_property
     def date_to(self) -> Tuple[str, Dict]:
@@ -170,10 +166,7 @@ class QueryDateRange:
         if not self.is_hourly(self._filter._date_to) and not self._filter.use_explicit_dates:
             date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=99999)
 
-        date_to_param = {
-            self._date_to_param_key: date_to.strftime("%Y-%m-%d %H:%M:%S"),
-            "timezone": self._team.timezone,
-        }
+        date_to_param = {"date_to": date_to.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
 
         return date_to_query, date_to_param
 
@@ -185,10 +178,7 @@ class QueryDateRange:
         if not self.is_hourly(self._filter._date_from) and not self._filter.use_explicit_dates:
             date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        date_from_param = {
-            self._date_from_param_key: date_from.strftime("%Y-%m-%d %H:%M:%S"),
-            "timezone": self._team.timezone,
-        }
+        date_from_param = {"date_from": date_from.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
 
         return date_from_query, date_from_param
 
@@ -221,8 +211,9 @@ class QueryDateRange:
         return self._end_time - self._start_time
 
     @cached_property
-    def num_intervals(self):
-
+    def num_intervals(self) -> int:
+        if not isinstance(self._filter, IntervalMixin):
+            return 1
         if self._filter.interval == "month":
             rel_delta = relativedelta(self._end_time.replace(day=1), self._start_time.replace(day=1))
             return (rel_delta.years * 12) + rel_delta.months + 1
@@ -230,12 +221,11 @@ class QueryDateRange:
         return int(self.time_difference.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1
 
     @cached_property
-    def should_round(self):
-
+    def should_round(self) -> bool:
         if self._should_round is not None:
             return self._should_round
 
-        if self._filter.use_explicit_dates or not hasattr(self._filter, "interval"):
+        if not isinstance(self._filter, IntervalMixin) or self._filter.use_explicit_dates:
             return False
 
         round_interval = False
@@ -247,6 +237,6 @@ class QueryDateRange:
         return round_interval
 
     def is_hourly(self, target):
-        return getattr(self._filter, "interval", None) == "hour" or (
-            target and isinstance(target, str) and "h" in target
-        )
+        if not isinstance(self._filter, IntervalMixin):
+            return False
+        return self._filter.interval == "hour" or (target and isinstance(target, str) and "h" in target)
