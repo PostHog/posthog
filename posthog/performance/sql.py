@@ -46,6 +46,7 @@ session_id String,
 window_id String,
 pageview_id String,
 distinct_id String,
+timestamp DateTime64,
 time_origin DateTime64(3, 'UTC'),
 entry_type LowCardinality(String),
 name String,
@@ -117,11 +118,37 @@ OR
 OR
 
 `where team_id=X and session_id=Y and pageview_id=Z`
+
+
+timeorigin is a browser context time that other times are relative to
+so we partition by time origin
+
+However, when we order we want to see events
+within a session or within a pageview in order by wall clock time
+
+That is the time origin plus the start time of the performance event
+
+It should
+
+so we want data on disk to be something like
+
+TEAM     11111111 | 22222222 | 33333333 | 44444444
+SESSION  aaaaabbb | cccddeee | fggghhhh | iijjjkkk
+PAGEVIEW 11122334 | 55566778 | 9000AAAA | BBCCCDDD
+TIME     01201010 | 01201010 | 00120123 | 01012012
+
+I believe this means that:
+
+`select where team, session order  by time`
+and
+`select where team, session, pageview order by time`
+
+will be fast as the table grows
 """
 PERFORMANCE_EVENTS_TABLE_SQL = (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL
     + """PARTITION BY toYYYYMM(time_origin)
-ORDER BY (team_id, session_id, pageview_id)
+ORDER BY (team_id, session_id, pageview_id, start_time)
 {storage_policy}
 """
 ).format(
