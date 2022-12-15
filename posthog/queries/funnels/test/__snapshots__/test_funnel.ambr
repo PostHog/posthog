@@ -116,6 +116,16 @@
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
   '
   
+  SELECT count(1)
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < NULL
+  '
+---
+# name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.3
+  '
+  
   SELECT countIf(steps = 1) step_1,
          countIf(steps = 2) step_2,
          avg(step_1_average_conversion_time_inner) step_1_average_conversion_time,
