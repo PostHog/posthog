@@ -29,6 +29,13 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
         // NOTE: PropertyFilterType.Event is not a mistake. PropertyKeyInfo only knows events vs elements ¯\_(ツ)_/¯
         return { title: <PropertyKeyInfo value={key.substring(18)} type={PropertyFilterType.Event} disableIcon /> }
     } else {
-        return { title: isEventsQuery(query.source) && key.includes('#') ? key.split('#')[1].trim() : key }
+        return { title: isEventsQuery(query.source) ? extractExpressionComment(key) : key }
     }
+}
+
+export function extractExpressionComment(query: string): string {
+    if (query.includes('#')) {
+        return query.split('#').pop()?.trim() || query
+    }
+    return query
 }

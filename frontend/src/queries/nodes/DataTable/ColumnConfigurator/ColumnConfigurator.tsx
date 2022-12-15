@@ -25,6 +25,7 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyFilterType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/renderColumnMeta'
 
 let uniqueNode = 0
 
@@ -96,7 +97,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
         }
 
         if (columnKey.includes('#')) {
-            columnKey = columnKey.split('#')[1].trim()
+            columnKey = extractExpressionComment(columnKey)
         }
 
         return (
