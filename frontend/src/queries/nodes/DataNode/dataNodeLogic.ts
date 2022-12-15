@@ -116,9 +116,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         query: [() => [(_, props) => props.query], (query) => query],
         canLoadNewData: [
             (s) => [s.query],
-            (query) => {
-                return isEventsNode(query)
-            },
+            (query) => isEventsNode(query) || (isEventsQuery(query) && query.orderBy?.[0] === '-timestamp'),
         ],
         canLoadNextData: [
             (s) => [s.query, s.response],

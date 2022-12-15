@@ -88,13 +88,16 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             },
             sorter: canSort || undefined, // we sort on the backend
         })),
-        ...(showActions && isEventsNode(query.source)
+        ...(showActions && (isEventsNode(query.source) || (isEventsQuery(query.source) && columns.includes('*')))
             ? [
                   {
                       dataIndex: '__more' as any,
                       title: '',
-                      render: function RenderMore(_: any, record: EventType) {
-                          return <EventRowActions event={record} />
+                      render: function RenderMore(_: any, record: EventType | any[]) {
+                          if (isEventsQuery(query.source) && columns.includes('*')) {
+                              return <EventRowActions event={record[columns.indexOf('*')]} />
+                          }
+                          return <EventRowActions event={record as EventType} />
                       },
                       width: 0,
                   },
@@ -131,10 +134,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             {inlineRow === 1 ? (
                                 <>
                                     <div className="flex-1" />
-                                    <InlineEditorButton
-                                        query={queryWithDefaults}
-                                        setQuery={setQuery as (node: Node) => void}
-                                    />
+                                    <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                                 </>
                             ) : null}
                         </div>
@@ -148,10 +148,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             )}
                             {showExport && <DataTableExport query={query} setQuery={setQuery} />}
                             {inlineRow === 2 ? (
-                                <InlineEditorButton
-                                    query={queryWithDefaults}
-                                    setQuery={setQuery as (node: Node) => void}
-                                />
+                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
                     )}
@@ -160,7 +157,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     )}
                     {inlineRow === 0 ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <InlineEditorButton query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
+                            <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>
                     ) : null}
                     <LemonTable

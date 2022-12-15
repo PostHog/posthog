@@ -36,7 +36,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showPropertyFilter: query.showPropertyFilter ?? false,
                         showEventFilter: query.showEventFilter ?? false,
                         showSearch: query.showSearch ?? false,
-                        showActions: isEventsQuery(query.source) ? false : query.showActions ?? true,
+                        showActions: isEventsQuery(query.source) ? columns.includes('*') : query.showActions ?? true,
                         showExport: query.showExport ?? false,
                         showReload: query.showReload ?? false,
                         showColumnConfigurator: query.showColumnConfigurator ?? false,
