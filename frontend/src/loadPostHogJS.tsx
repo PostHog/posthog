@@ -25,6 +25,7 @@ export function loadPostHogJS(): void {
                 rageclick: true,
                 persistence: 'localStorage+cookie',
                 _capture_performance: true,
+                debug: window.JS_POSTHOG_SELF_CAPTURE,
                 bootstrap: !!window.POSTHOG_USER_IDENTITY_WITH_FLAGS ? window.POSTHOG_USER_IDENTITY_WITH_FLAGS : {},
                 opt_in_site_apps: true,
             })
