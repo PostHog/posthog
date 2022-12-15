@@ -180,8 +180,6 @@ def _condition(async_deletion: AsyncDeletion, suffix: str) -> Tuple[str, Dict]:
         return f"team_id = %(team_id{suffix})s", {f"team_id{suffix}": async_deletion.team_id}
     elif async_deletion.deletion_type == DeletionType.Cohort_stale:
         key_version = async_deletion.key.split("_")
-        if len(key_version) != 2:
-            return
         key = key_version[0]
         version = key_version[1]
         return (
@@ -190,8 +188,6 @@ def _condition(async_deletion: AsyncDeletion, suffix: str) -> Tuple[str, Dict]:
         )
     elif async_deletion.deletion_type == DeletionType.Cohort_full:
         key_version = async_deletion.key.split("_")
-        if len(key_version) != 1:
-            return
         key = key_version[0]
         return f"team_id = %(team_id{suffix})s AND {_column_name(async_deletion)} = %(key{suffix})s", {
             f"team_id{suffix}": async_deletion.team_id,
