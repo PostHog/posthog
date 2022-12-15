@@ -130,6 +130,8 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
             ],
         )
         self.assertEqual(mocked_ch_call.call_count, 2)
+        run(options, True)
+        self.assertEqual(mocked_ch_call.call_count, 2)
 
     @mock.patch(
         f"{posthog.management.commands.fix_person_distinct_ids_after_delete.__name__}.create_person_distinct_id",
