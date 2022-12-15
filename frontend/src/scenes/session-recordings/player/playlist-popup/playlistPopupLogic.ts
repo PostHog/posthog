@@ -13,13 +13,19 @@ import { forms } from 'kea-forms'
 import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const playlistPopupLogic = kea<playlistPopupLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popup', 'playlistPopupLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
-        actions: [sessionRecordingPlayerLogic(props), ['setPause']],
+        actions: [
+            sessionRecordingPlayerLogic(props),
+            ['setPause'],
+            eventUsageLogic,
+            ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],
+        ],
     })),
     actions(() => ({
         setSearchQuery: (query: string) => ({ query }),
@@ -30,7 +36,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         setNewFormShowing: (show: boolean) => ({ show }),
         setShowPlaylistPopup: (show: boolean) => ({ show }),
     })),
-    loaders(({ values, props }) => ({
+    loaders(({ values, props, actions }) => ({
         playlists: {
             __default: [] as SessionRecordingPlaylistType[],
             loadPlaylists: async (_, breakpoint) => {
@@ -53,11 +59,13 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
 
             addToPlaylist: async ({ playlist }) => {
                 await addRecordingToPlaylist(playlist.short_id, props.sessionRecordingId, true)
+                actions.reportRecordingPinnedToList(true)
                 return [playlist, ...values.currentPlaylists]
             },
 
             removeFromPlaylist: async ({ playlist }) => {
                 await removeRecordingFromPlaylist(playlist.short_id, props.sessionRecordingId, true)
+                actions.reportRecordingPinnedToList(false)
                 return values.currentPlaylists.filter((x) => x.short_id !== playlist.short_id)
             },
         },
@@ -96,6 +104,8 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 const newPlaylist = await createPlaylist({
                     name,
                 })
+
+                actions.reportRecordingPlaylistCreated('pin')
 
                 if (!newPlaylist) {
                     // This indicates the billing popup has been shown so we should close the modal

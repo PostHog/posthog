@@ -10,9 +10,10 @@ import {
     SessionRecordingPlaylistItemProps,
     SessionRecordingPlaylistItemSkeleton,
 } from './SessionRecordingsPlaylistItem'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { sessionRecordingsListPropertiesLogic } from './sessionRecordingsListPropertiesLogic'
 import { LemonTableLoader } from 'lib/components/LemonTable/LemonTableLoader'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export type SessionRecordingsListProps = {
     listKey: string
@@ -44,6 +45,8 @@ export function SessionRecordingsList({
     activeRecordingId,
 }: SessionRecordingsListProps): JSX.Element {
     const [collapsed, setCollapsed] = useState(false)
+    const { reportRecordingListVisibilityToggled } = useActions(eventUsageLogic)
+
     const logic = sessionRecordingsListPropertiesLogic({
         key: listKey,
         sessionIds: recordings?.map((r) => r.id) ?? [],
@@ -61,6 +64,11 @@ export function SessionRecordingsList({
         </span>
     )
 
+    const setCollapsedWrapper = (val: boolean): void => {
+        setCollapsed(val)
+        reportRecordingListVisibilityToggled(listKey, !val)
+    }
+
     return (
         <div
             className={clsx('flex flex-col w-full border rounded bg-light', {
@@ -77,7 +85,7 @@ export function SessionRecordingsList({
                         status="stealth"
                         icon={collapsed ? <IconUnfoldMore /> : <IconUnfoldLess />}
                         size="small"
-                        onClick={() => setCollapsed(!collapsed)}
+                        onClick={() => setCollapsedWrapper(!collapsed)}
                     >
                         {titleContent}
                     </LemonButton>

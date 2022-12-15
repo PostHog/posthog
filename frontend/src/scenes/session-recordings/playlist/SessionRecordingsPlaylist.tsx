@@ -13,7 +13,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { IconChevronLeft, IconChevronRight, IconFilter, IconWithCount } from 'lib/components/icons'
 import { SessionRecordingsFilters } from '../filters/SessionRecordingsFilters'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
+import { eventUsageLogic, SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { DurationFilter } from '../filters/DurationFilter'
 import { SessionRecordingsList } from './SessionRecordingsList'
@@ -60,6 +60,7 @@ export function SessionRecordingsPlaylist({
     } = useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, reportRecordingsListFilterAdded, setShowFilters } =
         useActions(logic)
+    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
     const playlistRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -86,7 +87,10 @@ export function SessionRecordingsPlaylist({
         setFilters(defaultPageviewPropertyEntityFilter(filters, property, value))
     }
 
-    const newPlaylistHandler = useAsyncHandler(() => createPlaylist({ filters }, true))
+    const newPlaylistHandler = useAsyncHandler(async () => {
+        await createPlaylist({ filters }, true)
+        reportRecordingPlaylistCreated('filters')
+    })
 
     const offset = filters.offset ?? 0
     const nextLength = offset + (sessionRecordingsResponseLoading ? RECORDINGS_LIMIT : sessionRecordings.length)
@@ -144,7 +148,6 @@ export function SessionRecordingsPlaylist({
                                 onClick={newPlaylistHandler.onEvent}
                                 loading={newPlaylistHandler.loading}
                                 data-attr="save-recordings-playlist-button"
-                                tooltip="Save the current filters as a playlist that you can come back to."
                             >
                                 Save as playlist
                             </LemonButton>

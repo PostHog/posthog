@@ -26,7 +26,10 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         values: [cohortsModel, ['cohortsById']],
     }),
     actions({
-        updatePlaylist: (properties?: Partial<SessionRecordingPlaylistType>) => ({ properties }),
+        updatePlaylist: (properties?: Partial<SessionRecordingPlaylistType>, silent = false) => ({
+            properties,
+            silent,
+        }),
         setFilters: (filters: RecordingFilters | null) => ({ filters }),
     }),
     loaders(({ values, props }) => ({
@@ -36,13 +39,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 getPlaylist: async () => {
                     return getPlaylist(props.shortId)
                 },
-                updatePlaylist: async ({ properties }) => {
+                updatePlaylist: async ({ properties, silent }) => {
                     if (!values.playlist?.short_id) {
                         return values.playlist
                     }
                     return updatePlaylist(
                         values.playlist?.short_id,
-                        properties ?? { filters: values.filters || undefined }
+                        properties ?? { filters: values.filters || undefined },
+                        silent
                     )
                 },
                 duplicatePlaylist: async () => {
@@ -73,7 +77,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
         getPlaylistSuccess: () => {
             if (values.playlist?.derived_name !== values.derivedName) {
                 // This keeps the derived name up to date if the playlist changes
-                actions.updatePlaylist({ derived_name: values.derivedName })
+                actions.updatePlaylist({ derived_name: values.derivedName }, silent)
             }
         },
     })),
