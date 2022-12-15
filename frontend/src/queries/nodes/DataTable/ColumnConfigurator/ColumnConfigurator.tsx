@@ -3,8 +3,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { IconClose, IconEdit, IconTuning, SortableDragIcon } from 'lib/components/icons'
-import { RestrictedArea, RestrictedComponentProps, RestrictionScope } from 'lib/components/RestrictedArea'
-import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
 import {
@@ -15,7 +13,7 @@ import {
 import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
 import { defaultDataTableColumns } from '../defaults'
@@ -112,23 +110,10 @@ function ColumnConfiguratorModal(): JSX.Element {
     const rowItemHeight = 32
 
     const { modalVisible, columns } = useValues(columnConfiguratorLogic)
-    const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save, toggleSaveAsDefault } =
+    const { hideModal, moveColumn, setColumns, selectColumn, unselectColumn, save } =
         useActions(columnConfiguratorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    function SaveColumnsAsDefault({ isRestricted }: RestrictedComponentProps): JSX.Element {
-        return (
-            <LemonCheckbox
-                label="Save as default for all project members"
-                className="mt-2"
-                data-attr="events-table-save-columns-as-default-toggle"
-                bordered
-                onChange={toggleSaveAsDefault}
-                defaultChecked={false}
-                disabled={isRestricted}
-            />
-        )
-    }
     const DragHandle = sortableHandle(() => (
         <span className="drag-handle">
             <SortableDragIcon />
@@ -287,11 +272,6 @@ function ColumnConfiguratorModal(): JSX.Element {
                         </div>
                     </div>
                 </div>
-                <RestrictedArea
-                    Component={SaveColumnsAsDefault}
-                    minimumAccessLevel={TeamMembershipLevel.Admin}
-                    scope={RestrictionScope.Project}
-                />
             </div>
         </LemonModal>
     )

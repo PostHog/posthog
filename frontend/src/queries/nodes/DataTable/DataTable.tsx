@@ -17,7 +17,6 @@ import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
@@ -51,10 +50,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         highlightedRows,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
 
-    const { currentTeam } = useValues(teamLogic)
-    const defaultEventsColumns = currentTeam?.live_events_columns ?? undefined
-
-    const dataTableLogicProps: DataTableLogicProps = { query, key, defaultEventsColumns }
+    const dataTableLogicProps: DataTableLogicProps = { query, key }
     const {
         columns: dataTableQueryColumns,
         queryWithDefaults,

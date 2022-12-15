@@ -9,7 +9,6 @@ import { Sorting } from 'lib/components/LemonTable'
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
-    defaultEventsColumns?: DataTableColumn[]
 }
 
 export const dataTableLogic = kea<dataTableLogicType>([
@@ -18,10 +17,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumns: (columns: DataTableColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
-        columns: [
-            defaultsForDataTable(props.query, props.defaultEventsColumns),
-            { setColumns: (_, { columns }) => columns },
-        ],
+        columns: [defaultsForDataTable(props.query), { setColumns: (_, { columns }) => columns }],
     })),
     selectors({
         queryWithDefaults: [
@@ -73,8 +69,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        const newColumns = defaultsForDataTable(props.query, props.defaultEventsColumns)
-        const oldColumns = defaultsForDataTable(oldProps.query, oldProps.defaultEventsColumns)
+        const newColumns = defaultsForDataTable(props.query)
+        const oldColumns = defaultsForDataTable(oldProps.query)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
             actions.setColumns(newColumns)
         }

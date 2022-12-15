@@ -15,13 +15,11 @@ export function defaultDataTableColumns(query: DataNode): DataTableColumn[] {
     return query.kind === NodeKind.PersonsNode ? defaultDataTablePersonColumns : defaultDataTableEventColumns
 }
 
-export function defaultsForDataTable(query: DataTableNode, defaultColumns?: DataTableColumn[]): DataTableColumn[] {
+export function defaultsForDataTable(query: DataTableNode): DataTableColumn[] {
     return (
         query.columns ??
-        (isEventsQuery(query.source)
-            ? Array.isArray(query.source.select) && query.source.select.length > 0
-                ? query.source.select
-                : defaultColumns
+        (isEventsQuery(query.source) && Array.isArray(query.source.select) && query.source.select.length > 0
+            ? query.source.select
             : null) ??
         defaultDataTableColumns(query.source)
     )
