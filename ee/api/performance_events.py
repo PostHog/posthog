@@ -2,7 +2,6 @@ from typing import Dict, List
 
 import structlog
 from rest_framework import request, serializers, viewsets
-from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
@@ -90,9 +89,6 @@ class PerformanceEvents:
                 if index < len(columns):
                     columnized_item[columns[index]] = column
             columnized_results.append(columnized_item)
-
-        if not columnized_results:
-            raise NotFound(detail=f"no results for this session ({session_id}) and pageview ({pageview_id})")
 
         return columnized_results
 

@@ -113,7 +113,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     for (const event of peformanceEvents || []) {
                         items.push({
                             type: 'performance',
-                            timestamp: dayjs(event.timestamp).add(event.start_time || 0, 'ms'),
+                            timestamp: dayjs(event.timestamp),
                             search: event.name || '',
                             data: event,
                         })
