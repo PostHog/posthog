@@ -16,7 +16,6 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonCheckbox } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { PlayerMetaLinks } from './PlayerMetaLinks'
 
 export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
