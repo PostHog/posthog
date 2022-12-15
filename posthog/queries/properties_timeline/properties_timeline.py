@@ -26,21 +26,19 @@ FROM (
         timestamp,
         properties,
         start_event_number,
-        leadInFrame(start_event_number) OVER person_points AS end_event_number
+        leadInFrame(start_event_number) OVER (ORDER BY timestamp ASC ROWS BETWEEN CURRENT ROW AND 1 FOLLOWING) AS end_event_number
     FROM (
         SELECT
             timestamp,
             person_properties AS properties,
             {crucial_property_columns} AS relevant_property_values,
-            lagInFrame({crucial_property_columns}) OVER person_events AS previous_relevant_property_values,
-            row_number() OVER person_events AS start_event_number
+            lagInFrame(relevant_property_values) OVER (ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
+            row_number() OVER (ORDER BY timestamp ASC) AS start_event_number
         FROM ({event_query})
-        WINDOW person_events AS (ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
     )
     WHERE start_event_number = 1 OR relevant_property_values != previous_relevant_property_values OR timestamp IS NULL
-    WINDOW person_points AS (ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
 )
-WHERE timestamp IS NOT NULL
+WHERE timestamp IS NOT NULL /* Remove sentinel row */
 """
 
 
