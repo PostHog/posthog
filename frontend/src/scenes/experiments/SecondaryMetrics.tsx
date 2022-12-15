@@ -14,6 +14,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { IconDelete, IconEdit } from 'lib/components/icons'
 import { LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
 import { Field } from 'lib/forms/Field'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics })
@@ -27,6 +28,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
         openModalToEditSecondaryMetric,
         closeModal,
         saveSecondaryMetric,
+        createPreviewInsight,
     } = useActions(logic)
 
     const { insightProps } = useValues(
@@ -36,7 +38,9 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
         })
     )
 
-    const { isStepsEmpty, filterSteps } = useValues(funnelLogic(insightProps))
+    const { isStepsEmpty, filterSteps, filters: funnelsFilters } = useValues(funnelLogic(insightProps))
+    const { filters: trendsFilters } = useValues(trendsLogic(insightProps))
+
     return (
         <>
             <LemonModal
@@ -76,8 +80,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                 <LemonSelect
                                     value={value.insight}
                                     onChange={(val) => {
-                                        setFilters({ ...value, ...{ insight: val } })
-                                        onChange({ ...value, ...{ insight: val } })
+                                        createPreviewInsight({ insight: val })
                                     }}
                                     options={[
                                         { value: InsightType.TRENDS, label: <b>Trends</b> },
@@ -87,7 +90,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                 {value.insight === InsightType.FUNNELS && (
                                     <ActionFilter
                                         bordered
-                                        filters={value}
+                                        filters={funnelsFilters}
                                         setFilters={(payload) => {
                                             const newFilters = {
                                                 ...value,
@@ -97,7 +100,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                             setFilters(newFilters)
                                             onChange(newFilters)
                                         }}
-                                        typeKey={'funnel-preview-metric'}
+                                        typeKey={`funnel-preview-metric`}
                                         mathAvailability={MathAvailability.None}
                                         hideDeleteBtn={filterSteps.length === 1}
                                         buttonCopy="Add funnel step"
@@ -118,7 +121,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     <ActionFilter
                                         bordered
                                         entitiesLimit={1}
-                                        filters={value}
+                                        filters={trendsFilters}
                                         setFilters={(payload) => {
                                             const newFilters = {
                                                 ...value,
@@ -128,7 +131,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                             setFilters(newFilters)
                                             onChange(newFilters)
                                         }}
-                                        typeKey={'trend-preview-metric'}
+                                        typeKey={`trend-preview-metric`}
                                         buttonCopy="Add graph series"
                                         showSeriesIndicator
                                         propertiesTaxonomicGroupTypes={[

@@ -114,18 +114,12 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             },
         ],
     })),
-    forms(({ actions, values, props }) => ({
+    forms(() => ({
         secondaryMetricModal: {
             defaults: defaultFormValues as SecondaryMetricForm,
             errors: () => ({}),
-            submit: async (data) => {
-                if (values.existingModalSecondaryMetric) {
-                    actions.updateMetric(data, values.metricId)
-                } else {
-                    actions.addNewMetric(data)
-                }
-                props.onMetricsChange(values.metrics)
-                actions.closeModal()
+            submit: async () => {
+                // We don't use the form submit anymore
             },
         },
     })),
@@ -135,7 +129,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 name,
                 filters,
             })
-            actions.setFilters(filters)
+            actions.createPreviewInsight(filters)
             actions.setMetricId(metricId)
         },
         openModalToCreateSecondaryMetric: () => {
@@ -174,6 +168,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
                 newInsight
             )
             actions.setPreviewInsightId(createdInsight.short_id)
+            actions.setSecondaryMetricModalValue('filters', newInsight.filters)
         },
         setFilters: ({ filters }) => {
             if (filters.insight === InsightType.FUNNELS) {
@@ -181,7 +176,6 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             } else {
                 trendsLogic.findMounted({ dashboardItemId: values.previewInsightId })?.actions.setFilters(filters)
             }
-            actions.createPreviewInsight(filters)
         },
         saveSecondaryMetric: () => {
             if (values.existingModalSecondaryMetric) {
