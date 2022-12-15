@@ -14,38 +14,36 @@ from posthog.models.element import chain_to_elements
 from posthog.models.event.sql import (
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL,
     SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL,
-    SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS,
+    SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART,
 )
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
 
 
-def determine_event_conditions(
-    team: Team, conditions: Dict[str, Union[str, List[str]]], long_date_from: bool
-) -> Tuple[str, Dict]:
+def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
     for (k, v) in conditions.items():
         if not isinstance(v, str):
             continue
-        if k == "after" and not long_date_from:
+        if k == "after":
             timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp > %(after)s"
+            result += "AND timestamp > %(after)s "
             params.update({"after": timestamp})
         elif k == "before":
             timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp < %(before)s"
+            result += "AND timestamp < %(before)s "
             params.update({"before": timestamp})
         elif k == "person_id":
-            result += """AND distinct_id IN (%(distinct_ids)s)"""
+            result += """AND distinct_id IN (%(distinct_ids)s) """
             person = get_pk_or_uuid(Person.objects.all(), v).first()
             distinct_ids = person.distinct_ids if person is not None else []
             params.update({"distinct_ids": list(map(str, distinct_ids))})
         elif k == "distinct_id":
-            result += "AND distinct_id = %(distinct_id)s"
+            result += "AND distinct_id = %(distinct_id)s "
             params.update({"distinct_id": v})
         elif k == "event":
-            result += "AND event = %(event)s"
+            result += "AND event = %(event)s "
             params.update({"event": v})
     return result, params
 
@@ -58,40 +56,24 @@ def query_events_list(
     action_id: Optional[str],
     select: Optional[List[str]],
     where: Optional[List[str]],
-    long_date_from: bool = False,
+    unbounded_date_from: bool = False,
     limit: int = 100,
 ) -> Union[List, dict]:
     limit += 1
-    limit_sql = "LIMIT %(limit)s"
+    limit_sql = f"LIMIT %(limit)"
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
 
-    selected_columns: List[str] = []
-    group_by_columns: List[str] = []
-
-    if isinstance(select, list):
-        if len(select) == 0:
-            select = ["*"]
-        for column in select:
-            context = ExprParserContext()
-            clickhouse_sql = translate_hql(column, context)
-            selected_columns.append(clickhouse_sql)
-            if not context.is_aggregation:
-                group_by_columns.append(clickhouse_sql)
-
     conditions, condition_params = determine_event_conditions(
-        team,
         {
-            "after": (now() - timedelta(days=1)).isoformat(),
+            "after": None if unbounded_date_from else (now() - timedelta(days=1)).isoformat(),
             "before": (now() + timedelta(seconds=5)).isoformat(),
             **request_get_query_dict,
-        },
-        long_date_from,
+        }
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
     )
 
-    having_filters: List[str] = []
     if action_id:
         try:
             action = Action.objects.get(pk=action_id, team_id=team.pk)
@@ -105,73 +87,100 @@ def query_events_list(
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
-    if where:
-        for experssion in where:
-            context = ExprParserContext()
-            clickhouse_sql = translate_hql(experssion, context)
-            if context.is_aggregation:
-                having_filters.append(clickhouse_sql)
-            else:
-                prop_filters += " AND {}".format(clickhouse_sql)
-
-    if selected_columns:
-        order_by_list = []
-        if order_by:
-            for fragment in order_by:
-                order_direction = "ASC"
-                if fragment.startswith("-"):
-                    order_direction = "DESC"
-                    fragment = fragment[1:]
-                order_by_list.append(translate_hql(fragment) + " " + order_direction)
+    # if not using hogql-powered "select" to fetch certain columns, return an array of objects
+    if not isinstance(select, list):
+        if where:
+            raise ValueError("Cannot use 'where' without 'select'")
+        if prop_filters != "":
+            return query_with_columns(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
+                    conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
+                ),
+                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
+            )
         else:
-            order_by_list.append(selected_columns[0])
+            return query_with_columns(
+                SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
+                {"team_id": team.pk, "limit": limit, **condition_params},
+            )
 
-        results, types = sync_execute(
-            SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS.format(
-                columns=", ".join(selected_columns),
-                conditions=conditions,
-                filters=prop_filters,
-                group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
-                having="HAVING {}".format(" AND ".join(having_filters)) if having_filters else "",
-                order="ORDER BY {}".format(", ".join(order_by_list)),
-                limit=limit_sql,
-            ),
-            {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
-            with_column_types=True,
-        )
+    # events list v2 - hogql
 
-        # Convert star field from tuple to dict
-        if "*" in select:
-            star = select.index("*")
-            for index, result in enumerate(results):
-                results[index] = list(result)
-                results[index][star] = convert_star_select_to_dict(result[star])
+    raw_select_columns: List[str] = []
+    raw_group_by_columns: List[str] = []
+    raw_where_filters: List[str] = []
+    raw_having_filters: List[str] = []
+    raw_order_by_list: List[str] = []
 
-        # Convert person field from tuple to dict
-        if "person" in select:
-            person = select.index("person")
-            for index, result in enumerate(results):
-                results[index] = list(result)
-                results[index][person] = convert_person_select_to_dict(result[person])
+    if len(select) == 0:
+        select = ["*"]
 
-        return {
-            "results": results,
-            "columns": select,
-            "types": [type for _, type in types],
-        }
+    for expr in select:
+        context = ExprParserContext()
+        clickhouse_sql = translate_hql(expr, context)
+        raw_select_columns.append(clickhouse_sql)
+        if not context.is_aggregation:
+            raw_group_by_columns.append(clickhouse_sql)
 
-    if prop_filters != "":
-        return query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
-                conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
-            ),
-            {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
-        )
+    for expr in where:
+        context = ExprParserContext()
+        clickhouse_sql = translate_hql(expr, context)
+        if context.is_aggregation:
+            raw_having_filters.append(clickhouse_sql)
+        else:
+            raw_where_filters.append(clickhouse_sql)
+
+    if order_by:
+        for fragment in order_by:
+            order_direction = "ASC"
+            if fragment.startswith("-"):
+                order_direction = "DESC"
+                fragment = fragment[1:]
+            raw_order_by_list.append(translate_hql(fragment) + " " + order_direction)
     else:
-        return query_with_columns(
-            SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-            {"team_id": team.pk, "limit": limit, **condition_params},
-        )
+        raw_order_by_list.append(raw_select_columns[0])
+
+    if raw_select_columns == raw_group_by_columns:
+        raw_group_by_columns = []
+
+    results, types = sync_execute(
+        "\n".join(
+            [
+                SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART.format(
+                    columns=", ".join(raw_select_columns),
+                    conditions=conditions,
+                    filters=prop_filters,
+                ),
+                "AND {}".format(" AND ".join(raw_where_filters)) if raw_where_filters else "",
+                "GROUP BY {}".format(", ".join(raw_group_by_columns)) if raw_group_by_columns else "",
+                "HAVING {}".format(" AND ".join(raw_having_filters)) if raw_having_filters else "",
+                "ORDER BY {}".format(", ".join(raw_order_by_list)),
+                f"LIMIT {int(limit)}",
+            ]
+        ),
+        {"team_id": team.pk, **condition_params, **prop_filter_params},
+        with_column_types=True,
+    )
+
+    # Convert star field from tuple to dict in each result
+    if "*" in select:
+        star = select.index("*")
+        for index, result in enumerate(results):
+            results[index] = list(result)
+            results[index][star] = convert_star_select_to_dict(result[star])
+
+    # Convert person field from tuple to dict in each result
+    if "person" in select:
+        person = select.index("person")
+        for index, result in enumerate(results):
+            results[index] = list(result)
+            results[index][person] = convert_person_select_to_dict(result[person])
+
+    return {
+        "results": results,
+        "columns": select,
+        "types": [type for _, type in types],
+    }
 
 
 def parse_order_by(order_by_param: Optional[str], select: Optional[List[str]]) -> List[str]:

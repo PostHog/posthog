@@ -1,7 +1,7 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, DataTableColumn } from '~/queries/schema'
-import { defaultColumns } from './defaults'
+import { getColumnsForQuery } from './utils'
 import { sortedKeys } from 'lib/utils'
 import { isEventsQuery } from '~/queries/utils'
 import { Sorting } from 'lib/components/LemonTable'
@@ -17,7 +17,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumns: (columns: DataTableColumn[]) => ({ columns }) }),
     reducers(({ props }) => ({
-        columns: [defaultColumns(props.query), { setColumns: (_, { columns }) => columns }],
+        columns: [getColumnsForQuery(props.query), { setColumns: (_, { columns }) => columns }],
     })),
     selectors({
         queryWithDefaults: [
@@ -69,8 +69,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
-        const newColumns = defaultColumns(props.query)
-        const oldColumns = defaultColumns(oldProps.query)
+        const newColumns = getColumnsForQuery(props.query)
+        const oldColumns = getColumnsForQuery(oldProps.query)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
             actions.setColumns(newColumns)
         }

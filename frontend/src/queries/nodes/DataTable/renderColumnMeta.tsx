@@ -2,6 +2,7 @@ import { PropertyFilterType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { QueryContext, DataTableNode } from '~/queries/schema'
 import { isEventsQuery } from '~/queries/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
@@ -31,11 +32,4 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
     } else {
         return { title: isEventsQuery(query.source) ? extractExpressionComment(key) : key }
     }
-}
-
-export function extractExpressionComment(query: string): string {
-    if (query.includes('#')) {
-        return query.split('#').pop()?.trim() || query
-    }
-    return query
 }

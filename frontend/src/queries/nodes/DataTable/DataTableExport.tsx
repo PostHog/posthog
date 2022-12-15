@@ -4,7 +4,7 @@ import { Popconfirm } from 'antd'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import { DataNode, DataTableNode } from '~/queries/schema'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
 

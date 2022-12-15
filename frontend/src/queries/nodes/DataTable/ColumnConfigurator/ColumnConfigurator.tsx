@@ -16,7 +16,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useState } from 'react'
 import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnConfiguratorLogic'
-import { defaultDataTableColumns } from '../defaults'
+import { defaultDataTableColumns, extractExpressionComment } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
 import { isEventsQuery } from '~/queries/utils'
@@ -25,7 +25,6 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 import { PropertyFilterType } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { extractExpressionComment } from '~/queries/nodes/DataTable/renderColumnMeta'
 
 let uniqueNode = 0
 

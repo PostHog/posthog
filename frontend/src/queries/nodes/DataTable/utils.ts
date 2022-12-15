@@ -22,7 +22,7 @@ export function defaultDataTableColumns(query: DataNode): DataTableColumn[] {
         : []
 }
 
-export function defaultColumns(query: DataTableNode): DataTableColumn[] {
+export function getColumnsForQuery(query: DataTableNode): DataTableColumn[] {
     return (
         query.columns ??
         (isEventsQuery(query.source) && Array.isArray(query.source.select) && query.source.select.length > 0
@@ -30,4 +30,11 @@ export function defaultColumns(query: DataTableNode): DataTableColumn[] {
             : null) ??
         defaultDataTableColumns(query.source)
     )
+}
+
+export function extractExpressionComment(query: string): string {
+    if (query.includes('#')) {
+        return query.split('#').pop()?.trim() || query
+    }
+    return query
 }

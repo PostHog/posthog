@@ -303,16 +303,13 @@ team_id = %(team_id)s
 ORDER BY timestamp {order} {limit}
 """
 
-SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS = """
+SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART = """
 SELECT {columns}
 FROM events
 WHERE
 team_id = %(team_id)s
 {conditions}
 {filters}
-{group}
-{having}
-{order} {limit}
 """
 
 SELECT_ONE_EVENT_SQL = """

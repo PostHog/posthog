@@ -82,7 +82,16 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 description="Filter list by event. For example `user sign up` or `$pageview`.",
             ),
             OpenApiParameter(
-                "select", OpenApiTypes.STR, description="Columns to return. Supports HogQL aggregations.", many=True
+                "select",
+                OpenApiTypes.STR,
+                description="JSON-serialized array of HogQL expressions to return",
+                many=True,
+            ),
+            OpenApiParameter(
+                "where",
+                OpenApiTypes.STR,
+                description="JSON-serialized array of HogQL expressions that must pass",
+                many=True,
             ),
             OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
             OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
@@ -129,9 +138,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             # Retry the query without the 1 day optimization
             if len(query_result) < limit and not request.GET.get("after"):
                 query_result = query_events_list(
+                    unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,
                     team=team,
-                    long_date_from=True,
                     limit=limit,
                     request_get_query_dict=request.GET.dict(),
                     order_by=parse_order_by(request.GET.get("orderBy"), select),
