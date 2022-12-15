@@ -21,10 +21,11 @@ def get_query_tag_value(key: str) -> Optional[Any]:
 
 
 def tag_queries(**kwargs):
+    tags = {key: value for key, value in kwargs.items() if value is not None}
     try:
-        thread_local_storage.query_tags.update(kwargs)
+        thread_local_storage.query_tags.update(tags)
     except AttributeError:
-        thread_local_storage.query_tags = kwargs
+        thread_local_storage.query_tags = tags
 
 
 def reset_query_tags():
