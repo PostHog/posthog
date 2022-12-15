@@ -215,7 +215,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                           }
                                           return event ? <EventDetails event={event} useReactJsonView /> : null
                                       },
-                                      rowExpandable: (event) => !!event,
+                                      rowExpandable: () => true,
                                       noIndent: true,
                                   }
                                 : undefined
