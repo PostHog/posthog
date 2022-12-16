@@ -54,7 +54,7 @@ function PlayerInspectorListItem({
 
     return (
         <div ref={ref} className={clsx('flex flex-1 overflow-hidden gap-2', index > 0 && 'mt-1')}>
-            {showIcon ? (
+            {!isExpanded && showIcon ? (
                 <span className="shrink-0 text-lg text-muted-alt h-8 w-5 text-center flex items-center justify-center">
                     {TabToIcon[item.type]}
                 </span>
@@ -63,22 +63,24 @@ function PlayerInspectorListItem({
                 {item.type === 'performance' ? (
                     <ItemPerformanceEvent item={item.data} finalTimestamp={lastItemTimestamp} {...itemProps} />
                 ) : item.type === 'console' ? (
-                    <ItemConsoleLog item={item} />
+                    <ItemConsoleLog item={item} {...itemProps} />
                 ) : item.type === 'events' ? (
-                    <ItemEvent item={item} />
+                    <ItemEvent item={item} {...itemProps} />
                 ) : null}
             </span>
-            <span className="shrink-0 text-muted-alt mt-2 text-center text-xs cursor-pointer">
-                {timestampMode === 'absolute' ? (
-                    <>{item.timestamp.format('DD MMM HH:mm:ss')}</>
-                ) : (
-                    <>
-                        {item.timeInRecording < 0
-                            ? 'LOAD'
-                            : colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
-                    </>
-                )}
-            </span>
+            {!isExpanded && (
+                <span className="shrink-0 text-muted-alt mt-2 text-center text-xs cursor-pointer">
+                    {timestampMode === 'absolute' ? (
+                        <>{item.timestamp.format('DD MMM HH:mm:ss')}</>
+                    ) : (
+                        <>
+                            {item.timeInRecording < 0
+                                ? 'LOAD'
+                                : colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
+                        </>
+                    )}
+                </span>
+            )}
         </div>
     )
 }

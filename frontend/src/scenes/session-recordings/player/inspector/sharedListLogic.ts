@@ -123,7 +123,12 @@ const MiniFilters: SharedListMiniFilter[] = [
     },
     {
         tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-xhr',
+        key: 'performance-document',
+        name: 'Document',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-fetch',
         name: 'XHR / Fetch',
     },
     {
@@ -135,6 +140,11 @@ const MiniFilters: SharedListMiniFilter[] = [
         tab: SessionRecordingPlayerTab.PERFORMANCE,
         key: 'performance-other',
         name: 'Other',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-paint',
+        name: 'Paint',
     },
 ]
 
@@ -192,6 +202,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 },
 
                 setTab: (_, {}) => [],
+                setMiniFilter: (_, {}) => [],
             },
         ],
         timestampMode: [
@@ -311,17 +322,63 @@ export const sharedListLogic = kea<sharedListLogicType>([
             ): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
-                const allView = tab === SessionRecordingPlayerTab.ALL
-
                 if (
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
                     (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
                 ) {
                     for (const event of peformanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
-                        if (allView && event.initiator_type !== 'fetch' && event.entry_type !== 'navigation') {
+
+                        let include = false
+
+                        if (
+                            miniFiltersByKey['performance-all']?.enabled ||
+                            miniFiltersByKey['all-everything']?.enabled
+                        ) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['performance-document']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            event.entry_type === 'navigation'
+                        ) {
+                            include = true
+                        }
+                        if (
+                            miniFiltersByKey['performance-fetch']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '')
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            ['img', 'script', 'css', 'link'].includes(event.initiator_type || '')
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-other']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            ['other'].includes(event.initiator_type || '')
+                        ) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['performance-paint']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            event.entry_type === 'paint'
+                        ) {
+                            include = true
+                        }
+
+                        if (!include) {
                             continue
                         }
+
                         items.push({
                             type: SessionRecordingPlayerTab.PERFORMANCE,
                             timestamp,
@@ -338,24 +395,28 @@ export const sharedListLogic = kea<sharedListLogicType>([
 
                         let include = false
 
-                        if (miniFiltersByKey['console-all']?.enabled) {
+                        if (miniFiltersByKey['console-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
                             include = true
                         }
                         if (miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(event.level)) {
                             include = true
                         }
-                        if (miniFiltersByKey['console-warn']?.enabled && event.level === 'warn') {
+                        if (
+                            (miniFiltersByKey['console-warn']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
+                            event.level === 'warn'
+                        ) {
                             include = true
                         }
-                        if (miniFiltersByKey['console-error']?.enabled && event.level === 'error') {
+                        if (
+                            (miniFiltersByKey['console-error']?.enabled ||
+                                miniFiltersByKey['all-errors']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            event.level === 'error'
+                        ) {
                             include = true
                         }
 
                         if (!include) {
-                            continue
-                        }
-
-                        if (allView && !['warn', 'error'].includes(event.level)) {
                             continue
                         }
 
@@ -373,22 +434,38 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     for (const event of eventsData?.events || []) {
                         let include = false
 
-                        if (miniFiltersByKey['events-all']?.enabled) {
+                        if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
                             include = true
                         }
                         if (miniFiltersByKey['events-posthog']?.enabled && event.event.startsWith('$')) {
                             include = true
                         }
-                        if (miniFiltersByKey['events-custom']?.enabled && !event.event.startsWith('$')) {
+                        if (
+                            (miniFiltersByKey['events-custom']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            !event.event.startsWith('$')
+                        ) {
                             include = true
                         }
                         if (
-                            miniFiltersByKey['events-pageview']?.enabled &&
+                            (miniFiltersByKey['events-pageview']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
                             ['$pageview', 'screen'].includes(event.event)
                         ) {
                             include = true
                         }
-                        if (miniFiltersByKey['events-autocapture']?.enabled && event.event === '$autocapture') {
+                        if (
+                            (miniFiltersByKey['events-autocapture']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            event.event === '$autocapture'
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['all-errors']?.enabled &&
+                            (event.event === '$exception' || event.event.toLowerCase().includes('error'))
+                        ) {
                             include = true
                         }
 

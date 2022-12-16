@@ -1,7 +1,7 @@
 import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs, Dayjs } from 'lib/dayjs'
-import { humanizeBytes } from 'lib/utils'
+import { capitalizeFirstLetter, humanizeBytes } from 'lib/utils'
 import { PerformanceEvent } from '~/types'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
@@ -84,6 +84,20 @@ export function ItemPerformanceEvent({
                             {item.name}
                         </div>
                     </>
+                ) : item.entry_type === 'paint' ? (
+                    <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
+                        <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
+                            {capitalizeFirstLetter(item.name?.replace(/-/g, ' ') || '')}
+                        </span>
+                        <span
+                            className={clsx('font-semibold', {
+                                'text-danger-dark': startTime >= 2000,
+                                'text-warning-dark': startTime > 500 && startTime < 2000,
+                            })}
+                        >
+                            {ms(startTime)}
+                        </span>
+                    </div>
                 ) : (
                     <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
                         <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>{item.name}</span>
@@ -102,10 +116,29 @@ export function ItemPerformanceEvent({
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
-                    <p>
-                        started at <b>{ms(item.start_time || item.fetch_start)}</b> and took <b>{ms(item.duration)}</b>{' '}
-                        to complete
-                    </p>
+                    {item.entry_type === 'paint' ? (
+                        <p>
+                            {item.name === 'first-paint' ? (
+                                <>
+                                    The first contentful paint occured after <b>{ms(startTime)}</b>.
+                                    <br />
+                                    This represents the first time that the user was able to see the page.
+                                </>
+                            ) : item.name === 'first-contentful-paint' ? (
+                                <>
+                                    The first paint occured after <b>{ms(startTime)}</b>.
+                                    <br />
+                                    This represents the first time that the page contained useful content.
+                                </>
+                            ) : null}
+                        </p>
+                    ) : (
+                        <p>
+                            started at <b>{ms(item.start_time || item.fetch_start)}</b> and took{' '}
+                            <b>{ms(item.duration)}</b> to complete
+                        </p>
+                    )}
+
                     {item.decoded_body_size && item.encoded_body_size ? (
                         <>
                             Resource is {humanizeBytes(item.decoded_body_size)}

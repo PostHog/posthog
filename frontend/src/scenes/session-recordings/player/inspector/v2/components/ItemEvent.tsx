@@ -2,17 +2,16 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, autoCaptureEventToDescription } from 'lib/utils'
-import { useState } from 'react'
 import { SharedListItemEvent } from '../../sharedListLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
     item: SharedListItemEvent
+    expanded: boolean
+    setExpanded: (expanded: boolean) => void
 }
 
-export function ItemEvent({ item }: ItemEventProps): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
-
+export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
     return (
         <div className={clsx('rounded bg-light border', expanded && 'border-primary')}>
             <div className="relative cursor-pointer" onClick={() => setExpanded(!expanded)}>

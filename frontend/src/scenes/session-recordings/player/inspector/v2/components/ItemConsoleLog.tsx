@@ -1,13 +1,13 @@
 import clsx from 'clsx'
-import { useState } from 'react'
 import { SharedListItemConsole } from '../../sharedListLogic'
 
 export interface ItemConsoleLogProps {
     item: SharedListItemConsole
+    expanded: boolean
+    setExpanded: (expanded: boolean) => void
 }
 
-export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogProps): JSX.Element {
     const color = item.data.level === 'error' ? 'danger' : item.data.level === 'warn' ? 'warning' : undefined
 
     return (
