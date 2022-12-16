@@ -43,15 +43,21 @@ export const actionsAndEventsToSeries = ({
     const series: any = [...(actions || []), ...(events || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         // TODO: handle new_entity type
-        .map((e) =>
-            e.type === 'actions'
+        .map((f) =>
+            f.type === 'actions'
                 ? {
                       kind: NodeKind.ActionsNode,
-                      id: e.id,
+                      id: f.id,
+                      name: f.name || undefined,
+                      custom_name: f.custom_name,
+                      properties: f.properties,
                   }
                 : {
                       kind: NodeKind.EventsNode,
-                      event: e.name,
+                      event: f.id,
+                      name: f.name || undefined,
+                      custom_name: f.custom_name,
+                      properties: f.properties,
                   }
         )
 
