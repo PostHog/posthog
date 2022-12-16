@@ -1,7 +1,7 @@
 import { kea, props, key, path, actions, reducers } from 'kea'
 import { InsightLogicProps } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { InsightVizNode, NodeKind } from '~/queries/schema'
 import { BaseMathType } from '~/types'
 import { ShownAsValue } from 'lib/constants'
 
@@ -29,8 +29,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
 
     actions({
-        setQuery: (query: Node) => ({ query }),
+        setQuery: (query: InsightVizNode) => ({ query }),
     }),
 
-    reducers({ query: [getDefaultQuery() as Node, { setQuery: (_, { query }) => query }] }),
+    reducers({ query: [getDefaultQuery() as InsightVizNode, { setQuery: (_, { query }) => query }] }),
 ])
