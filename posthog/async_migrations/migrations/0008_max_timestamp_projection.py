@@ -20,7 +20,6 @@ class Migration(AsyncMigrationDefinition):
     service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=22.3.0")]
 
     def is_required(self):
-        __import__("IPython").embed()  # FIXME
         return "fast_max_kafka_timestamp" not in self.get_table_definition()
 
     def get_table_definition(self) -> str:
