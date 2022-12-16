@@ -19,7 +19,7 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, Filter, Person
-from posthog.models.event.query_event_list import query_events_list
+from posthog.models.event.query_event_list import EventsQueryResponse, query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
@@ -139,8 +139,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 where=where,
             )
 
+            result_count = (
+                len(query_result.results) if isinstance(query_result, EventsQueryResponse) else len(query_result)
+            )
+
             # Retry the query without the 1 day optimization
-            if len(query_result) < limit and not request.GET.get("after"):
+            if result_count < limit and not request.GET.get("after"):
                 query_result = query_events_list(
                     unbounded_date_from=True,  # only this changed from the query above
                     filter=filter,
@@ -154,9 +158,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 )
 
             # Result with selected columns
-            if isinstance(query_result, dict):
+            if isinstance(query_result, EventsQueryResponse):
                 return response.Response(
-                    {"columns": select, "types": query_result["types"], "results": query_result["results"]}
+                    {"columns": select, "types": query_result.types, "results": query_result.results}
                 )
 
             result = ClickhouseEventSerializer(

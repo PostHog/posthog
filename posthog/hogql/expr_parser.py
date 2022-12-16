@@ -238,8 +238,8 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                     node = node.value
                 # ast.Index is a deprecated node class that shows up in tests with Python 3.8
                 # Must do some manual casting, or mypy will give different unresolvable errors between 3.8 and 3.9
-                elif isinstance(node_slice, ast.Index) and isinstance(cast(ast.Index, node_slice).value, ast.Constant):
-                    const = cast(ast.Constant, cast(ast.Index, node_slice).value)
+                elif isinstance(node_slice, ast.Index) and isinstance(cast(Any, node_slice).value, ast.Constant):
+                    const = cast(ast.Constant, cast(Any, node_slice).value)
                     if not isinstance(const.value, str):
                         raise ValueError(f"Only string property access is currently supported, found '{const.value}'")
                     attribute_chain.insert(0, const.value)

@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -18,6 +19,14 @@ from posthog.models.event.sql import (
 )
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
+
+
+# sync with "schema.ts"
+@dataclasses.dataclass
+class EventsQueryResponse:
+    columns: List[str] = dataclasses.field(default_factory=list)
+    types: List[str] = dataclasses.field(default_factory=list)
+    results: List[List[Any]] = dataclasses.field(default_factory=list)
 
 
 def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
@@ -58,7 +67,7 @@ def query_events_list(
     where: Optional[List[str]],
     unbounded_date_from: bool = False,
     limit: int = 100,
-) -> Union[List, dict]:
+) -> Union[List, EventsQueryResponse]:
     limit += 1
     limit_sql = "LIMIT %(limit)s"
 
@@ -143,7 +152,7 @@ def query_events_list(
             context.collect_values = collected_hogql_values
             order_by_list.append(translate_hql(fragment, context) + " " + order_direction)
     else:
-        order_by_list.append(select_columns[0])
+        order_by_list.append(select_columns[0] + " ASC")
 
     if select_columns == group_by_columns:
         group_by_columns = []
@@ -177,11 +186,11 @@ def query_events_list(
             results[index] = list(result)
             results[index][person] = convert_person_select_to_dict(result[person])
 
-    return {
-        "results": results,
-        "columns": select,
-        "types": [type for _, type in types],
-    }
+    return EventsQueryResponse(
+        results=results,
+        columns=select,
+        types=[type for _, type in types],
+    )
 
 
 def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
