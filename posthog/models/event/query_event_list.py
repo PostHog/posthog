@@ -156,7 +156,7 @@ def query_events_list(
             where="AND {}".format(" AND ".join(where_filters)) if where_filters else "",
             group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
             having="HAVING {}".format(" AND ".join(having_filters)) if having_filters else "",
-            order="ORDER BY {}".format(", ".join(order_by_list)),
+            order="ORDER BY {}".format(", ".join(order_by_list)) if order_by_list else "",
             limit=f"LIMIT {int(limit)}",
         ),
         {"team_id": team.pk, **condition_params, **prop_filter_params, **collected_hogql_values},
@@ -182,19 +182,6 @@ def query_events_list(
         "columns": select,
         "types": [type for _, type in types],
     }
-
-
-def parse_order_by(order_by_param: Optional[str], select: Optional[List[str]]) -> List[str]:
-    if order_by_param:
-        return list(json.loads(order_by_param))
-    if not select:
-        return ["-timestamp"]
-    if "total()" in select:
-        return ["-total()"]
-    if "*" in select:
-        return ["-timestamp"]
-
-    return [select[0]]
 
 
 def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:

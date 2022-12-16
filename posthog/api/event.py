@@ -19,7 +19,7 @@ from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
 from posthog.models import Element, Filter, Person
-from posthog.models.event.query_event_list import parse_order_by, query_events_list
+from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_by_distinct_ids
@@ -61,12 +61,9 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     CSV_EXPORT_DEFAULT_LIMIT = 3_500
     CSV_EXPORT_MAXIMUM_LIMIT = 100_000
 
-    def _build_next_url(self, request: request.Request, last_event_timestamp: datetime) -> str:
+    def _build_next_url(self, request: request.Request, last_event_timestamp: datetime, order_by: List[str]) -> str:
         params = request.GET.dict()
-        reverse = "-timestamp" in parse_order_by(
-            request.GET.get("orderBy"),
-            json.loads(request.GET.get("select", "")) if request.GET.get("select", "") else None,
-        )
+        reverse = "-timestamp" in order_by
         timestamp = last_event_timestamp.astimezone().isoformat()
         if reverse:
             params["before"] = timestamp
@@ -123,13 +120,20 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
             select: List[str] = json.loads(request.GET["select"]) if request.GET.get("select") else None
             where: List[str] = json.loads(request.GET["where"]) if request.GET.get("where") else None
+            order_by: List[str] = list(json.loads(request.GET["orderBy"])) if request.GET.get("orderBy") else []
+
+            if len(order_by) == 0:
+                if not select or "*" in select or "timestamp" in select:
+                    order_by = ["-timestamp"]
+                elif "total()" in select:
+                    order_by = ["-total()"]
 
             query_result = query_events_list(
                 filter=filter,
                 team=team,
                 limit=limit,
                 request_get_query_dict=request.GET.dict(),
-                order_by=parse_order_by(request.GET.get("orderBy"), select),
+                order_by=order_by,
                 action_id=request.GET.get("action_id"),
                 select=select,
                 where=where,
@@ -143,7 +147,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     team=team,
                     limit=limit,
                     request_get_query_dict=request.GET.dict(),
-                    order_by=parse_order_by(request.GET.get("orderBy"), select),
+                    order_by=order_by,
                     action_id=request.GET.get("action_id"),
                     select=select,
                     where=where,
@@ -161,7 +165,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
             next_url: Optional[str] = None
             if not is_csv_request and len(query_result) > limit:
-                next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"])
+                next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
             return response.Response({"next": next_url, "results": result})
 
         except Exception as ex:
