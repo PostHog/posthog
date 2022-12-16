@@ -2,6 +2,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { status } from '../../../utils/status'
 import { IngestionConsumer } from '../kafka-queue'
+import { latestOffsetTimestampGauge } from '../metrics'
 
 export async function eachBatch(
     { batch, resolveOffset, heartbeat, commitOffsetsIfNecessary, isRunning, isStale }: EachBatchPayload,
@@ -32,13 +33,21 @@ export async function eachBatch(
                 return
             }
 
+            const lastBatchMessage = messageBatch[messageBatch.length - 1]
             await Promise.all(messageBatch.map((message: KafkaMessage) => eachMessage(message, queue)))
 
             // this if should never be false, but who can trust computers these days
-            if (messageBatch.length > 0) {
-                resolveOffset(messageBatch[messageBatch.length - 1].offset)
+            if (lastBatchMessage) {
+                resolveOffset(lastBatchMessage.offset)
             }
             await commitOffsetsIfNecessary()
+
+            // Record that latest messages timestamp, such that we can then, for
+            // instance, alert on if this value is too old.
+            latestOffsetTimestampGauge
+                .labels({ partition: batch.partition, topic: batch.topic, groupId: key })
+                .set(Number.parseInt(lastBatchMessage.timestamp))
+
             await heartbeat()
         }
 

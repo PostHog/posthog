@@ -3,14 +3,14 @@ import { useValues, useActions } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { dayjs } from 'lib/dayjs'
-import { ActionFilter, AnyPropertyFilter, Experiment, InsightType, MultivariateFlagVariant } from '~/types'
+import { ActionFilter, AnyPropertyFilter, InsightType, MultivariateFlagVariant } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 
 interface ExperimentPreviewProps {
-    experiment: Partial<Experiment> | null
+    experimentId: number | 'new'
     trendCount: number
     trendExposure?: number
     funnelSampleSize?: number
@@ -19,22 +19,22 @@ interface ExperimentPreviewProps {
 }
 
 export function ExperimentPreview({
-    experiment,
+    experimentId,
     trendCount,
     funnelConversionRate,
     trendExposure,
     funnelSampleSize,
     funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
-    const experimentId = experiment?.id || 'new'
     const {
         experimentInsightType,
         editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
         aggregationLabel,
+        experiment,
     } = useValues(experimentLogic({ experimentId }))
-    const { setNewExperimentData } = useActions(experimentLogic({ experimentId }))
+    const { setExperiment } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
         experimentInsightType === InsightType.FUNNELS
             ? 100 - funnelConversionRate < 50
@@ -96,8 +96,11 @@ export function ExperimentPreview({
                                         trackStyle={{ background: 'var(--primary)' }}
                                         handleStyle={{ background: 'var(--primary)' }}
                                         onChange={(value) => {
-                                            setNewExperimentData({
-                                                parameters: { minimum_detectable_effect: value },
+                                            setExperiment({
+                                                parameters: {
+                                                    ...experiment.parameters,
+                                                    minimum_detectable_effect: value,
+                                                },
                                             })
                                         }}
                                         tipFormatter={(value) => `${value}%`}
@@ -111,8 +114,8 @@ export function ExperimentPreview({
                                     style={{ margin: '0 16px' }}
                                     value={minimumDetectableChange}
                                     onChange={(value) => {
-                                        setNewExperimentData({
-                                            parameters: { minimum_detectable_effect: value },
+                                        setExperiment({
+                                            parameters: { ...experiment.parameters, minimum_detectable_effect: value },
                                         })
                                     }}
                                 />

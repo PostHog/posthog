@@ -10,7 +10,7 @@ from posthog.caching.insight_caching_state import (
     LazyLoader,
     TargetCacheAge,
     calculate_target_age,
-    fetch_states_in_need_of_updating,
+    sync_insight_cache_states,
     upsert,
 )
 from posthog.models import (
@@ -19,10 +19,12 @@ from posthog.models import (
     Insight,
     InsightCachingState,
     InsightViewed,
+    SharingConfiguration,
     Team,
     Text,
     User,
 )
+from posthog.models.signals import mute_selected_signals
 from posthog.test.base import BaseTest
 
 filter_dict = {
@@ -37,6 +39,7 @@ def create_insight(
     mock_active_teams: Any = None,
     team_should_be_active=True,
     viewed_at_delta: Optional[timedelta] = timedelta(hours=1),  # noqa
+    is_shared=True,
     filters=filter_dict,
     deleted=False,
 ) -> Insight:
@@ -46,6 +49,8 @@ def create_insight(
     insight = Insight.objects.create(team=team, filters=filters, deleted=deleted)
     if viewed_at_delta is not None:
         InsightViewed.objects.create(insight=insight, last_viewed_at=now() - viewed_at_delta, user=user, team=team)
+    if is_shared:
+        SharingConfiguration.objects.create(team=team, insight=insight, enabled=True)
 
     return insight
 
@@ -61,6 +66,7 @@ def create_tile(
     insight_deleted=False,
     dashboard_deleted=False,
     dashboard_tile_deleted=False,
+    is_dashboard_shared=True,
     text_tile=False,
 ) -> DashboardTile:
     if mock_active_teams:
@@ -73,6 +79,9 @@ def create_tile(
     if on_home_dashboard:
         team.primary_dashboard_id = dashboard.pk
         team.save()
+
+    if is_dashboard_shared:
+        SharingConfiguration.objects.create(team=team, dashboard=dashboard, enabled=True)
 
     insight = text = None
     if text_tile:
@@ -88,28 +97,12 @@ def create_tile(
     )
 
 
-def create_insight_caching_state(
-    team: Team,
-    user: User,
-    last_refreshed: Optional[timedelta] = timedelta(days=14),  # noqa
-    target_cache_age: Optional[timedelta] = timedelta(days=1),  # noqa
-    refresh_attempt: int = 0,
-):
-    insight = create_insight(team, user)
-    InsightCachingState.objects.create(
-        team=team,
-        insight=insight,
-        last_refresh=now() - last_refreshed if last_refreshed is not None else None,
-        target_cache_age_seconds=target_cache_age.total_seconds() if target_cache_age is not None else None,
-        refresh_attempt=refresh_attempt,
-    )
-
-
 @pytest.mark.parametrize(
     "create_item,create_item_kw,expected_target_age",
     [
         # Insight test cases
-        pytest.param(create_insight, {}, TargetCacheAge.MID_PRIORITY, id="insight base"),
+        pytest.param(create_insight, {}, TargetCacheAge.MID_PRIORITY, id="shared insight (base)"),
+        pytest.param(create_insight, {"is_shared": False}, TargetCacheAge.NO_CACHING, id="not shared insight"),
         pytest.param(
             create_insight, {"team_should_be_active": False}, TargetCacheAge.NO_CACHING, id="insight with inactive team"
         ),
@@ -123,7 +116,8 @@ def create_insight_caching_state(
         pytest.param(create_insight, {"filters": {}}, TargetCacheAge.NO_CACHING, id="insight with no filters"),
         pytest.param(create_insight, {"deleted": True}, TargetCacheAge.NO_CACHING, id="deleted insight"),
         # Dashboard tile test cases
-        pytest.param(create_tile, {}, TargetCacheAge.LOW_PRIORITY, id="tile base"),
+        pytest.param(create_tile, {}, TargetCacheAge.LOW_PRIORITY, id="shared tile (base)"),
+        pytest.param(create_tile, {"is_dashboard_shared": False}, TargetCacheAge.NO_CACHING, id="not shared tile"),
         pytest.param(
             create_tile, {"team_should_be_active": False}, TargetCacheAge.NO_CACHING, id="tile with inactive team"
         ),
@@ -184,10 +178,12 @@ def test_calculate_target_age(
 @pytest.mark.django_db
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
-    insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
-    caching_state = upsert(team, insight)
+    with mute_selected_signals():
+        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+    upsert(team, insight)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
+    caching_state = InsightCachingState.objects.get(team=team)
 
     assert caching_state is not None
     assert caching_state.team_id == team.pk
@@ -203,33 +199,74 @@ def test_upsert_new_insight(mock_active_teams, team: Team, user: User):
 @pytest.mark.django_db
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_upsert_update_insight(mock_active_teams, team: Team, user: User):
-    insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
-    caching_state = upsert(team, insight)
-    assert caching_state is not None
+    with mute_selected_signals():
+        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+    upsert(team, insight)
 
+    caching_state = InsightCachingState.objects.get(team=team)
     caching_state.last_refresh = now()
+    caching_state.last_refresh_queued_at = now()
     caching_state.refresh_attempt = 1
     caching_state.save()
-    insight.deleted = True
-    insight.save()
 
-    updated_caching_state = upsert(team, insight)
+    with mute_selected_signals():
+        insight.deleted = True
+        insight.save()
+
+    upsert(team, insight)
+    updated_caching_state = InsightCachingState.objects.get(team=team)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
     assert updated_caching_state is not None
+    assert updated_caching_state.cache_key == caching_state.cache_key
     assert updated_caching_state.target_cache_age_seconds is None
     assert updated_caching_state.last_refresh == caching_state.last_refresh
+    assert updated_caching_state.last_refresh_queued_at == caching_state.last_refresh_queued_at
     assert updated_caching_state.refresh_attempt == 1
 
 
 @pytest.mark.django_db
 @patch("posthog.caching.insight_caching_state.active_teams")
+def test_upsert_update_insight_with_filter_change(mock_active_teams, team: Team, user: User):
+    with mute_selected_signals():
+        insight = create_insight(team=team, user=user, mock_active_teams=mock_active_teams)
+
+    upsert(team, insight)
+
+    caching_state = InsightCachingState.objects.get(team=team)
+    caching_state.last_refresh = now()
+    caching_state.refresh_attempt = 1
+    caching_state.save()
+
+    with mute_selected_signals():
+        insight.filters = {
+            **filter_dict,
+            "events": [{"id": "$pageleave"}],
+        }
+        insight.save()
+
+    upsert(team, insight)
+    updated_caching_state = InsightCachingState.objects.get(team=team)
+
+    assert InsightCachingState.objects.filter(team=team).count() == 1
+    assert updated_caching_state is not None
+    assert updated_caching_state.cache_key != caching_state.cache_key
+    assert updated_caching_state.target_cache_age_seconds is not None
+    assert updated_caching_state.last_refresh is None
+    assert updated_caching_state.last_refresh_queued_at is None
+    assert updated_caching_state.refresh_attempt == 0
+
+
+@pytest.mark.django_db
+@patch("posthog.caching.insight_caching_state.active_teams")
 def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
-    tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams)
-    caching_state = upsert(team, tile)
+    with mute_selected_signals():
+        tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams)
+    upsert(team, tile)
 
     assert InsightCachingState.objects.filter(team=team).count() == 1
 
+    caching_state = InsightCachingState.objects.get(team=team)
     assert caching_state is not None
     assert caching_state.team_id == team.pk
     assert caching_state.insight == tile.insight
@@ -245,30 +282,21 @@ def test_upsert_new_tile(mock_active_teams, team: Team, user: User):
 @patch("posthog.caching.insight_caching_state.active_teams")
 def test_upsert_text_tile_does_not_create_record(mock_active_teams, team: Team, user: User):
     tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams, text_tile=True)
-    caching_state = upsert(team, tile)
+    upsert(team, tile)
 
-    assert caching_state is None
-    assert not InsightCachingState.objects.filter(team=team).exists()
+    assert InsightCachingState.objects.filter(team=team).count() == 0
 
 
-@pytest.mark.parametrize(
-    "params,expected_matches",
-    [
-        ({}, 1),
-        ({"last_refreshed": None}, 1),
-        ({"target_cache_age": None, "last_refreshed": None}, 0),
-        ({"target_cache_age": timedelta(days=1), "last_refreshed": timedelta(days=2)}, 1),
-        ({"target_cache_age": timedelta(days=1), "last_refreshed": timedelta(hours=23)}, 0),
-        ({"refresh_attempt": 2}, 1),
-        ({"refresh_attempt": 3}, 0),
-    ],
-)
 @pytest.mark.django_db
-def test_fetch_states_in_need_of_updating(team: Team, user: User, params, expected_matches):
-    create_insight_caching_state(team, user, **params)
+@freeze_time("2020-01-04T13:01:01Z")
+def test_sync_insight_cache_states(team: Team, user: User):
+    with mute_selected_signals():
+        create_insight(team=team, user=user)
+        create_tile(team=team, user=user)
 
-    results = fetch_states_in_need_of_updating()
-    assert len(results) == expected_matches
+    sync_insight_cache_states()
+
+    assert InsightCachingState.objects.filter(team=team).count() == 3
 
 
 class TestLazyLoader(BaseTest):

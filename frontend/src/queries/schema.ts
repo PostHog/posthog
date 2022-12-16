@@ -6,7 +6,6 @@ import {
     BreakdownType,
     PropertyGroupFilter,
     EventType,
-    PropertyFilterType,
     IntervalType,
     BaseMathType,
     PropertyMathType,
@@ -24,6 +23,7 @@ export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
     ActionsNode = 'ActionsNode',
+    PersonsNode = 'PersonsNode',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -42,6 +42,7 @@ export type QuerySchema =
     // Data nodes (see utils.ts)
     | EventsNode
     | ActionsNode
+    | PersonsNode
 
     // Interface nodes
     | DataTableNode
@@ -73,13 +74,24 @@ export interface EntityNode extends DataNode {
     math?: BaseMathType | PropertyMathType | CountPerActorMathType
     math_property?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
+    /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyPropertyFilter[]
 }
 
 export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     event?: string
     limit?: number
+    /** Show events matching a given action */
+    actionId?: number
+    /** Show events for a given person */
+    personId?: string
+    /** Only fetch events that happened before this timestamp */
+    before?: string
+    /** Only fetch events that happened after this timestamp */
+    after?: string
     response?: {
         results: EventType[]
         next?: string
@@ -91,29 +103,47 @@ export interface ActionsNode extends EntityNode {
     id: number
 }
 
+export interface PersonsNode extends DataNode {
+    kind: NodeKind.PersonsNode
+    search?: string
+    cohort?: number
+    distinctId?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyPropertyFilter[]
+}
+
 // Data table node
 
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode
+    source: EventsNode | PersonsNode
     /** Columns shown in the table  */
-    columns?: DataTableColumn[] | DataTableStringColumn[]
-    /** Include an event filter above the table (default: true) */
+    columns?: DataTableColumn[]
+    /** Columns that aren't shown in the table, even if in columns */
+    hiddenColumns?: DataTableColumn[]
+    /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
-    /** Include a property filter above the table (default: true) */
+    /** Include a free text search field (PersonsNode only) */
+    showSearch?: boolean
+    /** Include a property filter above the table */
     showPropertyFilter?: boolean
-    /** Show the "..." menu at the end of the row */
-    showMore?: boolean
+    /** Show the kebab menu at the end of the row */
+    showActions?: boolean
     /** Show the export button */
     showExport?: boolean
+    /** Show a reload button */
+    showReload?: boolean
+    /** Show a button to configure the table's columns if possible */
+    showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
-}
-
-export interface DataTableColumn {
-    type: PropertyFilterType
-    key: string
+    /** Link properties via the URL (default: false) */
+    propertiesViaUrl?: boolean
+    /** Show warning about live events being buffered max 60 sec (default: false) */
+    showEventsBufferWarning?: boolean
 }
 
 // Base class should not be used directly
@@ -188,10 +218,7 @@ export type InsightQueryNode =
     | LifecycleQuery
 export type InsightNodeKind = InsightQueryNode['kind']
 
-// TODO: not supported by "ts-json-schema-generator" nor "typescript-json-schema" :(
-// export type PropertyColumnString = `${PropertyFilterType}.${string}`
-export type PropertyColumnString = string
-export type DataTableStringColumn = PropertyColumnString | 'person'
+export type DataTableColumn = string
 
 // Legacy queries
 
@@ -216,4 +243,15 @@ export interface BreakdownFilter {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number | undefined // Groups aggregation
+}
+
+/** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
+export interface QueryContext {
+    /** Column templates for the DataTable */
+    columns: Record<string, QueryContextColumn>
+}
+
+interface QueryContextColumn {
+    title?: string
+    render?: (props: { record: any }) => JSX.Element
 }

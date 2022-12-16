@@ -41,10 +41,9 @@ export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([
     forms(() => ({
         confirmOrganization: {
             defaults: {} as ConfirmOrganizationFormValues,
-            errors: ({ organization_name, first_name, role_at_organization }) => ({
+            errors: ({ organization_name, first_name }) => ({
                 first_name: !first_name ? 'Please enter your name' : undefined,
                 organization_name: !organization_name ? 'Please enter your organization name' : undefined,
-                role_at_organization: !role_at_organization ? 'Please enter your role' : undefined,
             }),
 
             submit: async (formValues) => {

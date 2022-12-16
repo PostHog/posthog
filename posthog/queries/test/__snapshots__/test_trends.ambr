@@ -2300,6 +2300,136 @@
   ORDER BY breakdown_value
   '
 ---
+# name: TestTrends.test_trends_count_per_group_average_aggregated
+  '
+  
+  SELECT avg(intermediate_count) as data
+  FROM
+    (SELECT COUNT(*) AS intermediate_count,
+            "$group_0"
+     FROM
+       (SELECT e.timestamp as timestamp,
+               e."$group_0" as "$group_0"
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'viewed video'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+          AND "$group_0" != '' )
+     GROUP BY "$group_0") events
+  '
+---
+# name: TestTrends.test_trends_count_per_group_average_daily
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT avg(intermediate_count) AS data, date
+        FROM
+          (SELECT COUNT(*) AS intermediate_count,
+                  "$group_0",
+                  toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+           FROM
+             (SELECT e.timestamp as timestamp,
+                     e."$group_0" as "$group_0"
+              FROM events e
+              WHERE team_id = 2
+                AND event = 'viewed video'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+                AND "$group_0" != '' )
+           GROUP BY "$group_0", date)
+        GROUP BY date)
+     group by day_start
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestTrends.test_trends_count_per_user_average_aggregated
+  '
+  
+  SELECT avg(intermediate_count) as data
+  FROM
+    (SELECT COUNT(*) AS intermediate_count,
+            person_id
+     FROM
+       (SELECT e.timestamp as timestamp,
+               pdi.person_id as person_id
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
+           WHERE team_id = 2
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+           GROUP BY id
+           HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+        WHERE team_id = 2
+          AND event = 'viewed video'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') )
+     GROUP BY person_id) events
+  '
+---
+# name: TestTrends.test_trends_count_per_user_average_daily
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     from
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT avg(intermediate_count) AS data, date
+        FROM
+          (SELECT COUNT(*) AS intermediate_count,
+                  person_id,
+                  toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
+           FROM
+             (SELECT e.timestamp as timestamp,
+                     pdi.person_id as person_id
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              INNER JOIN
+                (SELECT id
+                 FROM person
+                 WHERE team_id = 2
+                 GROUP BY id
+                 HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+              WHERE team_id = 2
+                AND event = 'viewed video'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') )
+           GROUP BY person_id, date)
+        GROUP BY date)
+     group by day_start
+     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
   '
   

@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import structlog
@@ -142,7 +142,10 @@ def get_decide(request: HttpRequest):
                 )
 
             property_overrides = get_geoip_properties(get_ip_address(request))
-            all_property_overrides = {**property_overrides, **(data.get("person_properties") or {})}
+            all_property_overrides: Dict[str, Union[str, int]] = {
+                **property_overrides,
+                **(data.get("person_properties") or {}),
+            }
 
             feature_flags, _ = get_active_feature_flags(
                 team.pk,

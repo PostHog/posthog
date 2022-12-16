@@ -1,4 +1,6 @@
-from typing import Counter, List, Set, Union, cast
+from collections import Counter
+from typing import Counter as TCounter
+from typing import List, Set, Union, cast
 
 from posthog.clickhouse.materialized_columns import ColumnName, get_materialized_columns
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
@@ -95,9 +97,9 @@ class FOSSColumnOptimizer:
         return False
 
     @cached_property
-    def properties_used_in_filter(self) -> Counter[PropertyIdentifier]:
+    def properties_used_in_filter(self) -> TCounter[PropertyIdentifier]:
         "Returns collection of properties + types that this query would use"
-        counter: Counter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
+        counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
         if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
@@ -121,7 +123,7 @@ class FOSSColumnOptimizer:
 
             # Math properties are also implicitly used.
             #
-            # See ee/clickhouse/queries/trends/util.py#process_math
+            # See posthog/queries/trends/util.py#process_math
             if entity.math_property:
                 counter[(entity.math_property, "event", None)] += 1
 
@@ -142,7 +144,7 @@ class FOSSColumnOptimizer:
 
         return counter
 
-    def used_properties_with_type(self, property_type: PropertyType) -> Counter[PropertyIdentifier]:
+    def used_properties_with_type(self, property_type: PropertyType) -> TCounter[PropertyIdentifier]:
         return Counter(
             {
                 (name, type, group_type_index): count

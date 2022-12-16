@@ -58,6 +58,8 @@ import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/uti
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
 import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -249,24 +251,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                 </Field>
                             </Col>
                             <Col span={12}>
-                                {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                                    <Card title="Permissions" className="mb-4">
-                                        <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                            <ResourcePermission
-                                                resourceType={Resource.FEATURE_FLAGS}
-                                                isNewResource={id === 'new'}
-                                                onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                rolesToAdd={rolesToAdd}
-                                                addableRoles={addableRoles}
-                                                addableRolesLoading={unfilteredAddableRolesLoading}
-                                                onAdd={() => addAssociatedRoles()}
-                                                roles={derivedRoles}
-                                                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                                canEdit={featureFlag.can_edit}
-                                            />
-                                        </PayGateMini>
-                                    </Card>
-                                )}
                                 <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
                             </Col>
                         </Row>
@@ -276,6 +260,25 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagReleaseConditions />
                         <Divider />
                         {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
+                        {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                            <Card title="Permissions" className="mb-4">
+                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                    <ResourcePermission
+                                        resourceType={Resource.FEATURE_FLAGS}
+                                        isNewResource={id === 'new'}
+                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                        rolesToAdd={rolesToAdd}
+                                        addableRoles={addableRoles}
+                                        addableRolesLoading={unfilteredAddableRolesLoading}
+                                        onAdd={() => addAssociatedRoles()}
+                                        roles={derivedRoles}
+                                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                        canEdit={featureFlag.can_edit}
+                                    />
+                                </PayGateMini>
+                            </Card>
+                        )}
+
                         <LemonDivider className="mt-8" />
                         <div className="flex items-center gap-2 justify-end">
                             <LemonButton
@@ -439,7 +442,24 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
 }
 
 function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
-    return (
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+
+    return featureDataExploration ? (
+        <Query
+            query={{
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                    properties: defaultPropertyOnFlag(featureFlagKey),
+                },
+                showReload: true,
+                showColumnConfigurator: true,
+                showExport: true,
+            }}
+        />
+    ) : (
         <EventsTable
             fixedFilters={{
                 event_filter: '$feature_flag_called',

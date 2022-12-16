@@ -2,7 +2,7 @@ import './PlayerMeta.scss'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
 import { useActions, useValues } from 'kea'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
+import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
 import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { percentage } from 'lib/utils'
@@ -21,7 +21,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
 
-export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const {
         sessionPerson,
         resolution,
@@ -31,7 +31,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         recordingStartTime,
         sessionPlayerMetaDataLoading,
         windowIds,
-    } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
+    } = useValues(playerMetaLogic(props))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
@@ -70,11 +70,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-12 h-12" />
                     ) : (
-                        <ProfilePicture
-                            name={sessionPerson?.name}
-                            email={sessionPerson?.properties?.$email}
-                            size={!isFullScreen ? 'xxl' : 'md'}
-                        />
+                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xxl' : 'md'} />
                     )}
                 </div>
                 <div className="overflow-hidden ph-no-capture">
@@ -148,11 +144,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
                 />
 
-                <div className="flex-1">
-                    {sessionRecordingId ? (
-                        <PlayerMetaLinks sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                    ) : null}
-                </div>
+                <div className="flex-1">{props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}</div>
             </div>
             {sessionPerson && (
                 <CSSTransition

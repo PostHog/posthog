@@ -15,13 +15,14 @@ module.exports = {
         '@storybook/addon-links',
         '@storybook/addon-essentials',
         '@storybook/addon-storysource',
+        '@storybook/addon-a11y',
+        'storybook-addon-pseudo-states',
         {
             name: 'storybook-addon-turbo-build',
             options: {
                 optimizationLevel: 3,
             },
         },
-        '@storybook/addon-a11y',
     ],
     staticDirs: ['public'],
     babel: async () => {
