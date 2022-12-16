@@ -1,3 +1,5 @@
+from typing import Any, Dict
+
 from posthog.hogql.expr_parser import ExprParserContext, translate_hql
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -143,6 +145,16 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
             "tuple(distinct_id, person_id, person_created_at, replaceRegexpAll(JSONExtractRaw(person_properties, 'name'), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(person_properties, 'email'), '^\"|\"$', ''))",
         )
         self._assert_value_error("person + 1", 'Can not use the field "person" in an expression')
+
+    def test_collected_values(self):
+        collected_values: Dict[str, Any] = {}
+        context = ExprParserContext(collect_values=collected_values)
+        self.assertEqual(translate_hql("event == 'E'", context), "equals(event, %(val_0)s)")
+        self.assertEqual(collected_values, {"val_0": "E"})
+        self.assertEqual(
+            translate_hql("coalesce(4.2, 5, 'lol', 'hoo')", context), "coalesce(4.2, 5, %(val_1)s, %(val_2)s)"
+        )
+        self.assertEqual(collected_values, {"val_0": "E", "val_1": "lol", "val_2": "hoo"})
 
     def _assert_value_error(self, expr, expected_error):
         with self.assertRaises(ValueError) as context:

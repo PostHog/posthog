@@ -7,8 +7,12 @@ from clickhouse_driver.util.escape import escape_param
 
 from posthog.models.property.util import get_property_string_expr
 
+# fields you can select from in the events query
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
-PERSON_FIELDS = ["id", "created_at", "properties"]
+# "person.*" fields you can select from in the events query
+EVENT_PERSON_FIELDS = ["id", "created_at", "properties"]
+
+# HogQL -> ClickHouse allowed transformations
 CLICKHOUSE_FUNCTIONS = {
     # arithmetic
     "abs": "abs",
@@ -84,6 +88,7 @@ CLICKHOUSE_FUNCTIONS = {
     "ceil": "ceil",
     "trunc": "trunc",
 }
+# Permitted HogQL aggregations
 HOGQL_AGGREGATIONS = [
     "total",
     "min",
@@ -92,8 +97,10 @@ HOGQL_AGGREGATIONS = [
     "avg",
     "any",
 ]
+# Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 
+# Allow-listed fields returned when you select "*" from events. Person and group fields will be nested later.
 SELECT_STAR_FROM_EVENTS_FIELDS = [
     "uuid",
     "event",
@@ -121,25 +128,29 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 @dataclass
 class ExprParserContext:
-    attribute_list: List[List[str]] = field(default_factory=list)
-    encountered_nodes: List[ast.AST] = field(default_factory=list)
-    is_aggregation: bool = False
+    """Context given to a HogQL expression parser"""
+
+    # If set, will save string constants to this list instead of inlining them
     collect_values: Optional[Dict[str, Any]] = None
+    # List of field and property accesses found in the expression
+    attribute_list: List[List[str]] = field(default_factory=list)
+    # Did the expression contain a call from HOGQL_AGGREGATIONS
+    is_aggregation: bool = False
 
 
 def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
+    if hql == "*":
+        return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
+
+    # The expression "person" can't be used in a query, just top level
+    if hql == "person":
+        hql = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
+
     try:
         # Until we swap out the AST parser, we're limited to Python's dialect.
-        # This means "properties.$bla" fails. The following is a hack to get around that fofr now.
+        # This means "properties.$bla" fails. The following is a hack to get around that for now.
         hql = re.sub(r"properties\.(\$[$a-zA-Z0-9_\-]+)", r"properties['\1']", hql)
-
-        # Expression overrides that are not usable as regular fields/properties
-        if hql == "*":
-            return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
-        if hql == "person":
-            hql = "tuple(distinct_id, person.id, person.created_at, person.properties.name, person.properties.email)"
-
         node = ast.parse(hql)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
@@ -151,7 +162,6 @@ def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
 def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContext) -> str:
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     stack.append(node)
-    context.encountered_nodes.append(node)
     if isinstance(node, ast.Module):
         if len(node.body) == 1 and isinstance(node.body[0], ast.Expr):
             response = translate_ast(node.body[0], stack, context)
@@ -209,10 +219,10 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
-        key = f"__value_{len(context.collect_values)}"
+        key = f"val_{len(context.collect_values)}"
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
-        elif isinstance(node.value, str) or isinstance(node.value, list):
+        elif isinstance(node.value, str):
             if isinstance(context.collect_values, dict):
                 context.collect_values[key] = node.value
                 response = f"%({key})s"
@@ -312,7 +322,7 @@ def property_access_to_clickhouse(chain: List[str]):
             )
             return expression
         elif chain[0] == "person":
-            if chain[1] in PERSON_FIELDS:
+            if chain[1] in EVENT_PERSON_FIELDS:
                 return f"person_{chain[1]}"
             else:
                 raise ValueError(f"Unknown person field '{chain[1]}'")
@@ -329,7 +339,7 @@ def property_access_to_clickhouse(chain: List[str]):
             if chain[0] == "id":
                 return "uuid"
             return chain[0]
-        elif chain[0].startswith("person_") and chain[0][7:] in PERSON_FIELDS:
+        elif chain[0].startswith("person_") and chain[0][7:] in EVENT_PERSON_FIELDS:
             return chain[0]
         elif chain[0].lower() in KEYWORDS:
             return chain[0].lower()
