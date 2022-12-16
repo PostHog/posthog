@@ -92,8 +92,8 @@ export function DashboardReloadAction(): JSX.Element {
                     React.cloneElement(leftButton as React.ReactElement, { style: { paddingLeft: 10 } }),
                     rightButton,
                 ]}
-                visible={open}
-                onVisibleChange={(toOpen) => setOpen(toOpen)}
+                open={open}
+                onOpenChange={(toOpen) => setOpen(toOpen)}
             >
                 <span className="dashboard-items-action-icon">
                     {itemsLoading ? <LoadingOutlined /> : <ReloadOutlined />}

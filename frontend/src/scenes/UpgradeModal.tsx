@@ -16,7 +16,7 @@ export function UpgradeModal(): JSX.Element {
             cancelText="Maybe Later"
             onOk={takeToPricing}
             onCancel={hideUpgradeModal}
-            visible={!!featureName}
+            open={!!featureName}
         >
             <p>
                 <b>{featureName && capitalizeFirstLetter(featureName)}</b> is an advanced PostHog feature.
