@@ -61,7 +61,6 @@ def query_events_list(
 ) -> Union[List, dict]:
     limit += 1
     limit_sql = "LIMIT %(limit)s"
-    order = "DESC" if order_by[0] == "-timestamp" else "ASC"
 
     conditions, condition_params = determine_event_conditions(
         {
@@ -89,6 +88,7 @@ def query_events_list(
 
     # if not using hogql-powered "select" to fetch certain columns, return an array of objects
     if not isinstance(select, list):
+        order = "DESC" if len(order_by) == 1 and order_by[0] == "-timestamp" else "ASC"
         if where:
             raise ValueError("Cannot use 'where' without 'select'")
         if prop_filters != "":
