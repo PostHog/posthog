@@ -74,14 +74,15 @@ specifiers:
   luxon: ^1.27.0
   node-fetch: ^2.6.1
   node-schedule: ^2.1.0
+  parse-prometheus-text-format: ^1.1.1
   pg: ^8.6.0
   pino: ^8.6.0
   pino-pretty: ^9.1.0
   posthog-node: 2.0.2
   prettier: ^2.7.1
   pretty-bytes: ^5.6.0
+  prom-client: ^14.1.0
   re2: ^1.17.7
-  rimraf: ^3.0.2
   safe-stable-stringify: ^2.4.0
   snowflake-sdk: ^1.6.10
   timekeeper: ^2.2.0
@@ -130,6 +131,7 @@ dependencies:
   pino: 8.7.0
   posthog-node: 2.0.2
   pretty-bytes: 5.6.0
+  prom-client: 14.1.0
   re2: 1.17.7
   safe-stable-stringify: 2.4.1
   snowflake-sdk: 1.6.15_asn1.js@5.4.1
@@ -176,9 +178,9 @@ devDependencies:
   eslint-plugin-promise: 6.1.1_eslint@8.26.0
   eslint-plugin-simple-import-sort: 7.0.0_eslint@8.26.0
   jest: 28.1.3_dnlfjp7n5lpfgnj4digwzn5fhe
+  parse-prometheus-text-format: 1.1.1
   pino-pretty: 9.1.1
   prettier: 2.7.1
-  rimraf: 3.0.2
   timekeeper: 2.2.0
   ts-node: 10.9.1_uusaoo756f3l7x5w4ayk4pz43y
   ts-node-dev: 2.0.0_uusaoo756f3l7x5w4ayk4pz43y
@@ -3485,6 +3487,10 @@ packages:
       file-uri-to-path: 1.0.0
     dev: false
     optional: true
+
+  /bintrees/1.0.2:
+    resolution: {integrity: sha512-VOMgTMwjAaUG580SXn3LacVgjurrbMme7ZZNYGSSV7mmtY6QQRh0Eg3pwIcntQ77DErK1L0NxkbetjcoXzVwKw==}
+    dev: false
 
   /bluebird/3.7.2:
     resolution: {integrity: sha512-XpNj6GDQzdfW+r2Wnn7xiSAd7TM3jzkxGXBGTtWKuSXv1xUV+azxAm8jdWZN06QTQk+2N2XB9jRDkvbmQmcRtg==}
@@ -7040,6 +7046,12 @@ packages:
     engines: {node: '>=0.10.0'}
     dev: false
 
+  /parse-prometheus-text-format/1.1.1:
+    resolution: {integrity: sha512-dBlhYVACjRdSqLMFe4/Q1l/Gd3UmXm8ruvsTi7J6ul3ih45AkzkVpI5XHV4aZ37juGZW5+3dGU5lwk+QLM9XJA==}
+    dependencies:
+      shallow-equal: 1.2.1
+    dev: true
+
   /path-exists/4.0.0:
     resolution: {integrity: sha512-ak9Qy5Q7jYb2Wwcey5Fpvg2KoAc/ZIhLSLOSBmRmygPsGwkVVt0fZa0qrtMz+m6tJTAHfZQ8FnmB4MG4LWy7/w==}
     engines: {node: '>=8'}
@@ -7261,6 +7273,13 @@ packages:
   /process/0.11.10:
     resolution: {integrity: sha512-cdGef/drWFoydD1JsMzuFf8100nZl+GT+yacc2bEced5f9Rjk4z+WtFUTBu9PhOi9j/jfmBPu0mMEY4wIdAF8A==}
     engines: {node: '>= 0.6.0'}
+
+  /prom-client/14.1.0:
+    resolution: {integrity: sha512-iFWCchQmi4170omLpFXbzz62SQTmPhtBL35v0qGEVRHKcqIeiexaoYeP0vfZTujxEq3tA87iqOdRbC9svS1B9A==}
+    engines: {node: '>=10'}
+    dependencies:
+      tdigest: 0.1.2
+    dev: false
 
   /promise-inflight/1.0.1:
     resolution: {integrity: sha512-6zWPyEOFaQBJYcGMHBKTKJ3u6TBsnMFOIZSa6ce1e/ZrrsOlnHRHbabMjLiBYKp+n44X9eUI6VUPaukCXHuG4g==}
@@ -7712,6 +7731,10 @@ packages:
     resolution: {integrity: sha512-E5LDX7Wrp85Kil5bhZv46j8jOeboKq5JMmYM3gVGdGH8xFpPWXUMsNrlODCrkoxMEeNi/XZIwuRvY4XNwYMJpw==}
     dev: false
 
+  /shallow-equal/1.2.1:
+    resolution: {integrity: sha512-S4vJDjHHMBaiZuT9NPb616CSmLf618jawtv3sufLl6ivK8WocjAo58cXwbRV1cgqxH0Qbv+iUt6m05eqEa2IRA==}
+    dev: true
+
   /shebang-command/2.0.0:
     resolution: {integrity: sha512-kHxr2zZpYtdmrN1qDjrrX/Z1rR1kG8Dx+gkpK1G4eXmvXswmcE1hTWBWYUzlraYw1/yZp6YuDY77YtvbN0dmDA==}
     engines: {node: '>=8'}
@@ -8043,6 +8066,12 @@ packages:
       minizlib: 2.1.2
       mkdirp: 1.0.4
       yallist: 4.0.0
+    dev: false
+
+  /tdigest/0.1.2:
+    resolution: {integrity: sha512-+G0LLgjjo9BZX2MfdvPfH+MKLCrxlXSYec5DaPYP1fe6Iyhf0/fSmJ0bFiZ1F8BT6cGXl2LpltQptzjXKWEkKA==}
+    dependencies:
+      bintrees: 1.0.2
     dev: false
 
   /teeny-request/7.2.0:

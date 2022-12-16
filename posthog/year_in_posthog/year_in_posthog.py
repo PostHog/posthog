@@ -87,11 +87,19 @@ def sort_list_based_on_preference(badges: List[str]) -> str:
 @cache_control(public=True, max_age=300)  # cache for 5 minutes
 def render_2022(request, user_uuid: str) -> HttpResponse:
     data = None
+
     try:
         data = calculate_year_in_posthog_2022(user_uuid)
 
         badge = sort_list_based_on_preference(data["badges"] or ["astronaut"])
+    except Exception as e:
+        # because Harry is trying to hack my URLs
+        logger.error("year_in_posthog_2022_error_loading_data", exc_info=True, exc=e, data=data or "no data")
+        capture_exception(e)
+        badge = "astronaut"
+        data = data or {"stats": {}}
 
+    try:
         stats = stats_for_badge(data, badge)
 
         context = {

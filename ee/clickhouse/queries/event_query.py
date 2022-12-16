@@ -5,6 +5,7 @@ from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -14,12 +15,13 @@ from posthog.queries.event_query.event_query import EventQuery
 
 
 class EnterpriseEventQuery(EventQuery):
-
     _column_optimizer: EnterpriseColumnOptimizer
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter],
+        filter: Union[
+            Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
+        ],
         team: Team,
         round_interval=False,
         should_join_distinct_ids=False,
@@ -49,6 +51,8 @@ class EnterpriseEventQuery(EventQuery):
         self._column_optimizer = EnterpriseColumnOptimizer(self._filter, self._team_id)
 
     def _get_groups_query(self) -> Tuple[str, Dict]:
+        if isinstance(self._filter, PropertiesTimelineFilter):
+            raise Exception("Properties Timeline never needs groups query")
         return GroupsJoinQuery(
             self._filter, self._team_id, self._column_optimizer, using_person_on_events=self._using_person_on_events
         ).get_join_query()
