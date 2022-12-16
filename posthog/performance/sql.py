@@ -4,6 +4,10 @@ from posthog.clickhouse.kafka_engine import STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
+PERFORMANCE_EVENT_TABLE = (
+    lambda: "sharded_performance_events" if settings.CLICKHOUSE_REPLICATION else "performance_events"
+)
+
 KAFKA_COLUMNS_WITH_NULLABLE_DATETIME = """
 , _timestamp Nullable(DateTime)
 , _offset UInt64
@@ -116,7 +120,7 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
 """
 ).format(
     columns=PERFORMANCE_EVENT_COLUMNS,
-    table_name="sharded_performance_events",
+    table_name=PERFORMANCE_EVENT_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
@@ -150,6 +154,7 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     return ", ".join([cl for cl in column_names if cl])
 
 
+# Distributed engine tables are only created if CLICKHOUSE_REPLICATED
 DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="performance_events",
@@ -175,7 +180,7 @@ AS SELECT
 FROM {database}.kafka_performance_events
 """.format(
     columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
-    target_table="writeable_performance_events",
+    target_table="writeable_performance_events" if settings.CLICKHOUSE_REPLICATION else PERFORMANCE_EVENT_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
     extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_NULLABLE_DATETIME),
