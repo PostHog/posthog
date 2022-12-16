@@ -419,7 +419,7 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.filter(deleted=False)
+            queryset = queryset.filter(deleted=False).prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)
@@ -473,7 +473,10 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                 queryset = queryset.filter(filters__insight=request.GET[INSIGHT])
             elif key == "search":
                 queryset = queryset.filter(
-                    Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
+                    Q(name__icontains=request.GET["search"])
+                    | Q(derived_name__icontains=request.GET["search"])
+                    | Q(tagged_items__tag__name__icontains=request.GET["search"])
+                    | Q(description__icontains=request.GET["search"])
                 )
             elif key == "dashboards":
                 dashboards_filter = request.GET["dashboards"]

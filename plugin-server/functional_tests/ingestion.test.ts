@@ -6,7 +6,8 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
 import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
-import { capture, createOrganization, createTeam, fetchEvents, fetchPersons } from './api'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -301,4 +302,31 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
     const events = await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
     expect(events.length).toBe(1)
     expect(events[0].team_id).toBe(teamId)
+})
+
+test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+    // NOTE: it may be another event other than the one we emit here that causes
+    // the gauge to increase, but pushing this event through should at least
+    // ensure that the gauge is updated.
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+
+    const metricBefore = await getMetric({
+        name: 'latest_processed_timestamp_ms',
+        type: 'GAUGE',
+        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+    })
+
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), 'custom event', {})
+
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+        expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
+        expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
+    })
 })

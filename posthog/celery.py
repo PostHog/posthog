@@ -329,15 +329,28 @@ def ingestion_lag():
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
-    for event, metric in HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.items():
-        try:
-            query = """
-                SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
-                FROM events WHERE team_id IN %(team_ids)s AND _timestamp > yesterday() AND event = %(event)s;"""
-            lag = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})[0][0]
+    query = """
+    SELECT event, date_diff('second', max(timestamp), now())
+    FROM events
+    WHERE team_id IN %(team_ids)s
+        AND event IN %(events)s
+        AND timestamp > yesterday() AND timestamp < now() + toIntervalMinute(3)
+    GROUP BY event
+    """
+
+    try:
+        results = sync_execute(
+            query,
+            {
+                "team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS,
+                "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
+            },
+        )
+        for event, lag in results:
+            metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
             statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
-        except:
-            pass
+    except:
+        pass
 
 
 @app.task(ignore_result=True)

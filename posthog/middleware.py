@@ -16,6 +16,18 @@ from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team
 
 from .auth import PersonalAPIKeyAuthentication
 
+ALWAYS_ALLOWED_ENDPOINTS = [
+    "decide",
+    "engage",
+    "track",
+    "capture",
+    "batch",
+    "e",
+    "s",
+    "static",
+    "_health",
+]
+
 
 class AllowIPMiddleware:
     trusted_proxies: List[str] = []
@@ -54,7 +66,7 @@ class AllowIPMiddleware:
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
-        if request.path.split("/")[1] in ["decide", "engage", "track", "capture", "batch", "e", "static", "_health"]:
+        if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return response
         ip = self.extract_client_ip(request)
         if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
