@@ -3,6 +3,7 @@ import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import type { dashboardsLogicType } from './dashboardsLogicType'
 import { userLogic } from 'scenes/userLogic'
+import { router } from 'kea-router'
 
 export enum DashboardsTab {
     All = 'all',
@@ -29,6 +30,18 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
             },
         ],
     },
+    actionToUrl: ({ values }) => ({
+        setCurrentTab: () => {
+            const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
+            router.values.searchParams['tab'] !== tab && router.actions.push(router.values.location.pathname, { tab })
+        },
+    }),
+    urlToAction: ({ actions }) => ({
+        '/dashboard': (_, searchParams) => {
+            const tab = searchParams['tab'] || DashboardsTab.All
+            actions.setCurrentTab(tab)
+        },
+    }),
     selectors: {
         dashboards: [
             (selectors) => [
