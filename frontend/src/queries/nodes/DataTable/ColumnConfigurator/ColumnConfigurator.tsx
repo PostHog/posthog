@@ -211,7 +211,8 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                             TaxonomicFilterGroupType.EventProperties,
                                             TaxonomicFilterGroupType.EventFeatureFlags,
                                             TaxonomicFilterGroupType.PersonProperties,
-                                            ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] && isEventsQuery(query)
+                                            ...(featureFlags[FEATURE_FLAGS.HOGQL_EXPRESSIONS] &&
+                                            isEventsQuery(query.source)
                                                 ? [TaxonomicFilterGroupType.HogQLExpression]
                                                 : []),
                                         ]}
