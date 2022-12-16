@@ -9,9 +9,9 @@ import {
     isStickinessQuery,
 } from '~/queries/utils'
 
-const seriesToActionsAndEvents = (
-    series: (EventsNode | ActionsNode)[]
-): { events: ActionFilter[]; actions: ActionFilter[] } => {
+type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
+
+const seriesToActionsAndEvents = (series: (EventsNode | ActionsNode)[]): FilterTypeActionsAndEvents => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
     series.forEach((node, index) => {
@@ -34,6 +34,28 @@ const seriesToActionsAndEvents = (
         }
     })
     return { actions, events }
+}
+
+export const actionsAndEventsToSeries = ({
+    actions,
+    events,
+}: FilterTypeActionsAndEvents): (EventsNode | ActionsNode)[] => {
+    const series: any = [...(actions || []), ...(events || [])]
+        .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
+        // TODO: handle new_entity type
+        .map((e) =>
+            e.type === 'actions'
+                ? {
+                      kind: NodeKind.ActionsNode,
+                      id: e.id,
+                  }
+                : {
+                      kind: NodeKind.EventsNode,
+                      event: e.name,
+                  }
+        )
+
+    return series
 }
 
 const insightMap: Record<InsightNodeKind, InsightType> = {

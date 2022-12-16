@@ -4,7 +4,7 @@ import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 // import { EditorFilterProps, FilterType, InsightType } from '~/types'
-import { FilterType, InsightType } from '~/types'
+import { InsightType, FilterType } from '~/types'
 // import { alphabet } from 'lib/utils'
 // import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,9 +13,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 // import { Tooltip } from 'lib/components/Tooltip'
 // import { IconCalculate } from 'lib/components/icons'
 // import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { InsightQueryNode } from '~/queries/schema'
+import { InsightQueryNode, TrendsQuery, FunnelsQuery, LifecycleQuery } from '~/queries/schema'
 import { isLifecycleQuery } from '~/queries/utils'
-import { queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
+import { actionsAndEventsToSeries, queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 type TrendsSeriesProps = {
@@ -23,7 +23,7 @@ type TrendsSeriesProps = {
     setQuery: (node: InsightQueryNode) => void
 }
 
-export function TrendsSeries({ query }: TrendsSeriesProps): JSX.Element {
+export function TrendsSeries({ query, setQuery }: TrendsSeriesProps): JSX.Element {
     // const { setFilters } = useActions(trendsLogic(insightProps))
     // const { filters, isFormulaOn } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -39,9 +39,6 @@ export function TrendsSeries({ query }: TrendsSeriesProps): JSX.Element {
     ]
 
     const filters = queryNodeToFilter(query)
-    const setFilters = (...rest: any[]): void => {
-        console.log(rest)
-    }
     return (
         <>
             {isLifecycleQuery(query) && (
@@ -51,8 +48,13 @@ export function TrendsSeries({ query }: TrendsSeriesProps): JSX.Element {
             )}
             <ActionFilter
                 filters={filters}
-                setFilters={(payload: Partial<FilterType>): void => setFilters(payload)}
-                typeKey={`trends_${InsightType.TRENDS}`}
+                setFilters={(payload: Partial<FilterType>): void => {
+                    setQuery({ ...query, series: actionsAndEventsToSeries(payload as any) } as
+                        | TrendsQuery
+                        | FunnelsQuery
+                        | LifecycleQuery)
+                }}
+                typeKey={`trends_${InsightType.TRENDS}_data_exploration`}
                 // buttonCopy={`Add graph ${isFormulaOn ? 'variable' : 'series'}`}
                 buttonCopy="Add graph series"
                 showSeriesIndicator
