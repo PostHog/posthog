@@ -83,7 +83,6 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         bordered={!inModal}
                         fullWidth={inModal}
                         checked={!!currentTeam?.capture_performance_opt_in}
-                        disabled={!currentTeam?.session_recording_opt_in}
                     />
                     <p>
                         This setting controls if performance and network information will be captured alongside
