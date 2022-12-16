@@ -144,6 +144,10 @@ and
 `select where team, session, pageview order by time`
 
 will be fast as the table grows
+
+CH docs say https://clickhouse.com/docs/en/guides/improving-query-performance/sparse-primary-indexes/sparse-primary-indexes-cardinality/
+`We can see that the query execution is significantly more effective and faster on the table where we ordered the key columns by cardinality in ascending order.`
+
 """
 PERFORMANCE_EVENTS_TABLE_SQL = (
     PERFORMANCE_EVENTS_TABLE_BASE_SQL
