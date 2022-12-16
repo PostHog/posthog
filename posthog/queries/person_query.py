@@ -74,7 +74,9 @@ class PersonQuery:
             properties
         ).inner
 
-    def get_query(self, prepend: str = "", paginate: bool = False) -> Tuple[str, Dict]:
+    def get_query(self, prepend: Optional[Union[str, int]] = None, paginate: bool = False) -> Tuple[str, Dict]:
+        prepend = str(prepend) if prepend is not None else ""
+
         fields = "id" + " ".join(
             f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )

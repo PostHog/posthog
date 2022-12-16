@@ -125,7 +125,7 @@ def get_breakdown_prop_values(
         entity_format_params = {"entity_query": entity_filter}
     else:
         entity_params, entity_format_params = get_entity_filtering_params(
-            entity=entity,
+            allowed_entities=[entity],
             team_id=team.pk,
             table_name="e",
             person_id_joined_alias=person_id_joined_alias,
