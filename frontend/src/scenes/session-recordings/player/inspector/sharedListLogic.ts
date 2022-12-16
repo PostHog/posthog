@@ -73,6 +73,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
         setWindowIdFilter: (windowId: WindowOption) => ({ windowId }),
         setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
+        setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
     })),
     reducers(({ values }) => ({
         searchQuery: [
@@ -103,6 +104,12 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 },
 
                 setTab: (_, {}) => [],
+            },
+        ],
+        timestampMode: [
+            'relative' as 'absolute' | 'relative',
+            {
+                setTimestampMode: (_, { mode }) => mode,
             },
         ],
     })),

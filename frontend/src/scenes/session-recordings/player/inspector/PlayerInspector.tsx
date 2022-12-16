@@ -7,7 +7,7 @@ import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
 import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import { EventDetails } from 'scenes/events'
 import React from 'react'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge } from 'lib/components/icons'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { Tooltip } from 'antd'
@@ -154,8 +154,12 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, showOnlyMatching, tab, searchQuery, miniFilters } = useValues(sharedListLogic(logicProps))
-    const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery } = useActions(sharedListLogic(logicProps))
+    const { windowIdFilter, showOnlyMatching, tab, searchQuery, miniFilters, timestampMode } = useValues(
+        sharedListLogic(logicProps)
+    )
+    const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery, setTimestampMode } = useActions(
+        sharedListLogic(logicProps)
+    )
     const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
     const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
     const { consoleListLocalFilters } = useValues(consoleLogsListLogic(logicProps))
@@ -274,18 +278,32 @@ export function PlayerInspectorControls({
                     </div>
                 ) : null}
             </div>
-            {inspectorV2 && miniFilters.length ? (
-                <div className="flex items-center gap-1 flex-wrap px-2 text-xs my-2 font-medium text-primary-alt">
-                    {miniFilters.map((filter) => (
-                        <span
-                            key={filter.key}
-                            className={clsx('cursor-pointer p-1 px-1 rounded', {
-                                'bg-primary-alt-highlight': filter.enabled,
-                            })}
+            {inspectorV2 ? (
+                <div className="flex items-center gap-2 justify-between px-2 my-2">
+                    <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt">
+                        {miniFilters.map((filter) => (
+                            <LemonButton
+                                key={filter.key}
+                                size="small"
+                                noPadding
+                                status="primary-alt"
+                                active={filter.enabled}
+                            >
+                                <span className="p-1 text-xs">{filter.name}</span>
+                            </LemonButton>
+                        ))}
+                    </div>
+
+                    <div className="flex">
+                        <LemonButton
+                            size="small"
+                            noPadding
+                            status="primary-alt"
+                            onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
                         >
-                            {filter.name}
-                        </span>
-                    ))}
+                            <span className="p-1 text-xs">{capitalizeFirstLetter(timestampMode)}</span>
+                        </LemonButton>
+                    </div>
                 </div>
             ) : null}
         </div>

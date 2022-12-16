@@ -32,7 +32,9 @@ function PlayerInspectorListItem({
     logicProps: SessionRecordingPlayerLogicProps
     onLayout: () => void
 }): JSX.Element {
-    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems } = useValues(sharedListLogic(logicProps))
+    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, timestampMode } = useValues(
+        sharedListLogic(logicProps)
+    )
     const { setItemExpanded } = useActions(sharedListLogic(logicProps))
     const showIcon = tab === SessionRecordingPlayerTab.ALL
     const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
@@ -67,8 +69,15 @@ function PlayerInspectorListItem({
                 ) : null}
             </span>
             <span className="shrink-0 text-muted-alt mt-2 text-center text-xs cursor-pointer">
-                {item.timeInRecording < 0 ? 'LOAD' : colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
-                {}
+                {timestampMode === 'absolute' ? (
+                    <>{item.timestamp.format('DD MMM HH:mm:ss')}</>
+                ) : (
+                    <>
+                        {item.timeInRecording < 0
+                            ? 'LOAD'
+                            : colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
+                    </>
+                )}
             </span>
         </div>
     )
