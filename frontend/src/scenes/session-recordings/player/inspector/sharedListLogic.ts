@@ -45,11 +45,103 @@ export type SharedListItemPerformance = SharedListItemBase & {
 
 export type SharedListItem = SharedListItemEvent | SharedListItemConsole | SharedListItemPerformance
 
-export type SharedListFilter = {
+export type SharedListMiniFilter = {
+    tab: SessionRecordingPlayerTab
     key: string
     name: string
-    enabled: boolean
+    // If alone, then enabling it will disable all the others
+    alone?: boolean
+    tooltip?: string
+    enabled?: boolean
 }
+
+const MiniFilters: SharedListMiniFilter[] = [
+    {
+        tab: SessionRecordingPlayerTab.ALL,
+        key: 'all-automatic',
+        name: 'Auto',
+        alone: true,
+    },
+    {
+        tab: SessionRecordingPlayerTab.ALL,
+        key: 'all-errors',
+        name: 'Errors',
+        alone: true,
+    },
+    {
+        tab: SessionRecordingPlayerTab.ALL,
+        key: 'all-verbose',
+        name: 'Verbose',
+        alone: true,
+    },
+    {
+        tab: SessionRecordingPlayerTab.ALL,
+        key: 'all-everything',
+        name: 'Everything',
+        alone: true,
+    },
+    {
+        tab: SessionRecordingPlayerTab.EVENTS,
+        key: 'events-all',
+        name: 'All',
+        alone: true,
+    },
+    {
+        tab: SessionRecordingPlayerTab.EVENTS,
+        key: 'events-posthog',
+        name: 'PostHog',
+    },
+    { tab: SessionRecordingPlayerTab.EVENTS, key: 'events-custom', name: 'Custom' },
+    { tab: SessionRecordingPlayerTab.EVENTS, key: 'events-pageview', name: 'Pageview / Screen' },
+    { tab: SessionRecordingPlayerTab.EVENTS, key: 'events-autocapture', name: 'Autocapture' },
+    {
+        tab: SessionRecordingPlayerTab.CONSOLE,
+        key: 'console-all',
+        name: 'All',
+        alone: true,
+    },
+    {
+        tab: SessionRecordingPlayerTab.CONSOLE,
+        key: 'console-info',
+        name: 'Info',
+    },
+    {
+        tab: SessionRecordingPlayerTab.CONSOLE,
+        key: 'console-log',
+        name: 'Log',
+    },
+    {
+        tab: SessionRecordingPlayerTab.CONSOLE,
+        key: 'console-warn',
+        name: 'Warn',
+    },
+    {
+        tab: SessionRecordingPlayerTab.CONSOLE,
+        key: 'console-error',
+        name: 'Error',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-all',
+        name: 'All',
+        alone: true,
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-xhr',
+        name: 'XHR / Fetch',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-assets',
+        name: 'Assets',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-other',
+        name: 'Other',
+    },
+]
 
 // Settings local to each recording
 export const sharedListLogic = kea<sharedListLogicType>([
@@ -74,6 +166,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
         setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
+        setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
     })),
     reducers(({ values }) => ({
         searchQuery: [
@@ -112,6 +205,51 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 setTimestampMode: (_, { mode }) => mode,
             },
         ],
+
+        selectedMiniFilters: [
+            ['all-automatic', 'console-all', 'events-all', 'performance-all'] as string[],
+            {
+                setMiniFilter: (state, { key, enabled }) => {
+                    const selectedFilter = MiniFilters.find((x) => x.key === key)
+
+                    if (!selectedFilter) {
+                        return state
+                    }
+                    const filtersInTab = MiniFilters.filter((x) => x.tab === selectedFilter.tab)
+
+                    const newFilters = state.filter((existingSelected) => {
+                        const filterInTab = filtersInTab.find((x) => x.key === existingSelected)
+                        if (!filterInTab) {
+                            return true
+                        }
+
+                        if (enabled) {
+                            if (selectedFilter.alone) {
+                                return false
+                            } else {
+                                return filterInTab.alone ? false : true
+                            }
+                        }
+
+                        if (existingSelected !== key) {
+                            return true
+                        }
+                        return false
+                    })
+
+                    if (enabled) {
+                        newFilters.push(key)
+                    } else {
+                        // Ensure the first one is checked if no others
+                        if (filtersInTab.every((x) => !newFilters.includes(x.key))) {
+                            newFilters.push(filtersInTab[0].key)
+                        }
+                    }
+
+                    return newFilters
+                },
+            },
+        ],
     })),
     listeners(() => ({
         setTab: ({ tab }) => {
@@ -125,123 +263,24 @@ export const sharedListLogic = kea<sharedListLogicType>([
         },
     })),
 
-    selectors(({ values }) => ({
+    selectors(({}) => ({
         miniFilters: [
-            (s) => [s.tab],
-            (tab): SharedListFilter[] => {
-                let filters: SharedListFilter[] = []
+            (s) => [s.tab, s.selectedMiniFilters],
+            (tab, selectedMiniFilters): SharedListMiniFilter[] => {
+                return MiniFilters.filter((filter) => filter.tab === tab).map((x) => ({
+                    ...x,
+                    enabled: selectedMiniFilters.includes(x.key),
+                }))
+            },
+        ],
 
-                if (tab === SessionRecordingPlayerTab.ALL) {
-                    filters = filters.concat([
-                        {
-                            key: 'all-automatic',
-                            name: 'Auto',
-                            enabled: true,
-                        },
-                        {
-                            key: 'all-errors',
-                            name: 'Errors',
-                            enabled: false,
-                        },
-                        {
-                            key: 'all-verbose',
-                            name: 'Verbose',
-                            enabled: false,
-                        },
-                        {
-                            key: 'all-everything',
-                            name: 'Everything',
-                            enabled: false,
-                        },
-                    ])
-                }
-
-                if (tab === SessionRecordingPlayerTab.EVENTS) {
-                    filters = filters.concat([
-                        {
-                            key: 'events-all',
-                            name: 'All',
-                            enabled: true,
-                        },
-                        {
-                            key: 'events-posthog',
-                            name: 'PostHog',
-                            enabled: false,
-                        },
-                        {
-                            key: 'events-custom',
-                            name: 'Custom',
-                            enabled: false,
-                        },
-                        {
-                            key: 'events-actions',
-                            name: 'Pageview / Screen',
-                            enabled: false,
-                        },
-                        {
-                            key: 'events-autocapture',
-                            name: 'Autocapture',
-                            enabled: false,
-                        },
-                    ])
-                }
-
-                if (tab === SessionRecordingPlayerTab.CONSOLE) {
-                    filters = filters.concat([
-                        {
-                            key: 'console-all',
-                            name: 'All',
-                            enabled: true,
-                        },
-                        {
-                            key: 'console-info',
-                            name: 'Info',
-                            enabled: false,
-                        },
-                        {
-                            key: 'console-log',
-                            name: 'Log',
-                            enabled: false,
-                        },
-                        {
-                            key: 'console-warn',
-                            name: 'Warn',
-                            enabled: false,
-                        },
-                        {
-                            key: 'console-error',
-                            name: 'Error',
-                            enabled: false,
-                        },
-                    ])
-                }
-
-                if (tab === SessionRecordingPlayerTab.PERFORMANCE) {
-                    filters = filters.concat([
-                        {
-                            key: 'performance-all',
-                            name: 'All',
-                            enabled: true,
-                        },
-                        {
-                            key: 'performance-xhr',
-                            name: 'XHR / Fetch',
-                            enabled: false,
-                        },
-                        {
-                            key: 'performance-assets',
-                            name: 'Assets',
-                            enabled: false,
-                        },
-                        {
-                            key: 'performance-other',
-                            name: 'Other',
-                            enabled: false,
-                        },
-                    ])
-                }
-
-                return filters
+        miniFiltersByKey: [
+            (s) => [s.miniFilters],
+            (miniFilters): { [key: string]: SharedListMiniFilter } => {
+                return miniFilters.reduce((acc, filter) => {
+                    acc[filter.key] = filter
+                    return acc
+                }, {})
             },
         ],
 
@@ -257,8 +296,24 @@ export const sharedListLogic = kea<sharedListLogicType>([
         ],
 
         allItems: [
-            (s) => [s.tab, s.recordingTimeInfo, s.peformanceEvents, s.consoleLogs, s.sessionEventsData, s.featureFlags],
-            (tab, recordingTimeInfo, peformanceEvents, consoleLogs, eventsData, featureFlags): SharedListItem[] => {
+            (s) => [
+                s.tab,
+                s.recordingTimeInfo,
+                s.peformanceEvents,
+                s.consoleLogs,
+                s.sessionEventsData,
+                s.featureFlags,
+                s.miniFiltersByKey,
+            ],
+            (
+                tab,
+                recordingTimeInfo,
+                peformanceEvents,
+                consoleLogs,
+                eventsData,
+                featureFlags,
+                miniFiltersByKey
+            ): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
                 const allView = tab === SessionRecordingPlayerTab.ALL
@@ -302,6 +357,31 @@ export const sharedListLogic = kea<sharedListLogicType>([
 
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.EVENTS) {
                     for (const event of eventsData?.events || []) {
+                        let include = false
+
+                        if (miniFiltersByKey['events-all']?.enabled) {
+                            include = true
+                        }
+                        if (miniFiltersByKey['events-posthog']?.enabled && event.event.startsWith('$')) {
+                            include = true
+                        }
+                        if (miniFiltersByKey['events-custom']?.enabled && !event.event.startsWith('$')) {
+                            include = true
+                        }
+                        if (
+                            miniFiltersByKey['events-pageview']?.enabled &&
+                            ['$pageview', 'screen'].includes(event.event)
+                        ) {
+                            include = true
+                        }
+                        if (miniFiltersByKey['events-autocapture']?.enabled && event.event === '$autocapture') {
+                            include = true
+                        }
+
+                        if (!include) {
+                            continue
+                        }
+
                         const timestamp = dayjs(event.timestamp)
                         const search = `${
                             getKeyMapping(event.event, 'event')?.label ?? event.event ?? ''

@@ -7,8 +7,8 @@ import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
 import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import { EventDetails } from 'scenes/events'
 import React, { useMemo } from 'react'
-import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
-import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge } from 'lib/components/icons'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge, IconSchedule } from 'lib/components/icons'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { Tooltip } from 'antd'
 import { IconWindow } from '../icons'
@@ -16,7 +16,6 @@ import { consoleLogsListLogic } from './consoleLogsListLogic'
 import { eventsListLogic } from './eventsListLogic'
 import { playerMetaLogic } from '../playerMetaLogic'
 import { PlayerInspectorList } from './v2/PlayerInspectorList'
-import clsx from 'clsx'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -157,9 +156,8 @@ export function PlayerInspectorControls({
     const { windowIdFilter, showOnlyMatching, tab, searchQuery, miniFilters, timestampMode } = useValues(
         sharedListLogic(logicProps)
     )
-    const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery, setTimestampMode } = useActions(
-        sharedListLogic(logicProps)
-    )
+    const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery, setTimestampMode, setMiniFilter } =
+        useActions(sharedListLogic(logicProps))
     const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
     const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
     const { consoleListLocalFilters } = useValues(consoleLogsListLogic(logicProps))
@@ -292,6 +290,10 @@ export function PlayerInspectorControls({
                                 noPadding
                                 status="primary-alt"
                                 active={filter.enabled}
+                                onClick={() => {
+                                    // "alone" should always be a select-to-true action
+                                    setMiniFilter(filter.key, filter.alone || !filter.enabled)
+                                }}
                             >
                                 <span className="p-1 text-xs">{filter.name}</span>
                             </LemonButton>
@@ -305,7 +307,8 @@ export function PlayerInspectorControls({
                             status="primary-alt"
                             onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
                         >
-                            <span className="p-1 text-xs">{capitalizeFirstLetter(timestampMode)}</span>
+                            <span className="p-1 text-xs">{capitalizeFirstLetter(timestampMode)}</span>{' '}
+                            <IconSchedule className="text-lg" />
                         </LemonButton>
                     </div>
                 </div>

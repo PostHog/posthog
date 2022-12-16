@@ -53,10 +53,11 @@ export function ItemPerformanceEvent({
         <div className={clsx('rounded bg-light border', expanded && 'border-primary')}>
             <div className="relative cursor-pointer" onClick={() => setExpanded(!expanded)}>
                 <div
-                    className="absolute bottom-0 bg-primary"
+                    className="absolute bg-primary rounded-sm opacity-75"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        height: 2,
+                        height: 4,
+                        bottom: 2,
                         left: `${(startTime / contextLengthMs) * 100}%`,
                         width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
                     }}
