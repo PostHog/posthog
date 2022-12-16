@@ -999,6 +999,7 @@ export interface DashboardTile extends Tileable, Cacheable {
     id: number
     insight?: InsightModel
     text?: TextModel
+    recording_playlist?: SessionRecordingPlaylistType
     deleted?: boolean
     is_cached?: boolean
 }

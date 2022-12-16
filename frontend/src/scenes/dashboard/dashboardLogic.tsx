@@ -633,7 +633,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                           color: tile.color,
                                       }
                                   }
-                                  throw new Error('Unknown tile type')
+                                  if (!!tile.recording_playlist) {
+                                      console.log('there is no support for exporting and importing playlist tiles')
+                                      return
+                                  }
+                                  throw new Error('Unknown tile type: ' + JSON.stringify(tile))
                               }),
                           },
                           undefined,

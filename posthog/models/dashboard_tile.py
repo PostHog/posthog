@@ -29,6 +29,7 @@ class DashboardTile(models.Model):
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
     text = models.ForeignKey("posthog.Text", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
+    recording_playlist = models.ForeignKey("posthog.SessionRecordingPlaylist", on_delete=models.CASCADE, null=True)
 
     # Tile layout and style
     layouts: models.JSONField = models.JSONField(default=dict)
@@ -53,7 +54,15 @@ class DashboardTile(models.Model):
             UniqueConstraint(
                 fields=["dashboard", "text"], name=f"unique_dashboard_text", condition=Q(("text__isnull", False))
             ),
-            models.CheckConstraint(check=build_check(("insight", "text")), name="dash_tile_exactly_one_related_object"),
+            UniqueConstraint(
+                fields=["dashboard", "recording_playlist"],
+                name=f"unique_dashboard_playlist",
+                condition=Q(("recording_playlist__isnull", False)),
+            ),
+            models.CheckConstraint(
+                check=build_check(("insight", "text", "recording_playlist")),
+                name="dash_tile_exactly_one_related_object",
+            ),
         ]
 
     @property

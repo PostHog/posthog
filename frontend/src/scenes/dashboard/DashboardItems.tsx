@@ -13,6 +13,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
+import { RecordingPlaylistCard } from 'lib/components/Cards/RecordingPlaylist/RecordingPlaylistCard'
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -99,7 +100,8 @@ export function DashboardItems(): JSX.Element {
                 draggableCancel=".anticon,.ant-dropdown,table,.ant-popover-content,button,.Popup"
             >
                 {tiles?.map((tile: DashboardTile) => {
-                    const { insight, text } = tile
+                    console.log(tile)
+                    const { insight, text, recording_playlist } = tile
                     if (!!insight) {
                         return (
                             <InsightCard
@@ -173,6 +175,26 @@ export function DashboardItems(): JSX.Element {
                                         </LemonButton>
                                     ) : null
                                 }
+                            />
+                        )
+                    }
+                    if (!!recording_playlist) {
+                        console.log('rendering playlist tile')
+                        return (
+                            <RecordingPlaylistCard
+                                dashboardId={dashboard?.id}
+                                playlistTile={tile}
+                                key={tile.id}
+                                showResizeHandles={dashboardMode === DashboardMode.Edit}
+                                canResizeWidth={canResizeWidth}
+                                removeFromDashboard={() => removeTile(tile)}
+                                duplicate={() => duplicateTile(tile)}
+                                moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
+                                    if (!dashboard) {
+                                        throw new Error('must be on a dashboard to move a recording playlist tile')
+                                    }
+                                    moveToDashboard(tile, dashboard.id, id, name)
+                                }}
                             />
                         )
                     }

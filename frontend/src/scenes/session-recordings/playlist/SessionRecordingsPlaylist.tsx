@@ -20,6 +20,7 @@ import { SessionRecordingsList } from './SessionRecordingsList'
 import { StickyView } from 'lib/components/StickyView/StickyView'
 import { createPlaylist } from './playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import clsx from 'clsx'
 
 const MARGIN_TOP = 16
 
@@ -29,6 +30,7 @@ export type SessionRecordingsPlaylistProps = {
     filters?: RecordingFilters
     updateSearchParams?: boolean
     onFiltersChange?: (filters: RecordingFilters) => void
+    showPlayer?: boolean
 }
 
 export function SessionRecordingsPlaylist({
@@ -37,6 +39,7 @@ export function SessionRecordingsPlaylist({
     filters: defaultFilters,
     updateSearchParams,
     onFiltersChange,
+    showPlayer = true,
 }: SessionRecordingsPlaylistProps): JSX.Element {
     const logicProps = {
         playlistShortId,
@@ -187,7 +190,7 @@ export function SessionRecordingsPlaylist({
                 </div>
             </div>
             <div ref={playlistRef} className="SessionRecordingsPlaylist" data-attr="session-recordings-playlist">
-                <div className="SessionRecordingsPlaylist__left-column space-y-4">
+                <div className={clsx(showPlayer && 'SessionRecordingsPlaylist__left-column', 'space-y-4')}>
                     <StickyView top="3.5rem" marginTop={MARGIN_TOP}>
                         <div className="SessionRecordingsPlaylist__lists">
                             {showFilters ? (
@@ -244,27 +247,31 @@ export function SessionRecordingsPlaylist({
                         </div>
                     </StickyView>
                 </div>
-                <div className="SessionRecordingsPlaylist__right-column">
-                    {activeSessionRecording?.id ? (
-                        <SessionRecordingPlayer
-                            playerKey="playlist"
-                            playlistShortId={playlistShortId}
-                            sessionRecordingId={activeSessionRecording?.id}
-                            matching={activeSessionRecording?.matching_events}
-                            recordingStartTime={activeSessionRecording ? activeSessionRecording.start_time : undefined}
-                            nextSessionRecording={nextSessionRecording}
-                        />
-                    ) : (
-                        <div className="mt-20">
-                            <EmptyMessage
-                                title="No recording selected"
-                                description="Please select a recording from the list on the left"
-                                buttonText="Learn more about recordings"
-                                buttonTo="https://posthog.com/docs/user-guides/recordings"
+                {showPlayer && (
+                    <div className="SessionRecordingsPlaylist__right-column">
+                        {activeSessionRecording?.id ? (
+                            <SessionRecordingPlayer
+                                playerKey="playlist"
+                                playlistShortId={playlistShortId}
+                                sessionRecordingId={activeSessionRecording?.id}
+                                matching={activeSessionRecording?.matching_events}
+                                recordingStartTime={
+                                    activeSessionRecording ? activeSessionRecording.start_time : undefined
+                                }
+                                nextSessionRecording={nextSessionRecording}
                             />
-                        </div>
-                    )}
-                </div>
+                        ) : (
+                            <div className="mt-20">
+                                <EmptyMessage
+                                    title="No recording selected"
+                                    description="Please select a recording from the list on the left"
+                                    buttonText="Learn more about recordings"
+                                    buttonTo="https://posthog.com/docs/user-guides/recordings"
+                                />
+                            </div>
+                        )}
+                    </div>
+                )}
             </div>
         </>
     )
