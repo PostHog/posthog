@@ -25,7 +25,9 @@ shard by session id so that when querying for all in session or pageview all dat
 SELECT * FROM performance_events
 WHERE team_id = 1
 AND session_id = 'my-session-uuid'
-ORDER BY start_time
+AND timestamp >= {before-the-session}
+AND timestamp < now()
+ORDER BY timestamp
 
 ## get all performance events for a given team's pageview
 
@@ -35,7 +37,9 @@ SELECT * FROM performance_events
 WHERE team_id = 1
 AND session_id = 'my-session-uuid'
 AND pageview_id = 'my-page-view-uuid' -- sent by SDK
-ORDER BY start_time
+AND timestamp >= {before-the-session}
+AND timestamp < now()
+ORDER BY timestamp
 
 ## all other queries are expected to be based on aggregating materialized views built from this fact table
 """
@@ -94,65 +98,20 @@ unload_event_start Float64,
 
 PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTree("performance_events", replication_scheme=ReplicationScheme.SHARDED)
 
-PERFORMANCE_EVENTS_TABLE_BASE_SQL = """
+PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
+    lambda: """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
 (
     {columns}
     {extra_fields}
 ) ENGINE = {engine}
 """
+)
 
-"""
-I think this says store the data on disk grouped by team_id,
-within that group it by session id,
-within that group it by pageview id,
-
-thus in order to query it we are supporting
-
-`where team_id=X`
-
-OR
-
-`where team_id=X and session_id=Y`
-
-OR
-
-`where team_id=X and session_id=Y and pageview_id=Z`
-
-
-timeorigin is a browser context time that other times are relative to
-so we partition by time origin
-
-However, when we order we want to see events
-within a session or within a pageview in order by wall clock time
-
-That is the time origin plus the start time of the performance event
-
-It should
-
-so we want data on disk to be something like
-
-TEAM     11111111 | 22222222 | 33333333 | 44444444
-SESSION  aaaaabbb | cccddeee | fggghhhh | iijjjkkk
-PAGEVIEW 11122334 | 55566778 | 9000AAAA | BBCCCDDD
-TIME     01201010 | 01201010 | 00120123 | 01012012
-
-I believe this means that:
-
-`select where team, session order  by time`
-and
-`select where team, session, pageview order by time`
-
-will be fast as the table grows
-
-CH docs say https://clickhouse.com/docs/en/guides/improving-query-performance/sparse-primary-indexes/sparse-primary-indexes-cardinality/
-`We can see that the query execution is significantly more effective and faster on the table where we ordered the key columns by cardinality in ascending order.`
-
-"""
-PERFORMANCE_EVENTS_TABLE_SQL = (
-    PERFORMANCE_EVENTS_TABLE_BASE_SQL
-    + """PARTITION BY toYYYYMM(time_origin)
-ORDER BY (team_id, session_id, pageview_id, start_time)
+PERFORMANCE_EVENTS_TABLE_SQL = lambda: (
+    PERFORMANCE_EVENTS_TABLE_BASE_SQL()
+    + """PARTITION BY toYYYYMM(timestamp)
+ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
 {storage_policy}
 """
 ).format(
@@ -164,7 +123,8 @@ ORDER BY (team_id, session_id, pageview_id, start_time)
     storage_policy=STORAGE_POLICY(),
 )
 
-KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
+
+KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="kafka_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
@@ -190,7 +150,7 @@ def _column_names_from_column_definitions(column_definitions: str) -> str:
     return ", ".join([cl for cl in column_names if cl])
 
 
-DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
+DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
@@ -198,7 +158,7 @@ DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.for
     extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
 )
 
-WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format(
+WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
     columns=PERFORMANCE_EVENT_COLUMNS,
     table_name="writeable_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
@@ -206,7 +166,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = PERFORMANCE_EVENTS_TABLE_BASE_SQL.format
     extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
 )
 
-PERFORMANCE_EVENTS_TABLE_MV_SQL = """
+PERFORMANCE_EVENTS_TABLE_MV_SQL = lambda: """
 CREATE MATERIALIZED VIEW performance_events_mv ON CLUSTER '{cluster}'
 TO {database}.{target_table}
 AS SELECT
