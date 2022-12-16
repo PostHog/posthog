@@ -158,7 +158,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             {isElement && definition?.name && (
                 <DefinitionPopup.Description description={keyMapping.element[definition.name].description} />
             )}
-            <DefinitionPopup.Example value={group?.getValue(definition)?.toString()} />
+            <DefinitionPopup.Example value={group?.getValue?.(definition)?.toString()} />
             {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (
                 <ObjectTags
                     className="definition-popup-tags"

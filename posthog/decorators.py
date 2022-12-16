@@ -8,6 +8,7 @@ from rest_framework.request import Request
 from rest_framework.viewsets import GenericViewSet
 from statshog.defaults.django import statsd
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import User
 from posthog.models.filters.utils import get_filter
 from posthog.utils import should_refresh
@@ -41,6 +42,8 @@ def cached_function(f: Callable[[U, Request], T]) -> Callable[[U, Request], T]:
 
         filter = get_filter(request=request, team=team)
         cache_key = generate_cache_key(f"{filter.toJSON()}_{team.pk}")
+
+        tag_queries(cache_key=cache_key)
 
         # return cached result when possible
         if not should_refresh(request):
