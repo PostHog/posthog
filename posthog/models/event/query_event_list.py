@@ -1,5 +1,5 @@
 import json
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.parser import isoparse
@@ -195,19 +195,6 @@ def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     new_result.pop("person_id")
     new_result.pop("person_created_at")
     new_result.pop("person_properties")
-    for i in range(5):
-        if (
-            isinstance(new_result[f"group{i}_created_at"], datetime)
-            and new_result[f"group{i}_created_at"].timestamp() != 0
-        ):
-            new_result[f"group{i}"] = {
-                "created_at": new_result[f"group{i}_created_at"],
-                "properties": json.loads(new_result[f"group{i}_properties"])
-                if new_result[f"group{i}_properties"]
-                else {},
-            }
-        new_result.pop(f"group{i}_properties")
-        new_result.pop(f"group{i}_created_at")
     if new_result["elements_chain"]:
         new_result["elements"] = ElementSerializer(chain_to_elements(new_result["elements_chain"]), many=True).data
     return new_result

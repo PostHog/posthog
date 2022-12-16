@@ -138,7 +138,7 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
     def test_hogql_special_root_properties(self):
         self.assertEqual(
             translate_hql("*"),
-            "tuple(uuid,event,properties,timestamp,team_id,distinct_id,elements_chain,created_at,person_id,person_created_at,person_properties,group0_properties,group1_properties,group2_properties,group3_properties,group4_properties,group0_created_at,group1_created_at,group2_created_at,group3_created_at,group4_created_at)",
+            "tuple(uuid,event,properties,timestamp,team_id,distinct_id,elements_chain,created_at,person_id,person_created_at,person_properties)",
         )
         self.assertEqual(
             translate_hql("person"),

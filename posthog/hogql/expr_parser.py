@@ -114,16 +114,6 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
     "person_id",
     "person_created_at",
     "person_properties",
-    "group0_properties",
-    "group1_properties",
-    "group2_properties",
-    "group3_properties",
-    "group4_properties",
-    "group0_created_at",
-    "group1_created_at",
-    "group2_created_at",
-    "group3_created_at",
-    "group4_created_at",
 ]
 
 
@@ -253,7 +243,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                     if not isinstance(const.value, str):
                         raise ValueError(f"Only string property access is currently supported, found '{const.value}'")
                     attribute_chain.insert(0, const.value)
-                    node = const
+                    node = node.value
                 else:
                     raise ValueError(f"Unsupported Subscript slice type: {type(node.slice).__name__}")
             elif isinstance(node, ast.Name):  # type: ignore
