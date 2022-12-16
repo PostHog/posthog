@@ -61,6 +61,16 @@ export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
 }
 
+interface SecondaryMetricResult {
+    insightType: InsightType
+    result: number
+}
+
+export interface TabularSecondaryMetricResults {
+    variant: string
+    results?: SecondaryMetricResult[]
+}
+
 export const experimentLogic = kea<experimentLogicType>([
     props({} as ExperimentLogicProps),
     key((props) => props.experimentId || 'new'),
@@ -572,13 +582,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
             },
         ],
-        parsedSecondaryMetrics: [
-            (s) => [s.experiment, s.experiment],
-            (newexperiment: Partial<Experiment>, experiment: Experiment): SecondaryExperimentMetric[] => {
-                const secondaryMetrics = newexperiment?.secondary_metrics || experiment?.secondary_metrics || []
-                return secondaryMetrics
-            },
-        ],
         minimumDetectableChange: [
             (s) => [s.experiment],
             (newexperiment): number => {
@@ -789,6 +792,28 @@ export const experimentLogic = kea<experimentLogicType>([
                     return sortedResults
                 }
                 return []
+            },
+        ],
+        tabularSecondaryMetricResults: [
+            (s) => [s.experiment, s.secondaryMetricResults],
+            (experiment, secondaryMetricResults): TabularSecondaryMetricResults[] => {
+                const variantsWithResults: TabularSecondaryMetricResults[] = []
+                experiment?.parameters?.feature_flag_variants?.forEach((variant) => {
+                    const metricResults: SecondaryMetricResult[] = []
+                    experiment?.secondary_metrics?.forEach((metric, idx) => {
+                        metricResults.push({
+                            insightType: metric.filters.insight || InsightType.TRENDS,
+                            result: secondaryMetricResults?.[idx]?.[variant.key],
+                        })
+                    })
+
+                    variantsWithResults.push({
+                        variant: variant.key,
+                        results: metricResults,
+                    })
+                })
+
+                return variantsWithResults
             },
         ],
     }),
