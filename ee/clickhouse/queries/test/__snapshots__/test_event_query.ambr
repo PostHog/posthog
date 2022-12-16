@@ -33,7 +33,7 @@
 # name: TestEventQuery.test_account_filters.2
   '
   
-  SELECT count(1)
+  SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
