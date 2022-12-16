@@ -116,13 +116,13 @@ specifiers:
   jest: ^29.3.1
   jest-canvas-mock: ^2.4.0
   jest-environment-jsdom: ^29.3.1
-  kea: ^3.1.0
+  kea: ^3.1.2
   kea-forms: ^3.0.3
   kea-loaders: ^3.0.0
   kea-localstorage: ^3.1.0
   kea-router: ^3.1.3
   kea-subscriptions: ^3.0.0
-  kea-test-utils: ^0.2.2
+  kea-test-utils: ^0.2.4
   kea-typegen: ^3.1.4
   kea-waitfor: ^0.2.1
   kea-window-values: ^3.0.0
@@ -227,15 +227,15 @@ dependencies:
   fs-extra: 10.1.0
   fuse.js: 6.6.2
   husky: 7.0.4
-  kea: 3.1.0_react@16.14.0
-  kea-forms: 3.0.3_kea@3.1.0
-  kea-loaders: 3.0.0_kea@3.1.0
-  kea-localstorage: 3.1.0_kea@3.1.0
-  kea-router: 3.1.3_kea@3.1.0
-  kea-subscriptions: 3.0.0_kea@3.1.0
-  kea-test-utils: 0.2.2_kea@3.1.0
-  kea-waitfor: 0.2.1_kea@3.1.0
-  kea-window-values: 3.0.0_kea@3.1.0
+  kea: 3.1.2_react@16.14.0
+  kea-forms: 3.0.3_kea@3.1.2
+  kea-loaders: 3.0.0_kea@3.1.2
+  kea-localstorage: 3.1.0_kea@3.1.2
+  kea-router: 3.1.3_kea@3.1.2
+  kea-subscriptions: 3.0.0_kea@3.1.2
+  kea-test-utils: 0.2.4_kea@3.1.2
+  kea-waitfor: 0.2.1_kea@3.1.2
+  kea-window-values: 3.0.0_kea@3.1.2
   md5: 2.3.0
   moment: 2.29.4
   monaco-editor: 0.23.0
@@ -11546,54 +11546,54 @@ packages:
     engines: {node: '>=8'}
     dev: true
 
-  /kea-forms/3.0.3_kea@3.1.0:
+  /kea-forms/3.0.3_kea@3.1.2:
     resolution: {integrity: sha512-ApiirM7K103ULa0hNNcJHiJ0ffvuVIn9Nwg4wsEadfyraV9GLrWVbUeZWW0qFI2zTlkizDplM/gc3gGUfQTs9g==}
     peerDependencies:
       kea: '>= 3.0.1'
     dependencies:
-      kea: 3.1.0_react@16.14.0
+      kea: 3.1.2_react@16.14.0
     dev: false
 
-  /kea-loaders/3.0.0_kea@3.1.0:
+  /kea-loaders/3.0.0_kea@3.1.2:
     resolution: {integrity: sha512-YQWXMthnfsxRGSI+pXehgfPWE/hjck9mD2oGlQv86wE6MWo/gGn1lT/gAyF80s9YHOLMOL43Nei5py3K6vwBbg==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
-      kea: 3.1.0_react@16.14.0
+      kea: 3.1.2_react@16.14.0
     dev: false
 
-  /kea-localstorage/3.1.0_kea@3.1.0:
+  /kea-localstorage/3.1.0_kea@3.1.2:
     resolution: {integrity: sha512-OFByJwu88Ro9C9A1bqY5n8v1JYl6ArXX1zC75qpN8HorrReoM9Kf0gZdVspyExsRuX5en9ga64vsk54+jW4Kvw==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
-      kea: 3.1.0_react@16.14.0
+      kea: 3.1.2_react@16.14.0
     dev: false
 
-  /kea-router/3.1.3_kea@3.1.0:
+  /kea-router/3.1.3_kea@3.1.2:
     resolution: {integrity: sha512-+Pk+RZ4PzEXskL3D3903M33Mt94vqJlHb0LCBRn7lFTg0age/53n8CkMvB6QT9SgvtDXqiWgViCWdtaACDQY7A==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
-      kea: 3.1.0_react@16.14.0
+      kea: 3.1.2_react@16.14.0
       url-pattern: 1.0.3
     dev: false
 
-  /kea-subscriptions/3.0.0_kea@3.1.0:
+  /kea-subscriptions/3.0.0_kea@3.1.2:
     resolution: {integrity: sha512-26iEvvAV6+s1YtFajjDndP/ht32Rx2IuElr8O6yUsOuMSPLn55/EpRIMEyeFu0Amim7BOVfn9MoKFsSSlr/Ilw==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
-      kea: 3.1.0_react@16.14.0
+      kea: 3.1.2_react@16.14.0
     dev: false
 
-  /kea-test-utils/0.2.2_kea@3.1.0:
-    resolution: {integrity: sha512-WiTfn2jd9GLeMJvRIKqj7kIDaKlxk2JgzWB+aKMvcQoyNazHvyLGblE9OzZFMMRgRgs3uGs+/NXuwvPt76m6dg==}
+  /kea-test-utils/0.2.4_kea@3.1.2:
+    resolution: {integrity: sha512-iUDQjIX5+D4BjxfGckY9BM7VOwGTKJK71zJ/KPsEmOHZh8KQeJPiamP9UCPSldg3m8Zr6pSH/qPklY6+w9Rcbg==}
     peerDependencies:
-      kea: '>= 2.4.10'
+      kea: '>= 3'
     dependencies:
-      kea: 3.1.0_react@16.14.0
-      kea-waitfor: 0.2.1_kea@3.1.0
+      kea: 3.1.2_react@16.14.0
+      kea-waitfor: 0.2.1_kea@3.1.2
     dev: false
 
   /kea-typegen/3.1.4_typescript@4.8.4:
@@ -11614,24 +11614,24 @@ packages:
       - supports-color
     dev: true
 
-  /kea-waitfor/0.2.1_kea@3.1.0:
+  /kea-waitfor/0.2.1_kea@3.1.2:
     resolution: {integrity: sha512-oXZ42wZl46+KShuPORgAHKFQr1ewrNJ1ZVBUFLDyn4J3XTndQqCvN0GaFrSCIR0qeBzGHtNu/WwPgVGsmDH8DA==}
     peerDependencies:
       kea: '>= 2.2.1'
     dependencies:
-      kea: 3.1.0_react@16.14.0
+      kea: 3.1.2_react@16.14.0
     dev: false
 
-  /kea-window-values/3.0.0_kea@3.1.0:
+  /kea-window-values/3.0.0_kea@3.1.2:
     resolution: {integrity: sha512-sGaUiTgJHS3DY9j3V3G6gXQHYYZioUMWdkfEtV2W4XIPGPobZciZ0tkoPN3ihvcOpbyT8g2FLgvlG0HSscxOWw==}
     peerDependencies:
       kea: '>= 3'
     dependencies:
-      kea: 3.1.0_react@16.14.0
+      kea: 3.1.2_react@16.14.0
     dev: false
 
-  /kea/3.1.0_react@16.14.0:
-    resolution: {integrity: sha512-RPuhKUH9PsIikRlP3ppfcy+xogoVZWv/3v2HPd8nyYlHEbuKntmRJRMIBNTvSk2hlKBIRbpPG/UYW7cRvhEeng==}
+  /kea/3.1.2_react@16.14.0:
+    resolution: {integrity: sha512-O+4pg5DLDq3DU7ka3iVw8FDb70fwxd/G7mHsdxE19LAqyWcbmTyJyroYhJuxsL53PvY5ZVsYb967GqKx/C13CA==}
     peerDependencies:
       react: '>= 16.8'
     dependencies:
