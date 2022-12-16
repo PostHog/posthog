@@ -243,9 +243,14 @@ export const sharedListLogic = kea<sharedListLogicType>([
             (tab, recordingTimeInfo, peformanceEvents, consoleLogs, eventsData): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
+                const allView = tab === SessionRecordingPlayerTab.ALL
+
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE) {
                     for (const event of peformanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
+                        if (allView && event.initiator_type !== 'fetch' && event.entry_type !== 'navigation') {
+                            continue
+                        }
                         items.push({
                             type: SessionRecordingPlayerTab.PERFORMANCE,
                             timestamp,
