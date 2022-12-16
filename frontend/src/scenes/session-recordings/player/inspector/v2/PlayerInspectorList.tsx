@@ -14,6 +14,7 @@ import { ItemPerformanceEvent } from './components/ItemPerformanceEvent'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useDebouncedCallback } from 'use-debounce'
+import { LemonButton } from '@posthog/lemon-ui'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -69,17 +70,26 @@ function PlayerInspectorListItem({
                 ) : null}
             </span>
             {!isExpanded && (
-                <span className="shrink-0 text-muted-alt mt-2 text-center text-xs cursor-pointer">
-                    {timestampMode === 'absolute' ? (
-                        <>{item.timestamp.format('DD MMM HH:mm:ss')}</>
-                    ) : (
-                        <>
-                            {item.timeInRecording < 0
-                                ? 'LOAD'
-                                : colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
-                        </>
-                    )}
-                </span>
+                <LemonButton
+                    size="small"
+                    noPadding
+                    status="primary-alt"
+                    onClick={() => {
+                        // TODO
+                    }}
+                >
+                    <span className="p-1 text-xs">
+                        {timestampMode === 'absolute' ? (
+                            <>{item.timestamp.format('DD MMM HH:mm:ss')}</>
+                        ) : (
+                            <>
+                                {item.timeInRecording < 0
+                                    ? 'LOAD'
+                                    : colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
+                            </>
+                        )}
+                    </span>
+                </LemonButton>
             )}
         </div>
     )
