@@ -98,6 +98,6 @@ GROUP BY person_id, cohort_id, team_id
 """
 
 STALE_COHORTPEOPLE = f"""
-SELECT count(1) FROM cohortpeople
+SELECT count() FROM cohortpeople
 WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND version < %(version)s
 """
