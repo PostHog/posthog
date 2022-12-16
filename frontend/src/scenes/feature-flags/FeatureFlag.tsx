@@ -26,7 +26,7 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { groupsModel } from '~/models/groupsModel'
 import { GroupsIntroductionOption } from 'lib/introductions/GroupsIntroductionOption'
 import { userLogic } from 'scenes/userLogic'
-import { AnyPropertyFilter, AvailableFeature, Resource } from '~/types'
+import { AnyPropertyFilter, AvailableFeature, Resource, TabItem } from '~/types'
 import { Link } from 'lib/components/Link'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Field } from 'lib/forms/Field'
@@ -103,6 +103,72 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
             // TODO: This should be skeleton loaders
             <SpinnerOverlay />
         )
+    }
+
+    const getTabItems = (): TabItem[] => {
+        const items: TabItem[] = [
+            {
+                label: 'Overview',
+                key: 'overview',
+                children: (
+                    <Row>
+                        <Col span={13}>
+                            <FeatureFlagRollout readOnly />
+                            <FeatureFlagReleaseConditions readOnly />
+                            {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
+                                <FeatureFlagAutoRollback readOnly />
+                            )}
+                        </Col>
+                        <Col span={11} className="pl-4">
+                            <RecentFeatureFlagInsights />
+                            <div className="my-4" />
+                            {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] ? (
+                                <FeatureFlagRecordings flagKey={featureFlag.key || 'my-flag'} />
+                            ) : (
+                                <FeatureFlagInstructions featureFlagKey={featureFlag.key || 'my-flag'} />
+                            )}
+                        </Col>
+                    </Row>
+                ),
+            },
+        ]
+        featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] &&
+            featureFlag.key &&
+            id &&
+            items.push({
+                label: 'Exposures',
+                key: 'exposure',
+                children: <ExposureTab id={id} featureFlagKey={featureFlag.key} />,
+            })
+        featureFlag.id &&
+            items.push({
+                label: 'History',
+                key: 'history',
+                children: <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />,
+            })
+        featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] &&
+            featureFlag.can_edit &&
+            items.push({
+                label: 'Permissions',
+                key: 'permissions',
+                children: (
+                    <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                        <ResourcePermission
+                            resourceType={Resource.FEATURE_FLAGS}
+                            isNewResource={id === 'new'}
+                            onChange={(roleIds) => setRolesToAdd(roleIds)}
+                            rolesToAdd={rolesToAdd}
+                            addableRoles={addableRoles}
+                            addableRolesLoading={unfilteredAddableRolesLoading}
+                            onAdd={() => addAssociatedRoles()}
+                            roles={derivedRoles}
+                            deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                            canEdit={featureFlag.can_edit}
+                        />
+                    </PayGateMini>
+                ),
+            })
+        return items
     }
 
     return (
@@ -380,58 +446,8 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                     activeKey={activeTab}
                                     destroyInactiveTabPane
                                     onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
-                                >
-                                    <Tabs.TabPane tab="Overview" key="overview">
-                                        <Row>
-                                            <Col span={13}>
-                                                <FeatureFlagRollout readOnly />
-                                                <FeatureFlagReleaseConditions readOnly />
-                                                {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && (
-                                                    <FeatureFlagAutoRollback readOnly />
-                                                )}
-                                            </Col>
-                                            <Col span={11} className="pl-4">
-                                                <RecentFeatureFlagInsights />
-                                                <div className="my-4" />
-                                                {featureFlags[FEATURE_FLAGS.RECORDINGS_ON_FEATURE_FLAGS] ? (
-                                                    <FeatureFlagRecordings flagKey={featureFlag.key || 'my-flag'} />
-                                                ) : (
-                                                    <FeatureFlagInstructions
-                                                        featureFlagKey={featureFlag.key || 'my-flag'}
-                                                    />
-                                                )}
-                                            </Col>
-                                        </Row>
-                                    </Tabs.TabPane>
-                                    {featureFlags[FEATURE_FLAGS.EXPOSURES_ON_FEATURE_FLAGS] && featureFlag.key && id && (
-                                        <Tabs.TabPane tab="Exposures" key="exposure">
-                                            <ExposureTab id={id} featureFlagKey={featureFlag.key} />
-                                        </Tabs.TabPane>
-                                    )}
-                                    {featureFlag.id && (
-                                        <Tabs.TabPane tab="History" key="history">
-                                            <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
-                                        </Tabs.TabPane>
-                                    )}
-                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit && (
-                                        <Tabs.TabPane tab="Permissions" key="permissions">
-                                            <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                <ResourcePermission
-                                                    resourceType={Resource.FEATURE_FLAGS}
-                                                    isNewResource={id === 'new'}
-                                                    onChange={(roleIds) => setRolesToAdd(roleIds)}
-                                                    rolesToAdd={rolesToAdd}
-                                                    addableRoles={addableRoles}
-                                                    addableRolesLoading={unfilteredAddableRolesLoading}
-                                                    onAdd={() => addAssociatedRoles()}
-                                                    roles={derivedRoles}
-                                                    deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-                                                    canEdit={featureFlag.can_edit}
-                                                />
-                                            </PayGateMini>
-                                        </Tabs.TabPane>
-                                    )}
-                                </Tabs>
+                                    items={getTabItems()}
+                                />
                             </>
                         )}
                     </>

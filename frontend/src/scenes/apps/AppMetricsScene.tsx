@@ -11,6 +11,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { IconInfo } from 'lib/components/icons'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
+import { TabItem } from '~/types'
 
 export const scene: SceneExport = {
     component: AppMetrics,
@@ -22,6 +23,56 @@ export function AppMetrics(): JSX.Element {
     const { activeTab, pluginConfig, pluginConfigLoading, showTab, shouldShowAppMetrics } =
         useValues(appMetricsSceneLogic)
     const { setActiveTab } = useActions(appMetricsSceneLogic)
+
+    const getTabItems = (): TabItem[] => {
+        const tabItems: TabItem[] = []
+        showTab(AppMetricsTab.ProcessEvent) &&
+            tabItems.push({
+                label: 'processEvent metrics',
+                key: AppMetricsTab.ProcessEvent,
+                children: <MetricsTab tab={AppMetricsTab.ProcessEvent} />,
+            })
+        showTab(AppMetricsTab.OnEvent) &&
+            tabItems.push({
+                label: 'onEvent metrics',
+                key: AppMetricsTab.OnEvent,
+                children: <MetricsTab tab={AppMetricsTab.OnEvent} />,
+            })
+
+        showTab(AppMetricsTab.ExportEvents) && {
+            label: 'exportEvents metrics',
+            key: AppMetricsTab.ExportEvents,
+            children: <MetricsTab tab={AppMetricsTab.ExportEvents} />,
+        }
+        showTab(AppMetricsTab.ScheduledTask) &&
+            tabItems.push({
+                label: (
+                    <>
+                        Scheduled tasks{' '}
+                        <Tooltip
+                            title={'Shows metrics for app methods `runEveryMinute`, `runEveryHour` and `runEveryDay`'}
+                        >
+                            <IconInfo />
+                        </Tooltip>
+                    </>
+                ),
+
+                key: AppMetricsTab.ScheduledTask,
+                children: <MetricsTab tab={AppMetricsTab.ScheduledTask} />,
+            })
+        showTab(AppMetricsTab.HistoricalExports) &&
+            tabItems.push({
+                label: 'Historical exports',
+                key: AppMetricsTab.HistoricalExports,
+                children: <HistoricalExportsTab />,
+            })
+        tabItems.push({
+            label: 'History',
+            key: AppMetricsTab.History,
+            children: <ActivityLog scope={ActivityScope.PLUGIN} id={pluginConfig?.id} />,
+        })
+        return tabItems
+    }
 
     return (
         <div>
@@ -42,50 +93,8 @@ export function AppMetrics(): JSX.Element {
                     animated={false}
                     activeKey={activeTab}
                     onTabClick={(key) => setActiveTab(key as AppMetricsTab)}
-                >
-                    {showTab(AppMetricsTab.ProcessEvent) && (
-                        <Tabs.TabPane tab="processEvent metrics" key={AppMetricsTab.ProcessEvent}>
-                            <MetricsTab tab={AppMetricsTab.ProcessEvent} />
-                        </Tabs.TabPane>
-                    )}
-                    {showTab(AppMetricsTab.OnEvent) && (
-                        <Tabs.TabPane tab="onEvent metrics" key={AppMetricsTab.OnEvent}>
-                            <MetricsTab tab={AppMetricsTab.OnEvent} />
-                        </Tabs.TabPane>
-                    )}
-                    {showTab(AppMetricsTab.ExportEvents) && (
-                        <Tabs.TabPane tab="exportEvents metrics" key={AppMetricsTab.ExportEvents}>
-                            <MetricsTab tab={AppMetricsTab.ExportEvents} />
-                        </Tabs.TabPane>
-                    )}
-                    {showTab(AppMetricsTab.ScheduledTask) && (
-                        <Tabs.TabPane
-                            tab={
-                                <>
-                                    Scheduled tasks{' '}
-                                    <Tooltip
-                                        title={
-                                            'Shows metrics for app methods `runEveryMinute`, `runEveryHour` and `runEveryDay`'
-                                        }
-                                    >
-                                        <IconInfo />
-                                    </Tooltip>
-                                </>
-                            }
-                            key={AppMetricsTab.ScheduledTask}
-                        >
-                            <MetricsTab tab={AppMetricsTab.ScheduledTask} />
-                        </Tabs.TabPane>
-                    )}
-                    {showTab(AppMetricsTab.HistoricalExports) && (
-                        <Tabs.TabPane tab="Historical exports" key={AppMetricsTab.HistoricalExports}>
-                            <HistoricalExportsTab />
-                        </Tabs.TabPane>
-                    )}
-                    <Tabs.TabPane tab="History" key={AppMetricsTab.History}>
-                        <ActivityLog scope={ActivityScope.PLUGIN} id={pluginConfig?.id} />
-                    </Tabs.TabPane>
-                </Tabs>
+                    items={getTabItems()}
+                />
             )}
 
             <ErrorDetailsModal />

@@ -159,11 +159,12 @@ export function Experiments(): JSX.Element {
                         activeKey={tab}
                         style={{ borderColor: '#D9D9D9' }}
                         onChange={(t) => setExperimentsTab(t as ExperimentsTabs)}
-                    >
-                        <Tabs.TabPane tab="All experiments" key={ExperimentsTabs.All} />
-                        <Tabs.TabPane tab="Your experiments" key={ExperimentsTabs.Yours} />
-                        <Tabs.TabPane tab="Archived experiments" key={ExperimentsTabs.Archived} />
-                    </Tabs>
+                        items={[
+                            { key: ExperimentsTabs.All, label: 'All experiments' },
+                            { key: ExperimentsTabs.Yours, label: 'Your experiments' },
+                            { key: ExperimentsTabs.Archived, label: 'Archived experiments' },
+                        ]}
+                    />
                     <div className="flex justify-between mb-4">
                         <LemonInput
                             type="search"

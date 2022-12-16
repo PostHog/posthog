@@ -267,54 +267,65 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
 
             {expanded ? (
                 <div className="bg-side border-t rounded-b">
-                    <Tabs defaultActiveKey={tab} onChange={setTab} tabBarStyle={{ paddingLeft: 20, marginBottom: 0 }}>
-                        <Tabs.TabPane tab="Properties" key="properties">
-                            {Object.keys(actor.properties).length ? (
-                                <PropertiesTable properties={actor.properties} />
-                            ) : (
-                                <p className="text-center m-4">There are no properties.</p>
-                            )}
-                        </Tabs.TabPane>
-                        <Tabs.TabPane tab="Recordings" key="recordings">
-                            <div className="p-2 space-y-2 font-medium mt-1">
-                                <div className="flex justify-between items-center px-2">
-                                    <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
-                                </div>
-                                <ul className="space-y-px">
-                                    {matchedRecordings?.length
-                                        ? matchedRecordings.map((recording, i) => (
-                                              <>
-                                                  <LemonDivider className="my-0" />
-                                                  <li key={i}>
-                                                      <LemonButton
-                                                          key={i}
-                                                          fullWidth
-                                                          onClick={() => {
-                                                              recording.session_id &&
-                                                                  onOpenRecording({
-                                                                      id: recording.session_id,
-                                                                      matching_events: [
-                                                                          {
-                                                                              events: recording.events,
-                                                                              session_id: recording.session_id,
-                                                                          },
-                                                                      ],
-                                                                  })
-                                                          }}
-                                                      >
-                                                          <div className="flex flex-1 justify-between gap-2 items-center">
-                                                              <span>View recording {i + 1}</span>
-                                                              <IconPlayCircle className="text-xl text-muted" />
-                                                          </div>
-                                                      </LemonButton>
-                                                  </li>
-                                              </>
-                                          ))
-                                        : null}
-                                </ul>
-                            </div>
-                        </Tabs.TabPane>
-                    </Tabs>
+                    <Tabs
+                        defaultActiveKey={tab}
+                        onChange={setTab}
+                        tabBarStyle={{ paddingLeft: 20, marginBottom: 0 }}
+                        items={[
+                            {
+                                label: 'Properties',
+                                key: 'properties',
+                                children: Object.keys(actor.properties).length ? (
+                                    <PropertiesTable properties={actor.properties} />
+                                ) : (
+                                    <p className="text-center m-4">There are no properties.</p>
+                                ),
+                            },
+                            {
+                                label: 'Recordings',
+                                key: 'recordings',
+                                children: (
+                                    <div className="p-2 space-y-2 font-medium mt-1">
+                                        <div className="flex justify-between items-center px-2">
+                                            <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
+                                        </div>
+                                        <ul className="space-y-px">
+                                            {matchedRecordings?.length
+                                                ? matchedRecordings.map((recording, i) => (
+                                                      <>
+                                                          <LemonDivider className="my-0" />
+                                                          <li key={i}>
+                                                              <LemonButton
+                                                                  key={i}
+                                                                  fullWidth
+                                                                  onClick={() => {
+                                                                      recording.session_id &&
+                                                                          onOpenRecording({
+                                                                              id: recording.session_id,
+                                                                              matching_events: [
+                                                                                  {
+                                                                                      events: recording.events,
+                                                                                      session_id: recording.session_id,
+                                                                                  },
+                                                                              ],
+                                                                          })
+                                                                  }}
+                                                              >
+                                                                  <div className="flex flex-1 justify-between gap-2 items-center">
+                                                                      <span>View recording {i + 1}</span>
+                                                                      <IconPlayCircle className="text-xl text-muted" />
+                                                                  </div>
+                                                              </LemonButton>
+                                                          </li>
+                                                      </>
+                                                  ))
+                                                : null}
+                                        </ul>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
                 </div>
             ) : null}
 

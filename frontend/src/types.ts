@@ -25,6 +25,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
 import { Layout } from 'react-grid-layout'
+import React from 'react'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -2424,4 +2425,10 @@ export interface OrganizationResourcePermissionType {
     created_at: string
     updated_at: string
     created_by: UserBaseType | null
+}
+
+export interface TabItem {
+    label: React.ReactNode
+    key: string
+    children?: JSX.Element
 }

@@ -73,11 +73,11 @@ export function SessionsRecordings(): JSX.Element {
                 animated={false}
                 style={{ borderColor: '#D9D9D9' }}
                 onChange={(t) => router.actions.push(urls.sessionRecordings(t as SessionRecordingsTabs))}
-            >
-                {Object.values(SessionRecordingsTabs).map((value) => (
-                    <Tabs.TabPane tab={humanFriendlyTabName(value)} key={value} />
-                ))}
-            </Tabs>
+                items={Array.from(Object.values(SessionRecordingsTabs), (value) => ({
+                    label: humanFriendlyTabName(value),
+                    key: value,
+                }))}
+            />
             {recordingsDisabled ? (
                 <div className="mb-4">
                     <AlertMessage

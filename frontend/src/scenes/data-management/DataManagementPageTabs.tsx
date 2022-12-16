@@ -7,6 +7,7 @@ import { IconInfo } from 'lib/components/icons'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { TabItem } from '~/types'
 
 export enum DataManagementTab {
     Actions = 'actions',
@@ -64,14 +65,15 @@ const eventsTabsLogic = kea<eventsTabsLogicType>({
 export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX.Element {
     const { showWarningsTab } = useValues(eventsTabsLogic)
     const { setTab } = useActions(eventsTabsLogic)
-    return (
-        <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={(t) => setTab(t as DataManagementTab)}>
-            <Tabs.TabPane
-                tab={<span data-attr="data-management-events-tab">Events</span>}
-                key={DataManagementTab.EventDefinitions}
-            />
-            <Tabs.TabPane
-                tab={
+
+    const getTabItems = (): TabItem[] => {
+        const tabItems: TabItem[] = [
+            {
+                label: <span data-attr="data-management-events-tab">Events</span>,
+                key: DataManagementTab.EventDefinitions,
+            },
+            {
+                label: (
                     <TitleWithIcon
                         icon={
                             <Tooltip title="Actions consist of one or more events that you have decided to put into a deliberately-labeled bucket. They're used in insights and dashboards.">
@@ -82,11 +84,11 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                     >
                         Actions
                     </TitleWithIcon>
-                }
-                key={DataManagementTab.Actions}
-            />
-            <Tabs.TabPane
-                tab={
+                ),
+                key: DataManagementTab.Actions,
+            },
+            {
+                label: (
                     <TitleWithIcon
                         icon={
                             <Tooltip title="Properties are additional data sent along with an event capture. Use properties to understand additional information about events and the actors that generate them.">
@@ -97,15 +99,25 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                     >
                         Event Properties
                     </TitleWithIcon>
-                }
-                key={DataManagementTab.EventPropertyDefinitions}
-            />
-            {showWarningsTab && (
-                <Tabs.TabPane
-                    tab={<span data-attr="data-management-warnings-tab">Ingestion Warnings</span>}
-                    key={DataManagementTab.IngestionWarnings}
-                />
-            )}
-        </Tabs>
+                ),
+                key: DataManagementTab.EventPropertyDefinitions,
+            },
+        ]
+        showWarningsTab
+            ? tabItems.push({
+                  label: <span data-attr="data-management-warnings-tab">Ingestion Warnings</span>,
+                  key: DataManagementTab.IngestionWarnings,
+              })
+            : null
+        return tabItems
+    }
+    return (
+        <Tabs
+            tabPosition="top"
+            animated={false}
+            activeKey={tab}
+            onTabClick={(t) => setTab(t as DataManagementTab)}
+            items={getTabItems()}
+        />
     )
 }

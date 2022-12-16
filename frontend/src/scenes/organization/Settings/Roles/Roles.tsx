@@ -79,30 +79,41 @@ export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
                 expandable={{
                     expandedRowRender: function RenderRolesTable(role) {
                         return (
-                            <Tabs defaultActiveKey="members">
-                                <Tabs.TabPane tab="Members" key="members">
-                                    <div className="flex flex-col my-4">
-                                        {role.members.map((member) => (
-                                            <div key={member.id}>{member.user.first_name}</div>
-                                        ))}
-                                    </div>
-                                </Tabs.TabPane>
-                                <Tabs.TabPane tab="Feature flags" key="feature-flags">
-                                    <div className="mb-4">
-                                        {role.feature_flags_access_level === AccessLevel.WRITE ? (
-                                            'All'
-                                        ) : (
-                                            <div className="flex flex-col">
-                                                {role.associated_flags.map((flag) => (
-                                                    <Link key={flag.id} to={urls.featureFlag(flag.id)}>
-                                                        {flag.key}
-                                                    </Link>
+                            <Tabs
+                                defaultActiveKey="members"
+                                items={[
+                                    {
+                                        key: 'members',
+                                        label: 'Members',
+                                        children: (
+                                            <div className="flex flex-col my-4">
+                                                {role.members.map((member) => (
+                                                    <div key={member.id}>{member.user.first_name}</div>
                                                 ))}
                                             </div>
-                                        )}
-                                    </div>
-                                </Tabs.TabPane>
-                            </Tabs>
+                                        ),
+                                    },
+                                    {
+                                        key: 'feature-flags',
+                                        label: 'Feature flags',
+                                        children: (
+                                            <div className="mb-4">
+                                                {role.feature_flags_access_level === AccessLevel.WRITE ? (
+                                                    'All'
+                                                ) : (
+                                                    <div className="flex flex-col">
+                                                        {role.associated_flags.map((flag) => (
+                                                            <Link key={flag.id} to={urls.featureFlag(flag.id)}>
+                                                                {flag.key}
+                                                            </Link>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ),
+                                    },
+                                ]}
+                            />
                         )
                     },
                 }}

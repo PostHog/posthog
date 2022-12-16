@@ -274,14 +274,15 @@ export function FeatureFlags(): JSX.Element {
                 }
             />
 
-            <Tabs activeKey={activeTab} destroyInactiveTabPane onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}>
-                <Tabs.TabPane tab="Overview" key="overview">
-                    <OverViewTab />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab="History" key="history">
-                    <ActivityLog scope={ActivityScope.FEATURE_FLAG} />
-                </Tabs.TabPane>
-            </Tabs>
+            <Tabs
+                activeKey={activeTab}
+                destroyInactiveTabPane
+                onChange={(t) => setActiveTab(t as FeatureFlagsTabs)}
+                items={[
+                    { label: 'Overview', key: 'overview', children: <OverViewTab /> },
+                    { label: 'History', key: 'history', children: <ActivityLog scope={ActivityScope.FEATURE_FLAG} /> },
+                ]}
+            />
         </div>
     )
 }

@@ -104,43 +104,53 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
     }, [filesToUpload])
 
     return (
-        <Tabs>
-            <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
-                <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded')}>
-                    <LemonTextArea ref={textAreaRef} {...editAreaProps} autoFocus value={value} onChange={onChange} />
-                    <div className="text-muted inline-flex items-center space-x-1">
-                        <IconMarkdown className={'text-2xl'} />
-                        <span>Markdown formatting support</span>
-                    </div>
-                    {objectStorageAvailable ? (
-                        <LemonFileInput
-                            accept={'image/*'}
-                            multiple={false}
-                            alternativeDropTargetRef={dropRef}
-                            onChange={setFilesToUpload}
-                            loading={uploading}
-                            value={filesToUpload}
-                        />
-                    ) : (
-                        <div className="text-muted inline-flex items-center space-x-1">
-                            <Tooltip title={'Enable object storage to add images by dragging and dropping.'}>
-                                <IconTools className={'text-xl mr-1'} />
-                            </Tooltip>
-                            <span>
-                                Add external images using{' '}
-                                <Link to={'https://www.markdownguide.org/basic-syntax/#images-1'}>
-                                    {' '}
-                                    Markdown image links
-                                </Link>
-                                .
-                            </span>
+        <Tabs
+            items={[
+                {
+                    label: 'Write',
+                    key: 'write-card',
+                    children: (
+                        <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded')}>
+                            <LemonTextArea
+                                ref={textAreaRef}
+                                {...editAreaProps}
+                                autoFocus
+                                value={value}
+                                onChange={onChange}
+                            />
+                            <div className="text-muted inline-flex items-center space-x-1">
+                                <IconMarkdown className={'text-2xl'} />
+                                <span>Markdown formatting support</span>
+                            </div>
+                            {objectStorageAvailable ? (
+                                <LemonFileInput
+                                    accept={'image/*'}
+                                    multiple={false}
+                                    alternativeDropTargetRef={dropRef}
+                                    onChange={setFilesToUpload}
+                                    loading={uploading}
+                                    value={filesToUpload}
+                                />
+                            ) : (
+                                <div className="text-muted inline-flex items-center space-x-1">
+                                    <Tooltip title={'Enable object storage to add images by dragging and dropping.'}>
+                                        <IconTools className={'text-xl mr-1'} />
+                                    </Tooltip>
+                                    <span>
+                                        Add external images using{' '}
+                                        <Link to={'https://www.markdownguide.org/basic-syntax/#images-1'}>
+                                            {' '}
+                                            Markdown image links
+                                        </Link>
+                                        .
+                                    </span>
+                                </div>
+                            )}
                         </div>
-                    )}
-                </div>
-            </Tabs.TabPane>
-            <Tabs.TabPane tab="Preview" key={'preview-card'}>
-                <TextContent text={value} />
-            </Tabs.TabPane>
-        </Tabs>
+                    ),
+                },
+                { label: 'Preview', key: 'preview-card', children: <TextContent text={value} /> },
+            ]}
+        />
     )
 }

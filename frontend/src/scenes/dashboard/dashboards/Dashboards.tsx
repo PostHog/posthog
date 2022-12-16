@@ -51,12 +51,13 @@ export function Dashboards(): JSX.Element {
                 activeKey={currentTab}
                 style={{ borderColor: '#D9D9D9' }}
                 onChange={(tab) => setCurrentTab(tab as DashboardsTab)}
-            >
-                <Tabs.TabPane tab="All Dashboards" key={DashboardsTab.All} />
-                <Tabs.TabPane tab="Your Dashboards" key={DashboardsTab.Yours} />
-                <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
-                <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
-            </Tabs>
+                items={[
+                    { label: 'All Dashboards', key: DashboardsTab.All },
+                    { label: 'Your Dashboards', key: DashboardsTab.Yours },
+                    { label: 'Pinned', key: DashboardsTab.Pinned },
+                    { label: 'Shared', key: DashboardsTab.Shared },
+                ]}
+            />
             <div className="flex">
                 <LemonInput
                     type="search"

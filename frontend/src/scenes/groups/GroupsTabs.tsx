@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { groupsModel } from '~/models/groupsModel'
+import { TabItem } from '~/types'
 import { groupsListLogic } from './groupsListLogic'
 
 export function GroupsTabs(): JSX.Element {
@@ -17,20 +18,18 @@ export function GroupsTabs(): JSX.Element {
         GroupsAccessStatus.NoAccess,
     ].includes(groupsAccessStatus)
 
-    return (
-        <Tabs activeKey={currentTab} onChange={(activeKey) => setTab(activeKey)}>
-            <Tabs.TabPane tab="Persons" key="-1" />
+    const getTabItems = (): TabItem[] => {
+        const tabItems: TabItem[] = [{ label: 'Persons', key: '-1' }]
+        showGroupsIntroductionPage
+            ? tabItems.push({ label: 'Groups', key: '0' })
+            : groupTypes.map((groupType) =>
+                  tabItems.push({
+                      label: capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural),
+                      key: groupType.group_type_index.toString(),
+                  })
+              )
+        return tabItems
+    }
 
-            {showGroupsIntroductionPage ? (
-                <Tabs.TabPane tab="Groups" key="0" />
-            ) : (
-                groupTypes.map((groupType) => (
-                    <Tabs.TabPane
-                        tab={capitalizeFirstLetter(aggregationLabel(groupType.group_type_index).plural)}
-                        key={groupType.group_type_index}
-                    />
-                ))
-            )}
-        </Tabs>
-    )
+    return <Tabs activeKey={currentTab} onChange={(activeKey) => setTab(activeKey)} items={getTabItems()} />
 }
