@@ -2,7 +2,7 @@
 import ast
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, cast
 
 from clickhouse_driver.util.escape import escape_param
 
@@ -232,7 +232,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
         else:
             raise ValueError(f"Unknown AST Constant node type '{type(node.value)}' for value '{str(node.value)}'")
     elif isinstance(node, ast.Attribute) or isinstance(node, ast.Subscript):
-        attribute_chain: list[str] = []
+        attribute_chain: List[str] = []
         while True:
             if isinstance(node, ast.Attribute):
                 attribute_chain.insert(0, node.attr)
@@ -247,8 +247,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                     attribute_chain.insert(0, node_slice.value)
                     node = node.value
                 # ast.Index is a deprecated node class that shows up in tests with Python 3.8
-                elif isinstance(node_slice, ast.Index) and isinstance(node_slice.value, ast.Constant):  # type: ignore
-                    const: ast.Constant = node_slice.value  # type: ignore
+                # Must do some manual casting, or mypy will give different unresolvable errors between 3.8 and 3.9
+                elif isinstance(node_slice, ast.Index) and isinstance(cast(ast.Index, node_slice).value, ast.Constant):
+                    const = cast(ast.Constant, cast(ast.Index, node_slice).value)
                     if not isinstance(const.value, str):
                         raise ValueError(f"Only string property access is currently supported, found '{const.value}'")
                     attribute_chain.insert(0, const.value)
@@ -257,6 +258,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
                     raise ValueError(f"Unsupported Subscript slice type: {type(node.slice).__name__}")
             elif isinstance(node, ast.Name):  # type: ignore
                 attribute_chain.insert(0, node.id)
+                break
+            elif isinstance(node, ast.Constant):
+                attribute_chain.insert(0, node.value)
                 break
             else:
                 raise ValueError(f"Unknown node in field access chain: {ast.dump(node)}")
