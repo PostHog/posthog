@@ -548,13 +548,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
             },
         ],
-        parsedSecondaryMetrics: [
-            (s) => [s.experiment],
-            (experiment: Experiment): SecondaryExperimentMetric[] => {
-                const secondaryMetrics = experiment?.secondary_metrics || []
-                return secondaryMetrics
-            },
-        ],
         minimumDetectableChange: [
             (s) => [s.experiment],
             (newexperiment): number => {
