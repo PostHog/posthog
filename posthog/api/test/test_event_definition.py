@@ -88,8 +88,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 306)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
-        self.assertEqual(response.json()["results"][0]["name"], "$pageview")  # Order by name (ascending)
-        self.assertEqual(response.json()["results"][1]["name"], "entered_free_trial")  # Order by name (ascending)
+        self.assertEqual(response.json()["results"][0]["name"], "$pageview")  # Order by volume (desc)
+        self.assertEqual(response.json()["results"][1]["name"], "watched_movie")  # Order by volume (desc)
 
         event_checkpoints = [
             184,
