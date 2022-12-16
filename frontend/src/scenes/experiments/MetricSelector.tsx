@@ -37,16 +37,19 @@ export function MetricSelector({
 
     return (
         <>
-            <LemonSelect
-                value={experimentInsightType}
-                onChange={(val) => {
-                    val && createPreviewInsight({ insight: val })
-                }}
-                options={[
-                    { value: InsightType.TRENDS, label: <b>Trends</b> },
-                    { value: InsightType.FUNNELS, label: <b>Funnels</b> },
-                ]}
-            />
+            <div className="flex items-center w-full gap-2 mb-4">
+                <span>Insight Type</span>
+                <LemonSelect
+                    value={experimentInsightType}
+                    onChange={(val) => {
+                        val && createPreviewInsight({ insight: val })
+                    }}
+                    options={[
+                        { value: InsightType.TRENDS, label: <b>Trends</b> },
+                        { value: InsightType.FUNNELS, label: <b>Funnels</b> },
+                    ]}
+                />
+            </div>
             {experimentInsightType === InsightType.FUNNELS && (
                 <ActionFilter
                     bordered

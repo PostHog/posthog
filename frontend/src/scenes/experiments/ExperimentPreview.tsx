@@ -324,14 +324,14 @@ export function ExperimentPreview({
                 footer={
                     <div className="flex items-center gap-2">
                         <LemonButton
-                            form="secondary-metric-modal-form"
+                            form="edit-experiment-goal-form"
                             type="secondary"
                             onClick={closeExperimentGoalModal}
                         >
                             Cancel
                         </LemonButton>
                         <LemonButton
-                            form="secondary-metric-modal-form"
+                            form="edit-experiment-goal-form"
                             onClick={() => {
                                 updateExperimentGoal(experiment.filters)
                             }}
@@ -351,7 +351,7 @@ export function ExperimentPreview({
                     id="edit-experiment-goal-form"
                     className="space-y-4"
                 >
-                    <Field name="filters" label="Query">
+                    <Field name="filters">
                         {({ value, onChange }) => (
                             <MetricSelector
                                 createPreviewInsight={createNewExperimentInsight}

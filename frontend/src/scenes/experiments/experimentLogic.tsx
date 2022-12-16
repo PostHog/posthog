@@ -129,7 +129,6 @@ export const experimentLogic = kea<experimentLogicType>([
                         const newParameters = { ...state?.parameters, ...experiment.parameters }
                         return { ...state, ...experiment, parameters: newParameters }
                     }
-                    console.log('new experiment after setting: ', { ...state, ...experiment })
                     return { ...state, ...experiment }
                 },
                 addExperimentGroup: (state) => {
@@ -323,8 +322,6 @@ export const experimentLogic = kea<experimentLogicType>([
             )
             actions.setExperimentInsightId(createdInsight.short_id)
 
-            console.log('input filters: ', filters)
-            console.log('createdInsight', createdInsight, newInsight.filters)
             actions.setExperiment({ filters: { ...newInsight.filters } })
         },
         setFilters: ({ filters }) => {
@@ -363,6 +360,11 @@ export const experimentLogic = kea<experimentLogicType>([
         updateExperimentGoal: async ({ filters }) => {
             actions.updateExperiment({ filters })
             actions.closeExperimentGoalModal()
+        },
+        closeExperimentGoalModal: () => {
+            if (values.experimentChanged) {
+                actions.loadExperiment()
+            }
         },
         updateExperimentSuccess: async ({ experiment }) => {
             actions.updateExperiments(experiment)
