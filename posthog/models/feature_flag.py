@@ -701,12 +701,28 @@ def get_user_blast_radius(feature_flag_condition: dict, team: Team):
     from posthog.queries.person_query import PersonQuery
 
     properties = feature_flag_condition.get("properties") or []
-
-    # Removed rollout % from here, since it makes more sense to do that on the frontend
+    # Removed rollout % from here, since it makes more sense to compute that on the frontend
 
     if len(properties) > 0:
-        filter = Filter(data=feature_flag_condition)
-        person_query, person_query_params = PersonQuery(filter, team.id).get_query()
+        filter = Filter(data=feature_flag_condition, team=team)
+        cohort_filters = []
+        for property in filter.property_groups.flat:
+            if property.type in ["cohort", "precalculated-cohort", "static-cohort"]:
+                cohort_filters.append(property)
+
+        target_cohort = None
+
+        if len(cohort_filters) == 1:
+            try:
+                target_cohort = Cohort.objects.get(id=cohort_filters[0].value, team=team)
+            except Cohort.DoesNotExist:
+                pass
+            finally:
+                cohort_filters = []
+
+        person_query, person_query_params = PersonQuery(
+            filter, team.id, cohort=target_cohort, cohort_filters=cohort_filters
+        ).get_query()
 
         total_count = sync_execute(
             f"""
@@ -748,6 +764,8 @@ def can_user_edit_feature_flag(request, feature_flag):
             feature_flag_resource_access = OrganizationResourceAccess.objects.get(
                 organization=request.user.organization, resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
             )
+            if feature_flag_resource_access.access_level >= OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT:
+                return True
             org_level = feature_flag_resource_access.access_level
         except OrganizationResourceAccess.DoesNotExist:
             org_level = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT

@@ -1,7 +1,7 @@
 import re
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import Dict, Optional, Tuple
+from typing import Dict, Generic, Optional, Tuple, TypeVar
 
 import pytz
 from dateutil import parser
@@ -9,14 +9,23 @@ from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
+from posthog.models.filters.mixins.common import DateMixin
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.team import Team
 from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
 from posthog.utils import DEFAULT_DATE_FROM_DAYS
 
+F = TypeVar("F", DateMixin, IntervalMixin)
+
 
 # Assume that any date being sent from the client is timezone aware according to the timezone that the team has set
-class QueryDateRange:
-    def __init__(self, filter, team: Team, should_round: Optional[bool] = None, table="") -> None:
+class QueryDateRange(Generic[F]):
+    _filter: F
+    _team: Team
+    _table: str
+    _should_round: Optional[bool]
+
+    def __init__(self, filter: F, team: Team, should_round: Optional[bool] = None, table="") -> None:
         self._filter = filter
         self._team = team
         self._table = f"{table}." if table else ""
@@ -24,8 +33,7 @@ class QueryDateRange:
 
     @cached_property
     def date_to_param(self) -> datetime:
-
-        if not self._filter._date_to and self._filter.interval == "hour":
+        if isinstance(self._filter, IntervalMixin) and not self._filter._date_to and self._filter.interval == "hour":
             return self._now + relativedelta(minutes=1)
 
         date_to = self._now
@@ -126,7 +134,7 @@ class QueryDateRange:
 
     @cached_property
     def interval_annotation(self) -> str:
-        period = self._filter.interval
+        period = self._filter.interval if isinstance(self._filter, IntervalMixin) else None
         if period is None:
             period = "day"
         ch_function = PERIOD_TO_TRUNC_FUNC.get(period.lower())
@@ -195,8 +203,9 @@ class QueryDateRange:
         return self._end_time - self._start_time
 
     @cached_property
-    def num_intervals(self):
-
+    def num_intervals(self) -> int:
+        if not isinstance(self._filter, IntervalMixin):
+            return 1
         if self._filter.interval == "month":
             rel_delta = relativedelta(self._end_time.replace(day=1), self._start_time.replace(day=1))
             return (rel_delta.years * 12) + rel_delta.months + 1
@@ -204,12 +213,11 @@ class QueryDateRange:
         return int(self.time_difference.total_seconds() / TIME_IN_SECONDS[self._filter.interval]) + 1
 
     @cached_property
-    def should_round(self):
-
+    def should_round(self) -> bool:
         if self._should_round is not None:
             return self._should_round
 
-        if self._filter.use_explicit_dates:
+        if not isinstance(self._filter, IntervalMixin) or self._filter.use_explicit_dates:
             return False
 
         round_interval = False
@@ -221,4 +229,6 @@ class QueryDateRange:
         return round_interval
 
     def is_hourly(self, target):
+        if not isinstance(self._filter, IntervalMixin):
+            return False
         return self._filter.interval == "hour" or (target and isinstance(target, str) and "h" in target)

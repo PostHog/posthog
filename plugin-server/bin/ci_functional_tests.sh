@@ -17,6 +17,9 @@ export BUFFER_CONVERSION_SECONDS=2 # Make sure we don't have to wait for the def
 export KAFKA_MAX_MESSAGE_BATCH_SIZE=0
 export APP_METRICS_GATHERED_FOR_ALL=true
 
+# Not important at all, but I like to see nice red/green for tests
+export FORCE_COLOR=true
+
 LOG_FILE=$(mktemp)
 
 echo '::group::Starting plugin server'

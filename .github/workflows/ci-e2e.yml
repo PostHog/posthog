@@ -248,6 +248,9 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
@@ -304,6 +307,7 @@ jobs:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.specs }}
+                  install: false
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3

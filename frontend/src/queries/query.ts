@@ -1,5 +1,5 @@
-import { DataNode, EventsNode, PersonsNode } from './schema'
-import { isEventsNode, isLegacyQuery, isPersonsNode } from './utils'
+import { DataNode, EventsNode, EventsQuery, PersonsNode } from './schema'
+import { isEventsNode, isEventsQuery, isLegacyQuery, isPersonsNode } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { AnyPartialFilterType } from '~/types'
@@ -13,14 +13,27 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { toParams } from 'lib/utils'
+import { now } from 'lib/dayjs'
+
+const EVENTS_DAYS_FIRST_FETCH = 5
+
+export const DEFAULT_QUERY_LIMIT = 100
 
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
     query: N,
     methodOptions?: ApiMethodOptions
 ): Promise<N['response']> {
-    if (isEventsNode(query)) {
-        return await api.get(getEventsEndpoint(query))
+    if (isEventsNode(query) || isEventsQuery(query)) {
+        if (!query.before && !query.after) {
+            const earlyResults = await api.get(
+                getEventsEndpoint({ ...query, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() })
+            )
+            if (earlyResults.results.length > 0) {
+                return earlyResults
+            }
+        }
+        return await api.get(getEventsEndpoint({ after: now().subtract(1, 'year').toISOString(), ...query }))
     } else if (isPersonsNode(query)) {
         return await api.get(getPersonsEndpoint(query))
     } else if (isLegacyQuery(query)) {
@@ -34,17 +47,20 @@ export async function query<N extends DataNode = DataNode>(
     throw new Error(`Unsupported query: ${query.kind}`)
 }
 
-export function getEventsEndpoint(query: EventsNode): string {
+export function getEventsEndpoint(query: EventsNode | EventsQuery): string {
     return api.events.determineListEndpoint(
         {
             properties: [...(query.fixedProperties || []), ...(query.properties || [])],
             ...(query.event ? { event: query.event } : {}),
+            ...(isEventsQuery(query) ? { select: query.select ?? [] } : {}),
+            ...(isEventsQuery(query) ? { where: query.where ?? [] } : {}),
             ...(query.actionId ? { action_id: query.actionId } : {}),
             ...(query.personId ? { person_id: query.personId } : {}),
             ...(query.before ? { before: query.before } : {}),
             ...(query.after ? { after: query.after } : {}),
+            ...(query.orderBy ? { orderBy: query.orderBy } : {}),
         },
-        query.limit ?? 3500
+        query.limit ?? DEFAULT_QUERY_LIMIT
     )
 }
 
