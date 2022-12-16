@@ -33,7 +33,11 @@ export const dashboardsLogic = kea<dashboardsLogicType>({
     actionToUrl: ({ values }) => ({
         setCurrentTab: () => {
             const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
-            router.values.searchParams['tab'] !== tab && router.actions.push(router.values.location.pathname, { tab })
+            if (router.values.searchParams['tab'] === tab) {
+                return
+            }
+
+            router.actions.push(router.values.location.pathname, { ...router.values.searchParams, tab })
         },
     }),
     urlToAction: ({ actions }) => ({
