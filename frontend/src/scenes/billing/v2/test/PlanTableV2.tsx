@@ -112,8 +112,7 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                         <td className="font-bold">Monthly base price</td>
                         {plans.map((plan) => (
                             <td key={`${plan.name}-basePrice`} className="text-sm font-bold">
-                                {/* {plan.basePrice} */}
-                                ADD BASE PRICE
+                                {plan.pricing_description}
                             </td>
                         ))}
                     </tr>
@@ -127,7 +126,7 @@ export function PlanTable({ redirectPath, plans }: { redirectPath: string; plans
                             <th scope="row">
                                 {plans[0].feature_list[product].description}
                                 <p className="ml-0 text-xs text-muted mt-1">
-                                    {plans[0].feature_list[product].note || 'ADD NOTES'}
+                                    {plans[0].feature_list[product].pricing_concept}
                                 </p>
                             </th>
                             {plans.map((plan) => (
