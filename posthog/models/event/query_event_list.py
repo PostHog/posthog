@@ -20,7 +20,7 @@ from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
 
 
-def determine_event_conditions(conditions: Dict[str, Union[str, List[str]]]) -> Tuple[str, Dict]:
+def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
     for (k, v) in conditions.items():
@@ -60,7 +60,7 @@ def query_events_list(
     limit: int = 100,
 ) -> Union[List, dict]:
     limit += 1
-    limit_sql = "LIMIT %(limit)"
+    limit_sql = "LIMIT %(limit)s"
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
 
     conditions, condition_params = determine_event_conditions(
@@ -124,7 +124,7 @@ def query_events_list(
         if not context.is_aggregation:
             group_by_columns.append(clickhouse_sql)
 
-    for expr in where:
+    for expr in where or []:
         context = ExprParserContext()
         context.collect_values = collected_hogql_values
         clickhouse_sql = translate_hql(expr, context)
@@ -230,7 +230,7 @@ def convert_star_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
     return new_result
 
 
-def convert_person_select_to_dict(select: Tuple[Any]) -> Dict[str, Any]:
+def convert_person_select_to_dict(select: Tuple[str, str, str, str, str]) -> Dict[str, Any]:
     return {
         "id": select[1],
         "created_at": select[2],

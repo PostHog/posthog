@@ -219,7 +219,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
-        key = f"val_{len(context.collect_values)}"
+        key = f"val_{len(context.collect_values or {})}"
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
         elif isinstance(node.value, str):
