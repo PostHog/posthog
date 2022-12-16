@@ -2,12 +2,13 @@ import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { humanizeBytes } from 'lib/utils'
-import { useState } from 'react'
 import { PerformanceEvent } from '~/types'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemPerformanceEvent {
     item: PerformanceEvent
+    expanded: boolean
+    setExpanded: (expanded: boolean) => void
     finalTimestamp?: Dayjs
 }
 
@@ -23,10 +24,13 @@ const ms = (timestamp: number | undefined): string | undefined => {
     return `${(timestamp / 1000).toFixed(2)}s`
 }
 
-export function ItemPerformanceEvent({ item, finalTimestamp }: ItemPerformanceEvent): JSX.Element {
-    const [expanded, setExpanded] = useState(false)
+export function ItemPerformanceEvent({
+    item,
+    finalTimestamp,
+    expanded,
+    setExpanded,
+}: ItemPerformanceEvent): JSX.Element {
     const bytes = humanizeBytes(item.encoded_body_size || item.decoded_body_size || 0)
-
     const startTime = item.start_time || item.fetch_start || 0
     const duration = item.duration || 0
     const contextLengthMs = finalTimestamp?.diff(dayjs(item.time_origin), 'ms') || 1000

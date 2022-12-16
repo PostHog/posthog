@@ -1,3 +1,4 @@
+import { LemonDivider } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, autoCaptureEventToDescription } from 'lib/utils'
@@ -34,6 +35,12 @@ export function ItemEvent({ item }: ItemEventProps): JSX.Element {
             {expanded && (
                 <div className="p-2 text-xs border-t">
                     <SimpleKeyValueList item={item.data.properties} />
+
+                    <LemonDivider dashed />
+
+                    <div className="flex gap-2 justify-end cursor-pointer" onClick={() => setExpanded(false)}>
+                        <span className="text-muted-alt">Collapse</span>
+                    </div>
                 </div>
             )}
         </div>

@@ -56,7 +56,7 @@
 
     .SessionRecordingPlayer__inspector {
         border-top: 1px solid var(--border);
-        min-height: 30rem;
+        min-height: calc(100vh - 4rem);
     }
 
     &--widescreen {

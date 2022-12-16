@@ -72,6 +72,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setWindowIdFilter: (windowId: WindowOption) => ({ windowId }),
         setSearchQuery: (search: string) => ({ search }),
+        setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
     })),
     reducers(({ values }) => ({
         searchQuery: [
@@ -92,6 +93,16 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 : SessionRecordingPlayerTab.EVENTS) as SessionRecordingPlayerTab,
             {
                 setTab: (_, { tab }) => tab,
+            },
+        ],
+        expandedItems: [
+            [] as number[],
+            {
+                setItemExpanded: (items, { index, expanded }) => {
+                    return expanded ? [...items, index] : items.filter((item) => item !== index)
+                },
+
+                setTab: (_, {}) => [],
             },
         ],
     })),

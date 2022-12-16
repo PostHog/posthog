@@ -29,7 +29,7 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
     const featureExport = !!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]
 
     return (
-        <div className="p-3 bg-light flex flex-col select-none space-y-2">
+        <div className="p-3 bg-light flex flex-col select-none">
             <Seekbar sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             <div className="flex justify-between items-center h-8 gap-2">
                 <div className="flex-1" />
