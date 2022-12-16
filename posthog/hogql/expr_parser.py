@@ -327,6 +327,7 @@ def property_access_to_clickhouse(chain: List[str]):
             chain[2],
             escape_param(chain[2]),
             "person_properties",
+            materialised_table_column="person_properties",
         )
         return expression
     elif len(chain) == 1:

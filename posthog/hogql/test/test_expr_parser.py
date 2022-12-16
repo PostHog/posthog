@@ -52,6 +52,9 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         materialize("events", "$browser")
         self.assertEqual(translate_hql("properties['$browser']"), '"mat_$browser"')
 
+        materialize("events", "$initial_waffle", table_column="person_properties")
+        self.assertEqual(translate_hql("person.properties['$initial_waffle']"), '"mat_pp_$initial_waffle"')
+
     def test_hogql_methods(self):
         self.assertEqual(translate_hql("total()"), "count(*)")
 
