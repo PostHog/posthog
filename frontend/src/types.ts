@@ -324,10 +324,10 @@ export interface ElementType {
     attr_class?: string[]
     attr_id?: string
     attributes: Record<string, string>
-    href: string
-    nth_child: number
-    nth_of_type: number
-    order: number
+    href?: string
+    nth_child?: number
+    nth_of_type?: number
+    order?: number
     tag_name: string
     text?: string
 }

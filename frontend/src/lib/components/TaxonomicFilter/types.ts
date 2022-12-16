@@ -29,10 +29,17 @@ export interface TaxonomicFilterLogicProps extends TaxonomicFilterProps {
 
 export type TaxonomicFilterValue = string | number
 
+export type TaxonomicFilterRender = (props: {
+    value?: TaxonomicFilterValue
+    onChange: (value: TaxonomicFilterValue) => void
+}) => JSX.Element | null
+
 export interface TaxonomicFilterGroup {
     name: string
     searchPlaceholder: string
     type: TaxonomicFilterGroupType
+    /** Component to show instead of the usual taxonomic list. */
+    render?: TaxonomicFilterRender
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
@@ -42,8 +49,8 @@ export interface TaxonomicFilterGroup {
     value?: string
     searchAlias?: string
     valuesEndpoint?: (key: string) => string
-    getName: (instance: any) => string
-    getValue: (instance: any) => TaxonomicFilterValue
+    getName?: (instance: any) => string
+    getValue?: (instance: any) => TaxonomicFilterValue
     getPopupHeader: (instance: any) => string
     getIcon?: (instance: any) => JSX.Element
     groupTypeIndex?: number
@@ -75,6 +82,7 @@ export enum TaxonomicFilterGroupType {
     Dashboards = 'dashboards',
     GroupNamesPrefix = 'name_groups',
     Sessions = 'sessions',
+    HogQLExpression = 'hogql_expression',
 }
 
 export interface InfiniteListLogicProps extends TaxonomicFilterLogicProps {

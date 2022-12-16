@@ -9,6 +9,7 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
@@ -24,7 +25,11 @@ class FOSSColumnOptimizer:
     This speeds up queries since clickhouse ends up selecting less data.
     """
 
-    def __init__(self, filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter], team_id: int):
+    def __init__(
+        self,
+        filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, PropertiesTimelineFilter],
+        team_id: int,
+    ):
         self.filter = filter
         self.team_id = team_id
         self.property_optimizer = PropertyOptimizer()
@@ -101,7 +106,7 @@ class FOSSColumnOptimizer:
         "Returns collection of properties + types that this query would use"
         counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
-        if not isinstance(self.filter, StickinessFilter):
+        if not isinstance(self.filter, (StickinessFilter, PropertiesTimelineFilter)):
             # Some breakdown types read properties
             #
             # See ee/clickhouse/queries/trends/breakdown.py#get_query or
@@ -134,7 +139,7 @@ class FOSSColumnOptimizer:
                 counter += get_action_tables_and_properties(entity.get_action())
 
         if (
-            not isinstance(self.filter, StickinessFilter)
+            not isinstance(self.filter, (StickinessFilter, PropertiesTimelineFilter))
             and self.filter.correlation_type == FunnelCorrelationType.PROPERTIES
             and self.filter.correlation_property_names
         ):
