@@ -10,7 +10,9 @@ logger = structlog.get_logger(__name__)
 
 
 class Migration(AsyncMigrationDefinition):
-    description = "Create a projection on max(_timestamp) to speed up `clickhouse_lag` celery task. Requires ClickHouse 22.3 or above"
+    description = (
+        "Create projections and indexes on max(_timestamp) to speed up queries. Requires ClickHouse 22.3 or above"
+    )
 
     depends_on = "0007_persons_and_groups_on_events_backfill"
 
@@ -20,7 +22,7 @@ class Migration(AsyncMigrationDefinition):
     service_version_requirements = [ServiceVersionRequirement(service="clickhouse", supported_version=">=22.3.0")]
 
     def is_required(self):
-        return "fast_max_kafka_timestamp" not in self.get_table_definition()
+        return "kafka_timestamp_minmax" not in self.get_table_definition()
 
     def get_table_definition(self) -> str:
         result = sync_execute(
@@ -38,6 +40,26 @@ class Migration(AsyncMigrationDefinition):
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
             sql=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE PROJECTION fast_max_kafka_timestamp",
+            rollback=None,
+        ),
+        AsyncMigrationOperationSQL(
+            database=AnalyticsDBMS.CLICKHOUSE,
+            sql=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD INDEX kafka_timestamp_minmax _timestamp TYPE minmax GRANULARITY 3",
+            rollback=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP INDEX kafka_timestamp_minmax",
+        ),
+        AsyncMigrationOperationSQL(
+            database=AnalyticsDBMS.CLICKHOUSE,
+            sql=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE INDEX kafka_timestamp_minmax",
+            rollback=None,
+        ),
+        AsyncMigrationOperationSQL(
+            database=AnalyticsDBMS.CLICKHOUSE,
+            sql=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD INDEX kafka_timestamp_minmax _timestamp TYPE minmax GRANULARITY 3",
+            rollback=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP INDEX kafka_timestamp_minmax",
+        ),
+        AsyncMigrationOperationSQL(
+            database=AnalyticsDBMS.CLICKHOUSE,
+            sql=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE INDEX kafka_timestamp_minmax",
             rollback=None,
         ),
     ]
