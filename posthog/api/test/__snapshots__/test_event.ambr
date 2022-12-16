@@ -105,7 +105,7 @@
   WHERE team_id = 2
     AND timestamp > '2020-01-09 12:14:00.000000'
     AND timestamp < '2020-01-10 12:14:05.000000'
-  ORDER BY event ASC
+  ORDER BY event
   LIMIT 101
   '
 ---
@@ -119,14 +119,14 @@
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-  ORDER BY event ASC
+  ORDER BY event
   LIMIT 101
   '
 ---
 # name: TestEvents.test_select_hogql_expressions.2
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, person_created_at, person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at),
+  SELECT tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, person_created_at, person_properties),
          event
   FROM events
   WHERE team_id = 2
@@ -139,7 +139,7 @@
 # name: TestEvents.test_select_hogql_expressions.3
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, person_created_at, person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties, group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at),
+  SELECT tuple(uuid, event, properties, timestamp, team_id, distinct_id, elements_chain, created_at, person_id, person_created_at, person_properties),
          event
   FROM events
   WHERE team_id = 2
