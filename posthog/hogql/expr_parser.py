@@ -1,7 +1,7 @@
 import ast
 import re
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from clickhouse_driver.util.escape import escape_param
 
@@ -124,6 +124,7 @@ class ExprParserContext:
     attribute_list: List[List[str]] = field(default_factory=list)
     encountered_nodes: List[ast.AST] = field(default_factory=list)
     is_aggregation: bool = False
+    collect_values: Optional[Dict[str, Any]] = None
 
 
 def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
@@ -208,10 +209,15 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
+        key = f"__value_{len(context.collect_values)}"
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
         elif isinstance(node.value, str) or isinstance(node.value, list):
-            response = escape_param(node.value)
+            if isinstance(context.collect_values, dict):
+                context.collect_values[key] = node.value
+                response = f"%({key})s"
+            else:
+                response = escape_param(node.value)
         else:
             raise ValueError(f"Unknown AST Constant node type '{type(node.value)}' for value '{str(node.value)}'")
     elif isinstance(node, ast.Attribute) or isinstance(node, ast.Subscript):

@@ -60,7 +60,7 @@ def query_events_list(
     limit: int = 100,
 ) -> Union[List, dict]:
     limit += 1
-    limit_sql = f"LIMIT %(limit)"
+    limit_sql = "LIMIT %(limit)"
     order = "DESC" if order_by[0] == "-timestamp" else "ASC"
 
     conditions, condition_params = determine_event_conditions(
@@ -106,29 +106,32 @@ def query_events_list(
 
     # events list v2 - hogql
 
-    raw_select_columns: List[str] = []
-    raw_group_by_columns: List[str] = []
-    raw_where_filters: List[str] = []
-    raw_having_filters: List[str] = []
-    raw_order_by_list: List[str] = []
+    collected_hogql_values: Dict[str, Any] = {}
+    select_columns: List[str] = []
+    group_by_columns: List[str] = []
+    where_filters: List[str] = []
+    having_filters: List[str] = []
+    order_by_list: List[str] = []
 
     if len(select) == 0:
         select = ["*"]
 
     for expr in select:
         context = ExprParserContext()
+        context.collect_values = collected_hogql_values
         clickhouse_sql = translate_hql(expr, context)
-        raw_select_columns.append(clickhouse_sql)
+        select_columns.append(clickhouse_sql)
         if not context.is_aggregation:
-            raw_group_by_columns.append(clickhouse_sql)
+            group_by_columns.append(clickhouse_sql)
 
     for expr in where:
         context = ExprParserContext()
+        context.collect_values = collected_hogql_values
         clickhouse_sql = translate_hql(expr, context)
         if context.is_aggregation:
-            raw_having_filters.append(clickhouse_sql)
+            having_filters.append(clickhouse_sql)
         else:
-            raw_where_filters.append(clickhouse_sql)
+            where_filters.append(clickhouse_sql)
 
     if order_by:
         for fragment in order_by:
@@ -136,29 +139,31 @@ def query_events_list(
             if fragment.startswith("-"):
                 order_direction = "DESC"
                 fragment = fragment[1:]
-            raw_order_by_list.append(translate_hql(fragment) + " " + order_direction)
+            context = ExprParserContext()
+            context.collect_values = collected_hogql_values
+            order_by_list.append(translate_hql(fragment, context) + " " + order_direction)
     else:
-        raw_order_by_list.append(raw_select_columns[0])
+        order_by_list.append(select_columns[0])
 
-    if raw_select_columns == raw_group_by_columns:
-        raw_group_by_columns = []
+    if select_columns == group_by_columns:
+        group_by_columns = []
 
     results, types = sync_execute(
         "\n".join(
             [
                 SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART.format(
-                    columns=", ".join(raw_select_columns),
+                    columns=", ".join(select_columns),
                     conditions=conditions,
                     filters=prop_filters,
                 ),
-                "AND {}".format(" AND ".join(raw_where_filters)) if raw_where_filters else "",
-                "GROUP BY {}".format(", ".join(raw_group_by_columns)) if raw_group_by_columns else "",
-                "HAVING {}".format(" AND ".join(raw_having_filters)) if raw_having_filters else "",
-                "ORDER BY {}".format(", ".join(raw_order_by_list)),
+                "AND {}".format(" AND ".join(where_filters)) if where_filters else "",
+                "GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
+                "HAVING {}".format(" AND ".join(having_filters)) if having_filters else "",
+                "ORDER BY {}".format(", ".join(order_by_list)),
                 f"LIMIT {int(limit)}",
             ]
         ),
-        {"team_id": team.pk, **condition_params, **prop_filter_params},
+        {"team_id": team.pk, **condition_params, **prop_filter_params, **collected_hogql_values},
         with_column_types=True,
     )
 
