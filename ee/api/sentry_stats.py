@@ -6,7 +6,7 @@ from django.http import HttpRequest, JsonResponse
 from rest_framework.decorators import api_view
 from rest_framework.exceptions import ValidationError
 
-from posthog.models.instance_setting import get_instance_settings
+from posthog.models.instance_setting import get_instance_setting, get_instance_settings
 
 
 def get_sentry_stats(start_time: str, end_time: str) -> Tuple[dict, int]:
@@ -107,9 +107,11 @@ def sentry_stats(request: HttpRequest):
         target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
         target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-        data, total_count = get_sentry_stats(target_start_date, target_end_date)
+        _, total_count = get_sentry_stats(target_start_date, target_end_date)
 
     except Exception as e:
         return JsonResponse({"error": "Error fetching stats from sentry", "exception": str(e)})
 
-    return JsonResponse({"total_count": total_count, "data": data})
+    return JsonResponse(
+        {"sentry_integration_enabled": get_instance_setting("SENTRY_AUTH_TOKEN") != "", "total_count": total_count}
+    )

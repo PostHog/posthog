@@ -39,7 +39,7 @@ describe('the feature flag logic', () => {
 
         useMocks({
             get: {
-                'api/sentry_errors/': { total_count: 3 },
+                'api/sentry_stats/': { total_count: 3, sentry_integration_enabled: true },
             },
             post: {
                 '/api/projects/:team/feature_flags/user_blast_radius': () => [
