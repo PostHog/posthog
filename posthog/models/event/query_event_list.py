@@ -149,19 +149,15 @@ def query_events_list(
         group_by_columns = []
 
     results, types = sync_execute(
-        "\n".join(
-            [
-                SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART.format(
-                    columns=", ".join(select_columns),
-                    conditions=conditions,
-                    filters=prop_filters,
-                ),
-                "AND {}".format(" AND ".join(where_filters)) if where_filters else "",
-                "GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
-                "HAVING {}".format(" AND ".join(having_filters)) if having_filters else "",
-                "ORDER BY {}".format(", ".join(order_by_list)),
-                f"LIMIT {int(limit)}",
-            ]
+        SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART.format(
+            columns=", ".join(select_columns),
+            conditions=conditions,
+            filters=prop_filters,
+            where="AND {}".format(" AND ".join(where_filters)) if where_filters else "",
+            group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
+            having="HAVING {}".format(" AND ".join(having_filters)) if having_filters else "",
+            order="ORDER BY {}".format(", ".join(order_by_list)),
+            limit=f"LIMIT {int(limit)}",
         ),
         {"team_id": team.pk, **condition_params, **prop_filter_params, **collected_hogql_values},
         with_column_types=True,

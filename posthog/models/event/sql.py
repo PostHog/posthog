@@ -310,6 +310,11 @@ WHERE
 team_id = %(team_id)s
 {conditions}
 {filters}
+{where}
+{group}
+{having}
+{order}
+{limit}
 """
 
 SELECT_ONE_EVENT_SQL = """

@@ -103,8 +103,8 @@
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
-    AND timestamp > '2022-12-15 12:13:35.834680'
-    AND timestamp < '2022-12-16 12:13:40.834694'
+    AND timestamp > '2020-01-09 12:14:00.000000'
+    AND timestamp < '2020-01-10 12:14:05.000000'
   ORDER BY event ASC
   LIMIT 101
   '
@@ -118,7 +118,7 @@
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
-    AND timestamp < '2022-12-16 12:13:40.859033'
+    AND timestamp < '2020-01-10 12:14:05.000000'
   ORDER BY event ASC
   LIMIT 101
   '
@@ -130,8 +130,8 @@
          event
   FROM events
   WHERE team_id = 2
-    AND timestamp > '2022-12-15 12:13:35.896615'
-    AND timestamp < '2022-12-16 12:13:40.896630'
+    AND timestamp > '2020-01-09 12:14:00.000000'
+    AND timestamp < '2020-01-10 12:14:05.000000'
   ORDER BY timestamp DESC
   LIMIT 101
   '
@@ -143,7 +143,7 @@
          event
   FROM events
   WHERE team_id = 2
-    AND timestamp < '2022-12-16 12:13:40.907192'
+    AND timestamp < '2020-01-10 12:14:05.000000'
   ORDER BY timestamp DESC
   LIMIT 101
   '
@@ -155,8 +155,8 @@
          event
   FROM events
   WHERE team_id = 2
-    AND timestamp > '2022-12-15 12:13:35.931441'
-    AND timestamp < '2022-12-16 12:13:40.931456'
+    AND timestamp > '2020-01-09 12:14:00.000000'
+    AND timestamp < '2020-01-10 12:14:05.000000'
   GROUP BY event
   ORDER BY count(*) DESC
   LIMIT 101
@@ -169,7 +169,7 @@
          event
   FROM events
   WHERE team_id = 2
-    AND timestamp < '2022-12-16 12:13:40.939004'
+    AND timestamp < '2020-01-10 12:14:05.000000'
   GROUP BY event
   ORDER BY count(*) DESC
   LIMIT 101
@@ -182,8 +182,8 @@
          event
   FROM events
   WHERE team_id = 2
-    AND timestamp > '2022-12-15 12:13:35.958248'
-    AND timestamp < '2022-12-16 12:13:40.958264'
+    AND timestamp > '2020-01-09 12:14:00.000000'
+    AND timestamp < '2020-01-10 12:14:05.000000'
     AND or(equals(event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '%val2'))
   GROUP BY event
   ORDER BY count(*) DESC, event ASC
@@ -197,7 +197,7 @@
          event
   FROM events
   WHERE team_id = 2
-    AND timestamp < '2022-12-16 12:13:40.978562'
+    AND timestamp < '2020-01-10 12:14:05.000000'
     AND or(equals(event, 'sign up'), like(replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''), '%val2'))
   GROUP BY event
   ORDER BY count(*) DESC, event ASC
