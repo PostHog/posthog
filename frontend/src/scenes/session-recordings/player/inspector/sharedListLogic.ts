@@ -125,7 +125,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
         },
     })),
 
-    selectors(() => ({
+    selectors(({ values }) => ({
         miniFilters: [
             (s) => [s.tab],
             (tab): SharedListFilter[] => {
@@ -257,13 +257,16 @@ export const sharedListLogic = kea<sharedListLogicType>([
         ],
 
         allItems: [
-            (s) => [s.tab, s.recordingTimeInfo, s.peformanceEvents, s.consoleLogs, s.sessionEventsData],
-            (tab, recordingTimeInfo, peformanceEvents, consoleLogs, eventsData): SharedListItem[] => {
+            (s) => [s.tab, s.recordingTimeInfo, s.peformanceEvents, s.consoleLogs, s.sessionEventsData, s.featureFlags],
+            (tab, recordingTimeInfo, peformanceEvents, consoleLogs, eventsData, featureFlags): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
                 const allView = tab === SessionRecordingPlayerTab.ALL
 
-                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE) {
+                if (
+                    !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
+                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
+                ) {
                     for (const event of peformanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
                         if (allView && event.initiator_type !== 'fetch' && event.entry_type !== 'navigation') {

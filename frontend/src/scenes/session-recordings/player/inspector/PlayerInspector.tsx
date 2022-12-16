@@ -6,7 +6,7 @@ import { autoCaptureEventToDescription, capitalizeFirstLetter, interleave } from
 import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
 import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import { EventDetails } from 'scenes/events'
-import React from 'react'
+import React, { useMemo } from 'react'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge } from 'lib/components/icons'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
@@ -168,15 +168,19 @@ export function PlayerInspectorControls({
 
     const { featureFlags } = useValues(featureFlagLogic)
     const inspectorV2 = !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_V2]
+    const inspectorPerformance = !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]
 
-    const tabs = inspectorV2
-        ? [
-              SessionRecordingPlayerTab.ALL,
-              SessionRecordingPlayerTab.EVENTS,
-              SessionRecordingPlayerTab.CONSOLE,
-              SessionRecordingPlayerTab.PERFORMANCE,
-          ]
-        : [SessionRecordingPlayerTab.EVENTS, SessionRecordingPlayerTab.CONSOLE]
+    const tabs = useMemo(() => {
+        if (inspectorV2) {
+            return [
+                SessionRecordingPlayerTab.ALL,
+                SessionRecordingPlayerTab.EVENTS,
+                SessionRecordingPlayerTab.CONSOLE,
+                inspectorPerformance ? SessionRecordingPlayerTab.PERFORMANCE : undefined,
+            ].filter(Boolean) as SessionRecordingPlayerTab[]
+        }
+        return [SessionRecordingPlayerTab.EVENTS, SessionRecordingPlayerTab.CONSOLE]
+    }, [inspectorV2, inspectorPerformance])
 
     return (
         <div className="bg-side">
