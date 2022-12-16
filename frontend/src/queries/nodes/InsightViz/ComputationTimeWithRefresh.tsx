@@ -29,7 +29,7 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                 <Button
                     size="small"
                     type="link"
-                    onClick={loadData}
+                    onClick={() => loadData(true)}
                     disabled={
                         !!lastRefresh &&
                         dayjs()

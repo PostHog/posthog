@@ -18,7 +18,8 @@ import { queryNodeToFilter } from './nodes/InsightQuery/queryNodeToFilter'
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
     query: N,
-    methodOptions?: ApiMethodOptions
+    methodOptions?: ApiMethodOptions,
+    refresh?: boolean
 ): Promise<N['response']> {
     if (isEventsNode(query)) {
         return await api.get(getEventsEndpoint(query))
@@ -29,6 +30,7 @@ export async function query<N extends DataNode = DataNode>(
         const [response] = await legacyInsightQuery({
             filters,
             currentTeamId: getCurrentTeamId(),
+            refresh,
         })
         return await response.json()
     } else if (isLegacyQuery(query)) {
@@ -81,16 +83,20 @@ export async function legacyInsightQuery({
     let apiUrl: string
     let fetchResponse: Response
     if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-        apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(filterTrendsClientSideParams(filters))}`
+        apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(filterTrendsClientSideParams(filters))}${
+            refresh ? '&refresh=true' : ''
+        }`
         fetchResponse = await api.getResponse(apiUrl, methodOptions)
     } else if (isRetentionFilter(filters)) {
-        apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(filters)}`
+        apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(filters)}${
+            refresh ? '&refresh=true' : ''
+        }`
         fetchResponse = await api.getResponse(apiUrl, methodOptions)
     } else if (isFunnelsFilter(filters)) {
         apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
         fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
     } else if (isPathsFilter(filters)) {
-        apiUrl = `api/projects/${currentTeamId}/insights/path`
+        apiUrl = `api/projects/${currentTeamId}/insights/path${refresh ? '&refresh=true' : ''}`
         fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
     } else {
         throw new Error(`Unsupported insight type: ${filters.insight}`)
