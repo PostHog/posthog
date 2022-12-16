@@ -37,8 +37,8 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
                 source: {
                     ...values.query.source,
                     dateRange: {
-                        date_from: dateFrom,
-                        date_to: dateTo,
+                        date_from: dateFrom || null,
+                        date_to: dateTo || null,
                     },
                 },
             })
