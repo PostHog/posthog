@@ -116,7 +116,7 @@
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter.2
   '
   
-  SELECT count(1)
+  SELECT count()
   FROM cohortpeople
   WHERE team_id = 2
     AND cohort_id = 2
