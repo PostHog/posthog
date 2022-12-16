@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { DataNode, EventsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { isEventsNode, isInsightQueryNode, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
@@ -133,6 +133,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         autoLoadRunning: [
             (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
             (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,
+        ],
+        lastRefresh: [
+            (s) => [s.query, s.response],
+            (query, response) => {
+                return isInsightQueryNode(query) && response?.last_refresh
+            },
         ],
     }),
     subscriptions(({ actions, cache, values }) => ({

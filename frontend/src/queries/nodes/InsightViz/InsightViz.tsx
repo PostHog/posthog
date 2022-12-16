@@ -26,17 +26,10 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueNode++}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
-    const {
-        response,
-        // responseLoading,
-        // canLoadNextData,
-        // canLoadNewData,
-        // nextDataLoading,
-        // newDataLoading,
-    } = useValues(dataNodeLogic(dataNodeLogicProps))
+    const { response, lastRefresh } = useValues(dataNodeLogic(dataNodeLogicProps))
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
-    const { setInsight } = useActions(insightLogic)
+    const { setInsight, setLastRefresh } = useActions(insightLogic)
 
     // TODO: use connected logic instead of useEffect?
     useEffect(() => {
@@ -51,6 +44,7 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
                 },
                 {}
             )
+            setLastRefresh(lastRefresh)
         }
     }, [response])
 
