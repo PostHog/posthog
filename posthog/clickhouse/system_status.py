@@ -95,23 +95,13 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
 
     yield {"key": "dead_letter_queue_size", "metric": "Dead letter queue size", "value": dead_letter_queue_size}
 
-    dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
+    dead_letter_queue_events_high, dead_letter_queue_events_last_day = dead_letter_queue_ratio_ok()
 
     yield {
         "key": "dead_letter_queue_events_last_day",
         "metric": "Events sent to dead letter queue in the last 24h",
         "value": dead_letter_queue_events_last_day,
     }
-
-    total_events_ingested_last_day = sync_execute(
-        "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
-    )[0][0]
-    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / max(
-        dead_letter_queue_events_last_day + total_events_ingested_last_day, 1
-    )
-
-    # if the dead letter queue has as many events today as ingestion, issue an alert
-    dead_letter_queue_events_high = dead_letter_queue_ingestion_ratio >= 0.2
 
     yield {
         "key": "dead_letter_queue_ratio_ok",
@@ -126,6 +116,21 @@ def is_alive() -> bool:
         return True
     except:
         return False
+
+
+def dead_letter_queue_ratio_ok() -> Tuple[bool, int]:
+    dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
+
+    total_events_ingested_last_day = sync_execute(
+        "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
+    )[0][0]
+
+    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / max(
+        dead_letter_queue_events_last_day + total_events_ingested_last_day, 1
+    )
+
+    # if the dead letter queue has as many events today as ingestion, issue an alert
+    return dead_letter_queue_ingestion_ratio >= 0.2, dead_letter_queue_events_last_day
 
 
 def get_clickhouse_running_queries() -> List[Dict]:
