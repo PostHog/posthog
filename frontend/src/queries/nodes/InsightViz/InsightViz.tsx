@@ -5,7 +5,6 @@ import clsx from 'clsx'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { InsightsNav } from 'scenes/insights/InsightsNav'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { ItemMode } from '~/types'
 import { isFunnelsQuery } from '~/queries/utils'
 
@@ -13,6 +12,7 @@ import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
 import { queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
 import { InsightQueryNode, InsightVizNode } from '../../schema'
 
+import { InsightContainer } from './InsightContainer'
 import { EditorFilters } from './EditorFilters'
 
 type InsightVizProps = {
