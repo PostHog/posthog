@@ -97,7 +97,7 @@ def render_2022(request, user_uuid: str) -> HttpResponse:
         logger.error("year_in_posthog_2022_error_loading_data", exc_info=True, exc=e, data=data or "no data")
         capture_exception(e)
         badge = "astronaut"
-        data = data or {}
+        data = data or {"stats": {}}
 
     try:
         stats = stats_for_badge(data, badge)
