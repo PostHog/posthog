@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { UnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
 import { colonDelimitedDuration } from 'lib/utils'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { SessionRecordingPlayerTab } from '~/types'
@@ -13,6 +13,7 @@ import { ItemEvent } from './components/ItemEvent'
 import { ItemPerformanceEvent } from './components/ItemPerformanceEvent'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { useDebouncedCallback } from 'use-debounce'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -43,11 +44,11 @@ function PlayerInspectorListItem({
         expanded: isExpanded,
     }
 
-    const { ref, height, width } = useResizeObserver()
-
-    useEffect(() => {
-        onLayout()
-    }, [height, width])
+    const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
+    const { ref, width, height } = useResizeObserver({})
+    // Height changes should layout immediately but width ones (browser resize can be much slower)
+    useEffect(() => onLayoutDebounced(), [width])
+    useEffect(() => onLayout(), [height])
 
     return (
         <div ref={ref} className={clsx('flex flex-1 overflow-hidden gap-2', index > 0 && 'mt-1')}>

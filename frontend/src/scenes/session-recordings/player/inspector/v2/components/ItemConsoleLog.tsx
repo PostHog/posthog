@@ -8,9 +8,17 @@ export interface ItemConsoleLogProps {
 
 export function ItemConsoleLog({ item }: ItemConsoleLogProps): JSX.Element {
     const [expanded, setExpanded] = useState(false)
+    const color = item.data.level === 'error' ? 'danger' : item.data.level === 'warn' ? 'warning' : undefined
 
     return (
-        <div className={clsx('rounded bg-light border', expanded && 'border-primary')}>
+        <div
+            className={clsx(
+                'rounded border',
+                expanded && 'border-primary',
+                color && `border-${color}-dark bg-${color}-highlight`,
+                !color && 'bg-light'
+            )}
+        >
             <div className="relative cursor-pointer" onClick={() => setExpanded(!expanded)}>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate font-mono">
                     {item.data.previewContent}

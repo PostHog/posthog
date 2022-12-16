@@ -275,6 +275,11 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
                     for (const event of consoleLogs || []) {
                         const timestamp = dayjs(event.timestamp)
+
+                        if (allView && !['warn', 'error'].includes(event.level)) {
+                            continue
+                        }
+
                         items.push({
                             type: SessionRecordingPlayerTab.CONSOLE,
                             timestamp,
