@@ -48,7 +48,6 @@ def process_found_cohort_table_deletions(deletions: List[AsyncDeletion]):
     sync_execute(
         f"""
         ALTER TABLE cohortpeople
-        ON CLUSTER '{CLICKHOUSE_CLUSTER}'
         DELETE WHERE {" OR ".join(conditions)}
         """,
         args,
@@ -179,9 +178,7 @@ def _condition(async_deletion: AsyncDeletion, suffix: str) -> Tuple[str, Dict]:
     if async_deletion.deletion_type == DeletionType.Team:
         return f"team_id = %(team_id{suffix})s", {f"team_id{suffix}": async_deletion.team_id}
     elif async_deletion.deletion_type == DeletionType.Cohort_stale:
-        key_version = async_deletion.key.split("_")
-        key = key_version[0]
-        version = key_version[1]
+        key, version = async_deletion.key.split("_")
         return (
             f"team_id = %(team_id{suffix})s AND {_column_name(async_deletion)} = %(key{suffix})s AND version < %(version{suffix})s",
             {f"team_id{suffix}": async_deletion.team_id, f"version{suffix}": version, f"key{suffix}": key},
