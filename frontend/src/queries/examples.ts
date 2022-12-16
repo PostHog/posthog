@@ -27,8 +27,9 @@ import {
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { ShownAsValue } from '~/lib/constants'
 
-const Events: EventsNode = {
-    kind: NodeKind.EventsNode,
+const Events: EventsQuery = {
+    kind: NodeKind.EventsQuery,
+    select: defaultDataTableColumns({ kind: NodeKind.EventsQuery }),
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
@@ -37,7 +38,6 @@ const Events: EventsNode = {
 
 const EventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    columns: defaultDataTableColumns({ kind: NodeKind.EventsNode }),
     source: Events,
 }
 const EventsTableFull: DataTableNode = {
