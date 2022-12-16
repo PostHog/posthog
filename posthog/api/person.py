@@ -333,7 +333,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             now=datetime.now(),
             sent_at=None,
             event={
-                "event": "$delete_person_property",
+                "event": "$identify",
                 "properties": {"$unset": [request.data["$unset"]]},
                 "distinct_id": person.distinct_ids[0],
                 "timestamp": datetime.now().isoformat(),

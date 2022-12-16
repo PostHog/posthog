@@ -402,7 +402,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             now=mock.ANY,
             sent_at=None,
             event={
-                "event": "$delete_person_property",
+                "event": "$identify",
                 "distinct_id": "some_distinct_id",
                 "properties": {"$unset": ["foo"]},
                 "timestamp": mock.ANY,
