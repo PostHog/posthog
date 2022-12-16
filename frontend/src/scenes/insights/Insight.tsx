@@ -286,23 +286,25 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
-            {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
-
-            <div
-                className={clsx('insight-wrapper', {
-                    'insight-wrapper--editorpanels': usingEditorPanels,
-                    'insight-wrapper--singlecolumn': !usingEditorPanels && filters.insight === InsightType.FUNNELS,
-                })}
-            >
-                {isUsingDataExploration ? (
-                    <Query query={query} setQuery={setQuery} />
-                ) : (
-                    <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
-                )}
-                <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} />
-                </div>
-            </div>
+            {isUsingDataExploration ? (
+                <Query query={query} setQuery={setQuery} />
+            ) : (
+                <>
+                    {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
+                    <div
+                        className={clsx('insight-wrapper', {
+                            'insight-wrapper--editorpanels': usingEditorPanels,
+                            'insight-wrapper--singlecolumn':
+                                !usingEditorPanels && filters.insight === InsightType.FUNNELS,
+                        })}
+                    >
+                        <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                        <div className="insights-container" data-attr="insight-view">
+                            <InsightContainer insightMode={insightMode} />
+                        </div>
+                    </div>
+                </>
+            )}
 
             {insightMode !== ItemMode.View ? (
                 <>

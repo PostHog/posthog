@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react'
-import { CSSTransition } from 'react-transition-group'
 import { BindLogic, useActions, useValues } from 'kea'
 import clsx from 'clsx'
 
-import { QueryInsightEditorFilterGroup, QueryInsightEditorFilter, QueryEditorFilterProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { InsightsNav } from 'scenes/insights/InsightsNav'
+import { InsightContainer } from 'scenes/insights/InsightContainer'
+import { ItemMode } from '~/types'
+import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
+import { queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
 import { InsightQueryNode, InsightVizNode } from '../../schema'
 
-import { EditorFilterGroup } from './EditorFilterGroup'
-import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
-import { LifecycleToggles } from './LifecycleToggles'
-import { queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
-import { TrendsSeries } from './TrendsSeries'
+import { EditorFilters } from './EditorFilters'
 
 type InsightVizProps = {
     query: InsightVizNode
@@ -28,8 +28,9 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
     const { response, lastRefresh } = useValues(dataNodeLogic(dataNodeLogicProps))
 
-    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
+    const { insight } = useValues(insightLogic)
     const { setInsight, setLastRefresh } = useActions(insightLogic)
+    const { insightMode } = useValues(insightSceneLogic) // TODO: Tight coupling -- remove or make optional
 
     // TODO: use connected logic instead of useEffect?
     useEffect(() => {
@@ -48,91 +49,33 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
         }
     }, [response])
 
-    const isFunnels = false // TODO: implement with funnel queries
-    const isLifecycle = true
-    const showFilters = true // TODO: implement with insightVizLogic
-    const isTrendsLike = true
-
-    const editorFilters: QueryInsightEditorFilterGroup[] = [
-        {
-            title: 'Series',
-            editorFilters: filterFalsy([
-                isTrendsLike && {
-                    key: 'series',
-                    // label: isTrends ? TrendsSeriesLabel : undefined,
-                    component: TrendsSeries,
-                },
-                // isTrends
-                //     ? {
-                //           key: 'formula',
-                //           label: TrendsFormulaLabel,
-                //           component: TrendsFormula,
-                //       }
-                //     : null,
-            ]),
-        },
-        {
-            title: 'Filters',
-            count: filterPropertiesCount,
-            editorFilters: filterFalsy([
-                isLifecycle
-                    ? {
-                          key: 'properties',
-                          label: 'Filters',
-                          position: 'right',
-                          component: LifecycleGlobalFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
-                      }
-                    : null,
-                isLifecycle
-                    ? {
-                          key: 'toggles',
-                          label: 'Lifecycle Toggles',
-                          position: 'right',
-                          component: LifecycleToggles as (props: QueryEditorFilterProps) => JSX.Element | null,
-                      }
-                    : null,
-            ]),
-        },
-    ]
+    const isFunnels = isFunnelsQuery(query.source)
 
     const setQuerySource = (source: InsightQueryNode): void => {
         setQuery?.({ ...query, source })
     }
 
     return (
-        <>
-            {/* <BindLogic logic={dataTableLogic} props={dataTableLogicProps}> */}
-            <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
-                <CSSTransition in={showFilters} timeout={250} classNames="anim-" mountOnEnter unmountOnExit>
-                    <div
-                        className={clsx('EditorFiltersWrapper', {
-                            'EditorFiltersWrapper--singlecolumn': isFunnels,
-                        })}
-                    >
-                        <div className="EditorFilters">
-                            {editorFilters.map((editorFilterGroup) => (
-                                <EditorFilterGroup
-                                    key={editorFilterGroup.title}
-                                    editorFilterGroup={editorFilterGroup}
-                                    insight={insight}
-                                    insightProps={insightProps}
-                                    query={query.source}
-                                    setQuery={setQuerySource}
-                                />
-                            ))}
-                        </div>
-                    </div>
-                </CSSTransition>
-            </BindLogic>
-            {/* </BindLogic> */}
-            <div>
-                <h4>Query</h4>
-                <pre>{JSON.stringify(query, null, 2)}</pre>
-            </div>
-        </>
-    )
-}
+        // <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
+        <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
+            {insightMode === ItemMode.Edit && <InsightsNav />}
+            <div
+                className={clsx('insight-wrapper', {
+                    'insight-wrapper--singlecolumn': isFunnels,
+                })}
+            >
+                <EditorFilters query={query.source} setQuery={setQuerySource} />
 
-function filterFalsy(a: (QueryInsightEditorFilter | false | null | undefined)[]): QueryInsightEditorFilter[] {
-    return a.filter((e) => !!e) as QueryInsightEditorFilter[]
+                <div>
+                    <h4>Query</h4>
+                    <pre>{JSON.stringify(query, null, 2)}</pre>
+                </div>
+
+                <div className="insights-container" data-attr="insight-view">
+                    <InsightContainer insightMode={insightMode} />
+                </div>
+            </div>
+        </BindLogic>
+        // </BindLogic>
+    )
 }
