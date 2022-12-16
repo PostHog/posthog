@@ -107,11 +107,6 @@ const MiniFilters: SharedListMiniFilter[] = [
     },
     {
         tab: SessionRecordingPlayerTab.CONSOLE,
-        key: 'console-log',
-        name: 'Log',
-    },
-    {
-        tab: SessionRecordingPlayerTab.CONSOLE,
         key: 'console-warn',
         name: 'Warn',
     },
@@ -340,6 +335,25 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
                     for (const event of consoleLogs || []) {
                         const timestamp = dayjs(event.timestamp)
+
+                        let include = false
+
+                        if (miniFiltersByKey['console-all']?.enabled) {
+                            include = true
+                        }
+                        if (miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(event.level)) {
+                            include = true
+                        }
+                        if (miniFiltersByKey['console-warn']?.enabled && event.level === 'warn') {
+                            include = true
+                        }
+                        if (miniFiltersByKey['console-error']?.enabled && event.level === 'error') {
+                            include = true
+                        }
+
+                        if (!include) {
+                            continue
+                        }
 
                         if (allView && !['warn', 'error'].includes(event.level)) {
                             continue
