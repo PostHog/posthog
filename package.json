@@ -89,7 +89,7 @@
         "fs-extra": "^10.0.0",
         "fuse.js": "^6.4.1",
         "husky": "^7.0.4",
-        "kea": "^3.1.0",
+        "kea": "^3.1.2",
         "kea-forms": "^3.0.3",
         "kea-loaders": "^3.0.0",
         "kea-localstorage": "^3.1.0",

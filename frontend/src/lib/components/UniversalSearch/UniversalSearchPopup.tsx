@@ -152,14 +152,7 @@ export function UniversalSearchPopup({
     return (
         <div className="universal-search">
             <Popup
-                overlay={
-                    <TaxonomicFilter
-                        taxonomicFilterLogicKey="universalSearch"
-                        groupType={groupType}
-                        value={value}
-                        taxonomicGroupTypes={groupTypes ?? [groupType]}
-                    />
-                }
+                overlay={<TaxonomicFilter {...universalSearchLogicProps} />}
                 visible={visible}
                 placement="right-start"
                 fallbackPlacements={['bottom']}
