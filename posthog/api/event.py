@@ -81,13 +81,13 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             OpenApiParameter(
                 "select",
                 OpenApiTypes.STR,
-                description="JSON-serialized array of HogQL expressions to return",
+                description="(Experimental) JSON-serialized array of HogQL expressions to return",
                 many=True,
             ),
             OpenApiParameter(
                 "where",
                 OpenApiTypes.STR,
-                description="JSON-serialized array of HogQL expressions that must pass",
+                description="(Experimental) JSON-serialized array of HogQL expressions that must pass",
                 many=True,
             ),
             OpenApiParameter("person_id", OpenApiTypes.INT, description="Filter list by person id."),
