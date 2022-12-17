@@ -225,7 +225,7 @@ describe('eventsTableLogic', () => {
             })
 
             it('can set a poll timeout ID', async () => {
-                const timeoutHandle = setTimeout(() => {})
+                const timeoutHandle = window.setTimeout(() => {})
                 await expectLogic(logic, () => {
                     logic.actions.setPollTimeout(timeoutHandle)
                 }).toMatchValues({

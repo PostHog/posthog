@@ -12,18 +12,28 @@ import {
     Node,
     NodeKind,
     InsightQueryNode,
+    PersonsNode,
+    EventsQuery,
 } from '~/queries/schema'
 
-export function isDataNode(node?: Node): node is EventsNode | ActionsNode {
-    return isEventsNode(node)
+export function isDataNode(node?: Node): node is EventsNode | ActionsNode | PersonsNode {
+    return isEventsNode(node) || isEventsQuery(node) || isActionsNode(node) || isPersonsNode(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
 }
 
+export function isEventsQuery(node?: Node): node is EventsQuery {
+    return node?.kind === NodeKind.EventsQuery
+}
+
 export function isActionsNode(node?: Node): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
+}
+
+export function isPersonsNode(node?: Node): node is PersonsNode {
+    return node?.kind === NodeKind.PersonsNode
 }
 
 export function isDataTableNode(node?: Node): node is DataTableNode {

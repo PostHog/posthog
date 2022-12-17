@@ -21,6 +21,7 @@ class SessionRecordingPlaylist(models.Model):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_recordings"
     )
 
+    # DEPRECATED
     is_static: models.BooleanField = models.BooleanField(default=False)
 
     # Changing these fields materially alters the Playlist, so these count for the "last_modified_*" fields

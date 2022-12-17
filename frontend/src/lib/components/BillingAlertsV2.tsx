@@ -11,7 +11,7 @@ export function BillingAlertsV2(): JSX.Element | null {
     const { currentLocation } = useValues(router)
     const [alertHidden, setAlertHidden] = useState(false)
 
-    const showAlert = billingAlert && billingVersion !== 'v2'
+    const showAlert = billingAlert && billingVersion === 'v2'
 
     useEffect(() => {
         if (showAlert) {
@@ -25,11 +25,22 @@ export function BillingAlertsV2(): JSX.Element | null {
 
     const showButton = currentLocation.pathname !== urls.organizationBilling()
 
+    if (!showAlert) {
+        return null
+    }
+
+    const buttonProps = billingAlert.contactSupport
+        ? {
+              to: 'mailto:sales@posthog.com',
+              children: 'Contact support',
+          }
+        : { to: urls.organizationBilling(), children: 'Manage billing' }
+
     return (
         <div className="my-4">
             <AlertMessage
                 type={billingAlert.status}
-                action={showButton ? { to: urls.organizationBilling(), children: 'Manage billing' } : undefined}
+                action={showButton ? buttonProps : undefined}
                 onClose={billingAlert.status !== 'error' ? () => setAlertHidden(true) : undefined}
             >
                 <b>{billingAlert.title}</b>

@@ -21,6 +21,16 @@
             width: 30%;
             min-width: 350px;
             max-width: 400px;
+            overflow: hidden;
+        }
+
+        .SessionRecordingsPlaylist__lists {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            overflow: hidden;
+            padding-bottom: 1rem;
+            gap: 0.5rem;
         }
 
         .SessionRecordingsPlaylist__list-item {

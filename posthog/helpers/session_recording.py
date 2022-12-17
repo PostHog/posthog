@@ -128,7 +128,6 @@ class RecordingMetadata(TypedDict):
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
-    playlists: List[int]
 
 
 class DecompressedRecordingData(TypedDict):

@@ -78,14 +78,13 @@ export const inviteSignupLogic = kea<inviteSignupLogicType>([
     forms(({ actions, values }) => ({
         signup: {
             defaults: { email_opt_in: true, role_at_organization: '' } as AcceptInvitePayloadInterface,
-            errors: ({ password, first_name, role_at_organization }) => ({
+            errors: ({ password, first_name }) => ({
                 password: !password
                     ? 'Please enter your password to continue'
                     : password.length < 8
                     ? 'Password must be at least 8 characters'
                     : undefined,
                 first_name: !first_name ? 'Please enter your name' : undefined,
-                role_at_organization: !role_at_organization ? 'Please enter your role' : undefined,
             }),
             submit: async (payload, breakpoint) => {
                 await breakpoint()
