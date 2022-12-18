@@ -85,7 +85,7 @@ export function Experiment(): JSX.Element {
         removeExperimentGroup,
         setExperimentInsightType,
         archiveExperiment,
-        restartExperiment,
+        resetExperiment,
         loadExperiment,
         setExposureAndSampleSize,
         setExperimentValue,
@@ -671,7 +671,7 @@ export function Experiment(): JSX.Element {
                                         tooltip="Reset this experiment and go back to draft mode. Previous data will be unused."
                                         type="secondary"
                                         status="primary"
-                                        onClick={() => restartExperiment()}
+                                        onClick={() => resetExperiment()}
                                     >
                                         Reset
                                     </LemonButton>

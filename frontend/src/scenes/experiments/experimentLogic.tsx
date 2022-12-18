@@ -84,7 +84,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentLaunched',
                 'reportExperimentCompleted',
                 'reportExperimentArchived',
-                'reportExperimentRestarted',
+                'reportExperimentReset',
             ],
         ],
     }),
@@ -110,7 +110,7 @@ export const experimentLogic = kea<experimentLogicType>([
         endExperiment: true,
         addExperimentGroup: true,
         archiveExperiment: true,
-        restartExperiment: true,
+        resetExperiment: true,
         checkFlagImplementationWarning: true,
         checkFlagAvailabilityWarning: true,
     }),
@@ -348,9 +348,9 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ archived: true })
             values.experiment && actions.reportExperimentArchived(values.experiment)
         },
-        restartExperiment: async () => {
+        resetExperiment: async () => {
             actions.updateExperiment({ start_date: null, end_date: null })
-            values.experiment && actions.reportExperimentRestarted(values.experiment)
+            values.experiment && actions.reportExperimentReset(values.experiment)
         },
         setExperimentInsightType: () => {
             if (values.experimentId === 'new') {
