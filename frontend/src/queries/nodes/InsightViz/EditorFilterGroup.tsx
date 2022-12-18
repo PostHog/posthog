@@ -1,7 +1,5 @@
 import { useState } from 'react'
-import type { QueryEditorFilterProps, InsightLogicProps, InsightModel, QueryInsightEditorFilterGroup } from '~/types'
-// import { cleanFilters } from '../utils/cleanFilters'
-// import 'scenes/insights/EditorFilters/EditorFilterGroup.scss'
+import type { InsightLogicProps, InsightModel, QueryInsightEditorFilterGroup } from '~/types'
 import '../../../scenes/insights/EditorFilters/EditorFilterGroup.scss'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
@@ -18,13 +16,7 @@ export interface EditorFilterGroupProps {
     setQuery: (node: InsightQueryNode) => void
 }
 
-export function EditorFilterGroup({
-    query,
-    setQuery,
-    editorFilterGroup,
-}: // insight,
-// insightProps,
-EditorFilterGroupProps): JSX.Element {
+export function EditorFilterGroup({ query, setQuery, editorFilterGroup }: EditorFilterGroupProps): JSX.Element {
     const { title, count, defaultExpanded = true, editorFilters } = editorFilterGroup
     const [isRowExpanded, setIsRowExpanded] = useState(defaultExpanded)
 
@@ -50,27 +42,12 @@ EditorFilterGroupProps): JSX.Element {
             {isRowExpanded ? (
                 <div className="EditorFilterGroup__content">
                     {editorFilters.map(({ label: Label, tooltip, showOptional, key, component: Component }) => {
-                        // ({ label: Label, tooltip, showOptional, key, valueSelector, component: Component }) => {
-                        // TODO: Implement when a filter needs this
-                        // // Don't calculate editorFilterProps if not needed
-                        // const editorFilterProps: EditorFilterProps | null =
-                        //     typeof Label === 'function' || Component
-                        //         ? {
-                        //               insight,
-                        //               insightProps,
-                        //               filters: insight.filters ?? cleanFilters({}),
-                        //               value:
-                        //                   (valueSelector ? valueSelector(insight) : insight?.filters?.[key]) ??
-                        //                   null,
-                        //           }
-                        //         : null
-                        const editorFilterProps: unknown = null
                         return (
                             <div key={key}>
                                 <PureField
                                     label={
                                         typeof Label === 'function' ? (
-                                            <Label {...(editorFilterProps as QueryEditorFilterProps)} />
+                                            <Label query={query} setQuery={setQuery} />
                                         ) : (
                                             Label
                                         )
@@ -78,13 +55,7 @@ EditorFilterGroupProps): JSX.Element {
                                     info={tooltip}
                                     showOptional={showOptional}
                                 >
-                                    {Component ? (
-                                        <Component
-                                            {...(editorFilterProps as QueryEditorFilterProps)}
-                                            query={query}
-                                            setQuery={setQuery}
-                                        />
-                                    ) : null}
+                                    {Component ? <Component query={query} setQuery={setQuery} /> : null}
                                 </PureField>
                             </div>
                         )
