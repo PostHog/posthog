@@ -55,7 +55,7 @@ export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JS
     }
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col -mt-1">
             {lifecycles.map((lifecycle) => (
                 <LemonLabel key={lifecycle.name} info={lifecycle.tooltip}>
                     <LemonCheckbox

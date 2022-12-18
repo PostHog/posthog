@@ -45,7 +45,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element {
     return (
         <>
             {isLifecycleQuery(querySource) && (
-                <div className="mb-2">
+                <div className="leading-6">
                     Showing <b>Unique users</b> who did
                 </div>
             )}
