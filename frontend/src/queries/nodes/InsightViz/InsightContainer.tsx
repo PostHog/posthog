@@ -212,25 +212,23 @@ export function InsightContainer({
                 className="insights-graph-container"
             >
                 <div>
-                    <Row
-                        className={clsx('insights-graph-header', {
+                    <div
+                        className={clsx('flex items-center justify-between insights-graph-header', {
                             funnels: isFunnelsFilter(filters),
                         })}
-                        align="middle"
-                        justify="space-between"
                     >
                         {/*Don't add more than two columns in this row.*/}
                         {!disableLastComputation && (
-                            <Col>
+                            <div>
                                 <ComputationTimeWithRefresh />
-                            </Col>
+                            </div>
                         )}
-                        <Col>
+                        <div>
                             {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
                             {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
                             <InsightLegendButton />
-                        </Col>
-                    </Row>
+                        </div>
+                    </div>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
                     ) : isFilterWithDisplay(filters) && filters.show_legend ? (
