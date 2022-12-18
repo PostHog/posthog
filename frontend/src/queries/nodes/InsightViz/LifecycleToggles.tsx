@@ -57,7 +57,7 @@ export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JS
                     {lifecycle.name}{' '}
                     <div>
                         <Checkbox
-                            defaultChecked
+                            checked={toggledLifecycles.includes(lifecycle.name)}
                             className={lifecycle.name}
                             onChange={() => toggleLifecycle(lifecycle.name)}
                         />
