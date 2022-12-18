@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { kea, props, key, path, connect, actions, reducers, selectors, listeners, events } from 'kea'
 import { EntityTypes, FilterType, Entity, EntityType, ActionFilter, EntityFilter, AnyPropertyFilter } from '~/types'
 import type { entityFilterLogicType } from './entityFilterLogicType'
 import { eventUsageLogic, GraphSeriesAddedSource } from 'lib/utils/eventUsageLogic'
@@ -48,14 +48,14 @@ export interface EntityFilterProps {
     addFilterDefaultOptions?: Record<string, any>
 }
 
-export const entityFilterLogic = kea<entityFilterLogicType>({
-    props: {} as EntityFilterProps,
-    key: (props) => props.typeKey,
-    path: (key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key],
-    connect: {
+export const entityFilterLogic = kea<entityFilterLogicType>([
+    props({} as EntityFilterProps),
+    key((props) => props.typeKey),
+    path((key) => ['scenes', 'insights', 'ActionFilter', 'entityFilterLogic', key]),
+    connect({
         logic: [eventUsageLogic],
-    },
-    actions: () => ({
+    }),
+    actions({
         selectFilter: (filter: EntityFilter | ActionFilter | null) => ({ filter }),
         updateFilterMath: (
             filter: Partial<ActionFilter> & {
@@ -107,7 +107,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
         hideModal: true,
     }),
 
-    reducers: ({ props }) => ({
+    reducers(({ props }) => ({
         selectedFilter: [
             null as EntityFilter | ActionFilter | null,
             {
@@ -136,13 +136,13 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
                 hideModal: () => false,
             },
         ],
+    })),
+
+    selectors({
+        filters: [(s) => [s.localFilters], (localFilters): FilterType => toFilters(localFilters)],
     }),
 
-    selectors: {
-        filters: [(s) => [s.localFilters], (localFilters): FilterType => toFilters(localFilters)],
-    },
-
-    listeners: ({ actions, values, props }) => ({
+    listeners(({ actions, values, props }) => ({
         renameFilter: async ({ custom_name }) => {
             if (!values.selectedFilter) {
                 return
@@ -240,8 +240,8 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
         setEntityFilterVisibility: async ({ index, value }) => {
             eventUsageLogic.actions.reportEntityFilterVisibilitySet(index, value)
         },
-    }),
-    events: ({ actions, props, values }) => ({
+    })),
+    events(({ actions, props, values }) => ({
         afterMount: () => {
             if (props.singleMode) {
                 const filter = { id: null, name: null, type: EntityTypes.NEW_ENTITY, order: values.localFilters.length }
@@ -249,5 +249,5 @@ export const entityFilterLogic = kea<entityFilterLogicType>({
                 actions.selectFilter({ ...filter, index: 0 })
             }
         },
-    }),
-})
+    })),
+])
