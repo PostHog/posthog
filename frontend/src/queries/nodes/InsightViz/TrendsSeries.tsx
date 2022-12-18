@@ -1,10 +1,10 @@
 // import { useActions, useValues } from 'kea'
-import { useValues } from 'kea'
+import { useValues, useActions } from 'kea'
 // import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 // import { EditorFilterProps, FilterType, InsightType } from '~/types'
-import { InsightType, FilterType } from '~/types'
+import { InsightType, FilterType, InsightLogicProps } from '~/types'
 // import { alphabet } from 'lib/utils'
 // import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -13,17 +13,20 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 // import { Tooltip } from 'lib/components/Tooltip'
 // import { IconCalculate } from 'lib/components/icons'
 // import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
-import { InsightQueryNode, TrendsQuery, FunnelsQuery, LifecycleQuery } from '~/queries/schema'
+import { TrendsQuery, FunnelsQuery, LifecycleQuery } from '~/queries/schema'
 import { isLifecycleQuery } from '~/queries/utils'
 import { actionsAndEventsToSeries, queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 type TrendsSeriesProps = {
-    query: InsightQueryNode
-    setQuery: (node: InsightQueryNode) => void
+    insightProps: InsightLogicProps
 }
 
-export function TrendsSeries({ query, setQuery }: TrendsSeriesProps): JSX.Element {
+export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element {
+    const dataLogic = insightDataLogic(insightProps)
+    const { querySource } = useValues(dataLogic)
+    const { setQuerySourceMerge } = useActions(dataLogic)
     // const { setFilters } = useActions(trendsLogic(insightProps))
     // const { filters, isFormulaOn } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -38,10 +41,10 @@ export function TrendsSeries({ query, setQuery }: TrendsSeriesProps): JSX.Elemen
         // ...(isTrendsFilter(filters) ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
 
-    const filters = queryNodeToFilter(query)
+    const filters = queryNodeToFilter(querySource)
     return (
         <>
-            {isLifecycleQuery(query) && (
+            {isLifecycleQuery(querySource) && (
                 <div className="mb-2">
                     Showing <b>Unique users</b> who did
                 </div>
@@ -49,7 +52,7 @@ export function TrendsSeries({ query, setQuery }: TrendsSeriesProps): JSX.Elemen
             <ActionFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
-                    setQuery({ ...query, series: actionsAndEventsToSeries(payload as any) } as
+                    setQuerySourceMerge({ series: actionsAndEventsToSeries(payload as any) } as
                         | TrendsQuery
                         | FunnelsQuery
                         | LifecycleQuery)
