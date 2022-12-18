@@ -28,48 +28,45 @@ type LifecycleTogglesProps = {
     setQuery: (node: LifecycleQuery) => void
 }
 
+const DEFAULT_LIFECYCLE_TOGGLES: LifecycleToggle[] = ['new', 'returning', 'resurrecting', 'dormant']
+
 export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JSX.Element {
-    // const { toggleLifecycle } = useActions(trendsLogic(insightProps))
+    const toggledLifecycles = query.lifecycleFilter?.toggledLifecycles || DEFAULT_LIFECYCLE_TOGGLES
+    const setToggledLifecycles = (lifecycles: LifecycleToggle[]): void => {
+        setQuery({
+            ...query,
+            lifecycleFilter: {
+                ...query.lifecycleFilter,
+                toggledLifecycles: lifecycles,
+            },
+        })
+    }
+
     const toggleLifecycle = (name: LifecycleToggle): void => {
-        if (query.lifecycleFilter?.toggledLifecycles?.includes(name)) {
-            setQuery({
-                ...query,
-                lifecycleFilter: {
-                    ...query.lifecycleFilter,
-                    toggledLifecycles: query.lifecycleFilter.toggledLifecycles.filter((n) => n !== name),
-                },
-            })
+        if (toggledLifecycles.includes(name)) {
+            setToggledLifecycles(toggledLifecycles.filter((n) => n !== name))
         } else {
-            setQuery({
-                ...query,
-                lifecycleFilter: {
-                    ...query.lifecycleFilter,
-                    toggledLifecycles: query.lifecycleFilter?.toggledLifecycles
-                        ? [...query.lifecycleFilter.toggledLifecycles, name]
-                        : [name],
-                },
-            })
+            setToggledLifecycles([...toggledLifecycles, name])
         }
     }
+
     return (
-        <>
-            <div className="LifecycleToggles">
-                {lifecycles.map((lifecycle, idx) => (
-                    <div key={idx}>
-                        {lifecycle.name}{' '}
-                        <div>
-                            <Checkbox
-                                defaultChecked
-                                className={lifecycle.name}
-                                onChange={() => toggleLifecycle(lifecycle.name)}
-                            />
-                            <Tooltip title={lifecycle.tooltip}>
-                                <InfoCircleOutlined className="info-indicator" />
-                            </Tooltip>
-                        </div>
+        <div className="LifecycleToggles">
+            {lifecycles.map((lifecycle, idx) => (
+                <div key={idx}>
+                    {lifecycle.name}{' '}
+                    <div>
+                        <Checkbox
+                            defaultChecked
+                            className={lifecycle.name}
+                            onChange={() => toggleLifecycle(lifecycle.name)}
+                        />
+                        <Tooltip title={lifecycle.tooltip}>
+                            <InfoCircleOutlined className="info-indicator" />
+                        </Tooltip>
                     </div>
-                ))}
-            </div>
-        </>
+                </div>
+            ))}
+        </div>
     )
 }
