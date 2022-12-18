@@ -1434,6 +1434,7 @@ export interface EditorFilterProps {
 export interface QueryEditorFilterProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
+    insightProps: InsightLogicProps
 }
 
 export interface InsightEditorFilter<T = EditorFilterProps> {
