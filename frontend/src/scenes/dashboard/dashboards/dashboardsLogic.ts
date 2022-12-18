@@ -10,6 +10,7 @@ export enum DashboardsTab {
     Yours = 'yours',
     Pinned = 'pinned',
     Shared = 'shared',
+    Templates = 'templates',
 }
 
 export const dashboardsLogic = kea<dashboardsLogicType>({

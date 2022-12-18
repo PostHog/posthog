@@ -14,6 +14,9 @@ import { DeleteDashboardModal } from 'scenes/dashboard/DeleteDashboardModal'
 import { DuplicateDashboardModal } from 'scenes/dashboard/DuplicateDashboardModal'
 import { NoDashboards } from 'scenes/dashboard/dashboards/NoDashboards'
 import { DashboardsTable } from 'scenes/dashboard/dashboards/DashboardsTable'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardTemplatesTable } from 'scenes/dashboard/dashboards/templates/DashboardTemplatesTable'
 
 export const scene: SceneExport = {
     component: Dashboards,
@@ -26,6 +29,7 @@ export function Dashboards(): JSX.Element {
     const { dashboards, searchTerm, currentTab } = useValues(dashboardsLogic)
     const { showNewDashboardModal } = useActions(newDashboardLogic)
     const { closePrompts } = useActions(inAppPromptLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -56,6 +60,9 @@ export function Dashboards(): JSX.Element {
                 <Tabs.TabPane tab="Your Dashboards" key={DashboardsTab.Yours} />
                 <Tabs.TabPane tab="Pinned" key={DashboardsTab.Pinned} />
                 <Tabs.TabPane tab="Shared" key={DashboardsTab.Shared} />
+                {!!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES] && (
+                    <Tabs.TabPane tab="Templates" key={DashboardsTab.Templates} />
+                )}
             </Tabs>
             <div className="flex">
                 <LemonInput
@@ -67,7 +74,9 @@ export function Dashboards(): JSX.Element {
                 <div />
             </div>
             <LemonDivider className="my-4" />
-            {dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
+            {currentTab === DashboardsTab.Templates ? (
+                <DashboardTemplatesTable />
+            ) : dashboardsLoading || dashboards.length > 0 || searchTerm || currentTab !== DashboardsTab.All ? (
                 <DashboardsTable />
             ) : (
                 <NoDashboards />
