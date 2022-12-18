@@ -1,25 +1,29 @@
-// import { useActions } from 'kea'
-// import { trendsLogic } from 'scenes/trends/trendsLogic'
-// import { EditorFilterProps } from '~/types'
-import { Checkbox } from 'antd'
-import { Tooltip } from 'lib/components/Tooltip'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { LifecycleQuery } from '~/queries/schema'
-import '../../../scenes/insights/EditorFilters/LifecycleToggles.scss'
 import { LifecycleToggle } from '~/types'
+import { LemonCheckbox, LemonLabel } from '@posthog/lemon-ui'
 
-const lifecycles: { name: LifecycleToggle; tooltip: string }[] = [
-    { name: 'new', tooltip: 'Users who were first seen on this period and did the activity during the period.' },
-    { name: 'returning', tooltip: 'Users who did activity both this and previous period.' },
+const lifecycles: { name: LifecycleToggle; tooltip: string; color: string }[] = [
+    {
+        name: 'new',
+        tooltip: 'Users who were first seen on this period and did the activity during the period.',
+        color: 'var(--lifecycle-new)',
+    },
+    {
+        name: 'returning',
+        tooltip: 'Users who did activity both this and previous period.',
+        color: 'var(--lifecycle-returning)',
+    },
     {
         name: 'resurrecting',
         tooltip:
             'Users who did the activity this period but did not do the activity on the previous period (i.e. were inactive for 1 or more periods).',
+        color: 'var(--lifecycle-resurrecting)',
     },
     {
         name: 'dormant',
         tooltip:
             'Users who went dormant on this period, i.e. users who did not do the activity this period but did the activity on the previous period.',
+        color: 'var(--lifecycle-dormant)',
     },
 ]
 
@@ -51,21 +55,16 @@ export function LifecycleToggles({ query, setQuery }: LifecycleTogglesProps): JS
     }
 
     return (
-        <div className="LifecycleToggles">
-            {lifecycles.map((lifecycle, idx) => (
-                <div key={idx}>
-                    {lifecycle.name}{' '}
-                    <div>
-                        <Checkbox
-                            checked={toggledLifecycles.includes(lifecycle.name)}
-                            className={lifecycle.name}
-                            onChange={() => toggleLifecycle(lifecycle.name)}
-                        />
-                        <Tooltip title={lifecycle.tooltip}>
-                            <InfoCircleOutlined className="info-indicator" />
-                        </Tooltip>
-                    </div>
-                </div>
+        <div className="flex flex-col">
+            {lifecycles.map((lifecycle) => (
+                <LemonLabel key={lifecycle.name} info={lifecycle.tooltip}>
+                    <LemonCheckbox
+                        label={lifecycle.name.charAt(0).toUpperCase() + lifecycle.name.substring(1)}
+                        color={lifecycle.color}
+                        checked={toggledLifecycles.includes(lifecycle.name)}
+                        onChange={() => toggleLifecycle(lifecycle.name)}
+                    />
+                </LemonLabel>
             ))}
         </div>
     )
