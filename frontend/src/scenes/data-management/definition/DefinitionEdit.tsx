@@ -5,10 +5,9 @@ import { definitionEditLogic, DefinitionEditLogicProps } from 'scenes/data-manag
 import { LemonButton } from 'lib/components/LemonButton'
 import { Col, Divider, Row } from 'antd'
 import { Field } from 'lib/forms/Field'
-import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { isPostHogProp } from 'lib/components/PropertyKeyInfo'
+import { getPropertyLabel, isPostHogProp } from 'lib/components/PropertyKeyInfo'
 import { VerifiedEventCheckbox } from 'lib/components/DefinitionPopup/DefinitionPopupContents'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { Form } from 'kea-forms'
@@ -52,9 +51,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
             <Divider />
             <Row gutter={[16, 24]} style={{ maxWidth: 640 }} className="ph-ignore-input">
                 <Col span={24}>
-                    <Field name="name" label="Name">
-                        <LemonInput data-attr="definition-name" value={definition.name} disabled />
-                    </Field>
+                    <h1>{getPropertyLabel(definition.name) || ''}</h1>
                     <div className="definition-sent-as">
                         Raw event name: <pre>{definition.name}</pre>
                     </div>
