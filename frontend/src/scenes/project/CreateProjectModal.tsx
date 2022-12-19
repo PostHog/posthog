@@ -39,25 +39,24 @@ export function CreateProjectModal({
         <LemonModal
             title={currentOrganization ? `Create a project in ${currentOrganization.name}` : 'Create a project'}
             description={
-                <p>
-                    Most companies will want 3 projects:
-                    <br />
-                    1. Local Development
-                    <br />
-                    2. Staging
-                    <br />
-                    3. Production
-                    <br />
-                    <br />
-                    <strong>Tip:</strong> we recommend using the same project for both your website and app to track
-                    across them. You can always apply a filter to focus on just one.{' '}
-                    <Link to="https://posthog.com/manual/organizations-and-projects#projects" target="_blank">
-                        Learn more here.
-                    </Link>
-                    <br />
-                    <br />
-                    <strong>Bonus tip:</strong> you can rename your "Default Project" to "Production".
-                </p>
+                <>
+                    <p>For most companies we recommend using 3 projects:</p>
+                    <ol>
+                        <li>Local Development</li>
+                        <li>Staging</li>
+                        <li>Production</li>
+                    </ol>
+                    <p>
+                        <strong>Tip:</strong> we recommend using the same project for both your website and app to track
+                        across them. You can always apply a filter to focus on just one.{' '}
+                        <Link to="https://posthog.com/manual/organizations-and-projects#projects" target="_blank">
+                            Learn more here.
+                        </Link>
+                    </p>
+                    <p>
+                        <strong>Bonus tip:</strong> you can rename your "Default Project" to "Production".
+                    </p>
+                </>
             }
             footer={
                 <>
