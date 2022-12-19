@@ -49,9 +49,12 @@ const DashboardRelationRow = ({
 
     const { currentTeam } = useValues(teamLogic)
     const isPrimary = dashboard.id === currentTeam?.primary_dashboard
+
     return (
         <div
             data-attr="dashboard-list-item"
+            /* style is passed down from AutoSizer */
+            /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
             className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
         >
