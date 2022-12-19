@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { CardContainer } from 'scenes/ingestion/v2/CardContainer'
-import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogic'
+import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -8,18 +8,24 @@ import { BillingEnrollment } from 'scenes/billing/BillingEnrollment'
 import { LemonDivider } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/components/icons'
 import { billingLogic } from 'scenes/billing/billingLogic'
-import { billingLogic as billingLogicV2 } from 'scenes/billing/v2/billingLogic'
+import { billingLogic as billingLogicV2 } from 'scenes/billing/v2/control/billingLogic'
 import { Plan } from 'scenes/billing/Plan'
-import { BillingV2 } from 'scenes/billing/v2/Billing'
+import { BillingV2 } from 'scenes/billing/v2/control/Billing'
+import { BillingV2 as BillingV2Test } from 'scenes/billing/v2/test/Billing'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { urls } from 'scenes/urls'
-import { BillingHero } from 'scenes/billing/v2/BillingHero'
+import { BillingHero } from 'scenes/billing/v2/control/BillingHero'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function BillingPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogicV2)
     const { reportIngestionContinueWithoutBilling } = useActions(eventUsageLogic)
     const { billing, billingVersion } = useValues(billingLogic)
     const { billing: billingV2 } = useValues(billingLogicV2)
+
+    const featureFlags = featureFlagLogic.findMounted()?.values?.featureFlags
+    const testExperiment = featureFlags?.[FEATURE_FLAGS.BILLING_FEATURES_EXPERIMENT] === 'test'
 
     if (!billingVersion) {
         return (
@@ -63,7 +69,11 @@ export function BillingPanel(): JSX.Element {
                 ) : (
                     <div className="text-left flex flex-col space-y-4">
                         <h1 className="ingestion-title">Add payment method</h1>
-                        <BillingV2 redirectPath={urls.ingestion() + '/billing'} />
+                        {testExperiment ? (
+                            <BillingV2Test redirectPath={urls.ingestion() + '/billing'} showCurrentUsage={false} />
+                        ) : (
+                            <BillingV2 redirectPath={urls.ingestion() + '/billing'} />
+                        )}
 
                         <LemonDivider dashed />
 

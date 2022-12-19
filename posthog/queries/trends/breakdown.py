@@ -38,6 +38,7 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import TIME_IN_SECONDS, QueryDateRange
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
+    BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL,
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
@@ -47,7 +48,7 @@ from posthog.queries.trends.sql import (
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
-    SESSION_DURATION_BREAKDOWN_AGGREGATE_QUERY_SQL,
+    SESSION_DURATION_BREAKDOWN_AGGREGATE_SQL,
     SESSION_DURATION_BREAKDOWN_INNER_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL,
     VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL,
@@ -204,10 +205,32 @@ class TrendsBreakdown:
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
-            if self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
+            if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                active_user_format_params, active_user_query_params = get_active_user_params(
+                    self.filter, self.entity, self.team_id
+                )
+                self.params.update(active_user_query_params)
+                conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
+                    **breakdown_filter_params, **active_user_format_params
+                )
+                content_sql = BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    breakdown_value=breakdown_value,
+                    conditions=conditions,
+                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    **active_user_format_params,
+                    **breakdown_filter_params,
+                )
+            elif self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_DURATION_BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                content_sql = SESSION_DURATION_BREAKDOWN_AGGREGATE_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,

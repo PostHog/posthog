@@ -17,11 +17,23 @@ jobs:
                   path: posthog
                   fetch-depth: 0
 
-            - name: Install dependencies (yarn)
-              run: cd posthog && yarn
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+                  cache-dependency-path: posthog/pnpm-lock.yaml
+
+            - name: Install dependencies (pnpm)
+              run: cd posthog && pnpm i
 
             - name: Build storybook
-              run: cd posthog && yarn build-storybook
+              run: cd posthog && pnpm build-storybook
 
             - name: Check out PostHog/storybook-build repo
               uses: actions/checkout@v3

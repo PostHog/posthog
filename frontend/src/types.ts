@@ -51,6 +51,7 @@ export enum AvailableFeature {
     APP_METRICS = 'app_metrics',
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     ROLE_BASED_ACCESS = 'role_based_access',
+    RECORDINGS_FILE_EXPORT = 'recordings_file_export',
 }
 
 export enum LicensePlan {
@@ -274,6 +275,8 @@ export interface TeamType extends TeamBasicType {
      * This field should have a default value of `{}`, but it IS nullable and can be `null` in some cases.
      */
     correlation_config: CorrelationConfigType | null
+    person_on_events_querying_enabled: boolean
+    groups_on_events_querying_enabled: boolean
 }
 
 export interface ActionType {
@@ -321,22 +324,28 @@ export interface ElementType {
     attr_class?: string[]
     attr_id?: string
     attributes: Record<string, string>
-    href: string
-    nth_child: number
-    nth_of_type: number
-    order: number
+    href?: string
+    nth_child?: number
+    nth_of_type?: number
+    order?: number
     tag_name: string
     text?: string
 }
 
 export type ToolbarUserIntent = 'add-action' | 'edit-action'
+export type ToolbarSource = 'url' | 'localstorage'
+export type ToolbarVersion = 'toolbar'
 
-export interface EditorProps {
+/* sync with posthog-js */
+export interface ToolbarParams {
     apiURL?: string
     jsURL?: string
-    temporaryToken?: string
+    token?: string /** public posthog-js token */
+    temporaryToken?: string /** private temporary user token */
     actionId?: number
     userIntent?: ToolbarUserIntent
+    source?: ToolbarSource
+    toolbarVersion?: ToolbarVersion
     instrument?: boolean
     distinctId?: string
     userEmail?: string
@@ -344,7 +353,7 @@ export interface EditorProps {
     featureFlags?: Record<string, string | boolean>
 }
 
-export interface ToolbarProps extends EditorProps {
+export interface ToolbarProps extends ToolbarParams {
     posthog?: PostHog
     disableExternalStyles?: boolean
 }
@@ -384,6 +393,7 @@ export enum SavedInsightsTabs {
 export enum SessionRecordingsTabs {
     Recent = 'recent',
     Playlists = 'playlists',
+    FilePlayback = 'file-playback',
 }
 
 export enum ExperimentsTabs {
@@ -589,7 +599,6 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
-    static_recordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -634,7 +643,7 @@ export interface FunnelStepRangeEntityFilter {
 export type EntityFilterTypes = EntityFilter | ActionFilter | null
 
 export interface PersonType {
-    id?: number
+    id?: string
     uuid?: string
     name?: string
     distinct_ids: string[]
@@ -812,7 +821,7 @@ export interface RecordingTimeMixinType {
     playerTime: number | null
     playerPosition: PlayerPosition | null
     colonTimestamp?: string
-    isOutOfBand?: boolean // Did the event or console log not originate from the same client library as the recording
+    capturedInWindow?: boolean // Did the event or console log not originate from the same client library as the recording
 }
 
 export interface RecordingEventType extends EventType, RecordingTimeMixinType {
@@ -840,8 +849,6 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
-    playlist_items?: Pick<SessionRecordingType, 'id'>[] // only id is exposed by api to minimize data passed through components
-    is_static?: boolean
 }
 
 export interface SessionRecordingType {
@@ -1389,6 +1396,7 @@ export interface EventsListQueryParams {
     orderBy?: string[]
     action_id?: number
     after?: string
+    before?: string
     limit?: number
 }
 
@@ -1659,7 +1667,8 @@ export interface SetInsightOptions {
 export interface FeatureFlagGroupType {
     properties: AnyPropertyFilter[]
     rollout_percentage: number | null
-    variant?: string
+    variant: string | null
+    users_affected?: number
 }
 
 export interface MultivariateFlagVariant {
@@ -1706,6 +1715,11 @@ export interface FeatureFlagRollbackConditions {
 export interface CombinedFeatureFlagAndValueType {
     feature_flag: FeatureFlagType
     value: boolean | string
+}
+
+export interface UserBlastRadiusType {
+    users_affected: number
+    total_users: number
 }
 
 export interface PrevalidatedInvite {
@@ -1905,13 +1919,13 @@ export interface Experiment {
     description?: string
     feature_flag_key: string
     // ID of feature flag
-    feature_flag: number
+    feature_flag?: number
     filters: FilterType
     parameters: {
         minimum_detectable_effect?: number
         recommended_running_time?: number
         recommended_sample_size?: number
-        feature_flag_variants?: MultivariateFlagVariant[]
+        feature_flag_variants: MultivariateFlagVariant[]
     }
     start_date?: string
     end_date?: string
@@ -2013,6 +2027,8 @@ export interface AppContext {
     switched_team: TeamType['id'] | null
     /** First day of the week (0 = Sun, 1 = Mon, ...) */
     week_start: number
+
+    year_in_hog_url?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'
@@ -2309,21 +2325,33 @@ export enum ExporterFormat {
     PNG = 'image/png',
     CSV = 'text/csv',
     PDF = 'application/pdf',
+    JSON = 'application/json',
 }
+
+/** Exporting directly from the browser to a file */
+export type LocalExportContext = {
+    localData: string
+    filename: string
+    mediaType: ExporterFormat
+}
+
+export type OnlineExportContext = {
+    method?: string
+    path: string
+    query?: any
+    body?: any
+    filename?: string
+    max_limit?: number
+}
+
+export type ExportContext = OnlineExportContext | LocalExportContext
 
 export interface ExportedAssetType {
     id: number
     export_format: ExporterFormat
     dashboard?: number
     insight?: number
-    export_context?: {
-        method?: string
-        path: string
-        query?: any
-        body?: any
-        filename?: string
-        max_limit?: number
-    }
+    export_context?: ExportContext
     has_content: boolean
     filename: string
 }
@@ -2362,6 +2390,8 @@ export interface RoleType {
     id: string
     name: string
     feature_flags_access_level: AccessLevel
+    members: RoleMemberType[]
+    associated_flags: { id: number; key: string }[]
     created_at: string
     created_by: UserBasicType | null
 }

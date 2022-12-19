@@ -42,7 +42,7 @@ export interface PlayerListExpandableConfig<T extends Record<string, any>> exten
     expandedPreviewContentRender?: (record: T, recordIndex: number) => any
 }
 
-export interface PlayerListProps<T> extends SessionRecordingPlayerLogicProps {
+export interface PlayerListProps<T extends Record<string, any>> extends SessionRecordingPlayerLogicProps {
     tab: SessionRecordingPlayerTab
     expandable?: PlayerListExpandableConfig<T>
     row?: RowConfig<T>

@@ -14,6 +14,7 @@ import time
 import uuid
 import zlib
 from enum import Enum
+from functools import wraps
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -310,10 +311,16 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_url"] = get_js_url(request)
 
+    try:
+        year_in_hog_url = f"/year_in_posthog/2022/{str(request.user.uuid)}"  # type: ignore
+    except:
+        year_in_hog_url = None
+
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
         "week_start": 1,  # Monday
+        "year_in_hog_url": year_in_hog_url,
     }
 
     from posthog.api.geoip import get_geoip_properties  # avoids circular import
@@ -956,8 +963,16 @@ def get_available_timezones_with_offsets() -> Dict[str, float]:
 
 
 def should_refresh(request: Request) -> bool:
-    query_param = request.query_params.get("refresh")
-    data_value = request.data.get("refresh")
+    return _request_has_key_set("refresh", request)
+
+
+def should_ignore_dashboard_items_field(request: Request) -> bool:
+    return _request_has_key_set("no_items_field", request)
+
+
+def _request_has_key_set(key: str, request: Request) -> bool:
+    query_param = request.query_params.get(key)
+    data_value = request.data.get(key)
 
     return (query_param is not None and (query_param == "" or query_param.lower() == "true")) or data_value is True
 
@@ -1173,3 +1188,23 @@ def wait_for_parallel_celery_group(task: Any, max_timeout: Optional[datetime.tim
             raise TimeoutError("Timed out waiting for celery task to finish")
         time.sleep(0.1)
     return task
+
+
+def patchable(fn):
+    """
+    Decorator which allows patching behavior of a function at run-time.
+
+    Used in benchmarking scripts.
+    """
+
+    @wraps(fn)
+    def inner(*args, **kwargs):
+        return inner._impl(*args, **kwargs)  # type: ignore
+
+    def patch(wrapper):
+        inner._impl = lambda *args, **kw: wrapper(fn, *args, **kw)  # type: ignore
+
+    inner._impl = fn  # type: ignore
+    inner._patch = patch  # type: ignore
+
+    return inner

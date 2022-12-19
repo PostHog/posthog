@@ -242,32 +242,6 @@ VALUES
 """
 )
 
-GET_EVENTS_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events
-"""
-
-GET_EVENTS_BY_TEAM_SQL = """
-SELECT
-    uuid,
-    event,
-    properties,
-    timestamp,
-    team_id,
-    distinct_id,
-    elements_chain,
-    created_at
-FROM events WHERE team_id = %(team_id)s
-"""
-
 SELECT_PROP_VALUES_SQL = """
 SELECT
     DISTINCT {property_field}
@@ -327,6 +301,20 @@ team_id = %(team_id)s
 {conditions}
 {filters}
 ORDER BY timestamp {order} {limit}
+"""
+
+SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART = """
+SELECT {columns}
+FROM events
+WHERE
+team_id = %(team_id)s
+{conditions}
+{filters}
+{where}
+{group}
+{having}
+{order}
+{limit}
 """
 
 SELECT_ONE_EVENT_SQL = """
@@ -403,7 +391,15 @@ GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
 """
 
-GET_EVENTS_VOLUME = "SELECT event, count() AS count, max(timestamp) AS last_seen_at FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
+GET_EVENTS_VOLUME = """
+SELECT event, count() AS count, max(timestamp) AS last_seen_at
+FROM events
+PREWHERE team_id = %(team_id)s
+AND timestamp > %(timestamp)s
+GROUP BY event ORDER BY count DESC
+"""
+
+
 GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
     WITH property_tuples AS (
         SELECT DISTINCT ON (property_tuple.1)

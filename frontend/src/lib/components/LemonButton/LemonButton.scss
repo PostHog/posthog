@@ -145,7 +145,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt', 'orange') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
@@ -234,7 +234,7 @@
         &.LemonButton--status-primary {
             &:hover {
                 // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
-                background: var(--primary-button-nested-hover);
+                background: var(--primary-extralight);
             }
         }
     }

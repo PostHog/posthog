@@ -73,7 +73,7 @@ class TestDecide(BaseTest):
         self.team.save()
         response = self.client.get("/decide/", HTTP_ORIGIN="https://evilsite.com").json()
         self.assertEqual(response["isAuthenticated"], False)
-        self.assertIsNone(response["editorParams"].get("toolbarVersion", None))
+        self.assertIsNone(response["toolbarParams"].get("toolbarVersion", None))
 
     def test_user_session_recording_opt_in(self):
         # :TRICKY: Test for regression around caching

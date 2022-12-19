@@ -7,7 +7,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import clsx from 'clsx'
 import { SceneExport } from 'scenes/sceneTypes'
-import { SocialLoginIcon } from 'lib/components/SocialLoginButton/SocialLoginIcon'
+import { SocialLoginIcon } from 'lib/components/SocialLoginButton/control/SocialLoginIcon'
 import { SSO_PROVIDER_NAMES } from 'lib/constants'
 import { SSOProviders } from '~/types'
 import { LemonButton, LemonButtonProps, LemonInput } from '@posthog/lemon-ui'
@@ -87,9 +87,18 @@ export function Login(): JSX.Element {
     }, [isPasswordHidden])
 
     return (
-        <BridgePage view="login" noHedgehog>
+        <BridgePage
+            view="login"
+            hedgehog
+            message={
+                <>
+                    Welcome to
+                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
+                </>
+            }
+        >
             <div className="space-y-2">
-                <h2>Get started</h2>
+                <h2>Log in</h2>
                 {generalError && (
                     <AlertMessage type="error">
                         {generalError.detail ||
@@ -113,7 +122,17 @@ export function Login(): JSX.Element {
                         />
                     </Field>
                     <div className={clsx('PasswordWrapper', isPasswordHidden && 'zero-height')}>
-                        <Field name="password" label="Password">
+                        <Field
+                            name="password"
+                            label={
+                                <div className="flex flex-1 items-center justify-between gap-2">
+                                    <span>Password</span>
+                                    <Link to="/reset" data-attr="forgot-password">
+                                        Forgot your password?
+                                    </Link>
+                                </div>
+                            }
+                        >
                             <LemonInput
                                 type="password"
                                 ref={passwordInputRef}
@@ -142,16 +161,14 @@ export function Login(): JSX.Element {
                         <SSOLoginButton provider="saml" email={login.email} status="primary" />
                     )}
                 </Form>
-                <div className="flex items-center justify-center flex-wrap gap-4 mt-4 font-semibold">
-                    {preflight?.cloud && (
-                        <Link to="/signup" data-attr="signup">
+                {preflight?.cloud && (
+                    <div className="text-center mt-4">
+                        Don't have an account?{' '}
+                        <Link to="/signup" data-attr="signup" className="font-bold">
                             Create an account
                         </Link>
-                    )}
-                    <Link to="/reset" data-attr="forgot-password">
-                        Forgot your password?
-                    </Link>
-                </div>
+                    </div>
+                )}
                 <SocialLoginButtons caption="Or log in with" topDivider />
             </div>
         </BridgePage>

@@ -60,6 +60,10 @@ beforeEach(() => {
             kafkaProducer: {
                 queueMessage: jest.fn(),
             },
+            teamManager: {
+                setTeamIngestedEvent: jest.fn(),
+                fetchTeam: jest.fn().mockResolvedValue({ id: 2, ingested_event: false }),
+            },
         },
     }
 })
@@ -86,6 +90,14 @@ describe('emitToBufferStep()', () => {
         })
         expect(runner.hub.db.fetchPerson).toHaveBeenCalledWith(2, 'my_id')
         expect(response).toEqual(null)
+
+        // We should have also set `posthog_team.ingested_event` to true, even
+        // though the event hasn't been completely processed but is being
+        // delayed instead.
+        expect(runner.hub.teamManager.setTeamIngestedEvent).toHaveBeenCalledWith(
+            { id: 2, ingested_event: false },
+            { foo: 'bar' }
+        )
     })
 
     it('calls `pluginsProcessEventStep` next if not buffering', async () => {
@@ -232,6 +244,7 @@ describe('shouldSendEventToBuffer()', () => {
             properties: { $lib: 'posthog-android' },
         }
 
+        expect(shouldSendEventToBuffer(runner.hub, eventIos, {} as Person, 2)).toEqual(false)
         expect(shouldSendEventToBuffer(runner.hub, eventIos, undefined, 2)).toEqual(false)
         expect(shouldSendEventToBuffer(runner.hub, eventAndroid, undefined, 2)).toEqual(false)
     })
@@ -250,9 +263,9 @@ describe('shouldSendEventToBuffer()', () => {
     it('handles teamIdsToBufferAnonymousEventsFor', () => {
         runner.hub.MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR = 2
 
-        expect(shouldSendEventToBuffer(runner.hub, anonEvent, {} as Person, 1)).toEqual(true)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 1)).toEqual(true)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 2)).toEqual(true)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 3)).toEqual(false)
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, {} as Person, 1)).toEqual(false)
     })
 })

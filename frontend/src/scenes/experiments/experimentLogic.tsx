@@ -1,4 +1,3 @@
-import { kea } from 'kea'
 import { ReactElement } from 'react'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -24,7 +23,7 @@ import {
     SecondaryMetricResult,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 import { experimentsLogic } from './experimentsLogic'
 import { FunnelLayout, INSTANTLY_AVAILABLE_PROPERTIES } from 'lib/constants'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -36,19 +35,37 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { lemonToast } from 'lib/components/lemonToast'
 import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { forms } from 'kea-forms'
+import { loaders } from 'kea-loaders'
 
 const DEFAULT_DURATION = 14 // days
+
+const NEW_EXPERIMENT: Experiment = {
+    id: 'new',
+    name: '',
+    feature_flag_key: '',
+    filters: {},
+    parameters: {
+        feature_flag_variants: [
+            { key: 'control', rollout_percentage: 50 },
+            { key: 'test', rollout_percentage: 50 },
+        ],
+    },
+    secondary_metrics: [],
+    created_at: '',
+    created_by: null,
+}
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
 }
 
-export const experimentLogic = kea<experimentLogicType>({
-    props: {} as ExperimentLogicProps,
-    key: (props) => props.experimentId || 'new',
-    path: (key) => ['scenes', 'experiment', 'experimentLogic', key],
-
-    connect: {
+export const experimentLogic = kea<experimentLogicType>([
+    props({} as ExperimentLogicProps),
+    key((props) => props.experimentId || 'new'),
+    path((key) => ['scenes', 'experiment', 'experimentLogic', key]),
+    connect({
         values: [
             teamLogic,
             ['currentTeamId'],
@@ -57,10 +74,21 @@ export const experimentLogic = kea<experimentLogicType>({
             groupsModel,
             ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
         ],
-        actions: [experimentsLogic, ['updateExperiments', 'addToExperiments']],
-    },
-    actions: {
-        setExperiment: (experiment: Experiment) => ({ experiment }),
+        actions: [
+            experimentsLogic,
+            ['updateExperiments', 'addToExperiments'],
+            eventUsageLogic,
+            [
+                'reportExperimentCreated',
+                'reportExperimentViewed',
+                'reportExperimentLaunched',
+                'reportExperimentCompleted',
+                'reportExperimentArchived',
+            ],
+        ],
+    }),
+    actions({
+        setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, runningTime?: number, sampleSize?: number) => ({
             draft,
             runningTime,
@@ -69,8 +97,6 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperimentInsightId: (shortId: InsightShortId) => ({ shortId }),
         createNewExperimentInsight: (filters?: Partial<FilterType>) => ({ filters }),
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
-        setNewExperimentData: (experimentData: Partial<Experiment>) => ({ experimentData }),
-        updateExperimentGroup: (variant: Partial<MultivariateFlagVariant>, idx: number) => ({ variant, idx }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setExperimentInsightType: (insightType: InsightType) => ({ insightType }),
         setEditExperiment: (editing: boolean) => ({ editing }),
@@ -78,36 +104,30 @@ export const experimentLogic = kea<experimentLogicType>({
         setExperimentResultCalculationError: (error: string) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setFlagAvailabilityWarning: (warning: boolean) => ({ warning }),
-        resetNewExperiment: true,
+        setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
         archiveExperiment: true,
-    },
-    reducers: {
-        newExperimentData: [
-            null as Partial<Experiment> | null,
+        checkFlagImplementationWarning: true,
+        checkFlagAvailabilityWarning: true,
+    }),
+    reducers({
+        experiment: [
+            { ...NEW_EXPERIMENT } as Experiment,
             {
-                setNewExperimentData: (vals, { experimentData }) => {
-                    if (experimentData.filters) {
-                        const newFilters = { ...vals?.filters, ...experimentData.filters }
-                        return { ...vals, ...experimentData, filters: newFilters }
+                setExperiment: (state, { experiment }) => {
+                    if (experiment.filters) {
+                        const newFilters = { ...state.filters, ...experiment.filters }
+                        return { ...state, ...experiment, filters: newFilters }
                     }
 
-                    // assuming setNewExperimentData isn't called with new filters & parameters at the same time
-                    if (experimentData.parameters) {
-                        const newParameters = { ...vals?.parameters, ...experimentData.parameters }
-                        return { ...vals, ...experimentData, parameters: newParameters }
+                    // assuming setExperiment isn't called with new filters & parameters at the same time
+                    if (experiment.parameters) {
+                        const newParameters = { ...state?.parameters, ...experiment.parameters }
+                        return { ...state, ...experiment, parameters: newParameters }
                     }
-                    return { ...vals, ...experimentData }
-                },
-                updateExperimentGroup: (state, { variant, idx }) => {
-                    const featureFlagVariants = [...(state?.parameters?.feature_flag_variants || [])]
-                    featureFlagVariants[idx] = { ...featureFlagVariants[idx], ...variant }
-                    return {
-                        ...state,
-                        parameters: { ...state?.parameters, feature_flag_variants: featureFlagVariants },
-                    }
+                    return { ...state, ...experiment }
                 },
                 addExperimentGroup: (state) => {
                     if (state?.parameters?.feature_flag_variants) {
@@ -158,21 +178,6 @@ export const experimentLogic = kea<experimentLogicType>({
                         },
                     }
                 },
-                setSecondaryMetrics: (state, { secondaryMetrics }) => {
-                    const metrics = secondaryMetrics.map((metric) => metric)
-                    return {
-                        ...state,
-                        secondary_metrics: metrics,
-                    }
-                },
-                resetNewExperiment: () => ({
-                    parameters: {
-                        feature_flag_variants: [
-                            { key: 'control', rollout_percentage: 50 },
-                            { key: 'test', rollout_percentage: 50 },
-                        ],
-                    },
-                }),
             },
         ],
         experimentInsightType: [
@@ -211,8 +216,14 @@ export const experimentLogic = kea<experimentLogicType>({
                 setFlagAvailabilityWarning: (_, { warning }) => warning,
             },
         ],
-    },
-    listeners: ({ values, actions }) => ({
+        exposureAndSampleSize: [
+            { exposure: 0, sampleSize: 0 } as { exposure: number; sampleSize: number },
+            {
+                setExposureAndSampleSize: (_, { exposure, sampleSize }) => ({ exposure, sampleSize }),
+            },
+        ],
+    }),
+    listeners(({ values, actions }) => ({
         createExperiment: async ({ draft, runningTime, sampleSize }) => {
             let response: Experiment | null = null
             const isUpdate = !!values.experimentId && values.experimentId !== 'new'
@@ -221,9 +232,9 @@ export const experimentLogic = kea<experimentLogicType>({
                     response = await api.update(
                         `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
                         {
-                            ...values.newExperimentData,
+                            ...values.experiment,
                             parameters: {
-                                ...values.newExperimentData?.parameters,
+                                ...values.experiment?.parameters,
                                 recommended_running_time: runningTime,
                                 recommended_sample_size: sampleSize,
                             },
@@ -237,15 +248,15 @@ export const experimentLogic = kea<experimentLogicType>({
                     }
                 } else {
                     response = await api.create(`api/projects/${values.currentTeamId}/experiments`, {
-                        ...values.newExperimentData,
+                        ...values.experiment,
                         parameters: {
-                            ...values.newExperimentData?.parameters,
+                            ...values.experiment?.parameters,
                             recommended_running_time: runningTime,
                             recommended_sample_size: sampleSize,
                         },
                         ...(!draft && { start_date: dayjs() }),
                     })
-                    response && eventUsageLogic.actions.reportExperimentCreated(response)
+                    response && actions.reportExperimentCreated(response)
                 }
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to create experiment')
@@ -299,7 +310,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 newInsight
             )
             actions.setExperimentInsightId(createdInsight.short_id)
-            actions.setNewExperimentData({ filters: { ...newInsight.filters } })
+            actions.setExperiment({ filters: { ...newInsight.filters } })
         },
         setFilters: ({ filters }) => {
             if (values.experimentInsightType === InsightType.FUNNELS) {
@@ -308,15 +319,13 @@ export const experimentLogic = kea<experimentLogicType>({
                 trendsLogic.findMounted({ dashboardItemId: values.experimentInsightId })?.actions.setFilters(filters)
             }
         },
-        loadExperimentSuccess: async ({ experimentData }) => {
-            experimentData && eventUsageLogic.actions.reportExperimentViewed(experimentData)
-            actions.setExperimentInsightType(experimentData?.filters.insight || InsightType.FUNNELS)
-            if (!experimentData?.start_date) {
+        loadExperimentSuccess: async ({ experiment }) => {
+            experiment && actions.reportExperimentViewed(experiment)
+            actions.setExperimentInsightType(experiment?.filters.insight || InsightType.FUNNELS)
+            if (!experiment?.start_date) {
                 // loading a draft experiment
-                actions.setNewExperimentData({ ...experimentData })
-                actions.createNewExperimentInsight(experimentData?.filters)
+                actions.createNewExperimentInsight(experiment?.filters)
             } else {
-                actions.resetNewExperiment()
                 actions.loadExperimentResults()
                 actions.loadSecondaryMetricResults()
             }
@@ -324,46 +333,94 @@ export const experimentLogic = kea<experimentLogicType>({
         launchExperiment: async () => {
             const startDate = dayjs()
             actions.updateExperiment({ start_date: startDate.toISOString() })
-            values.experimentData && eventUsageLogic.actions.reportExperimentLaunched(values.experimentData, startDate)
+            values.experiment && eventUsageLogic.actions.reportExperimentLaunched(values.experiment, startDate)
         },
         endExperiment: async () => {
             const endDate = dayjs()
             actions.updateExperiment({ end_date: endDate.toISOString() })
-            const duration = endDate.diff(values.experimentData?.start_date, 'second')
-            values.experimentData &&
-                eventUsageLogic.actions.reportExperimentCompleted(
-                    values.experimentData,
-                    endDate,
-                    duration,
-                    values.areResultsSignificant
-                )
+            const duration = endDate.diff(values.experiment?.start_date, 'second')
+            values.experiment &&
+                actions.reportExperimentCompleted(values.experiment, endDate, duration, values.areResultsSignificant)
         },
         archiveExperiment: async () => {
             actions.updateExperiment({ archived: true })
-            values.experimentData && eventUsageLogic.actions.reportExperimentArchived(values.experimentData)
+            values.experiment && actions.reportExperimentArchived(values.experiment)
         },
         setExperimentInsightType: () => {
-            if (values.experimentId === 'new' || values.editingExistingExperiment) {
+            if (values.experimentId === 'new') {
                 actions.createNewExperimentInsight()
+            } else if (values.editingExistingExperiment) {
+                actions.createNewExperimentInsight({ properties: values.experiment?.filters?.properties })
             } else {
-                actions.createNewExperimentInsight(values.experimentData?.filters)
+                actions.createNewExperimentInsight(values.experiment?.filters)
             }
         },
-        updateExperimentSuccess: async ({ experimentData }) => {
-            actions.updateExperiments(experimentData)
+        updateExperimentSuccess: async ({ experiment }) => {
+            actions.updateExperiments(experiment)
         },
-        setNewExperimentData: async ({ experimentData }, breakpoint) => {
+        setExperiment: async ({ experiment }) => {
             const experimentEntitiesChanged =
-                (experimentData.filters?.events && experimentData.filters.events.length > 0) ||
-                (experimentData.filters?.actions && experimentData.filters.actions.length > 0)
+                (experiment.filters?.events && experiment.filters.events.length > 0) ||
+                (experiment.filters?.actions && experiment.filters.actions.length > 0)
 
-            if (!experimentData.filters || Object.keys(experimentData.filters).length === 0) {
+            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
+                return
+            }
+
+            if (experimentEntitiesChanged) {
+                actions.checkFlagImplementationWarning()
+            }
+            actions.checkFlagAvailabilityWarning()
+        },
+        setExperimentValue: async ({ name, value }, breakpoint) => {
+            await breakpoint(100)
+
+            if (name === 'filters') {
+                const experimentEntitiesChanged =
+                    (value?.events && value.events.length > 0) || (value?.actions && value.actions.length > 0)
+
+                if (!value || Object.keys(value).length === 0) {
+                    return
+                }
+
+                if (experimentEntitiesChanged) {
+                    actions.checkFlagImplementationWarning()
+                }
+
+                actions.checkFlagAvailabilityWarning()
+            }
+        },
+        setExperimentValues: async ({ values }, breakpoint) => {
+            await breakpoint(100)
+
+            const experiment = values
+
+            const experimentEntitiesChanged =
+                (experiment.filters?.events && experiment.filters.events.length > 0) ||
+                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+
+            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
+                return
+            }
+
+            if (experimentEntitiesChanged) {
+                actions.checkFlagImplementationWarning()
+            }
+            actions.checkFlagAvailabilityWarning()
+        },
+        checkFlagImplementationWarning: async (_, breakpoint) => {
+            const experiment = values.experiment
+            const experimentEntitiesChanged =
+                (experiment.filters?.events && experiment.filters.events.length > 0) ||
+                (experiment.filters?.actions && experiment.filters.actions.length > 0)
+
+            if (!experiment.filters || Object.keys(experiment.filters).length === 0) {
                 return
             }
 
             if (experimentEntitiesChanged) {
                 const url = `/api/projects/${values.currentTeamId}/experiments/requires_flag_implementation?${toParams(
-                    experimentData.filters || {}
+                    experiment.filters || {}
                 )}`
                 await breakpoint(100)
 
@@ -375,9 +432,10 @@ export const experimentLogic = kea<experimentLogicType>({
                     actions.setFlagImplementationWarning(false)
                 }
             }
-
-            if (experimentData.filters?.properties) {
-                const targetProperties = convertPropertyGroupToProperties(experimentData.filters.properties) || []
+        },
+        checkFlagAvailabilityWarning: async () => {
+            if (values.experiment.filters?.properties) {
+                const targetProperties = convertPropertyGroupToProperties(values.experiment.filters.properties) || []
 
                 if (targetProperties.length > 0) {
                     const hasNonInstantProperty = !!targetProperties.find(
@@ -390,38 +448,35 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
             }
         },
-    }),
-    loaders: ({ actions, values }) => ({
-        experimentData: [
-            null as Experiment | null,
-            {
-                loadExperiment: async () => {
-                    if (values.experimentId && values.experimentId !== 'new') {
-                        try {
-                            const response = await api.get(
-                                `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`
-                            )
-                            return response as Experiment
-                        } catch (error: any) {
-                            if (error.status === 404) {
-                                throw error
-                            } else {
-                                lemonToast.error(`Failed to load experiment ${values.experimentId}`)
-                                throw new Error(`Failed to load experiment ${values.experimentId}`)
-                            }
+    })),
+    loaders(({ actions, props, values }) => ({
+        experiment: {
+            loadExperiment: async () => {
+                if (props.experimentId && props.experimentId !== 'new') {
+                    try {
+                        const response = await api.get(
+                            `api/projects/${values.currentTeamId}/experiments/${props.experimentId}`
+                        )
+                        return response as Experiment
+                    } catch (error: any) {
+                        if (error.status === 404) {
+                            throw error
+                        } else {
+                            lemonToast.error(`Failed to load experiment ${props.experimentId}`)
+                            throw new Error(`Failed to load experiment ${props.experimentId}`)
                         }
                     }
-                    return null
-                },
-                updateExperiment: async (update: Partial<Experiment>) => {
-                    const response: Experiment = await api.update(
-                        `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
-                        update
-                    )
-                    return response
-                },
+                }
+                return NEW_EXPERIMENT
             },
-        ],
+            updateExperiment: async (update: Partial<Experiment>) => {
+                const response: Experiment = await api.update(
+                    `api/projects/${values.currentTeamId}/experiments/${values.experimentId}`,
+                    update
+                )
+                return response
+            },
+        },
         experimentResults: [
             null as ExperimentResults | null,
             {
@@ -443,7 +498,7 @@ export const experimentLogic = kea<experimentLogicType>({
             {
                 loadSecondaryMetricResults: async () => {
                     return await Promise.all(
-                        (values.experimentData?.secondary_metrics || []).map(async (_, index) => {
+                        (values.experiment?.secondary_metrics || []).map(async (_, index) => {
                             try {
                                 const secResults = await api.get(
                                     `api/projects/${values.currentTeamId}/experiments/${values.experimentId}/secondary_results?id=${index}`
@@ -457,63 +512,46 @@ export const experimentLogic = kea<experimentLogicType>({
                 },
             },
         ],
-    }),
-    selectors: {
+    })),
+    selectors({
+        props: [() => [(_, props) => props], (props) => props],
         experimentId: [
             () => [(_, props) => props.experimentId ?? 'new'],
             (experimentId): Experiment['id'] => experimentId,
         ],
         breadcrumbs: [
-            (s) => [s.experimentData, s.experimentId],
-            (experimentData, experimentId): Breadcrumb[] => [
+            (s) => [s.experiment, s.experimentId],
+            (experiment, experimentId): Breadcrumb[] => [
                 {
                     name: 'Experiments',
                     path: urls.experiments(),
                 },
                 {
-                    name: experimentData?.name || 'New',
+                    name: experiment?.name || 'New',
                     path: urls.experiment(experimentId || 'new'),
                 },
             ],
         ],
         variants: [
-            (s) => [s.newExperimentData, s.experimentData],
-            (newExperimentData, experimentData): MultivariateFlagVariant[] => {
-                if (experimentData?.start_date) {
-                    return experimentData?.parameters?.feature_flag_variants || []
-                }
-
-                return (
-                    newExperimentData?.parameters?.feature_flag_variants ||
-                    experimentData?.parameters?.feature_flag_variants ||
-                    []
-                )
+            (s) => [s.experiment],
+            (experiment): MultivariateFlagVariant[] => {
+                return experiment?.parameters?.feature_flag_variants || []
             },
         ],
         taxonomicGroupTypesForSelection: [
-            (s) => [s.newExperimentData, s.groupsTaxonomicTypes],
-            (newExperimentData, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
-                if (
-                    newExperimentData?.filters?.aggregation_group_type_index != null &&
-                    groupsTaxonomicTypes.length > 0
-                ) {
-                    return [groupsTaxonomicTypes[newExperimentData.filters.aggregation_group_type_index]]
+            (s) => [s.experiment, s.groupsTaxonomicTypes],
+            (newexperiment, groupsTaxonomicTypes): TaxonomicFilterGroupType[] => {
+                if (newexperiment?.filters?.aggregation_group_type_index != null && groupsTaxonomicTypes.length > 0) {
+                    return [groupsTaxonomicTypes[newexperiment.filters.aggregation_group_type_index]]
                 }
 
                 return [TaxonomicFilterGroupType.PersonProperties, TaxonomicFilterGroupType.Cohorts]
             },
         ],
-        parsedSecondaryMetrics: [
-            (s) => [s.newExperimentData, s.experimentData],
-            (newExperimentData: Partial<Experiment>, experimentData: Experiment): SecondaryExperimentMetric[] => {
-                const secondaryMetrics = newExperimentData?.secondary_metrics || experimentData?.secondary_metrics || []
-                return secondaryMetrics
-            },
-        ],
         minimumDetectableChange: [
-            (s) => [s.newExperimentData],
-            (newExperimentData): number => {
-                return newExperimentData?.parameters?.minimum_detectable_effect || 5
+            (s) => [s.experiment],
+            (newexperiment): number => {
+                return newexperiment?.parameters?.minimum_detectable_effect || 5
             },
         ],
         minimumSampleSizePerVariant: [
@@ -608,7 +646,7 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const errorResult = "Can't find variant"
+                    const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
                     }
@@ -658,7 +696,7 @@ export const experimentLogic = kea<experimentLogicType>({
             (s) => [s.experimentResults],
             (experimentResults) =>
                 (variant: string): string => {
-                    const errorResult = "Can't find variant"
+                    const errorResult = '--'
                     if (!experimentResults) {
                         return errorResult
                     }
@@ -704,8 +742,50 @@ export const experimentLogic = kea<experimentLogicType>({
                 return variantResults.breakdown_value !== highestProbabilityVariant
             },
         ],
-    },
-    urlToAction: ({ actions, values }) => ({
+        sortedExperimentResultVariants: [
+            (s) => [s.experimentResults, s.experiment],
+            (experimentResults, experiment): string[] => {
+                if (experimentResults) {
+                    const sortedResults = Object.keys(experimentResults.probability).sort(
+                        (a, b) => experimentResults.probability[b] - experimentResults.probability[a]
+                    )
+
+                    experiment?.parameters?.feature_flag_variants?.forEach((variant) => {
+                        if (!sortedResults.includes(variant.key)) {
+                            sortedResults.push(variant.key)
+                        }
+                    })
+                    return sortedResults
+                }
+                return []
+            },
+        ],
+    }),
+    forms(({ actions, values }) => ({
+        experiment: {
+            defaults: { ...NEW_EXPERIMENT } as Experiment,
+            errors: ({ name, feature_flag_key, parameters }) => ({
+                name: !name && 'You have to enter a name.',
+                feature_flag_key: !feature_flag_key
+                    ? 'You have to enter a feature flag key.'
+                    : !feature_flag_key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                    ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                    : undefined,
+                parameters: {
+                    feature_flag_variants: parameters.feature_flag_variants?.map(({ key }) => ({
+                        key: !key.match?.(/^([A-z]|[a-z]|[0-9]|-|_)+$/)
+                            ? 'Only letters, numbers, hyphens (-) & underscores (_) are allowed.'
+                            : undefined,
+                    })),
+                },
+            }),
+            submit: () => {
+                const { exposure, sampleSize } = values.exposureAndSampleSize
+                actions.createExperiment(true, exposure, sampleSize)
+            },
+        },
+    })),
+    urlToAction(({ actions, values }) => ({
         '/experiments/:id': ({ id }, _, __, currentLocation, previousLocation) => {
             if (!values.hasAvailableFeature(AvailableFeature.EXPERIMENTATION)) {
                 router.actions.push('/experiments')
@@ -719,8 +799,7 @@ export const experimentLogic = kea<experimentLogicType>({
                 const parsedId = id === 'new' ? 'new' : parseInt(id)
                 if (parsedId === 'new') {
                     actions.createNewExperimentInsight()
-                    actions.resetNewExperiment()
-                    actions.setSecondaryMetrics([])
+                    actions.resetExperiment()
                 }
 
                 if (parsedId !== 'new' && parsedId === values.experimentId) {
@@ -728,8 +807,18 @@ export const experimentLogic = kea<experimentLogicType>({
                 }
             }
         },
+    })),
+    afterMount(({ props, actions }) => {
+        const foundExperiment = experimentsLogic
+            .findMounted()
+            ?.values.experiments.find((experiment) => experiment.id === props.experimentId)
+        if (foundExperiment) {
+            actions.setExperiment(foundExperiment)
+        } else if (props.experimentId !== 'new') {
+            actions.loadExperiment()
+        }
     }),
-})
+])
 
 function percentageDistribution(variantCount: number): number[] {
     const percentageRounded = Math.round(100 / variantCount)

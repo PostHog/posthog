@@ -443,7 +443,6 @@ export const insightLogic = kea<insightLogicType>([
             }),
             setInsightMetadata: (state, { metadata }) => ({ ...state, ...metadata }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (state, { item, extraDashboardIds }) => {
-                // TODO when is this called without changes originating in this logic
                 const targetDashboards = (item?.dashboards || []).concat(extraDashboardIds || [])
                 const updateIsForThisDashboard =
                     item?.short_id === state.short_id &&
@@ -863,11 +862,24 @@ export const insightLogic = kea<insightLogicType>([
             )
             actions.setIsLoading(true)
         },
-        abortQuery: ({ queryId }) => {
+        abortQuery: async ({ queryId }) => {
             const { currentTeamId } = values
 
             if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
-                api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+
+                const duration = performance.now() - values.queryStartTimes[queryId]
+                await captureTimeToSeeData(values.currentTeamId, {
+                    type: 'insight_load',
+                    context: 'insight',
+                    query_id: queryId,
+                    status: 'cancelled',
+                    time_to_see_data_ms: Math.floor(duration),
+                    insights_fetched: 0,
+                    insights_fetched_cached: 0,
+                    api_response_bytes: 0,
+                    insight: values.activeView,
+                })
             }
         },
         endQuery: ({ queryId, view, lastRefresh, scene, exception, response }) => {
@@ -1080,7 +1092,6 @@ export const insightLogic = kea<insightLogicType>([
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
-            lemonToast.dismiss()
         },
     })),
 ])

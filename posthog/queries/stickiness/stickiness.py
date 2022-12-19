@@ -31,7 +31,7 @@ class Stickiness:
 
     def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> Dict[str, Any]:
         events_query, event_params = self.event_query_class(
-            entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+            entity, filter, team, using_person_on_events=team.person_on_events_querying_enabled
         ).get_query()
 
         query = f"""
@@ -46,8 +46,6 @@ class Stickiness:
             {**event_params, "num_intervals": filter.total_intervals},
             query_type="stickiness",
             filter=filter,
-            client_query_id=filter.client_query_id,
-            client_query_team_id=team.pk,
         )
         return self.process_result(counts, filter, entity)
 

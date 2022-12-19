@@ -18,7 +18,8 @@ class FeatureFlagRoleAccessPermissions(BasePermission):
             return True
         try:
             resource_access = OrganizationResourceAccess.objects.get(
-                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+                organization=request.user.organization,
             )
             if resource_access.access_level == OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT:
                 return True

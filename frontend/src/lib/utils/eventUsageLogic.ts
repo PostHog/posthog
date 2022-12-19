@@ -389,6 +389,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportNextRecordingTriggered: (automatic: boolean) => ({
             automatic,
         }),
+        reportRecordingExportedToFile: true,
+        reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
+        reportRecordingListVisibilityToggled: (type: string, visible: boolean) => ({ type, visible }),
+        reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
+        reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
         reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
         reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
         reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
@@ -464,6 +469,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
         reportIngestionHelpClicked: (type: string) => ({ type }),
         reportIngestionTryWithBookmarkletClicked: true,
+        reportIngestionTryWithDemoDataClicked: true,
         reportIngestionContinueWithoutVerifying: true,
         reportIngestionContinueWithoutBilling: true,
         reportIngestionBillingCancelled: true,
@@ -480,6 +486,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
         reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
         reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
+        reportActivationSideBarShown: (
+            activeTasksCount: number,
+            completedTasksCount: number,
+            completionPercent: number
+        ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
+        reportActivationSideBarTaskClicked: (key: string) => ({ key }),
+        reportBillingUpgradeClicked: (plan: string) => ({ plan }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -971,6 +984,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportNextRecordingTriggered: ({ automatic }) => {
             posthog.capture('recording next recording triggered', { automatic })
         },
+        reportRecordingExportedToFile: () => {
+            posthog.capture('recording exported to file')
+        },
+        reportRecordingLoadedFromFile: (properties) => {
+            posthog.capture('recording loaded from file', properties)
+        },
+        reportRecordingListVisibilityToggled: (properties) => {
+            posthog.capture('recording list visibility toggled', properties)
+        },
+        reportRecordingPinnedToList: (properties) => {
+            posthog.capture('recording pinned to list', properties)
+        },
+        reportRecordingPlaylistCreated: (properties) => {
+            posthog.capture('recording playlist created', properties)
+        },
+
         reportExperimentArchived: ({ experiment }) => {
             posthog.capture('experiment archived', {
                 name: experiment.name,
@@ -1109,6 +1138,9 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportIngestionTryWithBookmarkletClicked: () => {
             posthog.capture('ingestion try posthog with bookmarklet clicked')
         },
+        reportIngestionTryWithDemoDataClicked: () => {
+            posthog.capture('ingestion try posthog with demo data clicked')
+        },
         reportIngestionContinueWithoutVerifying: () => {
             posthog.capture('ingestion continue without verifying')
         },
@@ -1148,6 +1180,23 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             posthog.capture(`${name} team setting updated`, {
                 setting: name,
                 value,
+            })
+        },
+        reportActivationSideBarShown: ({ activeTasksCount, completedTasksCount, completionPercent }) => {
+            posthog.capture('activation sidebar shown', {
+                active_tasks_count: activeTasksCount,
+                completed_tasks_count: completedTasksCount,
+                completion_percent_count: completionPercent,
+            })
+        },
+        reportActivationSideBarTaskClicked: ({ key }) => {
+            posthog.capture('activation sidebar task clicked', {
+                key,
+            })
+        },
+        reportBillingUpgradeClicked: ({ plan }) => {
+            posthog.capture('billing upgrade button clicked', {
+                plan,
             })
         },
     }),

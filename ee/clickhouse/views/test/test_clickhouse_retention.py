@@ -101,7 +101,7 @@ class RetentionTests(APIBaseTest, ClickhouseTestMixin):
                 ),
             )
 
-            assert retention["result"][0]["values"][0]["count"] == 2  #  person 1 and another one
+            assert retention["result"][0]["values"][0]["count"] == 2  # person 1 and another one
             assert retention["result"][0]["values"][1]["count"] == 1  # person 1
             assert retention["result"][0]["values"][2]["count"] == 1  # another one
 

@@ -1,4 +1,4 @@
-import { ingestionLogicV2 } from './ingestionLogic'
+import { ingestionLogicV2 } from './ingestionLogicV2'
 import { useActions, useValues } from 'kea'
 import './IngestionWizard.scss'
 import { InviteMembersButton } from '~/layout/navigation/TopBar/SitePopover'

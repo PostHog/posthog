@@ -10,11 +10,13 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import {
     DashboardTile,
     DashboardType,
+    FilterType,
     InsightColor,
     InsightModel,
     InsightShortId,
     InsightType,
     TextModel,
+    TileLayout,
 } from '~/types'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
@@ -62,9 +64,14 @@ const tileFromInsight = (insight: InsightModel, id: number = tileId++): Dashboar
     refreshing: false,
 })
 
-const dashboardResult = (dashboardId: number, tiles: DashboardTile[]): DashboardType => {
+const dashboardResult = (
+    dashboardId: number,
+    tiles: DashboardTile[],
+    filters: Partial<Pick<FilterType, 'date_from' | 'date_to' | 'properties'>> = {}
+): DashboardType => {
     return {
         ...dashboardJson,
+        filters: { ...dashboardJson.filters, ...filters },
         id: dashboardId,
         tiles,
     }
@@ -158,6 +165,9 @@ describe('dashboardLogic', () => {
             10: {
                 ...dashboardResult(10, [tileFromInsight(insights['800'])]),
             },
+            11: {
+                ...dashboardResult(11, [], { date_from: '-24h' }),
+            },
         }
         useMocks({
             get: {
@@ -167,6 +177,7 @@ describe('dashboardLogic', () => {
                 '/api/projects/:team/dashboards/8/': { ...dashboards['8'] },
                 '/api/projects/:team/dashboards/9/': { ...dashboards['9'] },
                 '/api/projects/:team/dashboards/10/': { ...dashboards['10'] },
+                '/api/projects/:team/dashboards/11/': { ...dashboards['11'] },
                 '/api/projects/:team/dashboards/': {
                     count: 6,
                     next: null,
@@ -263,6 +274,69 @@ describe('dashboardLogic', () => {
         initKeaTests()
         dashboardsModel.mount()
         insightsModel.mount()
+    })
+
+    describe('tile layouts', () => {
+        beforeEach(() => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+        })
+
+        it('saving layouts with no provided tiles updates all tiles', async () => {
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayouts()
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                no_items_field: true,
+                tiles: [
+                    {
+                        id: 0,
+                        layouts: {},
+                    },
+                    {
+                        id: 1,
+                        layouts: {},
+                    },
+                    {
+                        id: 4,
+                        layouts: {},
+                    },
+                ],
+            })
+        })
+
+        it('saving layouts with provided tiles updates only those tiles', async () => {
+            jest.spyOn(api, 'update')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveLayouts([{ id: 1, layouts: { sm: {} as TileLayout, xs: {} as TileLayout } }])
+            }).toFinishAllListeners()
+
+            expect(api.update).toHaveBeenCalledWith(`api/projects/${MOCK_TEAM_ID}/dashboards/5`, {
+                no_items_field: true,
+                tiles: [
+                    {
+                        id: 1,
+                        layouts: { sm: {} as TileLayout, xs: {} as TileLayout },
+                    },
+                ],
+            })
+        })
+    })
+
+    describe('when the dashboard has filters', () => {
+        it('sets the filters reducer on load', async () => {
+            logic = dashboardLogic({ id: 11 })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toFinishAllListeners()
+                .toNotHaveDispatchedActions(['setDates'])
+                .toMatchValues({ filters: { date_from: '-24h', date_to: null } })
+        })
     })
 
     describe('moving between dashboards', () => {
@@ -684,6 +758,7 @@ describe('dashboardLogic', () => {
                 })
         })
     })
+
     describe('lastRefreshed', () => {
         it('should be the earliest refreshed dashboard', async () => {
             logic = dashboardLogic({ id: 5 })
@@ -714,6 +789,27 @@ describe('dashboardLogic', () => {
                 .toDispatchActions(['loadDashboardItemsSuccess'])
                 .toNotHaveDispatchedActions(['refreshAllDashboardItems'])
                 .toFinishListeners()
+        })
+    })
+
+    describe('text tiles', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('can remove text tiles', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.removeTile(TEXT_TILE)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions([
+                    dashboardsModel.actionTypes.tileRemovedFromDashboard,
+                    logic.actionTypes.removeTileSuccess,
+                ])
+
+            expect(logic.values.textTiles).toEqual([])
         })
     })
 
@@ -765,27 +861,6 @@ describe('dashboardLogic', () => {
                 dashboards: t.insight!.dashboards,
             }))
         ).toEqual([])
-    })
-
-    describe('text tiles', () => {
-        beforeEach(async () => {
-            logic = dashboardLogic({ id: 5 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-        })
-
-        it('can remove text tiles', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.removeTile(TEXT_TILE)
-            })
-                .toFinishAllListeners()
-                .toDispatchActions([
-                    dashboardsModel.actionTypes.tileRemovedFromDashboard,
-                    logic.actionTypes.removeTileSuccess,
-                ])
-
-            expect(logic.values.textTiles).toEqual([])
-        })
     })
 })
 /* eslint-enable  @typescript-eslint/no-non-null-assertion */

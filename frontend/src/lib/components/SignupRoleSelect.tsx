@@ -3,7 +3,7 @@ import { LemonSelect } from './LemonSelect'
 
 export default function SignupRoleSelect({ className }: { className?: string }): JSX.Element {
     return (
-        <Field name="role_at_organization" label="What is your role?" className={className}>
+        <Field name="role_at_organization" label="What is your role?" className={className} showOptional>
             <LemonSelect
                 fullWidth
                 data-attr="signup-role-at-organization"

@@ -11,8 +11,9 @@ from posthog.models.async_migration import AsyncMigration
 from posthog.test.base import BaseTest
 from posthog.version_requirement import ServiceVersionRequirement
 
+pytestmark = pytest.mark.async_migrations
 
-@pytest.mark.ee
+
 class TestAsyncMigrationDefinition(BaseTest):
     def test_get_async_migration_definition(self):
         from posthog.async_migrations.examples.example import example_fn, example_rollback_fn

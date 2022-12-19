@@ -70,168 +70,166 @@ let nestedPopupReceivedClick = false
  *
  * Often used with buttons for various menu. If this is your intention, use `LemonButtonWithPopup`.
  */
-export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(
-    (
-        {
-            children,
-            referenceElement,
-            overlay,
-            visible,
-            onClickOutside,
-            onClickInside,
-            placement = 'bottom-start',
-            fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
-            className,
-            actionable = false,
-            middleware,
-            sameWidth = false,
-            maxContentWidth = false,
-            additionalRefs = [],
-            closeParentPopupOnClickInside = false,
-            style,
-            getPopupContainer,
-            showArrow,
-        },
-        ref
-    ): JSX.Element => {
-        const popupId = useMemo(() => uniqueMemoizedIndex++, [])
-        const parentPopupId = useContext(PopupContext)
+export const Popup = React.forwardRef<HTMLDivElement, PopupProps>(function PopupInternal(
+    {
+        children,
+        referenceElement,
+        overlay,
+        visible,
+        onClickOutside,
+        onClickInside,
+        placement = 'bottom-start',
+        fallbackPlacements = ['bottom-start', 'bottom-end', 'top-start', 'top-end'],
+        className,
+        actionable = false,
+        middleware,
+        sameWidth = false,
+        maxContentWidth = false,
+        additionalRefs = [],
+        closeParentPopupOnClickInside = false,
+        style,
+        getPopupContainer,
+        showArrow,
+    },
+    ref
+): JSX.Element {
+    const popupId = useMemo(() => uniqueMemoizedIndex++, [])
+    const parentPopupId = useContext(PopupContext)
 
-        const arrowRef = useRef<HTMLDivElement>(null)
-        const {
-            x,
-            y,
-            reference,
-            refs: { reference: referenceRef, floating: floatingRef },
-            strategy,
-            placement: floatingPlacement,
-            update,
-            middlewareData,
-        } = useFloating<HTMLElement>({
-            placement,
-            strategy: 'fixed',
-            middleware: [
-                offset(4),
-                ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
-                shift(),
-                size({
-                    padding: 4,
-                    apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
-                        Object.assign(floating.style, {
-                            maxHeight: `${availableHeight}px`,
-                            maxWidth: `${availableWidth}px`,
-                            width: sameWidth ? rects.reference.width : undefined,
-                        })
-                    },
-                }),
-                arrow({ element: arrowRef, padding: 8 }),
-                ...(middleware ?? []),
-            ],
-        })
+    const arrowRef = useRef<HTMLDivElement>(null)
+    const {
+        x,
+        y,
+        reference,
+        refs: { reference: referenceRef, floating: floatingRef },
+        strategy,
+        placement: floatingPlacement,
+        update,
+        middlewareData,
+    } = useFloating<HTMLElement>({
+        placement,
+        strategy: 'fixed',
+        middleware: [
+            offset(4),
+            ...(fallbackPlacements ? [flip({ fallbackPlacements, fallbackStrategy: 'initialPlacement' })] : []),
+            shift(),
+            size({
+                padding: 4,
+                apply({ availableWidth, availableHeight, rects, elements: { floating } }) {
+                    Object.assign(floating.style, {
+                        maxHeight: `${availableHeight}px`,
+                        maxWidth: `${availableWidth}px`,
+                        width: sameWidth ? rects.reference.width : undefined,
+                    })
+                },
+            }),
+            arrow({ element: arrowRef, padding: 8 }),
+            ...(middleware ?? []),
+        ],
+    })
 
-        const arrowStaticSide = {
-            top: 'bottom',
-            right: 'left',
-            bottom: 'top',
-            left: 'right',
-        }[floatingPlacement.split('-')[0]] as string
+    const arrowStaticSide = {
+        top: 'bottom',
+        right: 'left',
+        bottom: 'top',
+        left: 'right',
+    }[floatingPlacement.split('-')[0]] as string
 
-        const arrowStyle = middlewareData.arrow
-            ? {
-                  left: `${middlewareData.arrow.x}px`,
-                  top: `${middlewareData.arrow.y}px`,
-                  [arrowStaticSide]: '-0.25rem',
-              }
-            : {}
+    const arrowStyle = middlewareData.arrow
+        ? {
+              left: `${middlewareData.arrow.x}px`,
+              top: `${middlewareData.arrow.y}px`,
+              [arrowStaticSide]: '-0.25rem',
+          }
+        : {}
 
-        useLayoutEffect(() => {
-            if (referenceElement) {
-                reference(referenceElement)
-            }
-        }, [referenceElement])
-
-        useOutsideClickHandler(
-            [floatingRef, referenceRef, ...additionalRefs],
-            (event) => {
-                // Delay by a tick to allow other Popups to detect inside clicks.
-                // If a nested popup has handled the click, don't do anything
-                setTimeout(() => {
-                    if (visible && !nestedPopupReceivedClick) {
-                        onClickOutside?.(event)
-                    }
-                }, 1)
-            },
-            [visible]
-        )
-
-        useEffect(() => {
-            if (visible && referenceRef?.current && floatingRef?.current) {
-                return autoUpdate(referenceRef.current, floatingRef.current, update)
-            }
-        }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
-
-        const clonedChildren = children
-            ? typeof children === 'function'
-                ? children({ ref: referenceRef })
-                : React.Children.toArray(children).map((child) =>
-                      React.cloneElement(child as ReactElement, { ref: referenceRef })
-                  )
-            : null
-
-        const isAttached = clonedChildren || referenceElement
-        const top = isAttached ? y ?? 0 : undefined
-        const left = isAttached ? x ?? 0 : undefined
-
-        const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
-            onClickInside?.(e)
-            // If we are not the top level popup, set a flag so that other popups know that.
-            if (parentPopupId !== 0 && !closeParentPopupOnClickInside) {
-                nestedPopupReceivedClick = true
-                setTimeout(() => {
-                    nestedPopupReceivedClick = false
-                }, 1)
-            }
+    useLayoutEffect(() => {
+        if (referenceElement) {
+            reference(referenceElement)
         }
+    }, [referenceElement])
 
-        return (
-            <>
-                {clonedChildren}
-                {ReactDOM.createPortal(
-                    <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
-                        <PopupContext.Provider value={popupId}>
-                            <div
-                                className={clsx(
-                                    'Popup',
-                                    actionable && 'Popup--actionable',
-                                    maxContentWidth && 'Popup--max-content-width',
-                                    !isAttached && 'Popup--top-centered',
-                                    className
-                                )}
-                                data-floating-placement={floatingPlacement}
-                                ref={floatingRef as MutableRefObject<HTMLDivElement>}
-                                style={{ position: strategy, top, left, ...style }}
-                                onClick={_onClickInside}
-                            >
-                                <div ref={ref} className="Popup__box">
-                                    {overlay}
-                                </div>
-                                {showArrow && isAttached && (
-                                    <div
-                                        ref={arrowRef}
-                                        className={clsx(
-                                            'Popup__arrow',
-                                            `Popup__arrow--${arrowStaticSide}`,
-                                            actionable && 'Popup--actionable'
-                                        )}
-                                        style={arrowStyle}
-                                    />
-                                )}
-                            </div>
-                        </PopupContext.Provider>
-                    </CSSTransition>,
-                    getPopupContainer ? getPopupContainer() : document.body
-                )}
-            </>
-        )
+    useOutsideClickHandler(
+        [floatingRef, referenceRef, ...additionalRefs],
+        (event) => {
+            // Delay by a tick to allow other Popups to detect inside clicks.
+            // If a nested popup has handled the click, don't do anything
+            setTimeout(() => {
+                if (visible && !nestedPopupReceivedClick) {
+                    onClickOutside?.(event)
+                }
+            }, 1)
+        },
+        [visible]
+    )
+
+    useEffect(() => {
+        if (visible && referenceRef?.current && floatingRef?.current) {
+            return autoUpdate(referenceRef.current, floatingRef.current, update)
+        }
+    }, [visible, referenceRef?.current, floatingRef?.current, ...additionalRefs])
+
+    const clonedChildren = children
+        ? typeof children === 'function'
+            ? children({ ref: referenceRef })
+            : React.Children.toArray(children).map((child) =>
+                  React.cloneElement(child as ReactElement, { ref: referenceRef })
+              )
+        : null
+
+    const isAttached = clonedChildren || referenceElement
+    const top = isAttached ? y ?? 0 : undefined
+    const left = isAttached ? x ?? 0 : undefined
+
+    const _onClickInside: MouseEventHandler<HTMLDivElement> = (e): void => {
+        onClickInside?.(e)
+        // If we are not the top level popup, set a flag so that other popups know that.
+        if (parentPopupId !== 0 && !closeParentPopupOnClickInside) {
+            nestedPopupReceivedClick = true
+            setTimeout(() => {
+                nestedPopupReceivedClick = false
+            }, 1)
+        }
     }
-)
+
+    return (
+        <>
+            {clonedChildren}
+            {ReactDOM.createPortal(
+                <CSSTransition in={visible} timeout={100} classNames="Popup-" mountOnEnter unmountOnExit>
+                    <PopupContext.Provider value={popupId}>
+                        <div
+                            className={clsx(
+                                'Popup',
+                                actionable && 'Popup--actionable',
+                                maxContentWidth && 'Popup--max-content-width',
+                                !isAttached && 'Popup--top-centered',
+                                className
+                            )}
+                            data-floating-placement={floatingPlacement}
+                            ref={floatingRef as MutableRefObject<HTMLDivElement>}
+                            style={{ position: strategy, top, left, ...style }}
+                            onClick={_onClickInside}
+                        >
+                            <div ref={ref} className="Popup__box">
+                                {overlay}
+                            </div>
+                            {showArrow && isAttached && (
+                                <div
+                                    ref={arrowRef}
+                                    className={clsx(
+                                        'Popup__arrow',
+                                        `Popup__arrow--${arrowStaticSide}`,
+                                        actionable && 'Popup--actionable'
+                                    )}
+                                    style={arrowStyle}
+                                />
+                            )}
+                        </div>
+                    </PopupContext.Provider>
+                </CSSTransition>,
+                getPopupContainer ? getPopupContainer() : document.body
+            )}
+        </>
+    )
+})

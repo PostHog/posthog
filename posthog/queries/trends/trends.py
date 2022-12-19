@@ -9,6 +9,7 @@ from dateutil import parser
 from django.db.models.query import Prefetch
 from sentry_sdk import push_scope
 
+from posthog.clickhouse.query_tagging import get_query_tags, tag_queries
 from posthog.constants import (
     NON_BREAKDOWN_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
@@ -35,7 +36,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             query_type = "trends_breakdown"
             sql, params, parse_function = TrendsBreakdown(
-                entity, filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+                entity, filter, team, using_person_on_events=team.person_on_events_querying_enabled
             ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
             query_type = "trends_lifecycle"
@@ -131,8 +132,6 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
                 params,
                 query_type=query_type,
                 filter=adjusted_filter,
-                client_query_id=filter.client_query_id,
-                client_query_team_id=team.pk,
             )
             result = parse_function(result)
             serialized_data = self._format_serialized(entity, result)
@@ -146,14 +145,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return merged_results
 
-    def _run_query_for_threading(
-        self, result: List, index: int, query_type, sql, params, client_query_id: str, team_id: int
-    ):
+    def _run_query_for_threading(self, result: List, index: int, query_type, sql, params, query_tags: Dict):
+        tag_queries(**query_tags)
         with push_scope() as scope:
             scope.set_context("query", {"sql": sql, "params": params})
-            result[index] = insight_sync_execute(
-                sql, params, query_type=query_type, client_query_id=client_query_id, client_query_team_id=team_id
-            )
+            result[index] = insight_sync_execute(sql, params, query_type=query_type)
 
     def _run_parallel(self, filter: Filter, team: Team) -> List[Dict[str, Any]]:
         result: List[Optional[List[Dict[str, Any]]]] = [None] * len(filter.entities)
@@ -169,7 +165,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             sql_statements_with_params[entity.index] = (sql, params)
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, query_type, sql, params, filter.client_query_id, team.pk),
+                args=(result, entity.index, query_type, sql, params, get_query_tags()),
             )
             jobs.append(thread)
 

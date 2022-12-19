@@ -1,0 +1,11 @@
+services:
+    playwright:
+        build:
+            context: .
+            dockerfile: Dockerfile.playwright
+        network_mode: host
+        volumes:
+            - './playwright:/work/playwright'
+            - './playwright-report:/work/playwright-report'
+            - './test-results:/work/test-results'
+        # profiles: [playwright]

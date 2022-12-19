@@ -82,8 +82,6 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
             access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
             organization=self.organization,
         )
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
 
         user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
         flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
@@ -91,6 +89,10 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         # Should only have viewing privileges
         response_flags = self.client.get(f"/api/projects/@current/feature_flags")
         self.assertEqual(response_flags.json()["results"][0]["can_edit"], False)
+
+        # change to admin so we can mimic someone else adding us to the role and feature flag
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
 
         # Add role membership and feature flag access level
         self.client.post(
@@ -101,7 +103,8 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
             f"/api/projects/@current/feature_flags/{flag.id}/role_access",
             {"role_id": self.eng_role.id},
         )
-
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
         # Should now have edit privileges
         response_flags = self.client.get(f"/api/projects/@current/feature_flags")
         self.assertEqual(response_flags.json()["results"][0]["can_edit"], True)

@@ -1,13 +1,13 @@
 import posthog from 'posthog-js'
 import api from 'lib/api'
 
-interface TimeToSeeDataPayload {
+export interface TimeToSeeDataPayload {
     type: 'insight_load' | 'dashboard_load'
     context: 'insight' | 'dashboard'
     time_to_see_data_ms: number
     dashboard_query_id?: string
     query_id?: string
-    status?: 'failure' | 'success'
+    status?: 'failure' | 'success' | 'cancelled'
     api_response_bytes?: number
     api_url?: string
     insight?: string

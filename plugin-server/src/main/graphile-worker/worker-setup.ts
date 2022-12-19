@@ -1,5 +1,5 @@
 import Piscina from '@posthog/piscina'
-import { CronItem, TaskList } from 'graphile-worker'
+import { CronItem, JobHelpers, TaskList } from 'graphile-worker'
 
 import { EnqueuedPluginJob, Hub } from '../../types'
 import { status } from '../../utils/status'
@@ -78,9 +78,10 @@ export function getPluginJobHandlers(hub: Hub, graphileWorker: GraphileWorker, p
 
 export function getScheduledTaskHandlers(hub: Hub, piscina: Piscina): TaskList {
     const scheduledTaskHandlers: TaskList = {
-        runEveryMinute: async () => await runScheduledTasks(hub, piscina, 'runEveryMinute'),
-        runEveryHour: async () => await runScheduledTasks(hub, piscina, 'runEveryHour'),
-        runEveryDay: async () => await runScheduledTasks(hub, piscina, 'runEveryDay'),
+        runEveryMinute: async (_, helpers: JobHelpers) =>
+            await runScheduledTasks(hub, piscina, 'runEveryMinute', helpers),
+        runEveryHour: async (_, helpers: JobHelpers) => await runScheduledTasks(hub, piscina, 'runEveryHour', helpers),
+        runEveryDay: async (_, helpers: JobHelpers) => await runScheduledTasks(hub, piscina, 'runEveryDay', helpers),
     }
 
     return scheduledTaskHandlers

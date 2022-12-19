@@ -7,7 +7,7 @@ from posthog.plugins.test.mock import mocked_plugin_requests_get
 
 from .base import BaseTest
 
-util.can_enable_person_on_events = True
+util.can_enable_actor_on_events = True
 
 
 class TestTeam(BaseTest):
@@ -26,6 +26,7 @@ class TestTeam(BaseTest):
                     "key": "$host",
                     "operator": "is_not",
                     "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                    "type": "event",
                 },
             ],
         )
@@ -42,6 +43,7 @@ class TestTeam(BaseTest):
                     "key": "$host",
                     "operator": "is_not",
                     "value": ["localhost:8000", "localhost:5000", "127.0.0.1:8000", "127.0.0.1:3000", "localhost:3000"],
+                    "type": "event",
                 }
             ],
         )
@@ -70,7 +72,7 @@ class TestTeam(BaseTest):
         with self.is_cloud(True):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertTrue(team.actor_on_events_querying_enabled)
+                self.assertTrue(team.person_on_events_querying_enabled)
                 mock_feature_enabled.assert_called_once_with(
                     "person-on-events-enabled",
                     str(team.uuid),
@@ -90,10 +92,10 @@ class TestTeam(BaseTest):
         with self.is_cloud(False):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertTrue(team.actor_on_events_querying_enabled)
+                self.assertTrue(team.person_on_events_querying_enabled)
                 mock_feature_enabled.assert_not_called()
 
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", False):
                 team = Team.objects.create_with_data(organization=self.organization)
-                self.assertFalse(team.actor_on_events_querying_enabled)
+                self.assertFalse(team.person_on_events_querying_enabled)
                 mock_feature_enabled.assert_not_called()

@@ -316,6 +316,71 @@ class TestFunnelExperimentCalculator(unittest.TestCase):
         self.assertAlmostEqual(loss, 0, places=2)
         self.assertEqual(significant, ExperimentSignificanceCode.SIGNIFICANT)
 
+    def test_calculate_results_for_seven_test_variants(self):
+        variant_test_1 = Variant("A", 100, 17)
+        variant_test_2 = Variant("A", 100, 16)
+        variant_test_3 = Variant("A", 100, 30)
+        variant_test_4 = Variant("A", 100, 31)
+        variant_test_5 = Variant("A", 100, 29)
+        variant_test_6 = Variant("A", 100, 32)
+        variant_test_7 = Variant("A", 100, 33)
+        variant_control = Variant("B", 100, 18)
+
+        probabilities = ClickhouseFunnelExperimentResult.calculate_results(
+            variant_control,
+            [
+                variant_test_1,
+                variant_test_2,
+                variant_test_3,
+                variant_test_4,
+                variant_test_5,
+                variant_test_6,
+                variant_test_7,
+            ],
+        )
+        self.assertAlmostEqual(sum(probabilities), 1)
+        self.assertAlmostEqual(probabilities[0], 0.241, places=1)
+        self.assertAlmostEqual(probabilities[1], 0.322, places=1)
+        self.assertAlmostEqual(probabilities[2], 0.425, places=1)
+        self.assertAlmostEqual(probabilities[3], 0.002, places=2)
+        self.assertAlmostEqual(probabilities[4], 0.001, places=2)
+        self.assertAlmostEqual(probabilities[5], 0.004, places=2)
+        self.assertAlmostEqual(probabilities[6], 0.001, places=2)
+        self.assertAlmostEqual(probabilities[7], 0.0, places=2)
+
+        self.assertAlmostEqual(
+            calculate_expected_loss(
+                variant_test_2,
+                [
+                    variant_control,
+                    variant_test_1,
+                    variant_test_3,
+                    variant_test_4,
+                    variant_test_5,
+                    variant_test_6,
+                    variant_test_7,
+                ],
+            ),
+            0.0208,
+            places=2,
+        )
+
+        significant, loss = ClickhouseFunnelExperimentResult.are_results_significant(
+            variant_control,
+            [
+                variant_test_1,
+                variant_test_2,
+                variant_test_3,
+                variant_test_4,
+                variant_test_5,
+                variant_test_6,
+                variant_test_7,
+            ],
+            probabilities,
+        )
+        self.assertAlmostEqual(loss, 1, places=2)
+        self.assertEqual(significant, ExperimentSignificanceCode.LOW_WIN_PROBABILITY)
+
 
 # calculation: https://www.evanmiller.org/bayesian-ab-testing.html#count_ab
 def calculate_probability_of_winning_for_target_count_data(

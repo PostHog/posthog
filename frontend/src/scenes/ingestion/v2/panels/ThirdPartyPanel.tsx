@@ -1,7 +1,7 @@
 import { useValues, useActions } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CardContainer } from '../CardContainer'
-import { ingestionLogicV2 } from '../ingestionLogic'
+import { ingestionLogicV2 } from '../ingestionLogicV2'
 import './Panels.scss'
 import { LemonModal } from 'lib/components/LemonModal'
 import { thirdPartySources, ThirdPartySourceType } from '../constants'

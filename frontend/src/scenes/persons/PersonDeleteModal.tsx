@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
-import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { PersonType } from '~/types'
+import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 
 export function PersonDeleteModal(): JSX.Element | null {
-    const { personDeleteModal } = useValues(personsLogic)
-    const { deletePerson, showPersonDeleteModal } = useActions(personsLogic)
+    const { personDeleteModal } = useValues(personDeleteModalLogic)
+    const { deletePerson, showPersonDeleteModal } = useActions(personDeleteModalLogic)
 
     return (
         <LemonModal
@@ -35,8 +35,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                         status="danger"
                         type="secondary"
                         onClick={() => {
-                            deletePerson({ person: personDeleteModal as PersonType, deleteEvents: true })
-                            showPersonDeleteModal(null)
+                            deletePerson(personDeleteModal as PersonType, true)
                         }}
                         data-attr="delete-person-with-events"
                     >
@@ -53,8 +52,7 @@ export function PersonDeleteModal(): JSX.Element | null {
                         type="primary"
                         status="danger"
                         onClick={() => {
-                            deletePerson({ person: personDeleteModal as PersonType, deleteEvents: false })
-                            showPersonDeleteModal(null)
+                            deletePerson(personDeleteModal as PersonType, false)
                         }}
                         data-attr="delete-person-no-events"
                     >

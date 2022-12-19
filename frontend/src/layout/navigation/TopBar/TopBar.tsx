@@ -20,6 +20,8 @@ import { NotificationBell } from '~/layout/navigation/TopBar/NotificationBell'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeedbackButton } from './FeedbackButton'
+import ActivationSidebarToggle from 'lib/components/ActivationSidebar/ActivationSidebarToggle'
+import { YearInHogButton } from '~/layout/navigation/TopBar/YearInHogButton'
 
 export function TopBar(): JSX.Element {
     const { isSideBarShown, bareNav, mobileLayout, isCreateOrganizationModalShown, isCreateProjectModalShown } =
@@ -66,8 +68,14 @@ export function TopBar(): JSX.Element {
                             ]}
                         />
                     </div>
+                    <ActivationSidebarToggle />
                 </div>
                 <div className="TopBar__segment TopBar__segment--right">
+                    {!!featureFlags[FEATURE_FLAGS.YEAR_IN_HOG] && window.POSTHOG_APP_CONTEXT?.year_in_hog_url && (
+                        <YearInHogButton
+                            url={`${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`}
+                        />
+                    )}
                     {!!featureFlags[FEATURE_FLAGS.FEEDBACK_BUTTON] && <FeedbackButton />}
                     {!!featureFlags[FEATURE_FLAGS.HOG_BOOK] && <NotificationBell />}
                     <HelpButton />

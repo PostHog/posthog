@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { Form, Group } from 'kea-forms'
-import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton } from 'antd'
+import { Row, Col, Radio, InputNumber, Popconfirm, Select, Divider, Tabs, Skeleton, Card } from 'antd'
 import { useActions, useValues } from 'kea'
-import { alphabet, capitalizeFirstLetter } from 'lib/utils'
+import { alphabet, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LockOutlined } from '@ant-design/icons'
 import { defaultPropertyOnFlag, featureFlagLogic } from './featureFlagLogic'
@@ -10,7 +10,15 @@ import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagL
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { PageHeader } from 'lib/components/PageHeader'
 import './FeatureFlag.scss'
-import { IconOpenInNew, IconCopy, IconDelete, IconPlus, IconPlusMini, IconSubArrowRight } from 'lib/components/icons'
+import {
+    IconOpenInNew,
+    IconCopy,
+    IconDelete,
+    IconPlus,
+    IconPlusMini,
+    IconSubArrowRight,
+    IconErrorOutline,
+} from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { UTM_TAGS } from 'scenes/feature-flags/FeatureFlagSnippets'
@@ -28,7 +36,7 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { urls } from 'scenes/urls'
-import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
+import { Spinner, SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
@@ -48,8 +56,10 @@ import { LemonSelect } from '@posthog/lemon-ui'
 import { EventsTable } from 'scenes/events'
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { featureFlagPermissionsLogic } from './featureFlagPermissionsLogic'
-import { ResourcePermissionModal } from 'scenes/ResourcePermissionModal'
+import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -71,10 +81,10 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
     const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
 
-    const { permissionModalVisible, addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
+    const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
-    const { setModalOpen, setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
+    const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
 
@@ -250,6 +260,25 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagReleaseConditions />
                         <Divider />
                         {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
+                        {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                            <Card title="Permissions" className="mb-4">
+                                <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
+                                    <ResourcePermission
+                                        resourceType={Resource.FEATURE_FLAGS}
+                                        isNewResource={id === 'new'}
+                                        onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                        rolesToAdd={rolesToAdd}
+                                        addableRoles={addableRoles}
+                                        addableRolesLoading={unfilteredAddableRolesLoading}
+                                        onAdd={() => addAssociatedRoles()}
+                                        roles={derivedRoles}
+                                        deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                        canEdit={featureFlag.can_edit}
+                                    />
+                                </PayGateMini>
+                            </Card>
+                        )}
+
                         <LemonDivider className="mt-8" />
                         <div className="flex items-center gap-2 justify-end">
                             <LemonButton
@@ -384,18 +413,21 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <ActivityLog scope={ActivityScope.FEATURE_FLAG} id={featureFlag.id} />
                                         </Tabs.TabPane>
                                     )}
-                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                                    {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && featureFlag.can_edit && (
                                         <Tabs.TabPane tab="Permissions" key="permissions">
                                             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
-                                                {featureFlag.can_edit && (
-                                                    <LemonButton
-                                                        type="secondary"
-                                                        onClick={() => setModalOpen(true)}
-                                                        className="mb-4"
-                                                    >
-                                                        Set permissions
-                                                    </LemonButton>
-                                                )}
+                                                <ResourcePermission
+                                                    resourceType={Resource.FEATURE_FLAGS}
+                                                    isNewResource={id === 'new'}
+                                                    onChange={(roleIds) => setRolesToAdd(roleIds)}
+                                                    rolesToAdd={rolesToAdd}
+                                                    addableRoles={addableRoles}
+                                                    addableRolesLoading={unfilteredAddableRolesLoading}
+                                                    onAdd={() => addAssociatedRoles()}
+                                                    roles={derivedRoles}
+                                                    deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
+                                                    canEdit={featureFlag.can_edit}
+                                                />
                                             </PayGateMini>
                                         </Tabs.TabPane>
                                     )}
@@ -405,26 +437,29 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                     </>
                 )}
             </div>
-            <ResourcePermissionModal
-                resourceType={Resource.FEATURE_FLAGS}
-                isNewResource={id === 'new'}
-                onChange={(roleIds) => setRolesToAdd(roleIds)}
-                rolesToAdd={rolesToAdd}
-                addableRoles={addableRoles}
-                addableRolesLoading={unfilteredAddableRolesLoading}
-                onClose={() => setModalOpen(false)}
-                title="Feature Flag Permissions"
-                onAdd={() => addAssociatedRoles()}
-                visible={permissionModalVisible}
-                roles={derivedRoles}
-                deleteAssociatedRole={(id) => deleteAssociatedRole({ roleId: id })}
-            />
         </>
     )
 }
 
 function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: string }): JSX.Element {
-    return (
+    const { featureFlags } = useValues(enabledFeaturesLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+
+    return featureDataExploration ? (
+        <Query
+            query={{
+                kind: NodeKind.DataTableNode,
+                source: {
+                    kind: NodeKind.EventsNode,
+                    event: '$feature_flag_called',
+                    properties: defaultPropertyOnFlag(featureFlagKey),
+                },
+                showReload: true,
+                showColumnConfigurator: true,
+                showExport: true,
+            }}
+        />
+    ) : (
         <EventsTable
             fixedFilters={{
                 event_filter: '$feature_flag_called',
@@ -710,8 +745,17 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
 
 function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element {
     const { showGroupsOptions, aggregationLabel } = useValues(groupsModel)
-    const { aggregationTargetName, featureFlag, groupTypes, taxonomicGroupTypes, nonEmptyVariants } =
-        useValues(featureFlagLogic)
+    const {
+        aggregationTargetName,
+        featureFlag,
+        groupTypes,
+        taxonomicGroupTypes,
+        nonEmptyVariants,
+        propertySelectErrors,
+        computeBlastRadiusPercentage,
+        affectedUsers,
+        totalUsers,
+    } = useValues(featureFlagLogic)
     const {
         setAggregationGroupTypeIndex,
         updateConditionSet,
@@ -848,7 +892,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <>
                                     {group.properties.map((property, idx) => (
                                         <>
-                                            <div className="feature-flag-property-display">
+                                            <div className="feature-flag-property-display" key={idx}>
                                                 {idx === 0 ? (
                                                     <LemonButton
                                                         icon={<IconSubArrowRight className="arrow-right" />}
@@ -903,6 +947,25 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                         onChange={(properties) => updateConditionSet(index, undefined, properties)}
                                         taxonomicGroupTypes={taxonomicGroupTypes}
                                         hasRowOperator={false}
+                                        sendAllKeyUpdates
+                                        errorMessages={
+                                            propertySelectErrors?.[index]?.properties?.some(
+                                                (message) => !!message.value
+                                            )
+                                                ? propertySelectErrors[index].properties.map((message, index) => {
+                                                      return message.value ? (
+                                                          <div
+                                                              key={index}
+                                                              className="text-danger flex items-center gap-1 text-sm"
+                                                          >
+                                                              <IconErrorOutline className="text-xl" /> {message.value}
+                                                          </div>
+                                                      ) : (
+                                                          <></>
+                                                      )
+                                                  })
+                                                : null
+                                        }
                                     />
                                 </div>
                             )}
@@ -913,7 +976,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                 <div>
                                     Rolled out to{' '}
                                     <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
-                                    <b>{aggregationTargetName}</b> in this set
+                                    <b>{aggregationTargetName}</b> in this set.{' '}
                                 </div>
                             ) : (
                                 <div className="feature-flag-form-row">
@@ -929,7 +992,34 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             max={100}
                                             addonAfter="%"
                                         />{' '}
-                                        of <b>{aggregationTargetName}</b> in this set
+                                        of <b>{aggregationTargetName}</b> in this set.{' '}
+                                        {featureFlags[FEATURE_FLAGS.FEATURE_FLAG_ROLLOUT_UX] && (
+                                            <>
+                                                Will match approximately{' '}
+                                                {affectedUsers[index] !== undefined ? (
+                                                    <b>
+                                                        {`${humanFriendlyNumber(
+                                                            computeBlastRadiusPercentage(
+                                                                group.rollout_percentage,
+                                                                index
+                                                            )
+                                                        )}% `}
+                                                    </b>
+                                                ) : (
+                                                    <Spinner className="mr-1" />
+                                                )}{' '}
+                                                {affectedUsers[index] && affectedUsers[index] >= 0 && totalUsers
+                                                    ? `(${humanFriendlyNumber(
+                                                          Math.floor(
+                                                              (affectedUsers[index] *
+                                                                  (group.rollout_percentage ?? 100)) /
+                                                                  100
+                                                          )
+                                                      )} / ${humanFriendlyNumber(totalUsers)})`
+                                                    : ''}{' '}
+                                                of total {aggregationTargetName}.
+                                            </>
+                                        )}
                                     </div>
                                 </div>
                             )}
@@ -960,12 +1050,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                     allowClear={true}
                                                     value={group.variant}
                                                     onChange={(value) =>
-                                                        updateConditionSet(
-                                                            index,
-                                                            undefined,
-                                                            undefined,
-                                                            value || undefined
-                                                        )
+                                                        updateConditionSet(index, undefined, undefined, value)
                                                     }
                                                     options={nonEmptyVariants.map((variant) => ({
                                                         label: variant.key,
