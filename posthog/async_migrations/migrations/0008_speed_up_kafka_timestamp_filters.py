@@ -54,12 +54,12 @@ class Migration(AsyncMigrationDefinition):
         ),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD INDEX kafka_timestamp_minmax _timestamp TYPE minmax GRANULARITY 3",
-            rollback=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP INDEX kafka_timestamp_minmax",
+            sql=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD INDEX kafka_timestamp_minmax_dlq _timestamp TYPE minmax GRANULARITY 3",
+            rollback=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP INDEX kafka_timestamp_minmax_dlq",
         ),
         AsyncMigrationOperationSQL(
             database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE INDEX kafka_timestamp_minmax",
+            sql=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE INDEX kafka_timestamp_minmax_dlq",
             rollback=None,
         ),
     ]
