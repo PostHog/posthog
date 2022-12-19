@@ -1,65 +1,56 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { InsightType, ViewType } from '~/types'
-import { compareFilterLogicType } from './compareFilterLogicType'
+import { ChartDisplayType, InsightLogicProps, InsightType, TrendsFilterType } from '~/types'
+import type { compareFilterLogicType } from './compareFilterLogicType'
+import { isStickinessFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export const compareFilterLogic = kea<compareFilterLogicType>({
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('new'),
+    path: (key) => ['lib', 'components', 'CompareFilter', 'compareFilterLogic', key],
+    connect: (props: InsightLogicProps) => ({
+        actions: [insightLogic(props), ['setFilters']],
+        values: [insightLogic(props), ['filters as inflightFilters', 'canEditInsight']],
+    }),
+
     actions: () => ({
         setCompare: (compare: boolean) => ({ compare }),
-        setDisabled: (disabled: boolean) => ({ disabled }),
         toggleCompare: true,
     }),
-    reducers: () => ({
+
+    selectors: {
+        filters: [
+            (s) => [s.inflightFilters],
+            (inflightFilters): Partial<TrendsFilterType> =>
+                inflightFilters && (isTrendsFilter(inflightFilters) || isStickinessFilter(inflightFilters))
+                    ? inflightFilters
+                    : {},
+        ],
         compare: [
-            false,
-            {
-                setCompare: (_, { compare }) => compare,
-            },
+            (s) => [s.filters],
+            (filters) => filters && (isTrendsFilter(filters) || isStickinessFilter(filters)) && !!filters.compare,
         ],
         disabled: [
-            false,
-            {
-                setDisabled: (_, { disabled }) => disabled,
-            },
+            (s) => [s.filters, s.canEditInsight],
+            ({ insight, date_from, display }, canEditInsight) =>
+                !canEditInsight ||
+                insight === InsightType.LIFECYCLE ||
+                display === ChartDisplayType.WorldMap ||
+                date_from === 'all',
         ],
-    }),
-    listeners: ({ actions, values }) => ({
-        setCompare: () => {
-            const { compare, ...searchParams } = router.values.searchParams // eslint-disable-line
-            const { pathname } = router.values.location
+    },
 
-            searchParams.compare = values.compare
-
+    listeners: ({ values, actions }) => ({
+        setCompare: ({ compare }) => {
             if (!objectsEqual(compare, values.compare)) {
-                router.actions.replace(pathname, searchParams)
+                const newFilters: Partial<TrendsFilterType> = { ...values.filters, compare }
+                actions.setFilters(newFilters)
             }
         },
         toggleCompare: () => {
             actions.setCompare(!values.compare)
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (
-            _: any,
-            {
-                compare,
-                insight,
-                date_from,
-            }: {
-                compare?: boolean
-                insight?: InsightType
-                date_from?: string
-            }
-        ) => {
-            if (compare !== undefined) {
-                actions.setCompare(compare)
-            }
-            if (insight === ViewType.LIFECYCLE || date_from === 'all') {
-                actions.setDisabled(true)
-            } else {
-                actions.setDisabled(false)
-            }
         },
     }),
 })

@@ -1,401 +1,544 @@
-import { isBreakpoint, kea } from 'kea'
+import { BreakPointFunction, kea } from 'kea'
 import equal from 'fast-deep-equal'
 import api from 'lib/api'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { autocorrectInterval, objectsEqual, sum, uuid } from 'lib/utils'
-import { insightHistoryLogic } from 'scenes/insights/InsightHistoryPanel/insightHistoryLogic'
-import { funnelsModel } from '~/models/funnelsModel'
-import { dashboardItemsModel } from '~/models/dashboardItemsModel'
+import { autoCaptureEventToDescription, average, percentage, sum } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { funnelLogicType } from './funnelLogicType'
+import type { funnelLogicType } from './funnelLogicType'
 import {
+    AvailableFeature,
+    BinCountValue,
+    BreakdownKeyType,
+    CorrelationConfigType,
+    ElementPropertyFilter,
     EntityTypes,
     FilterType,
-    FunnelVizType,
-    FunnelResult,
-    FunnelStep,
-    FunnelsTimeConversionBins,
-    FunnelTimeConversionStep,
-    PersonType,
-    ViewType,
-    FunnelStepWithNestedBreakdown,
-    FunnelTimeConversionMetrics,
-    FunnelRequestParams,
-    LoadedRawFunnelResults,
     FlattenedFunnelStep,
-    FunnelStepWithConversionMetrics,
-    BinCountValue,
-    FunnelConversionWindow,
+    FlattenedFunnelStepByBreakdown,
+    FunnelAPIResponse,
     FunnelConversionWindowTimeUnit,
+    FunnelCorrelation,
+    FunnelCorrelationResultsType,
+    FunnelCorrelationType,
+    FunnelsFilterType,
+    FunnelStep,
+    FunnelStepRangeEntityFilter,
+    FunnelStepReference,
+    FunnelStepWithConversionMetrics,
+    FunnelStepWithNestedBreakdown,
+    FunnelsTimeConversionBins,
+    FunnelTimeConversionMetrics,
+    FunnelVizType,
+    HistogramGraphDatum,
+    InsightLogicProps,
+    InsightType,
+    PropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+    StepOrderValue,
+    TrendResult,
 } from '~/types'
-import { FunnelLayout, BinCountAuto } from 'lib/constants'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { FunnelStepReference } from 'scenes/insights/InsightTabs/FunnelTab/FunnelStepReferencePicker'
-import { cleanBinResult, formatDisplayPercentage, getLastFilledStep, getReferenceStep } from './funnelUtils'
-import { personsModalLogic } from 'scenes/trends/personsModalLogic'
-import { router } from 'kea-router'
-import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { BIN_COUNT_AUTO, FunnelLayout } from 'lib/constants'
+
+import {
+    aggregateBreakdownResult,
+    generateBaselineConversionUrl,
+    getBreakdownStepValues,
+    getClampedStepRangeFilter,
+    getIncompleteConversionWindowStartDate,
+    getLastFilledStep,
+    getMeanAndStandardDeviation,
+    getReferenceStep,
+    getVisibilityKey,
+    isBreakdownFunnelResults,
+    isStepsEmpty,
+    isValidBreakdownParameter,
+} from './funnelUtils'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { isFunnelsFilter, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { teamLogic } from '../teamLogic'
+import { personPropertiesModel } from '~/models/personPropertiesModel'
+import { groupPropertiesModel } from '~/models/groupPropertiesModel'
+import { userLogic } from 'scenes/userLogic'
+import { visibilitySensorLogic } from 'lib/components/VisibilitySensor/visibilitySensorLogic'
+import { elementsToAction } from 'scenes/events/createActionFromEvent'
+import { groupsModel, Noun } from '~/models/groupsModel'
+import { dayjs } from 'lib/dayjs'
+import { lemonToast } from 'lib/components/lemonToast'
+import { LemonSelectOptions } from 'lib/components/LemonSelect'
+import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
+import { funnelTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
 
-function aggregateBreakdownResult(
-    breakdownList: FunnelStep[][],
-    breakdownProperty?: string | number | number[]
-): FunnelStepWithNestedBreakdown[] {
-    if (breakdownList.length) {
-        return breakdownList[0].map((step, i) => ({
-            ...step,
-            count: breakdownList.reduce((total, breakdownSteps) => total + breakdownSteps[i].count, 0),
-            breakdown: breakdownProperty,
-            nested_breakdown: breakdownList.reduce(
-                (allEntries, breakdownSteps) => [...allEntries, breakdownSteps[i]],
-                []
-            ),
-            average_conversion_time: null,
-            people: [],
-        }))
-    }
-    return []
+/* Chosen via heuristics by eyeballing some values
+ * Assuming a normal distribution, then 90% of values are within 1.5 standard deviations of the mean
+ * which gives a ballpark of 1 highlighting every 10 breakdown values
+ */
+const DEVIATION_SIGNIFICANCE_MULTIPLIER = 1.5
+
+// List of events that should be excluded, if we don't have an explicit list of
+// excluded properties. Copied from
+// https://github.com/PostHog/posthog/issues/6474#issuecomment-952044722
+export const DEFAULT_EXCLUDED_PERSON_PROPERTIES = [
+    '$initial_geoip_postal_code',
+    '$initial_geoip_latitude',
+    '$initial_geoip_longitude',
+    '$geoip_latitude',
+    '$geoip_longitude',
+    '$geoip_postal_code',
+    '$geoip_continent_code',
+    '$geoip_continent_name',
+    '$initial_geoip_continent_code',
+    '$initial_geoip_continent_name',
+    '$geoip_time_zone',
+    '$geoip_country_code',
+    '$geoip_subdivision_1_code',
+    '$initial_geoip_subdivision_1_code',
+    '$geoip_subdivision_2_code',
+    '$initial_geoip_subdivision_2_code',
+    '$geoip_subdivision_name',
+    '$initial_geoip_subdivision_name',
+]
+
+export type OpenPersonsModelProps = {
+    step: FunnelStep
+    stepIndex?: number
+    converted: boolean
 }
-
-function isBreakdownFunnelResults(results: FunnelStep[] | FunnelStep[][]): results is FunnelStep[][] {
-    return Array.isArray(results) && (results.length === 0 || Array.isArray(results[0]))
-}
-
-// breakdown parameter could be a string (property breakdown) or object/number (list of cohort ids)
-function isValidBreakdownParameter(breakdown: FunnelRequestParams['breakdown']): boolean {
-    return ['string', 'null', 'undefined', 'number'].includes(typeof breakdown) || Array.isArray(breakdown)
-}
-
-function wait(ms = 1000): Promise<any> {
-    return new Promise((resolve) => {
-        setTimeout(resolve, ms)
-    })
-}
-
-const SECONDS_TO_POLL = 3 * 60
-
-const EMPTY_FUNNEL_RESULTS = {
-    results: [],
-    timeConversionResults: {
-        bins: [],
-        average_conversion_time: 0,
-    },
-}
-
-async function pollFunnel<T = FunnelStep[]>(apiParams: FunnelRequestParams): Promise<FunnelResult<T>> {
-    // Tricky: This API endpoint has wildly different return types depending on parameters.
-    const { refresh, ...bodyParams } = apiParams
-    let result = await api.create('api/insight/funnel/?' + (refresh ? 'refresh=true' : ''), bodyParams)
-    const start = window.performance.now()
-    while (result.result.loading && (window.performance.now() - start) / 1000 < SECONDS_TO_POLL) {
-        await wait()
-        result = await api.create('api/insight/funnel', bodyParams)
-    }
-    // if endpoint is still loading after 3 minutes just return default
-    if (result.loading) {
-        throw { status: 0, statusText: 'Funnel timeout' }
-    }
-    return result
-}
-
-export const cleanFunnelParams = (filters: Partial<FilterType>, discardFiltersNotUsedByFunnels = false): FilterType => {
-    const breakdownEnabled = filters.funnel_viz_type === FunnelVizType.Steps
-
-    return {
-        // Use "discardFiltersNotUsedByFunnels" to get funnel params that you can compare.
-        ...(discardFiltersNotUsedByFunnels ? {} : filters),
-        ...(filters.date_from ? { date_from: filters.date_from } : {}),
-        ...(filters.date_to ? { date_to: filters.date_to } : {}),
-        ...(filters.actions ? { actions: filters.actions } : {}),
-        ...(filters.events ? { events: filters.events } : {}),
-        ...(filters.display ? { display: filters.display } : {}),
-        ...(filters.layout ? { layout: filters.layout } : {}),
-        ...(filters.interval ? { interval: filters.interval } : {}),
-        ...(filters.properties ? { properties: filters.properties } : {}),
-        ...(filters.filter_test_accounts ? { filter_test_accounts: filters.filter_test_accounts } : {}),
-        ...(filters.funnel_step ? { funnel_step: filters.funnel_step } : {}),
-        ...(filters.funnel_viz_type
-            ? { funnel_viz_type: filters.funnel_viz_type }
-            : { funnel_viz_type: FunnelVizType.Steps }),
-        ...(filters.funnel_step ? { funnel_to_step: filters.funnel_step } : {}),
-        ...(filters.entrance_period_start ? { entrance_period_start: filters.entrance_period_start } : {}),
-        ...(filters.drop_off ? { drop_off: filters.drop_off } : {}),
-        ...(filters.funnel_step_breakdown !== undefined
-            ? { funnel_step_breakdown: filters.funnel_step_breakdown }
-            : {}),
-        ...(filters.bin_count && filters.bin_count !== BinCountAuto ? { bin_count: filters.bin_count } : {}),
-        ...(filters.funnel_window_interval_unit
-            ? { funnel_window_interval_unit: filters.funnel_window_interval_unit }
-            : {}),
-        ...(filters.funnel_window_interval ? { funnel_window_interval: filters.funnel_window_interval } : {}),
-        ...(filters.funnel_order_type ? { funnel_order_type: filters.funnel_order_type } : {}),
-        interval: autocorrectInterval(filters),
-        breakdown: breakdownEnabled ? filters.breakdown || undefined : undefined,
-        breakdown_type: breakdownEnabled ? filters.breakdown_type || undefined : undefined,
-        insight: ViewType.FUNNELS,
-    }
-}
-const isStepsEmpty = (filters: FilterType): boolean =>
-    [...(filters.actions || []), ...(filters.events || [])].length === 0
 
 export const funnelLogic = kea<funnelLogicType>({
-    props: {} as {
-        dashboardItemId?: number
-        filters?: Partial<FilterType>
-        cachedResults?: any
-        preventLoading?: boolean
-        refresh?: boolean
-    },
+    path: (key) => ['scenes', 'funnels', 'funnelLogic', key],
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('insight_funnel'),
 
-    key: (props) => {
-        return props.dashboardItemId || 'insight_funnel'
-    },
+    connect: (props: InsightLogicProps) => ({
+        values: [
+            insightLogic(props),
+            ['filters as inflightFilters', 'insight', 'insightLoading', 'isInDashboardContext', 'hiddenLegendKeys'],
+            teamLogic,
+            ['currentTeamId', 'currentTeam'],
+            personPropertiesModel,
+            ['personProperties'],
+            userLogic,
+            ['hasAvailableFeature'],
+            groupsModel,
+            ['aggregationLabel'],
+            groupPropertiesModel,
+            ['groupProperties'],
+        ],
+        actions: [insightLogic(props), ['loadResults', 'loadResultsSuccess', 'toggleVisibility', 'setHiddenById']],
+        logic: [eventUsageLogic, dashboardsModel],
+    }),
 
     actions: () => ({
         clearFunnel: true,
-        setFilters: (filters: Partial<FilterType>, refresh = false, mergeWithExisting = true) => ({
+        setFilters: (
+            filters: Partial<FunnelsFilterType>,
+            refresh: boolean = false,
+            mergeWithExisting: boolean = true
+        ) => ({
             filters,
             refresh,
             mergeWithExisting,
         }),
+        setEventExclusionFilters: (filters: Partial<FilterType>) => ({ filters }),
+        setOneEventExclusionFilter: (eventFilter: FunnelStepRangeEntityFilter, index: number) => ({
+            eventFilter,
+            index,
+        }),
         saveFunnelInsight: (name: string) => ({ name }),
-        setConversionWindow: (conversionWindow: FunnelConversionWindow) => ({ conversionWindow }),
-        openPersonsModal: (
-            step: FunnelStep | FunnelStepWithNestedBreakdown,
-            stepNumber: number,
-            breakdown_value?: string | number
-        ) => ({
+        openPersonsModalForStep: ({ step, stepIndex, converted }: OpenPersonsModelProps) => ({
             step,
-            stepNumber,
-            breakdown_value,
+            stepIndex,
+            converted,
+        }),
+        openPersonsModalForSeries: ({
+            step,
+            series,
+            converted,
+        }: {
+            step: FunnelStep
+            series: Omit<FunnelStepWithConversionMetrics, 'nested_breakdown'>
+            converted: boolean
+        }) => ({
+            step,
+            series,
+            converted,
+        }),
+        openCorrelationPersonsModal: (correlation: FunnelCorrelation, success: boolean) => ({
+            correlation,
+            success,
         }),
         setStepReference: (stepReference: FunnelStepReference) => ({ stepReference }),
-        changeHistogramStep: (from_step: number, to_step: number) => ({ from_step, to_step }),
+        changeStepRange: (funnel_from_step?: number, funnel_to_step?: number) => ({
+            funnel_from_step,
+            funnel_to_step,
+        }),
         setIsGroupingOutliers: (isGroupingOutliers) => ({ isGroupingOutliers }),
         setBinCount: (binCount: BinCountValue) => ({ binCount }),
+        toggleVisibilityByBreakdown: (breakdownValue?: BreakdownKeyType) => ({ breakdownValue }),
+        toggleAdvancedMode: true,
+
+        // Correlation related actions
+        setCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        setPropertyCorrelationTypes: (types: FunnelCorrelationType[]) => ({ types }),
+        setCorrelationDetailedFeedback: (comment: string) => ({ comment }),
+        setCorrelationFeedbackRating: (rating: number) => ({ rating }),
+        setCorrelationDetailedFeedbackVisible: (visible: boolean) => ({ visible }),
+        sendCorrelationAnalysisFeedback: true,
+        hideSkewWarning: true,
+        hideCorrelationAnalysisFeedback: true,
+        setFunnelCorrelationDetails: (payload: FunnelCorrelation | null) => ({ payload }),
+
+        setPropertyNames: (propertyNames: string[]) => ({ propertyNames }),
+        excludePropertyFromProject: (propertyName: string) => ({ propertyName }),
+        excludeEventFromProject: (eventName: string) => ({ eventName }),
+        excludeEventPropertyFromProject: (eventName: string, propertyName: string) => ({ eventName, propertyName }),
+
+        addNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
+        removeNestedTableExpandedKey: (expandKey: string) => ({ expandKey }),
+
+        showTooltip: (
+            origin: [number, number, number],
+            stepIndex: number,
+            series: FunnelStepWithConversionMetrics
+        ) => ({
+            origin,
+            stepIndex,
+            series,
+        }),
+        hideTooltip: true,
     }),
-
-    connect: {
-        actions: [insightHistoryLogic, ['createInsight'], funnelsModel, ['loadFunnels']],
-        logic: [insightLogic],
+    defaults: {
+        // This is a hack to get `FunnelCorrelationResultsType` imported in `funnelLogicType.ts`
+        __ignore: null as FunnelCorrelationResultsType | null,
     },
-
-    loaders: ({ props, values }) => ({
-        rawResults: [
-            { ...EMPTY_FUNNEL_RESULTS, filters: {} } as LoadedRawFunnelResults,
+    loaders: ({ values }) => ({
+        correlations: [
+            { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
-                loadResults: async (refresh = false, breakpoint): Promise<LoadedRawFunnelResults> => {
-                    const { apiParams, eventCount, actionCount, interval, filters } = values
-
-                    if (props.cachedResults && !refresh && values.filters === props.filters) {
-                        return {
-                            results: props.cachedResults as FunnelStep[] | FunnelStep[][],
-                            timeConversionResults: props.cachedResults as FunnelsTimeConversionBins,
-                            filters,
-                        }
-                    }
-
-                    // Don't bother making any requests if filters aren't valid
-                    if (!values.areFiltersValid) {
-                        return { ...EMPTY_FUNNEL_RESULTS, filters }
-                    }
-
-                    await breakpoint(250)
-
-                    async function loadFunnelResults(): Promise<FunnelResult<FunnelStep[] | FunnelStep[][]>> {
-                        try {
-                            const result = await pollFunnel<FunnelStep[] | FunnelStep[][]>({
-                                ...apiParams,
-                                refresh,
-                                // Time to convert requires steps funnel api to be called for now. Remove once two api's are functionally separated
-                                funnel_viz_type:
-                                    filters.funnel_viz_type === FunnelVizType.TimeToConvert
-                                        ? FunnelVizType.Steps
-                                        : apiParams.funnel_viz_type,
-                            })
-                            eventUsageLogic.actions.reportFunnelCalculated(eventCount, actionCount, interval, true)
-                            return result
-                        } catch (e) {
-                            breakpoint()
-                            eventUsageLogic.actions.reportFunnelCalculated(
-                                eventCount,
-                                actionCount,
-                                interval,
-                                false,
-                                e.message
-                            )
-                            throw e
-                        }
-                    }
-
-                    async function loadBinsResults(): Promise<FunnelsTimeConversionBins> {
-                        if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-                            const binsResult = await pollFunnel<FunnelsTimeConversionBins>({
-                                ...apiParams,
-                                ...(refresh ? { refresh } : {}),
-                            })
-                            return cleanBinResult(binsResult.result)
-                        }
-                        return EMPTY_FUNNEL_RESULTS.timeConversionResults
-                    }
-
-                    const queryId = uuid()
-                    const dashboardItemId = props.dashboardItemId as number | undefined
-
-                    insightLogic.actions.startQuery(queryId)
-                    dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, true, null)
+                loadCorrelations: async (_, breakpoint) => {
+                    await breakpoint(100)
 
                     try {
-                        const [result, timeConversionResults] = await Promise.all([
-                            loadFunnelResults(),
-                            loadBinsResults(),
-                        ])
-                        breakpoint()
-                        insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, result.last_refresh)
-                        dashboardsModel.actions.updateDashboardRefreshStatus(
-                            dashboardItemId,
-                            false,
-                            result.last_refresh
-                        )
-                        return { results: result.result, timeConversionResults, filters }
-                    } catch (e) {
-                        if (!isBreakpoint(e)) {
-                            insightLogic.actions.endQuery(queryId, ViewType.FUNNELS, null, e)
-                            dashboardsModel.actions.updateDashboardRefreshStatus(dashboardItemId, false, null)
-                            console.error(e)
+                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                                ...values.apiParams,
+                                funnel_correlation_type: 'events',
+                                funnel_correlation_exclude_event_names: values.excludedEventNames,
+                            })
+                        ).result?.events
+
+                        return {
+                            events: results.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.Events,
+                            })),
                         }
-                        return { ...EMPTY_FUNNEL_RESULTS, filters }
+                    } catch (error) {
+                        lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
+                        return { events: [] }
                     }
                 },
             },
         ],
-        people: [
-            [] as any[], // TODO: Type properly
+        propertyCorrelations: [
+            { events: [] } as Record<'events', FunnelCorrelation[]>,
             {
-                loadPeople: async (steps) => {
-                    return (await api.get('api/person/?uuid=' + steps[0].people.join(','))).results
+                loadPropertyCorrelations: async (_, breakpoint) => {
+                    const targetProperties =
+                        values.propertyNames.length >= values.allProperties.length ? ['$all'] : values.propertyNames
+
+                    if (targetProperties.length === 0) {
+                        return { events: [] }
+                    }
+
+                    await breakpoint(100)
+
+                    try {
+                        const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                            await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                                ...values.apiParams,
+                                funnel_correlation_type: 'properties',
+                                funnel_correlation_names: targetProperties,
+                                funnel_correlation_exclude_names: values.excludedPropertyNames,
+                            })
+                        ).result?.events
+
+                        return {
+                            events: results.map((result) => ({
+                                ...result,
+                                result_type: FunnelCorrelationResultsType.Properties,
+                            })),
+                        }
+                    } catch (error) {
+                        lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
+                        return { events: [] }
+                    }
+                },
+            },
+        ],
+        eventWithPropertyCorrelations: [
+            {} as Record<string, FunnelCorrelation[]>,
+            {
+                loadEventWithPropertyCorrelations: async (eventName: string) => {
+                    const results: Omit<FunnelCorrelation, 'result_type'>[] = (
+                        await api.create(`api/projects/${values.currentTeamId}/insights/funnel/correlation`, {
+                            ...values.apiParams,
+                            funnel_correlation_type: 'event_with_properties',
+                            funnel_correlation_event_names: [eventName],
+                            funnel_correlation_event_exclude_property_names: values.excludedEventPropertyNames,
+                        })
+                    ).result?.events
+
+                    eventUsageLogic.actions.reportCorrelationInteraction(
+                        FunnelCorrelationResultsType.EventWithProperties,
+                        'load event with properties',
+                        { name: eventName }
+                    )
+
+                    return {
+                        [eventName]: results.map((result) => ({
+                            ...result,
+                            result_type: FunnelCorrelationResultsType.EventWithProperties,
+                        })),
+                    }
                 },
             },
         ],
     }),
 
     reducers: ({ props }) => ({
-        filters: [
-            (props.filters || {}) as FilterType,
-            {
-                setFilters: (state, { filters, mergeWithExisting }) =>
-                    mergeWithExisting ? { ...state, ...filters } : filters,
-                clearFunnel: (state) => ({ new_entity: state.new_entity }),
-            },
-        ],
         people: {
             clearFunnel: () => [],
         },
-        conversionWindow: [
-            {
-                funnel_window_interval_unit: FunnelConversionWindowTimeUnit.Day,
-                funnel_window_interval: 14,
-            } as {
-                funnel_window_interval_unit: FunnelConversionWindowTimeUnit
-                funnel_window_interval: number
-            },
-            {
-                setConversionWindow: (
-                    state,
-                    { conversionWindow: { funnel_window_interval_unit, funnel_window_interval } }
-                ) => {
-                    return {
-                        ...state,
-                        ...(funnel_window_interval_unit ? { funnel_window_interval_unit } : {}),
-                        ...(funnel_window_interval ? { funnel_window_interval } : {}),
-                    }
-                },
-            },
-        ],
-        stepReference: [
-            FunnelStepReference.total as FunnelStepReference,
-            {
-                setStepReference: (_, { stepReference }) => stepReference,
-            },
-        ],
-        histogramStep: [
-            { from_step: -1, to_step: -1 } as FunnelTimeConversionStep,
-            {
-                changeHistogramStep: (_, { from_step, to_step }) => ({ from_step, to_step }),
-            },
-        ],
         isGroupingOutliers: [
             true,
             {
                 setIsGroupingOutliers: (_, { isGroupingOutliers }) => isGroupingOutliers,
             },
         ],
-        binCount: [
-            BinCountAuto as BinCountValue,
+        error: [
+            null as any,
             {
-                setBinCount: (_, { binCount }) => binCount,
+                [insightLogic(props).actionTypes.startQuery]: () => null,
+                [insightLogic(props).actionTypes.endQuery]: (_: any, { exception }: any) => exception ?? null,
+                [insightLogic(props).actionTypes.abortQuery]: (_: any, { exception }: any) => exception ?? null,
+            },
+        ],
+        correlationTypes: [
+            [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
+            {
+                setCorrelationTypes: (_, { types }) => types,
+            },
+        ],
+        propertyCorrelationTypes: [
+            [FunnelCorrelationType.Success, FunnelCorrelationType.Failure] as FunnelCorrelationType[],
+            {
+                setPropertyCorrelationTypes: (_, { types }) => types,
+            },
+        ],
+        skewWarningHidden: [
+            false,
+            {
+                hideSkewWarning: () => true,
+            },
+        ],
+        correlationFeedbackHidden: [
+            false,
+            {
+                sendCorrelationAnalysisFeedback: () => true,
+                hideCorrelationAnalysisFeedback: () => true,
+            },
+        ],
+        correlationDetailedFeedbackVisible: [
+            false,
+            {
+                setCorrelationDetailedFeedbackVisible: (_, { visible }) => visible,
+            },
+        ],
+        correlationFeedbackRating: [
+            0,
+            {
+                setCorrelationFeedbackRating: (_, { rating }) => rating,
+            },
+        ],
+        correlationDetailedFeedback: [
+            '',
+            {
+                setCorrelationDetailedFeedback: (_, { comment }) => comment,
+            },
+        ],
+        eventWithPropertyCorrelations: {
+            loadEventWithPropertyCorrelationsSuccess: (state, { eventWithPropertyCorrelations }) => {
+                return {
+                    ...state,
+                    ...eventWithPropertyCorrelations,
+                }
+            },
+            loadCorrelationsSuccess: () => {
+                return {}
+            },
+        },
+        propertyNames: [
+            [] as string[],
+            {
+                setPropertyNames: (_, { propertyNames }) => propertyNames,
+                excludePropertyFromProject: (selectedProperties, { propertyName }) => {
+                    return selectedProperties.filter((p) => p !== propertyName)
+                },
+            },
+        ],
+        nestedTableExpandedKeys: [
+            [] as string[],
+            {
+                removeNestedTableExpandedKey: (state, { expandKey }) => {
+                    return state.filter((key) => key !== expandKey)
+                },
+                addNestedTableExpandedKey: (state, { expandKey }) => {
+                    return [...state, expandKey]
+                },
+                loadCorrelationsSuccess: () => {
+                    return []
+                },
+            },
+        ],
+        shouldReportCorrelationViewed: [
+            true as boolean,
+            {
+                loadResultsSuccess: () => true,
+                [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
+                    if (!propertiesTable) {
+                        return false // don't report correlation viewed again, since it was for events earlier
+                    }
+                    return current
+                },
+            },
+        ],
+        shouldReportPropertyCorrelationViewed: [
+            true as boolean,
+            {
+                loadResultsSuccess: () => true,
+                [eventUsageLogic.actionTypes.reportCorrelationViewed]: (current, { propertiesTable }) => {
+                    if (propertiesTable) {
+                        return false
+                    }
+                    return current
+                },
+            },
+        ],
+        funnelCorrelationDetails: [
+            null as null | FunnelCorrelation,
+            {
+                setFunnelCorrelationDetails: (_, { payload }) => payload,
+            },
+        ],
+        isTooltipShown: [
+            false,
+            {
+                showTooltip: () => true,
+                hideTooltip: () => false,
+            },
+        ],
+        currentTooltip: [
+            null as [number, FunnelStepWithConversionMetrics] | null,
+            {
+                showTooltip: (_, { stepIndex, series }) => [stepIndex, series],
+            },
+        ],
+        tooltipOrigin: [
+            null as [number, number, number] | null, // x, y, width
+            {
+                showTooltip: (_, { origin }) => origin,
             },
         ],
     }),
 
-    selectors: ({ props, selectors }) => ({
-        isLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
-        results: [(s) => [s.rawResults], (rawResults) => rawResults.results],
-        resultsLoading: [(s) => [s.rawResultsLoading], (rawResultsLoading) => rawResultsLoading],
-        timeConversionBins: [(s) => [s.rawResults], (rawResults) => rawResults.timeConversionResults],
-        lastAppliedFilters: [(s) => [s.rawResults], (rawResults) => rawResults.filters],
-        peopleSorted: [
-            () => [selectors.stepsWithCount, selectors.people],
-            (steps, people) => {
-                if (!people) {
-                    return null
+    selectors: ({ selectors }) => ({
+        filters: [
+            (s) => [s.inflightFilters],
+            (inflightFilters): Partial<FunnelsFilterType> =>
+                inflightFilters && isFunnelsFilter(inflightFilters) ? inflightFilters : {},
+        ],
+        loadedFilters: [
+            (s) => [s.insight],
+            ({ filters }): Partial<FunnelsFilterType> => (filters && isFunnelsFilter(filters) ? filters : {}),
+        ],
+        stepReference: [
+            (s) => [s.filters],
+            ({ funnel_step_reference }) => funnel_step_reference || FunnelStepReference.total,
+        ],
+        results: [
+            (s) => [s.insight],
+            ({ filters, result }): FunnelAPIResponse => {
+                if (filters?.insight === InsightType.FUNNELS) {
+                    if (Array.isArray(result) && Array.isArray(result[0]) && result[0][0].breakdowns) {
+                        // in order to stop the UI having to check breakdowns and breakdown
+                        // this collapses breakdowns onto the breakdown property
+                        return result.map((series) =>
+                            series.map((r: { [x: string]: any; breakdowns: any; breakdown_value: any }) => {
+                                const { breakdowns, breakdown_value, ...singlePropertyClone } = r
+                                singlePropertyClone.breakdown = breakdowns
+                                singlePropertyClone.breakdown_value = breakdown_value
+                                return singlePropertyClone
+                            })
+                        )
+                    }
+                    return result
+                } else {
+                    return []
                 }
-                const score = (person: PersonType): number => {
-                    return steps.reduce(
-                        (val, step) => (person.uuid && (step.people?.indexOf(person.uuid) ?? -1) > -1 ? val + 1 : val),
-                        0
-                    )
-                }
-                return people.sort((a, b) => score(b) - score(a))
             },
         ],
-        isStepsEmpty: [() => [selectors.filters], (filters: FilterType) => isStepsEmpty(filters)],
-        propertiesForUrl: [() => [selectors.filters], (filters: FilterType) => cleanFunnelParams(filters)],
+        conversionWindow: [
+            (s) => [s.filters],
+            ({ funnel_window_interval, funnel_window_interval_unit }) => ({
+                funnel_window_interval: funnel_window_interval || 14,
+                funnel_window_interval_unit: funnel_window_interval_unit || FunnelConversionWindowTimeUnit.Day,
+            }),
+        ],
+        timeConversionResults: [
+            (s) => [s.results, s.filters],
+            (results, filters): FunnelsTimeConversionBins | null => {
+                return filters.funnel_viz_type === FunnelVizType.TimeToConvert
+                    ? (results as FunnelsTimeConversionBins)
+                    : null
+            },
+        ],
+        isStepsEmpty: [() => [selectors.filters], (filters: FunnelsFilterType) => isStepsEmpty(filters)],
+        propertiesForUrl: [() => [selectors.filters], (filters: FunnelsFilterType) => cleanFilters(filters)],
         isValidFunnel: [
-            () => [selectors.filters, selectors.results, selectors.stepsWithCount, selectors.timeConversionBins],
-            (filters, results, stepsWithCount, timeConversionBins) => {
+            () => [selectors.filters, selectors.steps, selectors.histogramGraphData],
+            (filters, steps, histogramGraphData) => {
                 if (filters.funnel_viz_type === FunnelVizType.Steps || !filters.funnel_viz_type) {
-                    return !!(stepsWithCount && stepsWithCount[0] && stepsWithCount[0].count > -1)
+                    return !!(steps && steps[0] && steps[0].count > -1)
                 }
                 if (filters.funnel_viz_type === FunnelVizType.TimeToConvert) {
-                    return timeConversionBins?.bins?.length > 0
+                    return (histogramGraphData?.length ?? 0) > 0
                 }
                 if (filters.funnel_viz_type === FunnelVizType.Trends) {
-                    return results?.length > 0 && stepsWithCount?.[0]?.labels
+                    return (steps?.length ?? 0) > 0 && steps?.[0]?.labels
                 }
                 return false
             },
         ],
         filtersDirty: [
-            () => [selectors.filters, selectors.lastAppliedFilters],
-            (filters, lastFilters): boolean =>
-                !equal(cleanFunnelParams(filters, true), cleanFunnelParams(lastFilters, true)),
+            () => [selectors.filters, selectors.loadedFilters],
+            (filters, lastFilters): boolean => !equal(cleanFilters(filters), cleanFilters(lastFilters)),
         ],
         barGraphLayout: [() => [selectors.filters], ({ layout }): FunnelLayout => layout || FunnelLayout.vertical],
-        clickhouseFeaturesEnabled: [
-            () => [preflightLogic.selectors.preflight],
-            // Controls auto-calculation of results and ability to break down values
-            (preflight): boolean => !!preflight?.is_clickhouse_enabled,
-        ],
         histogramGraphData: [
-            () => [selectors.timeConversionBins],
-            (timeConversionBins: FunnelsTimeConversionBins) => {
-                if (timeConversionBins?.bins.length < 2) {
-                    return []
+            () => [selectors.timeConversionResults],
+            (timeConversionResults: FunnelsTimeConversionBins): HistogramGraphDatum[] | null => {
+                if ((timeConversionResults?.bins?.length ?? 0) < 2) {
+                    return null // There are no results
                 }
-                const binSize = timeConversionBins.bins[1][0] - timeConversionBins.bins[0][0]
-                const totalCount = sum(timeConversionBins.bins.map(([, count]) => count))
-                return timeConversionBins.bins.map(([id, count]: [id: number, count: number]) => {
+                const binSize = timeConversionResults.bins[1][0] - timeConversionResults.bins[0][0]
+                const totalCount = sum(timeConversionResults.bins.map(([, count]) => count))
+                if (totalCount === 0) {
+                    return [] // Nobody has converted in the time period
+                }
+                return timeConversionResults.bins.map(([id, count]: [id: number, count: number]) => {
                     const value = Math.max(0, id)
                     const percent = count / totalCount
                     return {
@@ -403,55 +546,45 @@ export const funnelLogic = kea<funnelLogicType>({
                         bin0: value,
                         bin1: value + binSize,
                         count,
-                        label: percent === 0 ? '' : `${formatDisplayPercentage(percent)}%`,
+                        label: percent === 0 ? '' : percentage(percent, 1, true),
                     }
                 })
-            },
-        ],
-        histogramStepsDropdown: [
-            () => [selectors.stepsWithCount, selectors.conversionMetrics],
-            (stepsWithCount, conversionMetrics) => {
-                const stepsDropdown: FunnelTimeConversionStep[] = []
-
-                if (stepsWithCount.length > 1) {
-                    stepsDropdown.push({
-                        label: 'All steps',
-                        from_step: -1,
-                        to_step: -1,
-                        count: stepsWithCount[stepsWithCount.length - 1].count,
-                        average_conversion_time: conversionMetrics.averageTime,
-                    })
-                }
-
-                // Don't show steps 1 -> 2 if there's only two steps
-                if (stepsWithCount.length === 2) {
-                    return stepsDropdown
-                }
-
-                stepsWithCount.forEach((_, idx) => {
-                    if (stepsWithCount[idx + 1]) {
-                        stepsDropdown.push({
-                            label: `Steps ${idx + 1} and ${idx + 2}`,
-                            from_step: idx,
-                            to_step: idx + 1,
-                            count: stepsWithCount[idx + 1].count,
-                            average_conversion_time: stepsWithCount[idx + 1].average_conversion_time ?? 0,
-                        })
-                    }
-                })
-                return stepsDropdown
             },
         ],
         areFiltersValid: [
-            () => [selectors.filters],
-            (filters) => {
-                return (filters.events?.length || 0) + (filters.actions?.length || 0) > 1
+            () => [selectors.numberOfSeries],
+            (numberOfSeries) => {
+                return numberOfSeries > 1
             },
         ],
+        numberOfSeries: [
+            () => [selectors.filters],
+            (filters): number => (filters.events?.length || 0) + (filters.actions?.length || 0),
+        ],
         conversionMetrics: [
-            () => [selectors.stepsWithCount, selectors.histogramStep],
-            (stepsWithCount, timeStep): FunnelTimeConversionMetrics => {
-                if (stepsWithCount.length <= 1) {
+            () => [selectors.steps, selectors.loadedFilters, selectors.timeConversionResults],
+            (steps, loadedFilters, timeConversionResults): FunnelTimeConversionMetrics => {
+                // steps should be empty in time conversion view. Return metrics precalculated on backend
+                if (loadedFilters.funnel_viz_type === FunnelVizType.TimeToConvert) {
+                    return {
+                        averageTime: timeConversionResults?.average_conversion_time ?? 0,
+                        stepRate: 0,
+                        totalRate: 0,
+                    }
+                }
+
+                // Handle metrics for trends
+                if (loadedFilters.funnel_viz_type === FunnelVizType.Trends) {
+                    return {
+                        averageTime: 0,
+                        stepRate: 0,
+                        totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
+                    }
+                }
+
+                // Handle metrics for steps
+                // no concept of funnel_from_step and funnel_to_step here
+                if (steps.length <= 1) {
                     return {
                         averageTime: 0,
                         stepRate: 0,
@@ -459,17 +592,23 @@ export const funnelLogic = kea<funnelLogicType>({
                     }
                 }
 
-                const isAllSteps = timeStep.from_step === -1
-                const fromStep = isAllSteps
-                    ? getReferenceStep(stepsWithCount, FunnelStepReference.total)
-                    : stepsWithCount[timeStep.from_step]
-                const toStep = isAllSteps ? getLastFilledStep(stepsWithCount) : stepsWithCount[timeStep.to_step]
+                const toStep = getLastFilledStep(steps)
+                const fromStep = getReferenceStep(steps, FunnelStepReference.total)
 
                 return {
-                    averageTime: toStep?.average_conversion_time || 0,
+                    averageTime: steps.reduce(
+                        (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
+                        0
+                    ),
                     stepRate: toStep.count / fromStep.count,
-                    totalRate: stepsWithCount[stepsWithCount.length - 1].count / stepsWithCount[0].count,
+                    totalRate: steps[steps.length - 1].count / steps[0].count,
                 }
+            },
+        ],
+        isSkewed: [
+            (s) => [s.conversionMetrics, s.skewWarningHidden],
+            (conversionMetrics, skewWarningHidden): boolean => {
+                return !skewWarningHidden && (conversionMetrics.totalRate < 0.1 || conversionMetrics.totalRate > 0.9)
             },
         ],
         apiParams: [
@@ -480,58 +619,78 @@ export const funnelLogic = kea<funnelLogicType>({
                     b) dashboard ID passed as a filter in certain kind of insights when viewing in the dashboard page
                 */
                 const { from_dashboard } = filters
-                const cleanedParams = cleanFunnelParams(filters)
+                const cleanedParams: Partial<FunnelsFilterType> = cleanFilters(filters)
                 return {
-                    ...(props.refresh ? { refresh: true } : {}),
                     ...(from_dashboard ? { from_dashboard } : {}),
                     ...cleanedParams,
                 }
             },
         ],
+        filterSteps: [
+            () => [selectors.apiParams],
+            (apiParams) =>
+                [...(apiParams.events ?? []), ...(apiParams.actions ?? []), ...(apiParams.new_entity ?? [])].sort(
+                    (a, b) => a.order - b.order
+                ),
+        ],
         eventCount: [() => [selectors.apiParams], (apiParams) => apiParams.events?.length || 0],
         actionCount: [() => [selectors.apiParams], (apiParams) => apiParams.actions?.length || 0],
         interval: [() => [selectors.apiParams], (apiParams) => apiParams.interval || ''],
-        stepsWithNestedBreakdown: [
-            () => [selectors.results, selectors.apiParams],
-            (results, params) => {
-                if (isBreakdownFunnelResults(results) && isValidBreakdownParameter(params.breakdown)) {
-                    return aggregateBreakdownResult(results, params.breakdown ?? undefined).sort(
+        steps: [
+            (s) => [s.filters, s.results, s.apiParams],
+            (
+                filters: Partial<FunnelsFilterType>,
+                results: FunnelAPIResponse,
+                apiParams
+            ): FunnelStepWithNestedBreakdown[] => {
+                const stepResults =
+                    filters.funnel_viz_type !== FunnelVizType.TimeToConvert
+                        ? (results as FunnelStep[] | FunnelStep[][])
+                        : []
+
+                if (!Array.isArray(stepResults)) {
+                    return []
+                }
+
+                let stepsWithNestedBreakdown: FunnelStepWithNestedBreakdown[] = []
+                if (
+                    isBreakdownFunnelResults(results) &&
+                    isValidBreakdownParameter(apiParams.breakdown, apiParams.breakdowns)
+                ) {
+                    const breakdownProperty = apiParams.breakdowns
+                        ? apiParams.breakdowns.map((b) => b.property).join('::')
+                        : apiParams.breakdown ?? undefined
+                    stepsWithNestedBreakdown = aggregateBreakdownResult(results, breakdownProperty).sort(
                         (a, b) => a.order - b.order
                     )
                 }
-                return []
-            },
-        ],
-        steps: [
-            () => [selectors.results, selectors.stepsWithNestedBreakdown, selectors.filters],
-            (results, stepsWithNestedBreakdown, filters): FunnelStepWithNestedBreakdown[] => {
-                if (!Array.isArray(results)) {
-                    return []
-                }
-                return !!filters.breakdown
+
+                return !!filters.breakdowns || !!filters.breakdown
                     ? stepsWithNestedBreakdown
-                    : ([...results] as FunnelStep[]).sort((a, b) => a.order - b.order)
+                    : ([...stepResults] as FunnelStep[]).sort((a, b) => a.order - b.order)
             },
         ],
-        stepsWithCount: [() => [selectors.steps], (steps) => steps.filter((step) => typeof step.count === 'number')],
         stepsWithConversionMetrics: [
             () => [selectors.steps, selectors.stepReference],
             (steps, stepReference): FunnelStepWithConversionMetrics[] => {
-                return steps.map((step, i) => {
+                const stepsWithConversionMetrics = steps.map((step, i) => {
                     const previousCount = i > 0 ? steps[i - 1].count : step.count // previous is faked for the first step
                     const droppedOffFromPrevious = Math.max(previousCount - step.count, 0)
+
                     const nestedBreakdown = step.nested_breakdown?.map((breakdown, breakdownIndex) => {
-                        const previousBreakdownCount =
-                            (i > 0 && steps[i - 1].nested_breakdown?.[breakdownIndex].count) || 0
                         const firstBreakdownCount = steps[0]?.nested_breakdown?.[breakdownIndex].count || 0
-                        const _droppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
+                        // firstBreakdownCount serves as previousBreakdownCount for the first step so that
+                        // "Relative to previous step" is shown correctly – later series use the actual previous steps
+                        const previousBreakdownCount =
+                            i === 0 ? firstBreakdownCount : steps[i - 1].nested_breakdown?.[breakdownIndex].count || 0
+                        const nestedDroppedOffFromPrevious = Math.max(previousBreakdownCount - breakdown.count, 0)
                         const conversionRates = {
                             fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,
                             total: breakdown.count / firstBreakdownCount,
                         }
                         return {
                             ...breakdown,
-                            droppedOffFromPrevious: _droppedOffFromPrevious,
+                            droppedOffFromPrevious: nestedDroppedOffFromPrevious,
                             conversionRates: {
                                 ...conversionRates,
                                 fromBasisStep:
@@ -552,12 +711,80 @@ export const funnelLogic = kea<funnelLogicType>({
                         conversionRates: {
                             ...conversionRates,
                             fromBasisStep:
-                                stepReference === FunnelStepReference.total
-                                    ? conversionRates.total
-                                    : conversionRates.fromPrevious,
+                                i > 0
+                                    ? stepReference === FunnelStepReference.total
+                                        ? conversionRates.total
+                                        : conversionRates.fromPrevious
+                                    : conversionRates.total,
                         },
                     }
                 })
+
+                if (!stepsWithConversionMetrics.length || !stepsWithConversionMetrics[0].nested_breakdown) {
+                    return stepsWithConversionMetrics
+                }
+
+                return stepsWithConversionMetrics.map((step) => {
+                    // Per step breakdown significance
+                    const [meanFromPrevious, stdDevFromPrevious] = getMeanAndStandardDeviation(
+                        step.nested_breakdown?.map((item) => item.conversionRates.fromPrevious)
+                    )
+                    const [meanFromBasis, stdDevFromBasis] = getMeanAndStandardDeviation(
+                        step.nested_breakdown?.map((item) => item.conversionRates.fromBasisStep)
+                    )
+                    const [meanTotal, stdDevTotal] = getMeanAndStandardDeviation(
+                        step.nested_breakdown?.map((item) => item.conversionRates.total)
+                    )
+
+                    const isOutlier = (value: number, mean: number, stdDev: number): boolean => {
+                        return (
+                            value > mean + stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER ||
+                            value < mean - stdDev * DEVIATION_SIGNIFICANCE_MULTIPLIER
+                        )
+                    }
+
+                    const nestedBreakdown = step.nested_breakdown?.map((item) => {
+                        return {
+                            ...item,
+                            significant: {
+                                fromPrevious: isOutlier(
+                                    item.conversionRates.fromPrevious,
+                                    meanFromPrevious,
+                                    stdDevFromPrevious
+                                ),
+                                fromBasisStep: isOutlier(
+                                    item.conversionRates.fromBasisStep,
+                                    meanFromBasis,
+                                    stdDevFromBasis
+                                ),
+                                total: isOutlier(item.conversionRates.total, meanTotal, stdDevTotal),
+                            },
+                        }
+                    })
+
+                    return {
+                        ...step,
+                        nested_breakdown: nestedBreakdown,
+                    }
+                })
+            },
+        ],
+        visibleStepsWithConversionMetrics: [
+            (s) => [s.stepsWithConversionMetrics, s.hiddenLegendKeys, s.flattenedStepsByBreakdown, s.isOnlySeries],
+            (steps, hiddenLegendKeys, flattenedStepsByBreakdown, isOnlySeries): FunnelStepWithConversionMetrics[] => {
+                const baseLineSteps = flattenedStepsByBreakdown.find((b) => b.isBaseline)
+                return steps.map((step, stepIndex) => ({
+                    ...step,
+                    nested_breakdown: (!!baseLineSteps?.steps
+                        ? [baseLineSteps.steps[stepIndex], ...(step?.nested_breakdown ?? [])]
+                        : step?.nested_breakdown
+                    )
+                        ?.map((b, breakdownIndex) => ({
+                            ...b,
+                            order: breakdownIndex,
+                        }))
+                        ?.filter((b) => isOnlySeries || !hiddenLegendKeys[getVisibilityKey(b.breakdown_value)]),
+                }))
             },
         ],
         flattenedSteps: [
@@ -565,17 +792,27 @@ export const funnelLogic = kea<funnelLogicType>({
             (steps): FlattenedFunnelStep[] => {
                 const flattenedSteps: FlattenedFunnelStep[] = []
                 steps.forEach((step) => {
+                    const isBreakdownParent = !!step.nested_breakdown?.length
                     flattenedSteps.push({
                         ...step,
                         rowKey: step.order,
-                        isBreakdownParent: !!step.nested_breakdown?.length,
+                        nestedRowKeys: step.nested_breakdown
+                            ? step.nested_breakdown.map((breakdownStep) =>
+                                  getVisibilityKey(breakdownStep.breakdown_value)
+                              )
+                            : [],
+                        isBreakdownParent,
+                        breakdown_value: isBreakdownParent ? ['Baseline'] : step.breakdown_value,
+                        breakdown: isBreakdownParent ? ['baseline'] : step.breakdown,
                     })
                     if (step.nested_breakdown?.length) {
                         step.nested_breakdown.forEach((breakdownStep, i) => {
                             flattenedSteps.push({
                                 ...breakdownStep,
-                                rowKey: `${step.order}-${i}`,
+                                order: step.order,
                                 breakdownIndex: i,
+                                rowKey: getVisibilityKey(breakdownStep.breakdown_value),
+                                isBreakdownParent: false,
                             })
                         })
                     }
@@ -583,139 +820,727 @@ export const funnelLogic = kea<funnelLogicType>({
                 return flattenedSteps
             },
         ],
-        numericBinCount: [
-            () => [selectors.binCount, selectors.timeConversionBins],
-            (binCount, bins): number => {
-                if (binCount === BinCountAuto) {
-                    return bins?.bins.length || 0
+        flattenedStepsByBreakdown: [
+            () => [
+                selectors.stepsWithConversionMetrics,
+                selectors.barGraphLayout,
+                selectors.disableFunnelBreakdownBaseline,
+            ],
+            (steps, layout, disableBaseline): FlattenedFunnelStepByBreakdown[] => {
+                // Initialize with two rows for rendering graph and header
+                const flattenedStepsByBreakdown: FlattenedFunnelStepByBreakdown[] = [
+                    { rowKey: 'steps-meta' },
+                    { rowKey: 'graph' },
+                    { rowKey: 'table-header' },
+                ]
+                if (steps.length > 0) {
+                    const baseStep = steps[0]
+                    const lastStep = steps[steps.length - 1]
+                    const hasBaseline =
+                        !baseStep.breakdown ||
+                        (layout === FunnelLayout.vertical && (baseStep.nested_breakdown?.length ?? 0) > 1)
+                    // Baseline - total step to step metrics, only add if more than 1 breakdown or not breakdown
+                    if (hasBaseline && !disableBaseline) {
+                        flattenedStepsByBreakdown.push({
+                            ...getBreakdownStepValues(baseStep, 0, true),
+                            isBaseline: true,
+                            breakdownIndex: 0,
+                            steps: steps.map((s) => ({
+                                ...s,
+                                nested_breakdown: undefined,
+                                breakdown_value: 'Baseline',
+                                converted_people_url: generateBaselineConversionUrl(s.converted_people_url),
+                                dropped_people_url: generateBaselineConversionUrl(s.dropped_people_url),
+                            })),
+                            conversionRates: {
+                                total: (lastStep?.count ?? 0) / (baseStep?.count ?? 1),
+                            },
+                        })
+                    }
+                    // Per Breakdown
+                    if (baseStep.nested_breakdown?.length) {
+                        baseStep.nested_breakdown.forEach((breakdownStep, i) => {
+                            const stepsInBreakdown = steps
+                                .filter((s) => !!s?.nested_breakdown?.[i])
+                                .map((s) => s.nested_breakdown?.[i] as FunnelStepWithConversionMetrics)
+                            const offset = hasBaseline ? 1 : 0
+                            flattenedStepsByBreakdown.push({
+                                ...getBreakdownStepValues(breakdownStep, i + offset),
+                                isBaseline: false,
+                                breakdownIndex: i + offset,
+                                steps: stepsInBreakdown,
+                                conversionRates: {
+                                    total:
+                                        (stepsInBreakdown[stepsInBreakdown.length - 1]?.count ?? 0) /
+                                        (stepsInBreakdown[0]?.count ?? 1),
+                                },
+                                significant: stepsInBreakdown.some(
+                                    (step) => step.significant?.total || step.significant?.fromPrevious
+                                ),
+                            })
+                        })
+                    }
                 }
-                return binCount
+                return flattenedStepsByBreakdown
             },
+        ],
+        flattenedBreakdowns: [
+            () => [selectors.flattenedStepsByBreakdown],
+            (breakdowns): FlattenedFunnelStepByBreakdown[] => {
+                return breakdowns.filter((b) => b.breakdown)
+            },
+        ],
+        isOnlySeries: [
+            (s) => [s.flattenedBreakdowns],
+            (flattenedBreakdowns): boolean => flattenedBreakdowns.length <= 1,
+        ],
+        numericBinCount: [
+            () => [selectors.filters, selectors.timeConversionResults],
+            (filters, timeConversionResults): number => {
+                if (filters.bin_count === BIN_COUNT_AUTO) {
+                    return timeConversionResults?.bins?.length ?? 0
+                }
+                return filters.bin_count ?? 0
+            },
+        ],
+        exclusionDefaultStepRange: [
+            () => [selectors.numberOfSeries, selectors.areFiltersValid],
+            (numberOfSeries, areFiltersValid): Omit<FunnelStepRangeEntityFilter, 'id' | 'name'> => ({
+                funnel_from_step: 0,
+                funnel_to_step: areFiltersValid ? numberOfSeries - 1 : 1,
+            }),
+        ],
+        exclusionFilters: [
+            () => [selectors.filters],
+            (filters): FilterType => ({
+                events: filters.exclusions,
+            }),
+        ],
+        areExclusionFiltersValid: [
+            () => [selectors.error],
+            (e: any): boolean => {
+                return !(e?.status === 400 && e?.type === 'validation_error')
+            },
+        ],
+        correlationValues: [
+            () => [selectors.correlations, selectors.correlationTypes, selectors.excludedEventNames],
+            (correlations, correlationTypes, excludedEventNames): FunnelCorrelation[] => {
+                return correlations.events
+                    ?.filter(
+                        (correlation) =>
+                            correlationTypes.includes(correlation.correlation_type) &&
+                            !excludedEventNames.includes(correlation.event.event)
+                    )
+                    .map((value) => {
+                        return {
+                            ...value,
+                            odds_ratio:
+                                value.correlation_type === FunnelCorrelationType.Success
+                                    ? value.odds_ratio
+                                    : 1 / value.odds_ratio,
+                        }
+                    })
+                    .sort((first, second) => {
+                        return second.odds_ratio - first.odds_ratio
+                    })
+            },
+        ],
+        propertyCorrelationValues: [
+            () => [selectors.propertyCorrelations, selectors.propertyCorrelationTypes, selectors.excludedPropertyNames],
+            (propertyCorrelations, propertyCorrelationTypes, excludedPropertyNames): FunnelCorrelation[] => {
+                return propertyCorrelations.events
+                    .filter(
+                        (correlation) =>
+                            propertyCorrelationTypes.includes(correlation.correlation_type) &&
+                            !excludedPropertyNames.includes(correlation.event.event.split('::')[0])
+                    )
+                    .map((value) => {
+                        return {
+                            ...value,
+                            odds_ratio:
+                                value.correlation_type === FunnelCorrelationType.Success
+                                    ? value.odds_ratio
+                                    : 1 / value.odds_ratio,
+                        }
+                    })
+                    .sort((first, second) => {
+                        return second.odds_ratio - first.odds_ratio
+                    })
+            },
+        ],
+        eventWithPropertyCorrelationsValues: [
+            () => [
+                selectors.eventWithPropertyCorrelations,
+                selectors.correlationTypes,
+                selectors.excludedEventPropertyNames,
+            ],
+            (
+                eventWithPropertyCorrelations,
+                correlationTypes,
+                excludedEventPropertyNames
+            ): Record<string, FunnelCorrelation[]> => {
+                const eventWithPropertyCorrelationsValues: Record<string, FunnelCorrelation[]> = {}
+                for (const key in eventWithPropertyCorrelations) {
+                    if (eventWithPropertyCorrelations.hasOwnProperty(key)) {
+                        eventWithPropertyCorrelationsValues[key] = eventWithPropertyCorrelations[key]
+                            ?.filter(
+                                (correlation) =>
+                                    correlationTypes.includes(correlation.correlation_type) &&
+                                    !excludedEventPropertyNames.includes(correlation.event.event.split('::')[1])
+                            )
+                            .map((value) => {
+                                return {
+                                    ...value,
+                                    odds_ratio:
+                                        value.correlation_type === FunnelCorrelationType.Success
+                                            ? value.odds_ratio
+                                            : 1 / value.odds_ratio,
+                                }
+                            })
+                            .sort((first, second) => {
+                                return second.odds_ratio - first.odds_ratio
+                            })
+                    }
+                }
+                return eventWithPropertyCorrelationsValues
+            },
+        ],
+        eventHasPropertyCorrelations: [
+            () => [selectors.eventWithPropertyCorrelationsValues],
+            (eventWithPropertyCorrelationsValues): ((eventName: string) => boolean) => {
+                return (eventName) => {
+                    return !!eventWithPropertyCorrelationsValues[eventName]
+                }
+            },
+        ],
+        parseDisplayNameForCorrelation: [
+            () => [],
+            (): ((record: FunnelCorrelation) => {
+                first_value: string
+                second_value?: string
+            }) => {
+                return (record) => {
+                    let first_value = undefined
+                    let second_value = undefined
+                    const values = record.event.event.split('::')
+
+                    if (record.result_type === FunnelCorrelationResultsType.Events) {
+                        first_value = record.event.event
+                        return { first_value, second_value }
+                    } else if (record.result_type === FunnelCorrelationResultsType.Properties) {
+                        first_value = values[0]
+                        second_value = values[1]
+                        return { first_value, second_value }
+                    } else if (values[0] === '$autocapture' && values[1] === 'elements_chain') {
+                        // special case for autocapture elements_chain
+                        first_value = autoCaptureEventToDescription({
+                            ...record.event,
+                            event: '$autocapture',
+                        }) as string
+                        return { first_value, second_value }
+                    } else {
+                        // FunnelCorrelationResultsType.EventWithProperties
+                        // Events here come in the form of event::property::value
+                        return { first_value: values[1], second_value: values[2] }
+                    }
+                }
+            },
+        ],
+        correlationPropKey: [
+            () => [(_, props) => props],
+            (props): string => `correlation-${keyForInsightLogicProps('insight_funnel')(props)}`,
+        ],
+        disableFunnelBreakdownBaseline: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps): boolean => !!props.cachedInsight?.disable_baseline,
+        ],
+
+        isPropertyExcludedFromProject: [
+            () => [selectors.excludedPropertyNames],
+            (excludedPropertyNames) => (propertyName: string) =>
+                excludedPropertyNames.find((name) => name === propertyName) !== undefined,
+        ],
+        isEventExcluded: [
+            () => [selectors.excludedEventNames],
+            (excludedEventNames) => (eventName: string) =>
+                excludedEventNames.find((name) => name === eventName) !== undefined,
+        ],
+
+        isEventPropertyExcluded: [
+            () => [selectors.excludedEventPropertyNames],
+            (excludedEventPropertyNames) => (propertyName: string) =>
+                excludedEventPropertyNames.find((name) => name === propertyName) !== undefined,
+        ],
+        excludedPropertyNames: [
+            () => [selectors.currentTeam],
+            (currentTeam) =>
+                currentTeam?.correlation_config?.excluded_person_property_names || DEFAULT_EXCLUDED_PERSON_PROPERTIES,
+        ],
+        excludedEventNames: [
+            () => [selectors.currentTeam],
+            (currentTeam) => currentTeam?.correlation_config?.excluded_event_names || [],
+        ],
+        excludedEventPropertyNames: [
+            () => [selectors.currentTeam],
+            (currentTeam) => currentTeam?.correlation_config?.excluded_event_property_names || [],
+        ],
+        inversePropertyNames: [
+            (s) => [s.filters, s.personProperties, s.groupProperties],
+            (filters, personProperties, groupProperties) => (excludedPersonProperties: string[]) => {
+                const targetProperties =
+                    filters.aggregation_group_type_index !== undefined
+                        ? groupProperties(filters.aggregation_group_type_index)
+                        : personProperties
+                return targetProperties
+                    .map((property) => property.name)
+                    .filter((property) => !excludedPersonProperties.includes(property))
+            },
+        ],
+        correlationAnalysisAvailable: [
+            (s) => [s.hasAvailableFeature],
+            (hasAvailableFeature): boolean => hasAvailableFeature(AvailableFeature.CORRELATION_ANALYSIS),
+        ],
+        allProperties: [
+            (s) => [s.inversePropertyNames, s.excludedPropertyNames],
+            (inversePropertyNames, excludedPropertyNames): string[] => {
+                return inversePropertyNames(excludedPropertyNames || [])
+            },
+        ],
+        aggregationTargetLabel: [
+            (s) => [s.filters, s.aggregationLabel],
+            (filters, aggregationLabel): Noun => aggregationLabel(filters.aggregation_group_type_index),
+        ],
+        correlationMatrixAndScore: [
+            (s) => [s.funnelCorrelationDetails, s.steps],
+            (
+                funnelCorrelationDetails,
+                steps
+            ): {
+                truePositive: number
+                falsePositive: number
+                trueNegative: number
+                falseNegative: number
+                correlationScore: number
+                correlationScoreStrength: 'weak' | 'moderate' | 'strong' | null
+            } => {
+                if (!funnelCorrelationDetails) {
+                    return {
+                        truePositive: 0,
+                        falsePositive: 0,
+                        trueNegative: 0,
+                        falseNegative: 0,
+                        correlationScore: 0,
+                        correlationScoreStrength: null,
+                    }
+                }
+
+                const successTotal = steps[steps.length - 1].count
+                const failureTotal = steps[0].count - successTotal
+                const success = funnelCorrelationDetails.success_count
+                const failure = funnelCorrelationDetails.failure_count
+
+                const truePositive = success // has property, converted
+                const falseNegative = failure // has property, but dropped off
+                const trueNegative = failureTotal - failure // doesn't have property, dropped off
+                const falsePositive = successTotal - success // doesn't have property, converted
+
+                // Phi coefficient: https://en.wikipedia.org/wiki/Phi_coefficient
+                const correlationScore =
+                    (truePositive * trueNegative - falsePositive * falseNegative) /
+                    Math.sqrt(
+                        (truePositive + falsePositive) *
+                            (truePositive + falseNegative) *
+                            (trueNegative + falsePositive) *
+                            (trueNegative + falseNegative)
+                    )
+
+                const correlationScoreStrength =
+                    Math.abs(correlationScore) > 0.5 ? 'strong' : Math.abs(correlationScore) > 0.3 ? 'moderate' : 'weak'
+
+                return {
+                    correlationScore,
+                    truePositive,
+                    falsePositive,
+                    trueNegative,
+                    falseNegative,
+                    correlationScoreStrength,
+                }
+            },
+        ],
+        advancedOptionsUsedCount: [
+            (s) => [s.filters, s.stepReference],
+            (filters, stepReference): number => {
+                let count = 0
+                if (filters.funnel_order_type && filters.funnel_order_type !== StepOrderValue.ORDERED) {
+                    count = count + 1
+                }
+                if (stepReference !== FunnelStepReference.total) {
+                    count = count + 1
+                }
+                if (filters.exclusions?.length) {
+                    count = count + 1
+                }
+                return count
+            },
+        ],
+        incompletenessOffsetFromEnd: [
+            (s) => [s.steps, s.conversionWindow],
+            (steps, conversionWindow) => {
+                // Returns negative number of points to paint over starting from end of array
+                if (steps?.[0]?.days === undefined) {
+                    return 0
+                }
+                const startDate = getIncompleteConversionWindowStartDate(conversionWindow)
+                const startIndex = steps[0].days.findIndex((day) => dayjs(day) >= startDate)
+
+                if (startIndex !== undefined && startIndex !== -1) {
+                    return startIndex - steps[0].days.length
+                } else {
+                    return 0
+                }
+            },
+        ],
+        breakdownAttributionStepOptions: [
+            (s) => [s.steps],
+            (steps): LemonSelectOptions<number> => steps.map((_, idx) => ({ value: idx, label: `Step ${idx + 1}` })),
         ],
     }),
 
     listeners: ({ actions, values, props }) => ({
-        loadResultsSuccess: async () => {
-            // load the old people table
-            if (!values.clickhouseFeaturesEnabled) {
-                if ((values.stepsWithCount[0]?.people?.length ?? 0) > 0) {
-                    actions.loadPeople(values.stepsWithCount)
-                }
+        setStepReference: ({ stepReference }) => {
+            if (stepReference !== values.filters.funnel_step_reference) {
+                actions.setFilters({ funnel_step_reference: stepReference }, true, true)
             }
         },
-        setFilters: ({ refresh }) => {
-            // No calculate button on Clickhouse, but query performance is suboptimal on psql
-            const { clickhouseFeaturesEnabled } = values
-            // If user started from empty state (<2 steps) and added a new step
-            const shouldRefresh =
-                values.filters?.events?.length === 2 && values.lastAppliedFilters?.events?.length === 1
-            // If layout is the only thing that changes
-            const onlyLayoutChanged = equal(
-                Object.assign({}, values.filters, { layout: undefined }),
-                Object.assign({}, values.lastAppliedFilters, { layout: undefined })
+        toggleVisibilityByBreakdown: ({ breakdownValue }) => {
+            const key = getVisibilityKey(breakdownValue)
+            const currentIsHidden = !!values.hiddenLegendKeys?.[key]
+            actions.setHiddenById({ [key]: !currentIsHidden })
+        },
+        setFilters: ({ filters, mergeWithExisting }) => {
+            const cleanedParams = cleanFilters(
+                mergeWithExisting
+                    ? {
+                          ...values.filters,
+                          ...filters,
+                      }
+                    : filters,
+                values.filters
             )
-
-            if (!onlyLayoutChanged && (refresh || shouldRefresh || clickhouseFeaturesEnabled)) {
-                actions.loadResults()
-            }
-            const cleanedParams = cleanFunnelParams(values.filters)
-            if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters(cleanedParams)
-                insightLogic.actions.setLastRefresh(null)
-            }
+            insightLogic(props).actions.setFilters(cleanedParams)
         },
-        saveFunnelInsight: async ({ name }) => {
-            await api.create('api/insight', {
-                filters: values.filters,
-                name,
-                saved: true,
+        setEventExclusionFilters: ({ filters }) => {
+            const exclusions = (filters.events as FunnelStepRangeEntityFilter[]).map((exclusion) => {
+                exclusion.funnel_from_step =
+                    exclusion.funnel_from_step || values.exclusionDefaultStepRange.funnel_from_step
+                exclusion.funnel_to_step = exclusion.funnel_to_step || values.exclusionDefaultStepRange.funnel_to_step
+                return exclusion
             })
-            actions.loadFunnels()
-        },
-        clearFunnel: async () => {
-            if (!props.dashboardItemId) {
-                insightLogic.actions.setAllFilters({})
-            }
-        },
-        [dashboardItemsModel.actionTypes.refreshAllDashboardItems]: (filters) => {
-            if (props.dashboardItemId) {
-                actions.setFilters(filters, true)
-            }
-        },
-        openPersonsModal: ({ step, stepNumber, breakdown_value }) => {
-            personsModalLogic.actions.loadPeople({
-                action: { id: step.action_id, name: step.name, properties: [], type: step.type },
-                breakdown_value: breakdown_value !== undefined ? breakdown_value : undefined,
-                label: step.name,
-                date_from: '',
-                date_to: '',
-                filters: values.filters,
-                saveOriginal: true,
-                funnelStep: stepNumber,
-            })
-        },
-        changeHistogramStep: async () => {
-            // API specs (#5110) require neither funnel_{from|to}_step to be provided if querying
-            // for all steps
-            const isAllSteps = values.histogramStep.from_step === -1
-
             actions.setFilters({
-                ...(!isAllSteps ? { funnel_from_step: values.histogramStep.from_step } : {}),
-                ...(!isAllSteps ? { funnel_to_step: values.histogramStep.to_step } : {}),
+                ...values.filters,
+                exclusions,
             })
         },
-        setBinCount: async () => {
-            const { binCount } = values
-            actions.setFilters(binCount && binCount !== BinCountAuto ? { bin_count: binCount } : {})
+        setOneEventExclusionFilter: ({ eventFilter, index }) => {
+            actions.setFilters({
+                ...values.filters,
+                exclusions: values.filters.exclusions
+                    ? values.filters.exclusions.map((e, e_i) =>
+                          e_i === index
+                              ? getClampedStepRangeFilter({ stepRange: eventFilter, filters: values.filters })
+                              : e
+                      )
+                    : [],
+            })
+        },
+        clearFunnel: ({}) => {
+            actions.setFilters({ new_entity: values.filters.new_entity }, false, true)
+        },
+        openPersonsModalForStep: ({ step, stepIndex, converted }) => {
+            if (values.isInDashboardContext) {
+                return
+            }
+
+            openPersonsModal({
+                url: converted ? step.converted_people_url : step.dropped_people_url,
+                title: funnelTitle({
+                    converted,
+                    // Note - when in a legend the step.order is always 0 so we use stepIndex instead
+                    step: typeof stepIndex === 'number' ? stepIndex + 1 : step.order + 1,
+                    label: step.name,
+                    seriesId: step.order,
+                    order_type: values.filters.funnel_order_type,
+                }),
+            })
+        },
+        openPersonsModalForSeries: ({ step, series, converted }) => {
+            if (values.isInDashboardContext) {
+                return
+            }
+            // Version of openPersonsModalForStep that accurately handles breakdown series
+            const breakdownValues = getBreakdownStepValues(series, series.order)
+            openPersonsModal({
+                url: converted ? series.converted_people_url : series.dropped_people_url,
+                title: funnelTitle({
+                    converted,
+                    step: step.order + 1,
+                    breakdown_value: breakdownValues.isEmpty ? undefined : breakdownValues.breakdown_value.join(', '),
+                    label: step.name,
+                    seriesId: step.order,
+                    order_type: values.filters.funnel_order_type,
+                }),
+            })
+        },
+        openCorrelationPersonsModal: ({ correlation, success }) => {
+            if (values.isInDashboardContext) {
+                return
+            }
+
+            if (correlation.result_type === FunnelCorrelationResultsType.Properties) {
+                const { breakdown, breakdown_value } = parseBreakdownValue(correlation.event.event)
+                openPersonsModal({
+                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    title: funnelTitle({
+                        converted: success,
+                        step: values.steps.length,
+                        breakdown_value,
+                        label: breakdown,
+                    }),
+                })
+
+                eventUsageLogic.actions.reportCorrelationInteraction(
+                    FunnelCorrelationResultsType.Properties,
+                    'person modal',
+                    values.filters.funnel_correlation_person_entity
+                )
+            } else {
+                const { name, properties } = parseEventAndProperty(correlation.event)
+
+                openPersonsModal({
+                    url: success ? correlation.success_people_url : correlation.failure_people_url,
+                    title: funnelTitle({
+                        converted: success,
+                        step: values.steps.length,
+                        label: name,
+                    }),
+                })
+
+                eventUsageLogic.actions.reportCorrelationInteraction(correlation.result_type, 'person modal', {
+                    id: name,
+                    type: EntityTypes.EVENTS,
+                    properties,
+                    converted: success,
+                })
+            }
+        },
+        changeStepRange: ({ funnel_from_step, funnel_to_step }) => {
+            actions.setFilters({
+                funnel_from_step,
+                funnel_to_step,
+            })
+        },
+        setBinCount: async ({ binCount }) => {
+            actions.setFilters({ bin_count: binCount && binCount !== BIN_COUNT_AUTO ? binCount : undefined })
         },
         setConversionWindow: async () => {
             actions.setFilters(values.conversionWindow)
         },
-    }),
-    actionToUrl: ({ values, props }) => ({
-        setFilters: () => {
-            if (!props.dashboardItemId) {
-                return ['/insights', values.propertiesForUrl, router.values.hashParams, { replace: true }]
-            }
+        toggleAdvancedMode: () => {
+            actions.setFilters({ funnel_advanced: !values.filters.funnel_advanced })
         },
-        clearFunnel: () => {
-            if (!props.dashboardItemId) {
-                return ['/insights', { insight: ViewType.FUNNELS }, router.values.hashParams, { replace: true }]
-            }
-        },
-    }),
-    urlToAction: ({ actions, values, props }) => ({
-        '/insights': (_, searchParams: Partial<FilterType>) => {
-            if (props.dashboardItemId) {
-                return
-            }
-            if (searchParams.insight === ViewType.FUNNELS) {
-                const currentParams = cleanFunnelParams(values.filters, true)
-                const paramsToCheck = cleanFunnelParams(searchParams, true)
+        excludeEventPropertyFromProject: async ({ propertyName }) => {
+            appendToCorrelationConfig('excluded_event_property_names', values.excludedEventPropertyNames, propertyName)
 
-                if (!objectsEqual(currentParams, paramsToCheck)) {
-                    const cleanedParams = cleanFunnelParams(searchParams)
-                    if (isStepsEmpty(cleanedParams)) {
-                        const event = getDefaultEventName()
-                        cleanedParams.events = [
-                            {
-                                id: event,
-                                name: event,
-                                type: EntityTypes.EVENTS,
-                                order: 0,
-                            },
-                        ]
-                    }
-                    actions.setFilters(cleanedParams, true, false)
+            eventUsageLogic.actions.reportCorrelationInteraction(
+                FunnelCorrelationResultsType.EventWithProperties,
+                'exclude event property',
+                {
+                    property_name: propertyName,
                 }
+            )
+        },
+        excludeEventFromProject: async ({ eventName }) => {
+            appendToCorrelationConfig('excluded_event_names', values.excludedEventNames, eventName)
+
+            eventUsageLogic.actions.reportCorrelationInteraction(FunnelCorrelationResultsType.Events, 'exclude event', {
+                event_name: eventName,
+            })
+        },
+        excludePropertyFromProject: ({ propertyName }) => {
+            appendToCorrelationConfig('excluded_person_property_names', values.excludedPropertyNames, propertyName)
+
+            eventUsageLogic.actions.reportCorrelationInteraction(
+                FunnelCorrelationResultsType.Events,
+                'exclude person property',
+                {
+                    person_property: propertyName,
+                }
+            )
+        },
+        hideSkewWarning: () => {
+            eventUsageLogic.actions.reportCorrelationInteraction(
+                FunnelCorrelationResultsType.Events,
+                'hide skew warning'
+            )
+        },
+        setCorrelationTypes: ({ types }) => {
+            eventUsageLogic.actions.reportCorrelationInteraction(
+                FunnelCorrelationResultsType.Events,
+                'set correlation types',
+                { types }
+            )
+        },
+        setPropertyCorrelationTypes: ({ types }) => {
+            eventUsageLogic.actions.reportCorrelationInteraction(
+                FunnelCorrelationResultsType.Properties,
+                'set property correlation types',
+                { types }
+            )
+        },
+        setPropertyNames: async ({ propertyNames }) => {
+            actions.loadPropertyCorrelations({})
+            eventUsageLogic.actions.reportCorrelationInteraction(
+                FunnelCorrelationResultsType.Properties,
+                'set property names',
+                { property_names: propertyNames.length === values.allProperties.length ? '$all' : propertyNames }
+            )
+        },
+        sendCorrelationAnalysisFeedback: () => {
+            eventUsageLogic.actions.reportCorrelationAnalysisDetailedFeedback(
+                values.correlationFeedbackRating,
+                values.correlationDetailedFeedback
+            )
+            actions.setCorrelationFeedbackRating(0)
+            actions.setCorrelationDetailedFeedback('')
+            lemonToast.success('Thanks for your feedback! Your comments help us improve')
+        },
+        setCorrelationFeedbackRating: ({ rating }) => {
+            const feedbackBoxVisible = rating > 0
+            actions.setCorrelationDetailedFeedbackVisible(feedbackBoxVisible)
+            if (feedbackBoxVisible) {
+                // Don't send event when resetting reducer
+                eventUsageLogic.actions.reportCorrelationAnalysisFeedback(rating)
             }
         },
-    }),
-    events: ({ actions, values }) => ({
-        afterMount: () => {
-            if (values.areFiltersValid) {
-                actions.loadResults()
+        [visibilitySensorLogic({ id: values.correlationPropKey }).actionTypes.setVisible]: async (
+            {
+                visible,
+            }: {
+                visible: boolean
+            },
+            breakpoint: BreakPointFunction
+        ) => {
+            if (visible && values.correlationAnalysisAvailable && values.shouldReportCorrelationViewed) {
+                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0)
+                await breakpoint(10000)
+                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10)
+            }
+        },
+
+        [visibilitySensorLogic({ id: `${values.correlationPropKey}-properties` }).actionTypes.setVisible]: async (
+            {
+                visible,
+            }: {
+                visible: boolean
+            },
+            breakpoint: BreakPointFunction
+        ) => {
+            if (visible && values.correlationAnalysisAvailable && values.shouldReportPropertyCorrelationViewed) {
+                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 0, true)
+                await breakpoint(10000)
+                eventUsageLogic.actions.reportCorrelationViewed(values.filters, 10, true)
             }
         },
     }),
 })
+
+const appendToCorrelationConfig = (
+    configKey: keyof CorrelationConfigType,
+    currentValue: string[],
+    configValue: string
+): void => {
+    // Helper to handle updating correlationConfig within the Team model. Only
+    // handles further appending to current values.
+
+    // When we exclude a property, we want to update the config stored
+    // on the current Team/Project.
+    const oldCurrentTeam = teamLogic.values.currentTeam
+
+    // If we haven't actually retrieved the current team, we can't
+    // update the config.
+    if (oldCurrentTeam === null || !currentValue) {
+        console.warn('Attempt to update correlation config without first retrieving existing config')
+        return
+    }
+
+    const oldCorrelationConfig = oldCurrentTeam.correlation_config
+
+    const configList = [...Array.from(new Set(currentValue.concat([configValue])))]
+
+    const correlationConfig = {
+        ...oldCorrelationConfig,
+        [configKey]: configList,
+    }
+
+    teamLogic.actions.updateCurrentTeam({
+        correlation_config: correlationConfig,
+    })
+}
+
+const parseBreakdownValue = (
+    item: string
+): {
+    breakdown: string
+    breakdown_value: string
+} => {
+    const components = item.split('::')
+    if (components.length === 1) {
+        return { breakdown: components[0], breakdown_value: '' }
+    } else {
+        return {
+            breakdown: components[0],
+            breakdown_value: components[1],
+        }
+    }
+}
+
+const parseEventAndProperty = (
+    event: FunnelCorrelation['event']
+): {
+    name: string
+    properties?: PropertyFilter[]
+} => {
+    const components = event.event.split('::')
+    /*
+      The `event` is either an event name, or event::property::property_value
+    */
+    if (components.length === 1) {
+        return { name: components[0] }
+    } else if (components[0] === '$autocapture') {
+        // We use elementsToAction to generate the required property filters
+        const elementData = elementsToAction(event.elements)
+        return {
+            name: components[0],
+            properties: Object.entries(elementData)
+                .filter(([, propertyValue]) => !!propertyValue)
+                .map(([propertyKey, propertyValue]) => ({
+                    key: propertyKey as ElementPropertyFilter['key'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Element,
+                    value: [propertyValue as string],
+                })),
+        }
+    } else {
+        return {
+            name: components[0],
+            properties: [
+                {
+                    key: components[1],
+                    operator: PropertyOperator.Exact,
+                    value: components[2],
+                    type: PropertyFilterType.Event,
+                },
+            ],
+        }
+    }
+}

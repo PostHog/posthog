@@ -1,392 +1,221 @@
 /* Only styles that are shared across multiple components (i.e. global) should go here, trying to keep this file
 nimble to simplify maintenance. We separate variables and mixins in vars.scss to be able to import those into local
-style files without adding already imported styles. */
+style files without adding already imported styles.
+
+Font weights:
+Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), or 700 (`bold`) should be used
+
+*/
 
 // Global components
-@import 'react-toastify/dist/ReactToastify';
-@import '~/vars';
-
-@font-face {
-    font-family: 'GoshaSans-Bold';
-    src: url('../../public/GoshaSans-Bold.woff2') format('woff2'),
-        url('../../public/GoshaSans-Bold.woff') format('woff');
-}
+@import '../../../node_modules/react-toastify/dist/ReactToastify';
+@import 'fonts';
+@import 'mixins';
+@import 'utility-legacy';
+@import 'utilities';
 
 :root {
-    --primary: #{$primary};
-    --primary-alt: #{$primary_alt};
-    --success: #{$success};
-    --danger: #{$danger};
-    --warning: #{$warning};
-    --bg-menu: #{$bg_menu};
-    --bg-mid: #{$bg_mid};
-    --bg-charcoal: #{$bg_charcoal};
-    --text-default: #{$text_default};
-    --text-light: #{$text_light};
-    --muted: #{$text_muted};
-    --muted-alt: #{$text_muted_alt};
-    --border: #{$border};
-    // Used for graph series
-    --blue: #{$blue_500};
-    --purple: #{$purple_500};
-    --salmon: #ff906e;
-    --yellow: #ffc035;
-    --green: #{$success};
-    --indigo: #{$purple_700};
-    --cyan: #17a2b8;
-    --pink: #e83e8c;
-    --white: #f4f6ff;
-    --maroon: #7f0000;
-    --mint: #aaffc3;
-    --olive: #807500;
-    --navy: #000075;
-    --orange: #f58231;
-    --lime: #bfef45;
-    --apricot: #ffd8b1;
-    --brown: #9a6324;
-    // Lifecycle series
-    --lifecycle-new: #{$lifecycle_new};
-    --lifecycle-returning: #{$lifecycle_returning};
-    --lifecycle-resurrecting: #{$lifecycle_resurrecting};
-    --lifecycle-dormant: #{$lifecycle_dormant};
-    --lifecycle-new-hover: #{darken($lifecycle_new, 20%)};
-    --lifecycle-returning-hover: #{darken($lifecycle_returning, 20%)};
-    --lifecycle-resurrecting-hover: #{darken($lifecycle_resurrecting, 20%)};
-    --lifecycle-dormant-hover: #{darken($lifecycle_dormant, 20%)};
+    @include root-variables;
 }
 
 // Text styles
-.text-default {
-    color: $text_default;
-    font-size: 14px;
-    line-height: 20px;
-    font-weight: 400;
+body b,
+body strong {
+    // body is specified to increase specificity – otherwise Ant Design's "bolder" takes precedence over "600"
+    font-weight: 600;
 }
 
-.text-small {
-    @extend .text-default;
-    font-size: 12px;
+// Disable default styling for ul
+ul {
+    margin-bottom: 0;
+    list-style: none;
+    padding-left: 0;
 }
 
-.text-extra-small {
-    @extend .text-default;
-    font-size: 10px;
-}
-
-.text-xxs {
-    @extend .text-default;
-    font-size: 8px;
+// This may look odd but sets up our utility classes
+* {
+    border-style: solid;
+    border-width: 0;
+    border-color: var(--border);
 }
 
 .page-title-row {
-    margin-top: 16px;
-}
-
-.page-title {
-    font-size: 28px;
-    line-height: 34px;
-    margin-top: 0.5em;
-    font-weight: 700;
-    color: $text_default;
-    font-family: $gosha_sans;
-}
-
-.page-caption {
-    @extend .text-default;
-    max-width: 640px;
-    margin-bottom: 32px;
-}
-
-.subtitle-row {
-    margin-top: 8px;
-}
-
-.subtitle {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    margin-top: 12px;
-    font-size: 22px;
-    line-height: 26px;
-    font-weight: 700;
+    min-height: 2.5rem;
+    gap: 0.5rem 1rem;
+    margin: 1.25rem 0 0.25rem;
 
-    &.highlighted {
-        padding: $default_spacing $default_spacing $default_spacing $default_spacing / 2;
+    @include screen($md) {
+        flex-wrap: nowrap;
+    }
+
+    .ant-form-item {
+        margin-bottom: 0 !important;
     }
 }
 
-.l3 {
-    /* Level 3 title (ideally H3) */
-    font-size: 16px;
-    font-weight: 700;
-    line-height: 19px;
+.page-title {
+    min-width: 0;
+    font-size: 28px;
+    line-height: 34px;
+    margin: 0;
+    font-weight: 600;
 }
 
-.l4 {
-    font-size: 14px;
-    font-weight: 700;
+.page-caption {
+    @extend .text-sm;
+    max-width: 48rem;
+    margin-bottom: 1rem;
 }
 
-.l5 {
-    font-size: 13px;
-    font-weight: 700;
+.page-description {
+    font-style: italic;
+    color: var(--muted);
 }
 
-.text-right {
-    text-align: right;
+.page-buttons {
+    flex-shrink: 0;
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: right;
+    gap: 0.5rem;
 }
 
-.text-left {
-    text-align: left;
+.secondary {
+    font-size: 0.9em;
+    letter-spacing: 1px;
+    color: var(--primary-alt);
+    font-weight: var(--font-medium);
+    text-transform: uppercase;
+    border: 0;
+    background: none;
 }
 
-.text-center {
-    text-align: center;
+.card-secondary {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-weight: 600;
 }
 
-.text-muted {
-    color: $text_muted;
+mark {
+    background-color: var(--mark-color) !important;
+    border-radius: var(--radius);
 }
 
-.text-muted-alt {
-    color: $text_muted_alt;
+// Supplement text, such as email under user name
+.supplement {
+    text-overflow: ellipsis;
+    overflow: hidden;
+    color: var(--muted-alt);
+    font-size: 0.8125rem;
+
+    &--danger {
+        color: var(--danger);
+        font-weight: 600;
+    }
 }
 
 code.code {
     // Temporary: .code class to transition legacy elements
-    color: $danger;
-    background-color: $bg_mid;
-    border-radius: $radius;
+    color: var(--danger);
+    background-color: var(--bg-mid);
+    border-radius: var(--radius);
     padding: 2px 6px;
 }
 
-// Spacing & layout
-.mb {
-    margin-bottom: $default_spacing;
+// Vendor-specific adjustments
+
+input::-ms-clear {
+    display: none; // Hide IE/Edge's clear button that can mess input sizing up
 }
 
-.mt {
-    margin-top: $default_spacing;
-}
-
-.mb-2 {
-    margin-bottom: $default_spacing * 2;
-}
-
-.mt-2 {
-    margin-top: $default_spacing * 2;
-}
-
-.mb-05 {
-    margin-bottom: $default_spacing * 0.5;
-}
-
-.mb-025 {
-    margin-bottom: $default_spacing * 0.25;
-}
-
-.mt-05 {
-    margin-top: $default_spacing * 0.5;
-}
-
-.mt-025 {
-    margin-top: $default_spacing * 0.25;
-}
-
-.mr {
-    margin-right: $default_spacing;
-}
-
-.ml {
-    margin-left: $default_spacing;
-}
-
-.mr-05 {
-    margin-right: $default_spacing * 0.5;
-}
-
-.mr-025 {
-    margin-right: $default_spacing * 0.25;
-}
-
-.ml-05 {
-    margin-left: $default_spacing * 0.5;
-}
-
-.ml-025 {
-    margin-left: $default_spacing * 0.25;
-}
-
-.pa {
-    // Padding all
-    padding: $default_spacing;
-}
-
-.pb {
-    padding-bottom: $default_spacing;
-}
-
-.pt {
-    padding-top: $default_spacing;
-}
-
-.pr {
-    padding-right: $default_spacing;
-}
-
-.pl {
-    padding-left: $default_spacing;
-}
-
-.full-width {
-    width: 100%;
-}
-
-.float-right {
-    float: right;
-}
-
-.float-left {
-    float: left;
-}
-
-.space-between-items {
-    display: flex;
-    justify-content: space-between;
-}
-
-.main-app-content {
-    /* top | horizontal | bottom */
-    padding: 0px $default_spacing * 3 $default_spacing * 3;
-
-    @media (min-width: 480px) and (max-width: 639px) {
-        padding: $default_spacing $default_spacing * 2 !important;
-    }
-
-    @media (max-width: 480px) {
-        padding: $default_spacing $default_spacing !important;
-    }
-}
-
-// Color styles
-.bg-primary {
-    background-color: $primary;
-}
-
-.text-success {
-    color: $success !important;
-}
-
-.text-danger {
-    color: $danger !important;
-}
-
-.text-warning {
-    color: $warning !important;
-}
-
-// Random general styles
-
-.cursor-pointer {
-    cursor: pointer;
-}
-
-.highlighted {
-    border-radius: $radius;
-    animation: highlight 2000ms ease-out;
-}
+// Highlight background blink
 
 @keyframes highlight {
     0% {
-        background-color: $yellow_50;
+        background-color: var(--yellow-lightest);
     }
+
     100% {
         background-color: initial;
     }
 }
 
-.fullscreen-scroll {
-    overflow-y: auto;
+// Generic 360 spin
+
+@keyframes spin {
+    0% {
+        transform: rotateZ(0deg);
+    }
+
+    100% {
+        transform: rotateZ(360deg);
+    }
 }
 
 // Toasts
 
-.Toastify__toast-container {
-    opacity: 1;
-    transform: none;
+.Toastify__toast {
+    align-items: center;
+    opacity: 1 !important;
+    padding: 0.75rem;
+    margin-bottom: 0.5rem;
+    border-radius: var(--radius);
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
+        'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-elevation);
+    font-size: 1rem;
+    cursor: unset;
 }
 
-.Toastify__toast {
-    padding: 16px;
-    border-radius: $radius;
-    color: $text_default;
-    font-family: inherit;
-    background-color: $bg_light;
-    border: 1px solid $border;
-    @extend .text-default;
-    color: $text_default;
+.Toastify__toast-container {
+    padding: 0;
+}
 
-    h1 {
-        font-size: 1.14rem;
-        font-weight: bold;
+.Toastify__toast-body {
+    @extend .text-sm;
+    @extend .text-default;
+    font-weight: 500;
+    padding: 0;
+
+    b,
+    strong {
+        font-weight: 700;
     }
 
-    .action-bar {
-        @extend .text-small;
-        color: $text_muted;
-        margin-top: $default_spacing / 2;
-        display: flex;
-        align-items: center;
-        a {
-            color: $text_muted;
-        }
-        .help-button {
-            flex-grow: 1;
-            text-align: right;
-        }
-        .ant-btn-link {
-            padding: 0;
-        }
+    button {
+        margin: 0 0.75rem;
+    }
+}
+
+.Toastify__toast-icon {
+    color: var(--muted-alt);
+    width: 1.5rem;
+    height: 1.5rem;
+    margin-right: 0.75rem;
+    font-size: 1.5rem;
+
+    .Toastify__toast--success & {
+        color: var(--toastify-color-success);
+    }
+
+    .Toastify__toast--warning & {
+        color: var(--toastify-color-warning);
+    }
+
+    .Toastify__toast--error & {
+        color: var(--toastify-color-error);
     }
 }
 
 .Toastify__progress-bar {
-    background: $success;
-}
-
-.Toastify__toast--success {
-    h1 {
-        color: $success;
-    }
-}
-
-.Toastify__toast--info {
-    h1 {
-        color: $primary_alt;
-    }
-    &.accent-border {
-        border-color: $primary_alt;
-    }
-    .Toastify__progress-bar {
-        background: $primary_alt;
-    }
-}
-
-.Toastify__toast--error {
-    h1 {
-        color: $danger;
-    }
-    .Toastify__progress-bar {
-        background: $danger;
-    }
-    .error-details {
-        font-style: italic;
-    }
-}
-
-// Table styles
-
-.table-bordered td {
-    border: 1px solid $border;
+    height: var(--radius);
 }
 
 // Card styles
@@ -396,23 +225,60 @@ code.code {
 }
 
 .card-elevated {
-    @extend .mixin-elevated;
+    box-shadow: var(--shadow-elevation);
+}
+
+// Horizontal scrollability indication
+
+.scrollable {
+    &::before,
+    &::after {
+        z-index: 1;
+        transition: opacity 200ms ease;
+        opacity: 0;
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+    }
+
+    &::before {
+        box-shadow: 16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
+    }
+
+    &::after {
+        box-shadow: -16px 0 16px -16px rgba(0, 0, 0, 0.25) inset;
+    }
+
+    &.scrollable--right::after,
+    &.scrollable--left::before {
+        opacity: 1;
+    }
+}
+
+.scrollable__inner {
+    width: 100%;
+    height: 100%;
+    overflow: auto;
 }
 
 // Form & input styles
 
 .input-set {
-    padding-bottom: $default_spacing;
-    color: $text_default;
+    padding-bottom: 1rem;
+    color: var(--default);
 
     label {
         font-weight: bold;
-        @extend .text-default;
+        @extend .text-sm;
     }
 
     .caption {
-        color: $text_muted;
-        @extend .text-small;
+        color: var(--muted);
+        @extend .text-sm;
     }
 
     .ant-radio-button-wrapper {
@@ -423,33 +289,41 @@ code.code {
 
     &.errored {
         .caption {
-            color: $danger;
+            color: var(--danger);
         }
+
         input[type='password'],
         input[type='text'] {
-            border-color: $danger !important;
+            border-color: var(--danger) !important;
         }
     }
 }
 
 .error-on-blur {
     &.errored:not(:focus) {
-        border-color: $danger !important;
+        border-color: var(--danger) !important;
     }
-}
-
-.ant-form-item-label {
-    font-weight: bold;
 }
 
 // Button styles
 
 .btn-close {
-    color: $text_muted;
+    color: var(--muted);
 }
 
 .ant-btn-sm {
     font-size: 12px !important;
+}
+
+.ant-btn-primary.btn-danger {
+    background-color: var(--danger) !important;
+    border-color: var(--danger) !important;
+
+    &:disabled {
+        background-color: var(--danger-light) !important;
+        color: lighten(#fff, 20%) !important;
+        border-color: var(--danger-light) !important;
+    }
 }
 
 .ant-btn-md {
@@ -460,42 +334,37 @@ code.code {
 }
 
 .info-indicator {
-    color: $primary !important;
+    color: var(--primary-alt) !important;
     cursor: pointer;
-    margin-left: 5px;
+    margin-left: 4px;
 
     &.left {
         margin-left: 0;
-        margin-right: 5px;
+        margin-right: 4px;
     }
+}
+
+.title-icon {
+    margin-left: 0.375rem;
+    font-size: 1rem;
+    line-height: 0;
 }
 
 .btn-lg-2x {
     font-size: 1.5rem !important;
     line-height: 1 !important;
+
     svg {
         width: 1.5rem !important;
         height: 1.5rem !important;
     }
 }
 
-// Badges styles
-
-.badge {
-    border-radius: 50%;
-    width: 22px;
-    height: 22px;
-    background-color: $border_dark;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: white;
-    font-size: 12px;
-}
+// Graph series glyph
 
 .graph-series-glyph {
     border-radius: 50%;
-    border: 2px solid $text_default;
+    border: 2px solid var(--default);
     font-weight: bold;
     font-size: 12px;
     height: 22px;
@@ -504,19 +373,23 @@ code.code {
     align-items: center;
     justify-content: center;
     pointer-events: none;
+    flex-shrink: 0;
 
     // variants
     &.funnel-step-glyph {
-        border-color: $border;
+        border-color: var(--border);
         background-color: white;
-        color: $primary_alt;
+        color: var(--primary-alt);
+        height: 23px;
+        width: 23px;
+        font-size: unset;
     }
 }
 
-// Overlays styles
+// Bottom notice (DEBUG=1 mode)
 
 #bottom-notice {
-    z-index: $z_bottom_notice;
+    z-index: var(--z-bottom-notice);
     display: flex !important;
     flex-direction: row;
     position: fixed;
@@ -527,38 +400,48 @@ code.code {
     color: #fff;
     font-size: 0.75rem;
     line-height: 1.5rem;
+
     code {
         color: inherit;
         font-size: inherit;
     }
+
     &.warning div {
         height: auto;
-        background: $danger;
+        background: var(--danger);
     }
+
     &.tricolor {
         cursor: pointer;
+
         div:nth-child(1) {
-            background: $brand_blue;
+            background: var(--primary);
         }
+
         div:nth-child(2) {
-            background: $brand_red;
+            background: var(--danger);
         }
+
         div:nth-child(3) {
-            background: $brand_yellow;
+            background: var(--warning);
         }
+
         span {
             cursor: text;
         }
     }
+
     div {
         flex-basis: 0;
         flex-grow: 1;
         height: 1.5rem;
         text-align: center;
     }
+
     span {
         display: none;
     }
+
     button {
         border: none;
         background: transparent;
@@ -570,15 +453,19 @@ code.code {
         font-weight: bold;
         cursor: pointer;
     }
+
     @media screen and (min-width: 750px) {
         font-size: 1rem;
         line-height: 2rem;
+
         div {
             height: 2rem;
         }
+
         span {
             display: inline;
         }
+
         button {
             width: 2rem;
             height: 2rem;
@@ -600,6 +487,7 @@ code.code {
     height: 100%;
     top: 0;
     left: 0;
+
     .overlay--danger & {
         background: repeating-linear-gradient(
             -45deg,
@@ -611,13 +499,6 @@ code.code {
     }
 }
 
-.clickable-card {
-    cursor: pointer;
-    &:hover {
-        border-color: $primary;
-    }
-}
-
 // Stateful badges
 
 .stateful-badge {
@@ -626,7 +507,14 @@ code.code {
     font-weight: bold;
 
     &.or {
-        background-color: $blue_300;
+        background-color: var(--blue-light);
+        text-align: center;
+        max-width: 50px;
+    }
+
+    &.or-light-grey {
+        font-family: Inter;
+        background-color: var(--light-grey);
         text-align: center;
         max-width: 50px;
     }
@@ -637,8 +525,8 @@ code.code {
     }
 
     &.and {
-        background-color: $yellow_100;
-        color: $primary_alt;
+        background-color: var(--yellow-light);
+        color: var(--primary-alt);
     }
 
     &.pos-center-end {
@@ -648,46 +536,131 @@ code.code {
     }
 }
 
-// Simple tags
+// Tags
 
 .simple-tag {
-    border-radius: $radius;
-    font-weight: bold;
+    border-radius: var(--radius);
     padding: 2px 6px;
 
-    &.tag-light-lilac {
-        background-color: $hc_light_lilac;
-        color: $hc_navy;
+    &.tag-light-blue {
+        background-color: var(--primary-highlight);
     }
 }
 
-// Hotkey styles
-.hotkey {
-    width: 22px;
-    height: 22px;
-    border-radius: $radius;
-    font-weight: bold;
-    margin-left: 6px;
-    background-color: white;
-    color: $primary;
-    text-shadow: none;
-    text-transform: uppercase;
-    border: 1px solid $border_light;
-    margin-bottom: 2px;
-    font-size: 0.85rem;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
+.lemonade-tag {
+    color: var(--primary-alt) !important;
+    background-color: var(--bg-mid) !important;
+    border-color: var(--border) !important;
 }
 
-.hotkey-plus {
-    display: inline;
-    &::after {
-        content: '+';
-        margin-left: 6px;
-        font-size: 1rem;
-    }
-}
+// Main app/body styles
+
 .fullscreen-scroll {
     overflow-y: auto;
+}
+
+.main-app-content {
+    position: relative; // So that scene-level <Loading/> is positioned correctly.
+    min-width: 0;
+    padding: 0 1rem 1rem;
+
+    @include screen($sm) {
+        padding: 0 1rem 2rem;
+    }
+
+    @include screen($lg) {
+        padding: 0 2rem 4rem;
+    }
+}
+
+// AntD overrrides, placed inside `body` to increase specifity (nicely avoiding the need for !important)
+body {
+    h1,
+    h2,
+    h3,
+    h4 {
+        color: var(--default);
+    }
+
+    h5 {
+        font-size: 0.6875rem;
+        font-weight: 600;
+        color: var(--muted-alt);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 0.25rem;
+        line-height: 1.5rem;
+    }
+
+    .ant-layout {
+        min-height: 100vh;
+    }
+
+    // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
+    .ant-tabs-top,
+    .ant-tabs-bottom {
+        &,
+        & > div {
+            & > .ant-tabs-nav::before {
+                border-bottom-color: var(--border);
+            }
+        }
+    }
+
+    .ant-dropdown {
+        border-radius: var(--radius);
+    }
+
+    .ant-dropdown-menu {
+        border-radius: var(--radius);
+    }
+
+    .ant-modal-content {
+        box-shadow: var(--shadow-elevation);
+    }
+
+    .ant-modal-mask {
+        z-index: var(--z-ant-modal-mask);
+    }
+    .ant-modal-wrap {
+        z-index: var(--z-ant-modal-wrap);
+    }
+    .ant-message {
+        z-index: var(--z-ant-message);
+    }
+    .ant-select-dropdown {
+        z-index: var(--z-ant-select-dropdown);
+    }
+
+    .ant-picker-dropdown {
+        z-index: var(--z-ant-select-dropdown);
+    }
+
+    .ant-form-item-label {
+        > label {
+            font-weight: 600;
+
+            .ant-form-item-optional {
+                font-weight: 400;
+                color: var(--muted);
+            }
+        }
+    }
+
+    .ant-form-item {
+        margin-bottom: 1rem;
+
+        &:last-child {
+            margin-bottom: 0;
+        }
+    }
+
+    // Tooltip styles
+    .ant-tooltip-inner {
+        background-color: var(--bg-charcoal);
+    }
+
+    .ant-tooltip {
+        max-width: 350px;
+    }
 }

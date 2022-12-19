@@ -1,30 +1,58 @@
+import './PropertyFilterButton.scss'
 import { Button } from 'antd'
-import { useValues } from 'kea'
-import { formatPropertyLabel } from 'lib/utils'
-import React from 'react'
-import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
+import { CloseButton } from 'lib/components/CloseButton'
+import { cohortsModel } from '~/models/cohortsModel'
+import { useValues } from 'kea'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatPropertyLabel, midEllipsis } from 'lib/utils'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
+import React from 'react'
+import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
 
-export interface Props {
-    item: AnyPropertyFilter
+export interface PropertyFilterButtonProps {
     onClick?: () => void
-    setRef?: (ref: HTMLElement) => void
+    onClose?: () => void
+    children?: string
+    item: AnyPropertyFilter
+    style?: React.CSSProperties
 }
 
-export function PropertyFilterButton({ item, onClick, setRef }: Props): JSX.Element {
-    const { cohorts } = useValues(cohortsModel)
+export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
+    function PropertyFilterButton({ onClick, onClose, children, item, style }, ref): JSX.Element {
+        const { cohortsById } = useValues(cohortsModel)
+        const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
-    return (
-        <Button type="primary" shape="round" style={{ maxWidth: '75%' }} onClick={onClick} ref={setRef}>
-            <span
-                className="ph-no-capture property-filter-button-label"
-                style={{ width: '100%', overflow: 'hidden', textOverflow: 'ellipsis' }}
+        const label =
+            children ||
+            formatPropertyLabel(
+                item,
+                cohortsById,
+                keyMapping,
+                (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?'
+            )
+
+        return (
+            <Button
+                shape="round"
+                style={{ ...style }}
+                onClick={onClick}
+                ref={ref}
+                className="PropertyFilterButton ph-no-capture"
             >
-                {formatPropertyLabel(item, cohorts, keyMapping)}
-            </span>
-        </Button>
-    )
-}
-
-export default PropertyFilterButton
+                <PropertyFilterIcon type={item.type} />
+                <span className="PropertyFilterButton-content" title={label}>
+                    {midEllipsis(label, 32)}
+                </span>
+                {onClose && (
+                    <CloseButton
+                        onClick={(e: MouseEvent) => {
+                            e.stopPropagation()
+                            onClose()
+                        }}
+                    />
+                )}
+            </Button>
+        )
+    }
+)

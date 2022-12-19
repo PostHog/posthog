@@ -44,7 +44,9 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={"abstract": False,},
+            options={
+                "abstract": False,
+            },
             bases=("posthog.propertydefinition",),
         ),
         migrations.CreateModel(
@@ -85,7 +87,9 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            options={"abstract": False,},
+            options={
+                "abstract": False,
+            },
             bases=("posthog.eventdefinition",),
         ),
     ]

@@ -1,0 +1,30 @@
+.Lettermark {
+    display: inline-block;
+    flex-shrink: 0;
+    width: 1.5rem;
+    height: 1.5rem;
+    border-radius: var(--radius);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.5rem;
+    text-align: center;
+    color: var(--lettermark-1-text);
+    background: var(--lettermark-1-bg);
+    user-select: none;
+
+    &.Lettermark--rounded {
+        border-radius: 1.5rem;
+    }
+
+    @each $variant in (1, 2, 3, 4, 5, 6, 7, 8) {
+        &.Lettermark--variant-#{$variant} {
+            color: var(--lettermark-#{$variant}-text);
+            background: var(--lettermark-#{$variant}-bg);
+        }
+    }
+
+    &.Lettermark--variant-gray {
+        color: var(--default);
+        background: var(--border-light);
+    }
+}

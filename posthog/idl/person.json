@@ -1,0 +1,38 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "file://posthog/idl/person.json",
+    "title": "person",
+    "description": "Person schema that is destined for ClickHouse",
+    "type": "object",
+    "properties": {
+        "id": {
+            "description": "UUID for the person",
+            "type": "string"
+        },
+        "created_at": {
+            "description": "Person creation timestamp",
+            "type": "number"
+        },
+        "team_id": {
+            "description": "Team ID associated with person",
+            "type": "number"
+        },
+        "properties": {
+            "description": "String representation of person JSON properties object",
+            "type": "string"
+        },
+        "is_identified": {
+            "description": "Boolean is the person identified?",
+            "type": "boolean"
+        },
+        "is_deleted": {
+            "description": "Boolean is the person deleted?",
+            "type": "boolean"
+        },
+        "version": {
+            "description": "Version field for collapsing later (psuedo-tombstone)",
+            "type": "number"
+        }
+    },
+    "required": ["id", "created_at", "team_id", "properties", "is_identified", "is_deleted", "version"]
+}

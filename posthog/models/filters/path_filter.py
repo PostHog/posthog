@@ -1,29 +1,46 @@
 from typing import Any, Dict, Optional
 
-from django.http.request import HttpRequest
+from rest_framework.request import Request
 
 from posthog.constants import INSIGHT_PATHS
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
-    BreakdownTypeMixin,
+    ClientQueryIdMixin,
     DateMixin,
     EntitiesMixin,
     FilterTestAccountsMixin,
+    IncludeRecordingsMixin,
     InsightMixin,
-    IntervalMixin,
+    LimitMixin,
+    OffsetMixin,
+    SearchMixin,
 )
+from posthog.models.filters.mixins.funnel import FunnelCorrelationMixin, FunnelPersonsStepMixin, FunnelWindowMixin
+from posthog.models.filters.mixins.groups import GroupsAggregationMixin
+from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.filters.mixins.paths import (
     ComparatorDerivedMixin,
+    EndPointMixin,
+    FunnelPathsMixin,
+    LocalPathCleaningFiltersMixin,
+    PathGroupingMixin,
+    PathLimitsMixin,
+    PathPersonsMixin,
+    PathReplacementMixin,
+    PathStepLimitMixin,
     PropTypeDerivedMixin,
     StartPointMixin,
     TargetEventDerivedMixin,
+    TargetEventsMixin,
 )
 from posthog.models.filters.mixins.property import PropertyMixin
+from posthog.models.filters.mixins.simplify import SimplifyFilterMixin
 
 
 class PathFilter(
     StartPointMixin,
+    EndPointMixin,
     TargetEventDerivedMixin,
     ComparatorDerivedMixin,
     PropTypeDerivedMixin,
@@ -33,12 +50,29 @@ class PathFilter(
     FilterTestAccountsMixin,
     DateMixin,
     BreakdownMixin,
-    BreakdownTypeMixin,
     EntitiesMixin,
+    PathStepLimitMixin,
+    FunnelPathsMixin,
+    TargetEventsMixin,
+    FunnelWindowMixin,
+    FunnelPersonsStepMixin,
+    PathGroupingMixin,
+    PathReplacementMixin,
+    LocalPathCleaningFiltersMixin,
+    PathPersonsMixin,
+    LimitMixin,
+    OffsetMixin,
+    PathLimitsMixin,
+    GroupsAggregationMixin,
+    FunnelCorrelationMixin,  # Typing pain because ColumnOptimizer expects a uniform filter
+    ClientQueryIdMixin,
+    SimplifyFilterMixin,
+    IncludeRecordingsMixin,
+    SearchMixin,
     # TODO: proper fix for EventQuery abstraction
     BaseFilter,
 ):
-    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[HttpRequest] = None, **kwargs) -> None:
+    def __init__(self, data: Optional[Dict[str, Any]] = None, request: Optional[Request] = None, **kwargs) -> None:
         if data:
             data["insight"] = INSIGHT_PATHS
         else:

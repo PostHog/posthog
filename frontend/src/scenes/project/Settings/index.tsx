@@ -1,28 +1,44 @@
-import React, { useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { Button, Card, Divider, Input, Skeleton, Tag } from 'antd'
+import { useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
 import { IPCapture } from './IPCapture'
-import { JSSnippet } from 'lib/components/JSSnippet'
 import { SessionRecording } from './SessionRecording'
-import { EditAppUrls } from 'lib/components/AppEditorLink/EditAppUrls'
 import { WebhookIntegration } from './WebhookIntegration'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
-import { ReloadOutlined } from '@ant-design/icons'
-import { red } from '@ant-design/colors'
 import { ToolbarSettings } from './ToolbarSettings'
-import { CodeSnippet } from 'scenes/ingestion/frameworks/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 import { DangerZone } from './DangerZone'
 import { PageHeader } from 'lib/components/PageHeader'
 import { Link } from 'lib/components/Link'
-import { commandPaletteLogic } from 'lib/components/CommandPalette/commandPaletteLogic'
-import { JSBookmarklet } from 'lib/components/JSBookmarklet'
-import { RestrictedArea } from '../../../lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from '../../../lib/constants'
+import { RestrictedArea, RestrictionScope } from 'lib/components/RestrictedArea'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { TestAccountFiltersConfig } from './TestAccountFiltersConfig'
 import { TimezoneConfig } from './TimezoneConfig'
 import { DataAttributes } from 'scenes/project/Settings/DataAttributes'
+import { AvailableFeature, InsightType } from '~/types'
+import { TeamMembers } from './TeamMembers'
+import { teamMembersLogic } from './teamMembersLogic'
+import { AccessControl } from './AccessControl'
+import { PathCleaningFiltersConfig } from './PathCleaningFiltersConfig'
+import { userLogic } from 'scenes/userLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { CorrelationConfig } from './CorrelationConfig'
+import { urls } from 'scenes/urls'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { GroupAnalytics } from 'scenes/project/Settings/GroupAnalytics'
+import { IconInfo } from 'lib/components/icons'
+import { PersonDisplayNameProperties } from './PersonDisplayNameProperties'
+import { Tooltip } from 'lib/components/Tooltip'
+import { SlackIntegration } from './SlackIntegration'
+import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { IngestionInfo } from './IngestionInfo'
+
+export const scene: SceneExport = {
+    component: ProjectSettings,
+}
 
 function DisplayName(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
@@ -39,200 +55,195 @@ function DisplayName(): JSX.Element {
     }
 
     return (
-        <div>
-            <Input
-                value={name}
-                onChange={(event) => {
-                    setName(event.target.value)
-                }}
-                style={{ maxWidth: '40rem', marginBottom: '1rem', display: 'block' }}
-                disabled={currentTeamLoading}
-            />
-            <Button
+        <div className="space-y-4" style={{ maxWidth: '40rem' }}>
+            <LemonInput value={name} onChange={setName} disabled={currentTeamLoading} />
+            <LemonButton
                 type="primary"
-                onClick={(e) => {
-                    e.preventDefault()
-                    updateCurrentTeam({ name })
-                }}
+                onClick={() => updateCurrentTeam({ name })}
                 disabled={!name || !currentTeam || name === currentTeam.name}
                 loading={currentTeamLoading}
             >
                 Rename Project
-            </Button>
+            </LemonButton>
         </div>
     )
 }
 
 export function ProjectSettings(): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
-    const { resetToken } = useActions(teamLogic)
     const { location } = useValues(router)
-
-    const { shareFeedbackCommand } = useActions(commandPaletteLogic)
+    const { user, hasAvailableFeature } = useValues(userLogic)
+    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
     useAnchor(location.hash)
 
-    const loadingComponent = <Skeleton active />
+    const LoadingComponent = (): JSX.Element => (
+        <div className="space-y-4">
+            <LemonSkeleton className="w-1/2" />
+            <LemonSkeleton repeat={3} />
+        </div>
+    )
 
     return (
-        <div style={{ marginBottom: 128 }}>
+        <div>
             <PageHeader
-                title="Project Settings"
+                title="Project settings"
                 caption={`Organize your analytics within the project. These settings only apply to ${
                     currentTeam?.name ?? 'the current project'
                 }.`}
             />
-            <Card>
-                <h2 id="name" className="subtitle">
-                    Display Name
+            <div className="border rounded p-6">
+                <h2 id="name" className="subtitle mt-0">
+                    Display name
                 </h2>
-                {currentTeamLoading && !currentTeam ? loadingComponent : <DisplayName />}
-                <Divider />
-                <h2 id="snippet" className="subtitle">
-                    Website Event Autocapture
-                </h2>
-                To integrate PostHog into your website and get event autocapture with no additional work, include the
-                following snippet in your&nbsp;website's&nbsp;HTML. Ideally, put it just above the&nbsp;
-                <code>{'</head>'}</code>&nbsp;tag.
-                <br />
-                For more guidance, including on identifying users,{' '}
-                <a href="https://posthog.com/docs/integrations/js-integration">see PostHog Docs</a>.
-                {currentTeamLoading && !currentTeam ? loadingComponent : <JSSnippet />}
-                <p>
-                    You can even test PostHog out on a live site without changing any code.
-                    <br />
-                    Just drag the bookmarklet below to your bookmarks bar, open the website you want to test PostHog on
-                    and click it.
-                    <br />
-                    This will enable our tracking, on the currently loaded page only. The data will show up in this
-                    project.
-                    <br />
-                </p>
-                <div>{currentTeam && <JSBookmarklet team={currentTeam} />}</div>
-                <Divider />
-                <h2 id="custom-events" className="subtitle">
-                    Send Custom Events
-                </h2>
-                To send custom events <a href="https://posthog.com/docs/integrations">visit PostHog Docs</a> and
-                integrate the library for the specific language or platform you're using. We support Python, Ruby, Node,
-                Go, PHP, iOS, Android, and more.
-                <Divider />
-                <h2 id="project-api-key" className="subtitle">
-                    Project API Key
-                </h2>
-                You can use this write-only key in any one of{' '}
-                <a href="https://posthog.com/docs/integrations">our libraries</a>.
-                <CodeSnippet
-                    actions={[
-                        {
-                            Icon: ReloadOutlined,
-                            title: 'Reset Project API Key',
-                            popconfirmProps: {
-                                title: (
-                                    <>
-                                        Reset the project's API key?{' '}
-                                        <b>This will invalidate the current API key and cannot be undone.</b>
-                                    </>
-                                ),
-                                okText: 'Reset Key',
-                                okType: 'danger',
-                                icon: <ReloadOutlined style={{ color: red.primary }} />,
-                                placement: 'left',
-                            },
-                            callback: resetToken,
-                        },
-                    ]}
-                    copyDescription="project API key"
-                >
-                    {currentTeam?.api_token || ''}
-                </CodeSnippet>
-                Write-only means it can only create new events. It can't read events or any of your other data stored
-                with PostHog, so it's safe to use in public apps.
-                <Divider />
+                {currentTeamLoading && !currentTeam ? <LoadingComponent /> : <DisplayName />}
+                <LemonDivider className="my-6" />
+                {currentTeamLoading && !currentTeam ? (
+                    <LoadingComponent />
+                ) : (
+                    <IngestionInfo loadingComponent={<LoadingComponent />} />
+                )}
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="timezone">
                     Timezone
                 </h2>
-                <p>Set the timezone for your project so that you can see relevant time conversions in PostHog.</p>
-                <TimezoneConfig />
-                <Divider />
+                <p>
+                    Set the timezone for your project. All charts will be based on this timezone, including how PostHog
+                    buckets data in day/week/month intervals.
+                </p>
+                <div style={{ maxWidth: '40rem' }}>
+                    <TimezoneConfig />
+                </div>
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="internal-users-filtering">
-                    Filter Out Internal and Test Users
+                    Filter out internal and test users{' '}
+                    <Tooltip title='Events will still be ingested and saved, but they will be excluded from any queries where the "Filter out internal and test users" toggle is set.'>
+                        <IconInfo style={{ fontSize: '1em', color: 'var(--muted-alt)', marginTop: 4, marginLeft: 5 }} />
+                    </Tooltip>
                 </h2>
                 <p>
                     Increase the quality of your analytics results by filtering out events from internal sources, such
-                    as team members, test accounts, or development environments.
+                    as team members, test accounts, or development environments.{' '}
+                    <strong>
+                        The filters you apply here are added as extra filters when the toggle is switched on.
+                    </strong>{' '}
+                    So, if you apply a cohort, it means you will only match users in that cohort.
                 </p>
-                <p>
-                    <b>Events will still be ingested and saved</b> (and will count towards any totals), they will
-                    however be excluded from consideration on any queries where the "Filter out internal and test users"
-                    toggle is set.
-                </p>
-                <p>
-                    Example filters to use below: <i>email ∌ yourcompany.com</i> to exclude all events from your
-                    company's team members, or <i>Host ∌ localhost</i> to exclude all events from local development
-                    environments.
-                </p>
-                <p>
-                    <b>The filters you apply here are added as extra filters when the toggle is switched on.</b> So, if
-                    you apply a Cohort filter, it means toggling filtering on will match only this specific cohort.
-                </p>
+                <strong>Example filters</strong>
+                <ul className="list-disc pl-4 mb-2">
+                    <li>
+                        "<strong>Email</strong> does not contain <strong>yourcompany.com</strong>" to exclude all events
+                        from your company's team members.
+                    </li>
+                    <li>
+                        "<strong>Host</strong> does not contain <strong>localhost</strong>" to exclude all events from
+                        local development environments.
+                    </li>
+                </ul>
                 <TestAccountFiltersConfig />
-                <Divider />
+                <LemonDivider className="my-6" />
+                <CorrelationConfig />
+                {hasAdvancedPaths && (
+                    <>
+                        <LemonDivider className="my-6" />
+                        <h2 className="subtitle" id="path_cleaning_filtering">
+                            Path cleaning rules
+                            <LemonTag type="warning" className="uppercase" style={{ marginLeft: 8 }}>
+                                Beta
+                            </LemonTag>
+                        </h2>
+                        <p>
+                            Make your <Link to={urls.insightNew({ insight: InsightType.PATHS })}>Paths</Link> clearer by
+                            aliasing one or multiple URLs.{' '}
+                            <i>
+                                Example: <code>http://tenant-one.mydomain.com/accounts</code> and{' '}
+                                <code>http://tenant-two.mydomain.com/accounts</code> can become a single{' '}
+                                <code>/accounts</code> path.
+                            </i>
+                        </p>
+                        <p>
+                            Each rule is composed of an alias and a regex pattern. Any pattern in a URL or event name
+                            that matches the regex will be replaced with the alias. Rules are applied in the order that
+                            they're listed.
+                        </p>
+                        <p>
+                            <b>
+                                Rules that you set here will be applied before wildcarding and other regex replacement
+                                if the toggle is switched on.
+                            </b>
+                        </p>
+                        <PathCleaningFiltersConfig />
+                    </>
+                )}
+                <LemonDivider className="my-6" />
+                <div id="authorized-urls" />
                 <h2 className="subtitle" id="urls">
-                    Permitted Domains/URLs
+                    Authorized URLs
                 </h2>
                 <p>
-                    These are the domains and URLs where the <b>Toolbar will automatically launch</b> (if you're logged
-                    in) and where we'll <a href="#session-recording">record sessions</a> (if enabled).
+                    These are the URLs where the{' '}
+                    <b>
+                        <Link to={urls.toolbarLaunch()}>Toolbar</Link> will automatically launch
+                    </b>{' '}
+                    (if you're logged in).
                 </p>
-                <EditAppUrls />
-                <Divider />
+                <p>
+                    <b>Domains and wilcard subdomains are allowed</b> (example: <code>https://*.example.com</code>).
+                    However, wildcarded top-level domains cannot be used (for security reasons).
+                </p>
+                <AuthorizedUrlList type={AuthorizedUrlListType.TOOLBAR_URLS} />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="attributes">
-                    Data Attributes
+                    Data attributes
                 </h2>
                 <DataAttributes />
-                <Divider />
+                <LemonDivider className="my-6" />
+                <h2 className="subtitle" id="person-display-name">
+                    Person Display Name
+                </h2>
+                <PersonDisplayNameProperties />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle" id="webhook">
-                    Webhook Integration
+                    Webhook integration
                 </h2>
                 <WebhookIntegration />
-                <Divider />
+                <LemonDivider className="my-6" />
+                <>
+                    <h2 className="subtitle" id="slack">
+                        Slack integration
+                    </h2>
+                    <SlackIntegration />
+                    <LemonDivider className="my-6" />
+                </>
                 <h2 className="subtitle" id="datacapture">
-                    Data Capture Configuration
+                    Data capture configuration
                 </h2>
                 <IPCapture />
-                <Divider />
+                <LemonDivider className="my-6" />
                 <h2 className="subtitle">PostHog Toolbar</h2>
+                <p>
+                    Enable PostHog Toolbar, which gives access to heatmaps, stats and allows you to create actions,
+                    right there on your website!
+                </p>
                 <ToolbarSettings />
-                <Divider />
-                <h2 id="session-recording" className="subtitle" style={{ display: 'flex', alignItems: 'center' }}>
-                    Session Recording
-                    <Tag color="orange" style={{ marginLeft: 8 }}>
-                        BETA
-                    </Tag>
-                </h2>
-                <p>
-                    Watch sessions replays to see how users interact with your app and find out what can be improved.
-                    You can watch recorded sessions in the <Link to="/sessions">sessions page</Link>. Please note{' '}
-                    <b>your website needs to have</b> the <a href="#snippet">PostHog snippet</a> or the latest version
-                    of{' '}
-                    <a
-                        href="https://posthog.com/docs/integrations/js-integration?utm_campaign=session-recording&utm_medium=in-product"
-                        target="_blank"
-                    >
-                        posthog-js
-                    </a>{' '}
-                    installed.
-                </p>
+                <LemonDivider className="my-6" />
                 <SessionRecording />
-                <p>
-                    This is a new feature of PostHog. Please{' '}
-                    <a onClick={() => shareFeedbackCommand('How can we improve session recording?')}>share feedback</a>{' '}
-                    with us!
-                </p>
-                <Divider />
-                <RestrictedArea Component={DangerZone} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-            </Card>
+                <LemonDivider className="my-6" />
+                <GroupAnalytics />
+                <RestrictedArea Component={AccessControl} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
+                <LemonDivider className="my-6" />
+                {currentTeam?.access_control && hasAvailableFeature(AvailableFeature.PROJECT_BASED_PERMISSIONING) && (
+                    <BindLogic logic={teamMembersLogic} props={{ team: currentTeam }}>
+                        {user && <TeamMembers user={user} team={currentTeam} />}
+                        <LemonDivider className="my-6" />
+                    </BindLogic>
+                )}
+                <RestrictedArea
+                    Component={DangerZone}
+                    minimumAccessLevel={OrganizationMembershipLevel.Admin}
+                    scope={RestrictionScope.Project}
+                />
+            </div>
         </div>
     )
 }

@@ -1,0 +1,118 @@
+{
+    "csv_rows": [
+        "cohort,cohort size,Period 0,Period 1,Period 2,Period 3,Period 4,Period 5,Period 6,Period 7,Period 8,Period 9,Period 10",
+        "Chrome::103,1,1,1,0,0,0,0,0,0,0,0,0",
+        "Chrome::102,1,1,1,0,0,0,0,0,0,0,0,0",
+        ""
+    ],
+    "response": {
+        "result": [
+            {
+                "values": [
+                    {
+                        "count": 1,
+                        "people": [],
+                        "people_url": "/api/person/retention/foo=bar"
+                    },
+                    {
+                        "count": 1,
+                        "people": [],
+                        "people_url": "/api/person/retention/foo=bar"
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    }
+                ],
+                "label": "Chrome::103",
+                "breakdown_values": ["Chrome", "103"],
+                "people_url": "/api/person/retention/?foo=bar"
+            },
+            {
+                "values": [
+                    {
+                        "count": 1,
+                        "people": [],
+                        "people_url": "/api/person/retention/foo=bar"
+                    },
+                    {
+                        "count": 1,
+                        "people": [],
+                        "people_url": "/api/person/retention/foo=bar"
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    },
+                    {
+                        "count": 0,
+                        "people": []
+                    }
+                ],
+                "label": "Chrome::102",
+                "breakdown_values": ["Chrome", "102"],
+                "people_url": "/api/person/retention/?foo=bar"
+            }
+        ]
+    }
+}

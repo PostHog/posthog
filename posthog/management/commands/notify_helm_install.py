@@ -2,10 +2,10 @@ import os
 from pprint import pprint
 
 import posthoganalytics
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from posthog.tasks.status_report import get_helm_info_env
-from posthog.utils import get_machine_id
+from posthog.utils import get_helm_info_env, get_machine_id
 from posthog.version import VERSION
 
 
@@ -27,5 +27,5 @@ class Command(BaseCommand):
             posthoganalytics.api_key = "sTMFPsFhdP1Ssg"
             disabled = posthoganalytics.disabled
             posthoganalytics.disabled = False
-            posthoganalytics.capture(get_machine_id(), "helm_install", report)
+            posthoganalytics.capture(get_machine_id(), "helm_install", report, groups={"instance": settings.SITE_URL})
             posthoganalytics.disabled = disabled

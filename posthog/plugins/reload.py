@@ -1,6 +1,11 @@
+import structlog
+from django.conf import settings
+
 from posthog.redis import get_client
-from posthog.settings import PLUGINS_RELOAD_PUBSUB_CHANNEL
+
+logger = structlog.get_logger(__name__)
 
 
 def reload_plugins_on_workers():
-    get_client().publish(PLUGINS_RELOAD_PUBSUB_CHANNEL, "reload!")
+    logger.info("Reloading plugins on workers")
+    get_client().publish(settings.PLUGINS_RELOAD_PUBSUB_CHANNEL, "reload!")

@@ -1,71 +1,83 @@
 // This file contains funnel-related components that are used in the general insights scope
 import { useActions, useValues } from 'kea'
-import { humanFriendlyDuration } from 'lib/utils'
-import React from 'react'
-import { Button } from 'antd'
+import { humanFriendlyDuration, percentage } from 'lib/utils'
+import { Button, Row } from 'antd'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
 import { chartFilterLogic } from 'lib/components/ChartFilter/chartFilterLogic'
-import { FunnelVizType } from '~/types'
-import { formatDisplayPercentage } from './funnelUtils'
+import { FunnelVizType, InsightType } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
+import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
+import React from 'react'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
-    const { conversionMetrics, clickhouseFeaturesEnabled } = useValues(funnelLogic)
-    const { allFilters } = useValues(insightLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
+    const { insightProps, activeView } = useValues(insightLogic)
+    const { conversionMetrics, filters, aggregationTargetLabel } = useValues(funnelLogic(insightProps))
+    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    if (allFilters.insight !== 'FUNNELS') {
+    if (activeView !== InsightType.FUNNELS) {
         return null
     }
 
     const labels = [
-        ...(allFilters.funnel_viz_type === FunnelVizType.Steps
+        ...(filters.funnel_viz_type === FunnelVizType.Steps
             ? [
                   <>
-                      <span className="text-muted-alt">
-                          <Tooltip title="Overall conversion rate for all users on the entire funnel.">
+                      <span className="text-muted-alt mr-1">
+                          <Tooltip
+                              title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
+                          >
                               <InfoCircleOutlined className="info-indicator left" />
                           </Tooltip>
-                          Total conversion rate:{' '}
+                          Total conversion rate:
                       </span>
-                      <span>{formatDisplayPercentage(conversionMetrics.totalRate)}%</span>
+                      <span className="l4">{percentage(conversionMetrics.totalRate, 2, true)}</span>
                   </>,
               ]
             : []),
-        ...(allFilters.funnel_viz_type !== FunnelVizType.Trends && !allFilters.breakdown
+        ...(filters.funnel_viz_type !== FunnelVizType.Trends
             ? [
                   <>
                       <span className="text-muted-alt">
-                          <Tooltip title="Average (arithmetic mean) of the total time each user spent in the entire funnel.">
+                          <Tooltip
+                              title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
+                          >
                               <InfoCircleOutlined className="info-indicator left" />
                           </Tooltip>
-                          Average time to convert:{' '}
+                          Average time to convert{' '}
                       </span>
+                      {filters.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
+                      <span className="text-muted-alt mr-1">:</span>
                       <Button
                           type="link"
                           onClick={() => setChartFilter(FunnelVizType.TimeToConvert)}
-                          disabled={
-                              !clickhouseFeaturesEnabled || allFilters.funnel_viz_type === FunnelVizType.TimeToConvert
-                          }
+                          disabled={filters.funnel_viz_type === FunnelVizType.TimeToConvert}
                       >
-                          {humanFriendlyDuration(conversionMetrics.averageTime)}
+                          <span className="l4">{humanFriendlyDuration(conversionMetrics.averageTime)}</span>
                       </Button>
+                  </>,
+              ]
+            : []),
+        ...(filters.funnel_viz_type === FunnelVizType.Trends
+            ? [
+                  <>
+                      <span className="text-muted-alt">Conversion rate </span>
+                      <FunnelStepsPicker />
                   </>,
               ]
             : []),
     ]
 
     return (
-        <div className="funnel-canvas-label">
+        <Row className="funnel-canvas-label" align="middle">
             {labels.map((label, i) => (
                 <React.Fragment key={i}>
-                    {i > 0 && <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)' }} />}
+                    {i > 0 && <span style={{ margin: '2px 8px', borderLeft: '1px solid var(--border)', height: 14 }} />}
                     {label}
                 </React.Fragment>
             ))}
-        </div>
+        </Row>
     )
 }

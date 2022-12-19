@@ -1,32 +1,52 @@
-import React from 'react'
-import { Tabs, Tag } from 'antd'
+import { Tag } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import clsx from 'clsx'
 
 export interface InfiniteSelectResultsProps {
     focusInput: () => void
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
 }
 
-function TabTitle({
+function CategoryPill({
+    isActive,
     groupType,
     taxonomicFilterLogicProps,
+    onClick,
 }: {
+    isActive: boolean
     groupType: TaxonomicFilterGroupType
     taxonomicFilterLogicProps: TaxonomicFilterLogicProps
+    onClick: () => void
 }): JSX.Element {
     const logic = infiniteListLogic({ ...taxonomicFilterLogicProps, listGroupType: groupType })
-    const { totalCount } = useValues(logic)
+    const { taxonomicGroups } = useValues(taxonomicFilterLogic)
+    const { totalResultCount, totalListCount } = useValues(logic)
 
-    const group = groups.find((g) => g.type === groupType)
+    const group = taxonomicGroups.find((g) => g.type === groupType)
+
+    // :TRICKY: use `totalListCount` (results + extra) to toggle interactivity, while showing `totalResultCount`
+    const canInteract = totalListCount > 0
+
     return (
-        <div data-attr={`taxonomic-tab-${groupType}`}>
-            {group?.name} {totalCount != null && <Tag>{totalCount}</Tag>}
-        </div>
+        <Tag
+            data-attr={`taxonomic-tab-${groupType}`}
+            className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': !canInteract })}
+            onClick={canInteract ? onClick : undefined}
+        >
+            {group?.render ? (
+                group?.name
+            ) : (
+                <>
+                    {group?.name}
+                    {': '}
+                    {totalResultCount ?? '...'}
+                </>
+            )}
+        </Tag>
     )
 }
 
@@ -34,42 +54,63 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, groupTypes } = useValues(taxonomicFilterLogic)
-    const { setActiveTab } = useActions(taxonomicFilterLogic)
+    const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
+        useValues(taxonomicFilterLogic)
+    const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+    const RenderComponent = activeTaxonomicGroup?.render
 
-    if (groupTypes.length === 1) {
+    const listComponent = RenderComponent ? (
+        <RenderComponent value={value} onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)} />
+    ) : (
+        <InfiniteList />
+    )
+
+    if (taxonomicGroupTypes.length === 1) {
         return (
-            <BindLogic logic={infiniteListLogic} props={{ ...taxonomicFilterLogicProps, listGroupType: groupTypes[0] }}>
-                <InfiniteList />
+            <BindLogic
+                logic={infiniteListLogic}
+                props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0] }}
+            >
+                {listComponent}
             </BindLogic>
         )
     }
 
+    const openTab = activeTab || taxonomicGroups[0].type
     return (
-        <Tabs
-            activeKey={activeTab || groups[0].type}
-            onChange={(value) => {
-                setActiveTab(value as TaxonomicFilterGroupType)
-                focusInput()
-            }}
-            tabPosition="top"
-            animated={false}
-        >
-            {groupTypes.map((groupType) => {
+        <>
+            <div className="taxonomic-group-title">Categories</div>
+            <div className="taxonomic-pills">
+                {taxonomicGroupTypes.map((groupType) => {
+                    return (
+                        <CategoryPill
+                            key={groupType}
+                            groupType={groupType}
+                            taxonomicFilterLogicProps={taxonomicFilterLogicProps}
+                            isActive={groupType === openTab}
+                            onClick={() => {
+                                setActiveTab(groupType)
+                                focusInput()
+                            }}
+                        />
+                    )
+                })}
+            </div>
+            <div className={'taxonomic-group-title with-border'}>
+                {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
+            </div>
+            {taxonomicGroupTypes.map((groupType) => {
                 return (
-                    <Tabs.TabPane
-                        key={groupType}
-                        tab={<TabTitle groupType={groupType} taxonomicFilterLogicProps={taxonomicFilterLogicProps} />}
-                    >
+                    <div key={groupType} style={{ display: groupType === openTab ? 'block' : 'none', marginTop: 8 }}>
                         <BindLogic
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                         >
-                            <InfiniteList />
+                            {listComponent}
                         </BindLogic>
-                    </Tabs.TabPane>
+                    </div>
                 )
             })}
-        </Tabs>
+        </>
     )
 }

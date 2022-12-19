@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from '../pluginsLogic'
 import { PluginLogs } from './PluginLogs'
@@ -13,15 +12,12 @@ export function LogsDrawer(): JSX.Element {
             visible={!!showingLogsPlugin}
             onClose={hidePluginLogs}
             width={'min(90vw, 80rem)'}
-            title={`Viewing Plugin Logs: ${lastShownLogsPlugin?.name}`}
+            title={`Viewing App Logs: ${lastShownLogsPlugin?.name}`}
             placement="left"
             destroyOnClose
         >
-            {!!lastShownLogsPlugin && (
-                <PluginLogs
-                    teamId={lastShownLogsPlugin.pluginConfig.team_id}
-                    pluginConfigId={lastShownLogsPlugin.pluginConfig.id!} // eslint-disable-line
-                />
+            {!!lastShownLogsPlugin?.pluginConfig.id && (
+                <PluginLogs pluginConfigId={lastShownLogsPlugin.pluginConfig.id} />
             )}
         </Drawer>
     )

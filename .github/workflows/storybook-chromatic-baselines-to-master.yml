@@ -1,0 +1,52 @@
+name: 'Storybook Chromatic - Add baselines on push to master'
+
+on:
+    push:
+        branches:
+            - master
+
+jobs:
+    storybook-chromatic-accept-baselines-to-master:
+        runs-on: ubuntu-latest
+        if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
+        steps:
+            - uses: actions/checkout@v3
+              with:
+                  fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
+            # there's no need to run chromatic on every commit,
+            # so we only run it if the frontend has changed
+            - uses: dorny/paths-filter@v2
+              id: changes
+              with:
+                  filters: |
+                      frontend:
+                        - 'frontend/**'
+                        - '.storybook/**'
+
+            - name: Install dependencies and chromatic
+              if: steps.changes.outputs.frontend == 'true'
+              run: pnpm add --save-dev chromatic
+
+            - name: Publish to Chromatic and auto accept changes to add baseline to master
+              # chromatic can't detect accepted baseline because we do squash merges
+              # so whenever we merge frontend changes to master, we need to accept a new baseline
+              # see https://www.chromatic.com/docs/github-actions#github-squashrebase-merge-and-the-main-branch
+              if: steps.changes.outputs.frontend == 'true'
+              uses: chromaui/action@v1
+              # Required options for the Chromatic GitHub Action
+              with:
+                  # 👇 Chromatic projectToken, refer to the manage page to obtain it.
+                  projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+                  autoAcceptChanges: true # 👈 Option to accept all changes

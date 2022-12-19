@@ -1,46 +1,39 @@
-import json
-from typing import Any, Callable, Dict, List, Optional, Union, cast
+import datetime
+import re
+from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
-from dateutil.relativedelta import relativedelta
-from django.db.models import Exists, OuterRef, Q, QuerySet
-from django.db.models.query import Prefetch
-from rest_framework import request
+from dateutil import parser
+from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError
 
-from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS
-from posthog.models.entity import Entity
-from posthog.models.event import Event
+from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.models.team import Team
+from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates
 
-"""
-process_entity_for_events takes in an Entity and team_id, and returns an Event QuerySet that's correctly filtered
-"""
+F = TypeVar("F", Filter, PathFilter)
 
 
-def process_entity_for_events(entity: Entity, team_id: int, order_by="-id") -> QuerySet:
-    if entity.type == TREND_FILTER_TYPE_ACTIONS:
-        events = Event.objects.filter(action__pk=entity.id).add_person_id(team_id)
-        if order_by:
-            events = events.order_by(order_by)
-        return events
-    elif entity.type == TREND_FILTER_TYPE_EVENTS:
-        return Event.objects.filter_by_event_with_people(event=entity.id, team_id=team_id, order_by=order_by)
-    return QuerySet()
-
-
-def determine_compared_filter(filter) -> Filter:
+def determine_compared_filter(filter: F) -> F:
     if not filter.date_to or not filter.date_from:
         raise ValidationError("You need date_from and date_to to compare")
-    date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
-    return filter.with_data({"date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()})
+    date_from, date_to = get_compare_period_dates(
+        filter.date_from,
+        filter.date_to,
+        filter.date_from_delta_mapping,
+        filter.date_to_delta_mapping,
+        filter.interval,
+    )
+
+    return filter.with_data({"date_from": date_from.isoformat(), "date_to": date_to.isoformat()})
 
 
-def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
-    for entity in trend_entity:
+def convert_to_comparison(trend_entities: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
+    for entity in trend_entities:
         labels = [
             "{} {}".format(filter.interval if filter.interval is not None else "day", i)
             for i in range(len(entity["labels"]))
@@ -49,12 +42,12 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
             {
                 "labels": labels,
                 "days": entity["days"],
-                "label": "{} - {}".format(entity["label"], label),
-                "chartLabel": "{} - {}".format(entity["label"], label),
+                "label": entity["label"],
+                "compare_label": label,
                 "compare": True,
             }
         )
-    return trend_entity
+    return trend_entities
 
 
 """
@@ -65,111 +58,163 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
 
 
 def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
-    entities_list = []
-    trend_entity = func(filter=filter, team_id=team.pk, **kwargs)
+    all_entities = []
+    base_entitites = func(filter=filter, team=team, **kwargs)
     if filter.compare:
-        trend_entity = convert_to_comparison(trend_entity, filter, "current")
-        entities_list.extend(trend_entity)
+        base_entitites = convert_to_comparison(base_entitites, filter, "current")
+        all_entities.extend(base_entitites)
 
         compared_filter = determine_compared_filter(filter)
-        compared_trend_entity = func(filter=compared_filter, team_id=team.pk, **kwargs)
-
-        compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, "previous",)
-        entities_list.extend(compared_trend_entity)
+        comparison_entities = func(filter=compared_filter, team=team, **kwargs)
+        comparison_entities = convert_to_comparison(comparison_entities, compared_filter, "previous")
+        all_entities.extend(comparison_entities)
     else:
-        entities_list.extend(trend_entity)
-    return entities_list
+        all_entities.extend(base_entitites)
+    return all_entities
 
 
-TIME_IN_SECONDS: Dict[str, Any] = {
-    "minute": 60,
-    "hour": 3600,
-    "day": 3600 * 24,
-    "week": 3600 * 24 * 7,
-    "month": 3600 * 24 * 30,  # TODO: Let's get rid of this lie! Months are not all 30 days long
-}
+def match_property(property: Property, override_property_values: Dict[str, Any]) -> bool:
+    # only looks for matches where key exists in override_property_values
+    # doesn't support operator is_not_set
 
-"""
-filter_events takes team_id, filter, entity and generates a Q objects that you can use to filter a QuerySet
-"""
+    if property.key not in override_property_values:
+        raise ValidationError("can't match properties without an override value")
 
+    if property.operator == "is_not_set":
+        raise ValidationError("can't match properties with operator is_not_set")
 
-def filter_events(
-    team_id: int, filter, entity: Optional[Entity] = None, include_dates: bool = True, interval_annotation=None
-) -> Q:
-    filters = Q()
-    relativity = relativedelta(days=1)
-    date_from = filter.date_from
-    if filter.interval == "hour":
-        relativity = relativedelta(hours=1)
-    elif filter.interval == "minute":
-        relativity = relativedelta(minutes=1)
-    elif filter.interval == "week":
-        relativity = relativedelta(weeks=1)
-        date_from = filter.date_from - relativedelta(days=filter.date_from.weekday() + 1)
-    elif filter.interval == "month":
-        relativity = relativedelta(months=1) - relativity  # go to last day of month instead of first of next
-        date_from = filter.date_from.replace(day=1)
+    key = property.key
+    operator = property.operator or "exact"
+    value = property.value
+    override_value = override_property_values[key]
 
-    if filter.date_from and include_dates:
-        filters &= Q(timestamp__gte=date_from)
-    if include_dates:
-        filters &= Q(timestamp__lte=filter.date_to + relativity)
-    if filter.properties or filter.filter_test_accounts:
-        filters &= properties_to_Q(filter.properties, team_id=team_id, filter_test_accounts=filter.filter_test_accounts)
-    if entity and entity.properties:
-        filters &= properties_to_Q(entity.properties, team_id=team_id)
-    return filters
+    if operator == "exact":
+        if isinstance(value, list):
+            return override_value in value
+        return value == override_value
+
+    if operator == "is_not":
+        if isinstance(value, list):
+            return override_value not in value
+        return value != override_value
+
+    if operator == "is_set":
+        return key in override_property_values
+
+    if operator == "icontains":
+        return str(value).lower() in str(override_value).lower()
+
+    if operator == "not_icontains":
+        return str(value).lower() not in str(override_value).lower()
+
+    if operator in ("regex", "not_regex"):
+        try:
+            pattern = re.compile(str(value))
+            match = pattern.search(str(override_value))
+
+            if operator == "regex":
+                return match is not None
+            else:
+                return match is None
+
+        except re.error:
+            return False
+
+    if operator == "gt":
+        return type(override_value) == type(value) and override_value > value
+
+    if operator == "gte":
+        return type(override_value) == type(value) and override_value >= value
+
+    if operator == "lt":
+        return type(override_value) == type(value) and override_value < value
+
+    if operator == "lte":
+        return type(override_value) == type(value) and override_value <= value
+
+    if operator in ["is_date_before", "is_date_after"]:
+        try:
+            parsed_date = parser.parse(str(value))
+            parsed_date = convert_to_datetime_aware(parsed_date)
+        except Exception:
+            return False
+
+        if isinstance(override_value, datetime.datetime):
+            override_date = convert_to_datetime_aware(override_value)
+            if operator == "is_date_before":
+                return override_date < parsed_date
+            else:
+                return override_date > parsed_date
+        elif isinstance(override_value, datetime.date):
+            if operator == "is_date_before":
+                return override_value < parsed_date.date()
+            else:
+                return override_value > parsed_date.date()
+        elif isinstance(override_value, str):
+            try:
+                override_date = parser.parse(override_value)
+                override_date = convert_to_datetime_aware(override_date)
+                if operator == "is_date_before":
+                    return override_date < parsed_date
+                else:
+                    return override_date > parsed_date
+            except Exception:
+                return False
+
+    return False
 
 
 def properties_to_Q(
-    properties: List[Property], team_id: int, is_person_query: bool = False, filter_test_accounts: bool = False
+    properties: List[Property],
+    team_id: int,
+    is_direct_query: bool = False,
+    override_property_values: Dict[str, Any] = {},
 ) -> Q:
     """
     Converts a filter to Q, for use in Django ORM .filter()
-    If you're filtering a Person QuerySet, use is_person_query to avoid doing an unnecessary nested loop
+    If you're filtering a Person/Group QuerySet, use is_direct_query to avoid doing an unnecessary nested loop
     """
     filters = Q()
-
-    if filter_test_accounts:
-        test_account_filters = Team.objects.only("test_account_filters").get(id=team_id).test_account_filters
-        properties.extend([Property(**prop) for prop in test_account_filters])
 
     if len(properties) == 0:
         return filters
 
-    if is_person_query:
+    if is_direct_query:
         for property in properties:
-            filters &= property.property_to_Q()
+            # short circuit query if key exists in override_property_values
+            if property.key in override_property_values and property.operator != "is_not_set":
+                # if match found, do nothing to Q
+                # if not found, return empty Q
+                if not match_property(property, override_property_values):
+                    filters &= Q(pk__isnull=True)
+            else:
+                filters &= property.property_to_Q()
         return filters
 
     person_properties = [prop for prop in properties if prop.type == "person"]
     if len(person_properties) > 0:
         person_Q = Q()
         for property in person_properties:
-            person_Q &= property.property_to_Q()
-        filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id"),).only("pk")))
+            # short circuit query if key exists in override_property_values
+            if property.key in override_property_values:
+                # if match found, do nothing to Q
+                # if not found, return empty Q
+                if not match_property(property, override_property_values):
+                    person_Q &= Q(pk__isnull=True)
+            else:
+                person_Q &= property.property_to_Q()
 
-    for property in [prop for prop in properties if prop.type == "event"]:
-        filters &= property.property_to_Q()
+        filters &= Q(Exists(Person.objects.filter(person_Q, id=OuterRef("person_id")).only("pk")))
+
+    event_properties = [prop for prop in properties if prop.type == "event"]
+    if len(event_properties) > 0:
+        raise ValueError("Event properties are no longer supported in properties_to_Q")
 
     # importing from .event and .cohort below to avoid importing from partially initialized modules
 
     element_properties = [prop for prop in properties if prop.type == "element"]
     if len(element_properties) > 0:
-        from posthog.models.event import Event
-
-        filters &= Q(
-            Exists(
-                Event.objects.filter(pk=OuterRef("id"))
-                .filter(
-                    **Event.objects.filter_by_element(
-                        {item.key: item.value for item in element_properties}, team_id=team_id,
-                    )
-                )
-                .only("id")
-            )
-        )
+        raise ValueError("Element properties are no longer supported in properties_to_Q")
 
     cohort_properties = [prop for prop in properties if prop.type == "cohort"]
     if len(cohort_properties) > 0:
@@ -178,60 +223,23 @@ def properties_to_Q(
         for item in cohort_properties:
             if item.key == "id":
                 cohort_id = int(cast(Union[str, int], item.value))
-                filters &= Q(
-                    Exists(
-                        CohortPeople.objects.filter(cohort_id=cohort_id, person_id=OuterRef("person_id"),).only("id")
+                cohort: Cohort = Cohort.objects.get(pk=cohort_id)
+                if cohort.is_static:
+                    filters &= Q(
+                        Exists(
+                            CohortPeople.objects.filter(cohort_id=cohort.pk, person_id=OuterRef("person_id")).only("id")
+                        )
                     )
-                )
+                else:
+                    filters &= Q(
+                        Exists(
+                            CohortPeople.objects.filter(
+                                cohort_id=cohort.pk, person_id=OuterRef("person_id"), version=cohort.version
+                            ).only("id")
+                        )
+                    )
+
+    if len([prop for prop in properties if prop.type == "group"]):
+        raise ValueError("Group properties are not supported for indirect filtering via postgres")
 
     return filters
-
-
-def entity_to_Q(entity: Entity, team_id: int) -> Q:
-    result = Q(action__pk=entity.id) if entity.type == TREND_FILTER_TYPE_ACTIONS else Q(event=entity.id)
-    if entity.properties:
-        result &= properties_to_Q(entity.properties, team_id)
-    return result
-
-
-def filter_persons(team_id: int, request: request.Request, queryset: QuerySet) -> QuerySet:
-    if request.GET.get("id"):
-        ids = request.GET["id"].split(",")
-        queryset = queryset.filter(id__in=ids)
-    if request.GET.get("uuid"):
-        uuids = request.GET["uuid"].split(",")
-        queryset = queryset.filter(uuid__in=uuids)
-    if request.GET.get("search"):
-        parts = request.GET["search"].split(" ")
-        contains = []
-        for part in parts:
-            if ":" in part:
-                matcher, key = part.split(":")
-                if matcher == "has":
-                    # Matches for example has:email or has:name
-                    queryset = queryset.filter(properties__has_key=key)
-            else:
-                contains.append(part)
-        queryset = queryset.filter(
-            Q(properties__icontains=" ".join(contains)) | Q(persondistinctid__distinct_id__icontains=" ".join(contains))
-        ).distinct("id")
-    if request.GET.get("cohort"):
-        queryset = queryset.filter(cohort__id=request.GET["cohort"])
-    if request.GET.get("properties"):
-        filter = Filter(data={"properties": json.loads(request.GET["properties"])})
-        queryset = queryset.filter(properties_to_Q(filter.properties, team_id=team_id, is_person_query=True))
-
-    queryset = queryset.prefetch_related(Prefetch("persondistinctid_set", to_attr="distinct_ids_cache"))
-    return queryset
-
-
-class BaseQuery:
-    """
-        Run needs to be implemented in the individual Query class. It takes in a Filter, Team
-        and optionally other arguments within kwargs (though use sparingly!)
-
-        The output is a List comprised of Dicts. What those dicts looks like depend on the needs of the frontend.
-    """
-
-    def run(self, filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        raise NotImplementedError("You need to implement run")

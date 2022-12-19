@@ -1,5 +1,5 @@
 import * as d3 from 'd3'
-import { INITIAL_CONFIG } from 'scenes/insights/Histogram/histogramUtils'
+import { INITIAL_CONFIG } from 'scenes/insights/views/Histogram/histogramUtils'
 import { D3Selector, D3Transition } from 'lib/hooks/useD3'
 
 export const getOrCreateEl = (

@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+
+set -e
+
+echo "Upgrading PostHog. This will cause a few minutes of downtime."
+read -r -p "Do you want to upgarde PostHog? [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK!"
+else
+    exit
+fi
+
+echo "Checking for named postgres and clickhouse volumes to avoid data loss when upgrading from < 1.39"
+if docker volume ls | grep -Pzoq 'clickhouse-data\n(.|\n)*postgres-data\n'
+then
+    DOCKER_VOLUMES_MISSING=FALSE
+    echo "Found postgres and clickhouse volumes, proceeding..."
+else
+    DOCKER_VOLUMES_MISSING=TRUE
+    echo ""
+    echo ""
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨 WARNING: POTENTIAL DATA LOSS 🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo ""
+    echo ""
+    echo "We were unable to find named clickhouse and postgres volumes."
+    echo "If you created your PostHog stack PRIOR TO August 12th, 2022 / v1.39.0, the Postgres and Clickhouse containers did NOT have persistent named volumes by default."
+    echo "If you choose to upgrade, you 💣 will likely lose data 💣 contained in these anonymous volumes."
+    echo ""
+    echo "See the discussion here for more information: https://github.com/PostHog/posthog/pull/11256"
+    echo ""
+    echo "WE STRONGLY RECOMMEND YOU:"
+    echo ""
+    echo "🛑 Stop this script and do not proceed"
+    echo "✅ Back up your entire environment/installation (vm, host, etc.), including all docker containers and volumes:"
+    echo "✅ Specifically back up the contents of :"
+    echo "  ☑ /var/lib/postgresql/data in the postgres (*_db_1) container"
+    echo "  ☑ /var/lib/clickhouse in the clickhouse (*_clickhouse_1) container"
+    echo "and be ready to check/recopy the data before you boot Posthog next."
+    read -r -p "Do you want to proceed anyway? [y/N] " response
+    if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+    then
+        echo "OK!"
+    else
+        exit
+    fi
+fi
+
+[[ -f ".env" ]] && export $(cat .env | xargs) || ( echo "No .env file found. Please create it with POSTHOG_SECRET and DOMAIN set." && exit 1)
+export POSTHOG_APP_TAG="${POSTHOG_APP_TAG:-latest-release}"
+
+cd posthog
+git pull
+cd ../
+
+# Upgrade Docker Compose to version 2.13.0
+echo "Setting up Docker Compose"
+sudo rm /usr/local/bin/docker-compose
+sudo curl -L "https://github.com/docker/compose/releases/download/v2.13.0/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose || true
+sudo chmod +x /usr/local/bin/docker-compose
+
+rm -f docker-compose.yml
+cp posthog/docker-compose.base.yml docker-compose.base.yml
+cp posthog/docker-compose.hobby.yml docker-compose.yml.tmpl
+envsubst < docker-compose.yml.tmpl > docker-compose.yml
+rm docker-compose.yml.tmpl
+
+docker-compose pull
+
+echo "Checking if async migrations are up to date"
+sudo -E docker-compose run asyncmigrationscheck
+
+echo "Stopping the stack!"
+docker-compose stop
+
+# rewrite entrypoint
+# TODO: this is duplicated from bin/deploy-hobby. We should refactor this into a
+# single script.
+cat > compose/start <<EOF
+#!/bin/bash
+/compose/wait
+./bin/migrate
+./bin/docker-server
+EOF
+
+if [ ${DOCKER_VOLUMES_MISSING} == 'TRUE' ];
+then
+    echo ""
+    echo ""
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨WARNING: LAST CHANCE TO AVOID DATA LOSS 🚨🚨🚨🚨🚨🚨"
+    echo "🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨🚨"
+    echo ""
+    echo ""
+    echo "Before we restart the stack, you should restore data you have backed up from the previous warning."
+    echo ""
+    echo ""
+fi
+
+read -r -p "Do you want to restart the Posthog stack now ? (docker-compose up) [y/N] " response
+if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
+then
+    echo "OK, Restarting the stack!"
+    sudo -E docker-compose up -d
+else
+    echo "OK, we are leaving the stack OFFLINE. Run 'sudo -E docker-compose up -d' when you are ready to start it."
+    exit
+fi
+
+echo "PostHog upgraded successfully!"

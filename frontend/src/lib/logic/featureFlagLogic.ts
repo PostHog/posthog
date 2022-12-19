@@ -1,18 +1,14 @@
-/*
-    This module allows us to **use** feature flags in PostHog.
-
-    Use this instead of `window.posthog.isFeatureEnabled('feature')`
-*/
 import { kea } from 'kea'
-import { featureFlagLogicType } from './featureFlagLogicType'
+import type { featureFlagLogicType } from './featureFlagLogicType'
 import posthog from 'posthog-js'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { AppContext } from '~/types'
 
-type FeatureFlagsSet = {
-    [flag: string]: boolean
+export type FeatureFlagsSet = {
+    [flag: string]: boolean | string
 }
 const eventsNotified: Record<string, boolean> = {}
-function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
+function notifyFlagIfNeeded(flag: string, flagState: string | boolean): void {
     if (!eventsNotified[flag]) {
         posthog.capture('$feature_flag_called', {
             $feature_flag: flag,
@@ -22,13 +18,18 @@ function notifyFlagIfNeeded(flag: string, flagState: boolean): void {
     }
 }
 
-function getPersistedFeatureFlags(): FeatureFlagsSet {
-    const persistedFeatureFlags = getAppContext()?.persisted_feature_flags || []
+function getPersistedFeatureFlags(appContext: AppContext | undefined = getAppContext()): FeatureFlagsSet {
+    const persistedFeatureFlags = appContext?.persisted_feature_flags || []
     return Object.fromEntries(persistedFeatureFlags.map((f) => [f, true]))
 }
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
-    const combinedFlags = { ...featureFlags, ...getPersistedFeatureFlags() }
+    const appContext = getAppContext()
+    const persistedFlags = getPersistedFeatureFlags(appContext)
+    const availableFlags =
+        appContext?.preflight?.cloud || appContext?.preflight?.is_debug || process.env.NODE_ENV === 'test'
+            ? { ...persistedFlags, ...featureFlags }
+            : persistedFlags
 
     if (typeof window.Proxy !== 'undefined') {
         return new Proxy(
@@ -36,10 +37,10 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             {
                 get(_, flag) {
                     if (flag === 'toJSON') {
-                        return () => combinedFlags
+                        return () => availableFlags
                     }
                     const flagString = flag.toString()
-                    const flagState = !!combinedFlags[flagString]
+                    const flagState = availableFlags[flagString]
                     notifyFlagIfNeeded(flagString, flagState)
                     return flagState
                 },
@@ -48,11 +49,11 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     } else {
         // Fallback for IE11. Won't track "false" results. ¯\_(ツ)_/¯
         const flags: FeatureFlagsSet = {}
-        for (const flag of Object.keys(combinedFlags)) {
+        for (const flag of Object.keys(availableFlags)) {
             Object.defineProperty(flags, flag, {
                 get: function () {
                     if (flag === 'toJSON') {
-                        return () => combinedFlags
+                        return () => availableFlags
                     }
                     notifyFlagIfNeeded(flag, true)
                     return true
@@ -63,9 +64,10 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
     }
 }
 
-export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
+export const featureFlagLogic = kea<featureFlagLogicType>({
+    path: ['lib', 'logic', 'featureFlagLogic'],
     actions: {
-        setFeatureFlags: (featureFlags: string[]) => ({ featureFlags }),
+        setFeatureFlags: (flags: string[], variants: Record<string, string | boolean>) => ({ flags, variants }),
     },
 
     reducers: {
@@ -73,13 +75,7 @@ export const featureFlagLogic = kea<featureFlagLogicType<FeatureFlagsSet>>({
             getPersistedFeatureFlags(),
             { persist: true },
             {
-                setFeatureFlags: (_, { featureFlags }) => {
-                    const flags: FeatureFlagsSet = {}
-                    for (const flag of featureFlags) {
-                        flags[flag] = true
-                    }
-                    return spyOnFeatureFlags(flags)
-                },
+                setFeatureFlags: (_, { variants }) => spyOnFeatureFlags(variants),
             },
         ],
         receivedFeatureFlags: [

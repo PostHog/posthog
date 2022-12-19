@@ -1,0 +1,19 @@
+// Counteract toolbar styles
+.sb-show-main {
+    .ant-modal-mask,
+    .ant-modal-wrap {
+        z-index: 1050 !important;
+    }
+    .ant-select-dropdown,
+    .ant-picker-dropdown {
+        z-index: 1060 !important;
+    }
+    .ant-tooltip {
+        z-index: 1060 !important;
+    }
+}
+
+// allow taking screenshots of a scene's main content without overlapping top bar
+.TopBar {
+    position: relative !important;
+}

@@ -1,8 +1,6 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { LogsDrawer } from '../../plugin/LogsDrawer'
-import { MetricsDrawer } from '../../plugin/MetricsDrawer'
 import { PluginsSearch } from '../../PluginsSearch'
 import { PluginsEmptyState } from './sections/PluginsEmptyState'
 import { DisabledPluginSection } from './sections/DisabledPluginsSection'
@@ -25,7 +23,6 @@ export function InstalledTab(): JSX.Element {
                 <DisabledPluginSection />
             </div>
             <LogsDrawer />
-            <MetricsDrawer />
         </>
     )
 }

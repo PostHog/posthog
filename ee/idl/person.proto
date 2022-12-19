@@ -1,9 +1,0 @@
-syntax = "proto3";
-import "google/protobuf/timestamp.proto";
-
-message Person {
-  string uuid = 1;
-  google.protobuf.Timestamp created_at = 2;
-  string properties = 3;
-  bool is_identified = 4;
-}

@@ -1,7 +1,6 @@
 import { CaretRightOutlined, CaretDownOutlined } from '@ant-design/icons'
 import { Row } from 'antd'
 import { Subtitle } from 'lib/components/PageHeader'
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { PluginSection, pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { InstalledPlugin } from '../InstalledPlugin'
@@ -28,7 +27,7 @@ export function DisabledPluginSection(): JSX.Element {
                             ) : (
                                 <CaretRightOutlined />
                             )}
-                            {` Installed plugins (${filteredDisabledPlugins.length})`}
+                            {` Installed apps (${filteredDisabledPlugins.length})`}
                         </>
                     }
                 />
@@ -42,7 +41,7 @@ export function DisabledPluginSection(): JSX.Element {
                             ))}
                         </Row>
                     ) : (
-                        <p style={{ margin: 10 }}>No plugins match your search.</p>
+                        <p style={{ margin: 10 }}>No apps match your search.</p>
                     )}
                 </>
             ) : null}

@@ -1,7 +1,6 @@
 import { CaretRightOutlined, CaretDownOutlined, SyncOutlined, CloudDownloadOutlined } from '@ant-design/icons'
 import { Button, Row } from 'antd'
 import { Subtitle } from 'lib/components/PageHeader'
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { PluginSection, pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { InstalledPlugin } from '../InstalledPlugin'
@@ -34,7 +33,7 @@ export function UpgradeSection(): JSX.Element {
             loading={checkingForUpdates}
         >
             {checkingForUpdates
-                ? `Checking plugin ${Object.keys(updateStatus).length + 1} out of ${
+                ? `Checking app ${Object.keys(updateStatus).length + 1} out of ${
                       Object.keys(installedPluginUrls).length
                   }`
                 : pluginsNeedingUpdates.length > 0
@@ -57,10 +56,10 @@ export function UpgradeSection(): JSX.Element {
                             ) : (
                                 <CaretRightOutlined />
                             )}
-                            {` Plugins to update (${filteredPluginsNeedingUpdates.length})`}
+                            {` Apps to update (${filteredPluginsNeedingUpdates.length})`}
                         </>
                     }
-                    buttons={!rearranging && sectionsOpen.includes(PluginSection.Upgrade) && upgradeButton}
+                    buttons={!rearranging && upgradeButton}
                 />
             </div>
             {sectionsOpen.includes(PluginSection.Upgrade) ? (
@@ -74,11 +73,11 @@ export function UpgradeSection(): JSX.Element {
                                     ))}
                                 </>
                             ) : (
-                                <p style={{ margin: 10 }}>No plugins match your search.</p>
+                                <p style={{ margin: 10 }}>No apps match your search.</p>
                             )}
                         </Row>
                     ) : (
-                        <p style={{ margin: 10 }}>All your plugins are up to date. Great work!</p>
+                        <p style={{ margin: 10 }}>All your apps are up to date. Great work!</p>
                     )}
                 </>
             ) : null}

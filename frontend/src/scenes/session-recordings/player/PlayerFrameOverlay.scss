@@ -1,0 +1,28 @@
+.PlayerFrameOverlay {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 10;
+
+    .PlayerFrameOverlay__content {
+        position: absolute;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1;
+
+        transition: background-color 200ms;
+        background-color: rgba(0, 0, 0, 0.08);
+
+        &:hover {
+            background-color: rgba(0, 0, 0, 0.15);
+        }
+    }
+}

@@ -1,10 +1,16 @@
-from typing import Any
-
-from django.conf import settings
+import posthoganalytics
+import requests
 from django.db.models import QuerySet
-from rest_framework import mixins, serializers, viewsets
+from django.shortcuts import get_object_or_404
+from django.utils.timezone import now
+from rest_framework import mixins, request, serializers, viewsets
+from rest_framework.response import Response
 
-from ee.models.license import License
+from ee.models.license import License, LicenseError
+from posthog.cloud_utils import is_cloud
+from posthog.event_usage import groups
+from posthog.models.organization import Organization
+from posthog.models.team import Team
 
 
 class LicenseSerializer(serializers.ModelSerializer):
@@ -12,26 +18,70 @@ class LicenseSerializer(serializers.ModelSerializer):
         model = License
         fields = [
             "id",
-            "key",
             "plan",
+            "key",
             "valid_until",
-            "max_users",
             "created_at",
         ]
-        read_only_fields = ["plan", "valid_until", "max_users"]
+        read_only_fields = ["plan", "valid_until"]
+        write_only_fields = ["key"]
 
-    def create(self, validated_data: Any) -> Any:
-        return super().create({"key": validated_data.get("key")})
+    def validate(self, data):
+        validation = requests.post("https://license.posthog.com/licenses/activate", data={"key": data["key"]})
+        resp = validation.json()
+        user = self.context["request"].user
+        if not validation.ok:
+            posthoganalytics.capture(
+                user.distinct_id,
+                "license key activation failure",
+                properties={"error": validation.content},
+                groups=groups(user.current_organization, user.current_team),
+            )
+            raise LicenseError(resp["code"], resp["detail"])
+
+        posthoganalytics.capture(
+            user.distinct_id,
+            "license key activation success",
+            properties={},
+            groups=groups(user.current_organization, user.current_team),
+        )
+        data["valid_until"] = resp["valid_until"]
+        data["plan"] = resp["plan"]
+        return data
 
 
 class LicenseViewSet(
-    mixins.ListModelMixin, mixins.RetrieveModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet,
+    mixins.ListModelMixin,
+    mixins.RetrieveModelMixin,
+    mixins.CreateModelMixin,
+    viewsets.GenericViewSet,
 ):
     queryset = License.objects.all()
     serializer_class = LicenseSerializer
 
     def get_queryset(self) -> QuerySet:
-        if getattr(settings, "MULTI_TENANCY", False):
+        if is_cloud():
             return License.objects.none()
 
         return super().get_queryset()
+
+    def destroy(self, request: request.Request, pk=None, **kwargs) -> Response:
+        license = get_object_or_404(License, pk=pk)
+        validation = requests.post("https://license.posthog.com/licenses/deactivate", data={"key": license.key})
+        validation.raise_for_status()
+
+        has_another_valid_license = License.objects.filter(valid_until__gte=now()).exclude(pk=pk).exists()
+        if not has_another_valid_license:
+            teams = Team.objects.exclude(is_demo=True).order_by("pk")[1:]
+            for team in teams:
+                team.delete()
+
+            #  delete any organization where we've deleted all teams
+            # there is no way in the interface to create multiple organizations so we won't bother informing people that this is happening
+            for organization in Organization.objects.all():
+                if organization.teams.count() == 0:
+                    organization.delete()
+
+        license.delete()
+
+        return Response({"ok": True})

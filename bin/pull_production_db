@@ -1,8 +1,0 @@
-read -r -p "Are you sure you want to pull production db? It'll destroy your local db [y/N] " response
-if [[ "$response" =~ ^([yY][eE][sS]|[yY])+$ ]]
-then
-    dropdb posthog;
-    heroku pg:pull DATABASE_URL posthog --app posthog 
-else
-    echo 'doing nothing';
-fi

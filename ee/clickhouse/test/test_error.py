@@ -1,8 +1,7 @@
 import pytest
 from clickhouse_driver.errors import ServerException
 
-from ee.clickhouse.errors import wrap_query_error
-from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
+from posthog.errors import wrap_query_error
 
 
 @pytest.mark.parametrize(
@@ -16,7 +15,7 @@ from posthog.exceptions import EstimatedQueryExecutionTimeTooLong
             None,
         ),
         (ServerException("Syntax error", code=62), "CHQueryErrorSyntaxError", "Code: 62.\nSyntax error", 62),
-        (ServerException("Syntax error", code=9999), "CHQueryErrorUnknown", "Code: 9999.\nSyntax error", 9999),
+        (ServerException("Syntax error", code=9999), "CHQueryErrorUnknownException", "Code: 9999.\nSyntax error", 9999),
     ],
 )
 def test_wrap_query_error(error, expected_type, expected_message, expected_code):

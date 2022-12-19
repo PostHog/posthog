@@ -1,6 +1,5 @@
-import React from 'react'
 import { useValues } from 'kea'
-import { Divider, Card } from 'antd'
+import { Divider } from 'antd'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { router } from 'kea-router'
 import { UpdateEmailPreferences } from './UpdateEmailPreferences'
@@ -8,6 +7,12 @@ import { ChangePassword } from './ChangePassword'
 import { PersonalAPIKeys } from 'lib/components/PersonalAPIKeys'
 import { OptOutCapture } from './OptOutCapture'
 import { PageHeader } from 'lib/components/PageHeader'
+import { SceneExport } from 'scenes/sceneTypes'
+import { UserDetails } from './UserDetails'
+
+export const scene: SceneExport = {
+    component: MySettings,
+}
 
 export function MySettings(): JSX.Element {
     const { location } = useValues(router)
@@ -15,9 +20,12 @@ export function MySettings(): JSX.Element {
     useAnchor(location.hash)
 
     return (
-        <div style={{ marginBottom: 128 }}>
-            <PageHeader title="My Settings" />
-            <Card>
+        <>
+            <PageHeader title="My settings" />
+            <div className="border rounded p-6 mt-4">
+                <UserDetails />
+                <Divider />
+
                 <h2 id="password" className="subtitle">
                     Change Password
                 </h2>
@@ -28,14 +36,16 @@ export function MySettings(): JSX.Element {
                 </h2>
                 <PersonalAPIKeys />
                 <Divider />
-                <h2 className="subtitle">Security and Feature Updates</h2>
-                <UpdateEmailPreferences />
+                <div id="notifications">
+                    <h2 className="subtitle">Notifications</h2>
+                    <UpdateEmailPreferences />
+                </div>
                 <Divider />
                 <h2 id="optout" className="subtitle">
                     Anonymize Data Collection
                 </h2>
                 <OptOutCapture />
-            </Card>
-        </div>
+            </div>
+        </>
     )
 }

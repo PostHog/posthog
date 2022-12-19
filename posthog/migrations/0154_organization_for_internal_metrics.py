@@ -11,7 +11,9 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="organization", name="for_internal_metrics", field=models.BooleanField(default=False),
+            model_name="organization",
+            name="for_internal_metrics",
+            field=models.BooleanField(default=False),
         ),
         migrations.AddConstraint(
             model_name="organization",

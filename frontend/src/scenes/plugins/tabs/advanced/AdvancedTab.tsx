@@ -1,13 +1,12 @@
 import { Alert } from 'antd'
 import { PluginTab } from 'scenes/plugins/types'
 import { Subtitle } from 'lib/components/PageHeader'
-import React from 'react'
 import { SourcePlugin } from 'scenes/plugins/tabs/advanced/SourcePlugin'
 import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'
 import { useActions, useValues } from 'kea'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export function AdvancedTab(): JSX.Element {
     const { preflight } = useValues(preflightLogic)
@@ -16,11 +15,11 @@ export function AdvancedTab(): JSX.Element {
     return (
         <>
             <Alert
-                message="Advanced Features Ahead"
+                message="Advanced features ahead"
                 description={
                     <>
-                        Create and install your <b>own plugins</b> or plugins from <b>third-parties</b>. If you're
-                        looking for officially supported plugins, try the{' '}
+                        Create and install your <b>own apps</b> or apps from <b>third-parties</b>. If you're looking for
+                        officially supported apps, try the{' '}
                         <a
                             href="#"
                             onClick={(e) => {
@@ -28,7 +27,7 @@ export function AdvancedTab(): JSX.Element {
                                 setPluginTab(PluginTab.Repository)
                             }}
                         >
-                            Plugin Repository
+                            App Repository
                         </a>
                         .
                     </>

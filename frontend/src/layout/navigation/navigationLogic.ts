@@ -1,110 +1,149 @@
+import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
-import { userLogic } from 'scenes/userLogic'
-import { navigationLogicType } from './navigationLogicType'
-import { OrganizationType, SystemStatus, UserType } from '~/types'
 import { organizationLogic } from 'scenes/organizationLogic'
-import dayjs from 'dayjs'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
+import { VersionType } from '~/types'
+import type { navigationLogicType } from './navigationLogicType'
+import { membersLogic } from 'scenes/organization/Settings/membersLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { Environments, ENVIRONMENT_LOCAL_STORAGE_KEY, FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-type WarningType =
-    | 'welcome'
-    | 'incomplete_setup_on_demo_project'
-    | 'incomplete_setup_on_real_project'
-    | 'demo_project'
-    | 'real_project_with_no_events'
-    | null
+export type ProjectNoticeVariant = 'demo_project' | 'real_project_with_no_events' | 'invite_teammates'
 
-export const navigationLogic = kea<navigationLogicType<WarningType>>({
+export const navigationLogic = kea<navigationLogicType>({
+    path: ['layout', 'navigation', 'navigationLogic'],
+    connect: {
+        values: [sceneLogic, ['sceneConfig'], membersLogic, ['members', 'membersLoading']],
+        actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
+    },
     actions: {
-        setMenuCollapsed: (collapsed: boolean) => ({ collapsed }),
-        collapseMenu: () => {},
-        setSystemStatus: (status: SystemStatus) => ({ status }),
-        setChangelogModalOpen: (isOpen: boolean) => ({ isOpen }),
-        setToolbarModalOpen: (isOpen: boolean) => ({ isOpen }),
-        setPinnedDashboardsVisible: (visible: boolean) => ({ visible }),
-        setInviteMembersModalOpen: (isOpen: boolean) => ({ isOpen }),
-        setHotkeyNavigationEngaged: (hotkeyNavigationEngaged: boolean) => ({ hotkeyNavigationEngaged }),
-        setFilteredEnvironment: (environment: string, pageLoad: boolean = false) => ({ environment, pageLoad }),
+        toggleSideBarBase: true,
+        toggleSideBarMobile: true,
+        toggleActivationSideBar: true,
+        showActivationSideBar: true,
+        hideActivationSideBar: true,
+        hideSideBarMobile: true,
+        openSitePopover: true,
+        closeSitePopover: true,
+        toggleSitePopover: true,
+        showCreateOrganizationModal: true,
+        hideCreateOrganizationModal: true,
+        showCreateProjectModal: true,
+        hideCreateProjectModal: true,
+        toggleProjectSwitcher: true,
+        hideProjectSwitcher: true,
+        openAppSourceEditor: (id: number, pluginId: number) => ({ id, pluginId }),
+        closeAppSourceEditor: true,
+        setOpenAppMenu: (id: number | null) => ({ id }),
+        closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
     },
     reducers: {
-        menuCollapsed: [
-            typeof window !== 'undefined' && window.innerWidth <= 991,
+        // Non-mobile base
+        isSideBarShownBase: [
+            true,
+            { persist: true },
             {
-                setMenuCollapsed: (_, { collapsed }) => collapsed,
+                toggleSideBarBase: (state) => !state,
             },
         ],
-        changelogModalOpen: [
+        // Mobile, applied on top of base, so that the sidebar does not show up annoyingly when shrinking the window
+        isSideBarShownMobile: [
             false,
             {
-                setChangelogModalOpen: (_, { isOpen }) => isOpen,
+                toggleSideBarMobile: (state) => !state,
+                hideSideBarMobile: () => false,
             },
         ],
-        toolbarModalOpen: [
+        isActivationSideBarShownBase: [
             false,
             {
-                setToolbarModalOpen: (_, { isOpen }) => isOpen,
+                showActivationSideBar: () => true,
+                hideActivationSideBar: () => false,
             },
         ],
-        inviteMembersModalOpen: [
+        isSitePopoverOpen: [
             false,
             {
-                setInviteMembersModalOpen: (_, { isOpen }) => isOpen,
+                openSitePopover: () => true,
+                closeSitePopover: () => false,
+                toggleSitePopover: (state) => !state,
             },
         ],
-        pinnedDashboardsVisible: [
+        isCreateOrganizationModalShown: [
             false,
             {
-                setPinnedDashboardsVisible: (_, { visible }) => visible,
+                showCreateOrganizationModal: () => true,
+                hideCreateOrganizationModal: () => false,
             },
         ],
-        hotkeyNavigationEngaged: [
+        isCreateProjectModalShown: [
             false,
             {
-                setHotkeyNavigationEngaged: (_, { hotkeyNavigationEngaged }) => hotkeyNavigationEngaged,
+                showCreateProjectModal: () => true,
+                hideCreateProjectModal: () => false,
             },
         ],
-        filteredEnvironment: [
-            Environments.PRODUCTION.toString(),
+        isProjectSwitcherShown: [
+            false,
             {
-                setFilteredEnvironment: (_, { environment }) => environment,
+                toggleProjectSwitcher: (state) => !state,
+                hideProjectSwitcher: () => false,
+            },
+        ],
+        appSourceEditor: [
+            null as null | { pluginId: number; id: number },
+            {
+                openAppSourceEditor: (_, payload) => payload,
+                closeAppSourceEditor: () => null,
+            },
+        ],
+        openAppMenu: [null as null | number, { setOpenAppMenu: (_, { id }) => id }],
+        projectNoticesAcknowledged: [
+            {} as Record<ProjectNoticeVariant, boolean>,
+            { persist: true },
+            {
+                closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
             },
         ],
     },
+    windowValues: () => ({
+        fullscreen: (window) => !!window.document.fullscreenElement,
+        mobileLayout: (window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
+    }),
     selectors: {
+        /** `bareNav` whether the current scene should display a sidebar at all */
+        bareNav: [(s) => [s.fullscreen, s.sceneConfig], (fullscreen, sceneConfig) => fullscreen || sceneConfig?.plain],
+        isSideBarShown: [
+            (s) => [s.mobileLayout, s.isSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
+            (mobileLayout, isSideBarShownBase, isSideBarShownMobile, bareNav) =>
+                !bareNav && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
+        ],
+        isActivationSideBarShown: [
+            (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
+            (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, bareNav) =>
+                !bareNav &&
+                (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
+        ],
         systemStatus: [
-            () => [
-                systemStatusLogic.selectors.overview,
-                systemStatusLogic.selectors.systemStatusLoading,
-                preflightLogic.selectors.siteUrlMisconfigured,
-            ],
-            (statusMetrics, statusLoading, siteUrlMisconfigured) => {
-                if (statusLoading) {
-                    return true
-                }
-
+            (s) => [s.navigationStatus, preflightLogic.selectors.siteUrlMisconfigured],
+            (status, siteUrlMisconfigured) => {
                 if (siteUrlMisconfigured) {
                     return false
                 }
 
-                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive']
-                let aliveSignals = 0
-                for (const metric of statusMetrics) {
-                    if (metric.key && aliveMetrics.includes(metric.key) && metric.value) {
-                        aliveSignals = aliveSignals + 1
-                    }
-                    if (aliveSignals >= aliveMetrics.length) {
-                        return true
-                    }
+                // On cloud non staff users don't have status metrics to review
+                if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
+                    return true
                 }
-                return false
+
+                return status.system_status_ok
             },
         ],
-        updateAvailable: [
+        asyncMigrationsOk: [(s) => [s.navigationStatus], (status) => status.async_migrations_ok],
+        anyUpdateAvailable: [
             (selectors) => [
                 selectors.latestVersion,
                 selectors.latestVersionLoading,
@@ -112,37 +151,68 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             ],
             (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return !latestVersionLoading && !preflight?.cloud && latestVersion !== preflight?.posthog_version
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor, latestPatch] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor, currentPatch] = preflight.posthog_version
+                    .split('.')
+                    .map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor || latestPatch > currentPatch
             },
         ],
-        currentTeam: [
-            () => [userLogic.selectors.user],
-            (user) => {
-                return user?.team?.id
+        minorUpdateAvailable: [
+            (selectors) => [
+                selectors.latestVersion,
+                selectors.latestVersionLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (latestVersion, latestVersionLoading, preflight): boolean => {
+                // Always latest version in multitenancy
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor] = preflight.posthog_version.split('.').map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor
             },
         ],
-        demoWarning: [
-            () => [userLogic.selectors.user, organizationLogic.selectors.currentOrganization],
-            (user: UserType, organization: OrganizationType): WarningType => {
+        projectNoticeVariantWithClosability: [
+            (s) => [
+                organizationLogic.selectors.currentOrganization,
+                teamLogic.selectors.currentTeam,
+                preflightLogic.selectors.preflight,
+                s.members,
+                s.membersLoading,
+                s.projectNoticesAcknowledged,
+            ],
+            (
+                organization,
+                currentTeam,
+                preflight,
+                members,
+                membersLoading,
+                projectNoticesAcknowledged
+            ): [ProjectNoticeVariant, boolean] | null => {
                 if (!organization) {
                     return null
                 }
 
-                if (
-                    organization.setup.is_active &&
-                    dayjs(organization.created_at) >= dayjs().subtract(1, 'days') &&
-                    user.team?.is_demo
+                if (currentTeam?.is_demo && !preflight?.demo) {
+                    // If the project is a demo one, show a project-level warning
+                    // Don't show this project-level warning in the PostHog demo environemnt though,
+                    // as then Announcement is shown instance-wide
+                    return ['demo_project', false]
+                } else if (
+                    !projectNoticesAcknowledged['real_project_with_no_events'] &&
+                    currentTeam &&
+                    !currentTeam.ingested_event
                 ) {
-                    return 'welcome'
-                } else if (organization.setup.is_active && user.team?.is_demo) {
-                    return 'incomplete_setup_on_demo_project'
-                } else if (organization.setup.is_active) {
-                    return 'incomplete_setup_on_real_project'
-                } else if (user.team?.is_demo) {
-                    return 'demo_project'
-                } else if (user.team && !user.team.ingested_event) {
-                    return 'real_project_with_no_events'
+                    return ['real_project_with_no_events', true]
+                } else if (!projectNoticesAcknowledged['invite_teammates'] && !membersLoading && members.length <= 1) {
+                    return ['invite_teammates', true]
                 }
+
                 return null
             },
         ],
@@ -152,46 +222,52 @@ export const navigationLogic = kea<navigationLogicType<WarningType>>({
             null as string | null,
             {
                 loadLatestVersion: async () => {
-                    const versions = await api.get('https://update.posthog.com/versions')
-                    return versions[0].version
+                    const versions = (await api.get('https://update.posthog.com')) as VersionType[]
+                    for (const version of versions) {
+                        if (
+                            version?.release_date &&
+                            dayjs
+                                .utc(version.release_date)
+                                .set('hour', 0)
+                                .set('minute', 0)
+                                .set('second', 0)
+                                .set('millisecond', 0) > dayjs()
+                        ) {
+                            // Release date is in the future
+                            continue
+                        }
+                        return version.version
+                    }
+                    return null
+                },
+            },
+        ],
+        navigationStatus: [
+            { system_status_ok: true, async_migrations_ok: true } as {
+                system_status_ok: boolean
+                async_migrations_ok: boolean
+            },
+            {
+                loadNavigationStatus: async () => {
+                    return await api.get('api/instance_settings')
                 },
             },
         ],
     },
-    listeners: ({ values, actions }) => ({
-        collapseMenu: () => {
-            if (!values.menuCollapsed && window.innerWidth <= 991) {
-                actions.setMenuCollapsed(true)
-            }
+    listeners: ({ actions, values }) => ({
+        closeProjectNotice: ({ projectNoticeVariant }) => {
+            actions.reportProjectNoticeDismissed(projectNoticeVariant)
         },
-        setHotkeyNavigationEngaged: async ({ hotkeyNavigationEngaged }, breakpoint) => {
-            if (hotkeyNavigationEngaged) {
-                eventUsageLogic.actions.reportHotkeyNavigation('global', 'g')
-                await breakpoint(3000)
-                actions.setHotkeyNavigationEngaged(false)
-            }
-        },
-        setFilteredEnvironment: ({ pageLoad, environment }) => {
-            const localStorageValue = window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY)
-            const isLocalStorageValueEmpty = localStorageValue === null
-            const shouldWriteToLocalStorage = (pageLoad === true && isLocalStorageValueEmpty) || pageLoad === false
-            if (shouldWriteToLocalStorage) {
-                window.localStorage.setItem(ENVIRONMENT_LOCAL_STORAGE_KEY, environment)
-            }
-            const shouldReload = pageLoad === false && localStorageValue !== environment
-            if (shouldReload) {
-                location.reload()
+        toggleActivationSideBar: () => {
+            if (values.isActivationSideBarShown) {
+                actions.hideActivationSideBar()
+            } else {
+                actions.showActivationSideBar()
             }
         },
     }),
     events: ({ actions }) => ({
         afterMount: () => {
-            const notSharedDashboard = location.pathname.indexOf('shared_dashboard') > -1 ? false : true
-            if (notSharedDashboard && featureFlagLogic.values.featureFlags[FEATURE_FLAGS.TEST_ENVIRONMENT]) {
-                const localStorageValue =
-                    window.localStorage.getItem(ENVIRONMENT_LOCAL_STORAGE_KEY) || Environments.PRODUCTION
-                actions.setFilteredEnvironment(localStorageValue, true)
-            }
             actions.loadLatestVersion()
         },
     }),

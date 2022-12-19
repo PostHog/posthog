@@ -1,33 +1,28 @@
 import React, { useState } from 'react'
-import { PropertyFilter } from './PropertyFilter'
 import { AnyPropertyFilter } from '~/types'
-import { Button } from 'antd'
-import { useActions, useValues } from 'kea'
-import { Popover, Row } from 'antd'
-import { CloseButton } from 'lib/components/CloseButton'
-import PropertyFilterButton from './PropertyFilterButton'
-import { propertyFilterLogic } from 'lib/components/PropertyFilters/propertyFilterLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { TooltipPlacement } from 'antd/lib/tooltip'
-import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { Row } from 'antd'
+import { PropertyFilterButton } from './PropertyFilterButton'
+import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
-import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { PlusCircleOutlined } from '@ant-design/icons'
-import 'scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
+import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
+import clsx from 'clsx'
+import { IconClose, IconDelete, IconPlus } from 'lib/components/icons'
+import { LemonButton } from 'lib/components/LemonButton'
 
 interface FilterRowProps {
-    item: AnyPropertyFilter
+    item: Record<string, any>
     index: number
     filters: AnyPropertyFilter[]
     pageKey: string
     showConditionBadge?: boolean
     totalCount: number
     disablePopover?: boolean
-    popoverPlacement?: TooltipPlacement | null
-    groupTypes?: TaxonomicFilterGroupType[]
-    showNestedArrow?: boolean
+    filterComponent: (onComplete: () => void) => JSX.Element
+    label: string
+    onRemove: (index: number) => void
+    orFiltering?: boolean
+    errorMessage?: JSX.Element | null
 }
 
 export const FilterRow = React.memo(function FilterRow({
@@ -38,181 +33,99 @@ export const FilterRow = React.memo(function FilterRow({
     showConditionBadge,
     totalCount,
     disablePopover = false, // use bare PropertyFilter without popover
-    popoverPlacement,
-    groupTypes,
-    showNestedArrow = false,
+    filterComponent,
+    label,
+    onRemove,
+    orFiltering,
+    errorMessage,
 }: FilterRowProps) {
-    const { remove } = useActions(propertyFilterLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const [open, setOpen] = useState(false)
 
     const { key } = item
 
     const handleVisibleChange = (visible: boolean): void => {
         if (!visible && isValidPropertyFilter(item) && !item.key) {
-            remove(index)
+            onRemove(index)
         }
         setOpen(visible)
     }
 
-    const propertyFilterCommonProps = {
-        key: index,
-        pageKey,
-        index,
-        onComplete: () => setOpen(false),
-        selectProps: {},
-        groupTypes,
-    }
-
-    const filterVariant = featureFlags[FEATURE_FLAGS.TAXONOMIC_PROPERTY_FILTER]
-        ? 'taxonomic'
-        : disablePopover
-        ? 'unified'
-        : 'tabs'
-
     return (
-        <Row
-            align="middle"
-            className="property-filter-row mt-05 mb-05"
-            data-attr={'property-filter-' + index}
-            style={{
-                width: '100%',
-                margin: '0.25rem 0',
-                padding: '0.25rem 0',
-            }}
-            wrap={false}
-        >
-            {disablePopover ? (
-                <>
-                    <PropertyFilter
-                        {...propertyFilterCommonProps}
-                        disablePopover={disablePopover}
-                        variant={filterVariant}
-                    />
-                    {!!Object.keys(filters[index]).length && (
-                        <CloseButton
-                            onClick={() => remove(index)}
-                            style={{
-                                cursor: 'pointer',
-                                float: 'none',
-                                paddingLeft: 8,
-                                alignSelf: 'flex-start',
-                                paddingTop: 4,
-                            }}
-                        />
-                    )}
-                </>
-            ) : filterVariant === 'taxonomic' ? (
-                <>
+        <>
+            <Row
+                align="middle"
+                className={clsx(
+                    'property-filter-row',
+                    !disablePopover && 'wrap-filters',
+                    orFiltering && index !== 0 && 'mt-2'
+                )}
+                data-attr={'property-filter-' + index}
+                wrap={false}
+            >
+                {disablePopover ? (
+                    <>
+                        {filterComponent(() => setOpen(false))}
+                        {!!Object.keys(filters[index]).length &&
+                            (orFiltering ? (
+                                <LemonButton
+                                    icon={<IconDelete />}
+                                    status="primary-alt"
+                                    onClick={() => onRemove(index)}
+                                    size="small"
+                                    className="ml-2"
+                                />
+                            ) : (
+                                <LemonButton
+                                    icon={<IconClose />}
+                                    status="primary-alt"
+                                    onClick={() => onRemove(index)}
+                                    size="small"
+                                    className="ml-2"
+                                />
+                            ))}
+                    </>
+                ) : (
                     <Popup
+                        className={'filter-row-popup'}
                         visible={open}
-                        placement={'bottom-end'}
-                        fallbackPlacements={['bottom-start']}
                         onClickOutside={() => handleVisibleChange(false)}
-                        overlay={
-                            <PropertyFilter
-                                {...propertyFilterCommonProps}
-                                disablePopover={disablePopover}
-                                variant={filterVariant}
-                                selectProps={{
-                                    delayBeforeAutoOpen: 150,
-                                    placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                }}
-                            />
-                        }
-                    >
-                        {({ setRef }) => {
-                            return (
-                                <>
-                                    {showNestedArrow && (
-                                        <div className="property-filter-button-spacing">
-                                            {index === 0 ? <>&#8627;</> : ''}
-                                        </div>
-                                    )}
-                                    {isValidPropertyFilter(item) ? (
-                                        <PropertyFilterButton
-                                            onClick={() => setOpen(!open)}
-                                            item={item}
-                                            setRef={setRef}
-                                        />
-                                    ) : (
-                                        <Button
-                                            ref={setRef}
-                                            onClick={() => setOpen(!open)}
-                                            className="new-prop-filter"
-                                            data-attr={'new-prop-filter-' + pageKey}
-                                            type="link"
-                                            style={{ paddingLeft: 0 }}
-                                            icon={<PlusCircleOutlined />}
-                                        >
-                                            Add filter
-                                        </Button>
-                                    )}
-                                </>
-                            )
-                        }}
-                    </Popup>
-                    {!!Object.keys(filters[index]).length && (
-                        <CloseButton
-                            className="ml-1"
-                            onClick={() => remove(index)}
-                            style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                        />
-                    )}
-                </>
-            ) : (
-                <>
-                    <Popover
-                        trigger="click"
-                        onVisibleChange={handleVisibleChange}
-                        destroyTooltipOnHide={true}
-                        defaultVisible={false}
-                        visible={open}
-                        placement={popoverPlacement || 'bottomLeft'}
-                        getPopupContainer={(trigger) =>
-                            // Prevent scrolling up on trigger
-                            (trigger.parentNode as HTMLElement | undefined) ||
-                            (document.querySelector('body') as HTMLElement)
-                        }
-                        content={
-                            <PropertyFilter
-                                {...propertyFilterCommonProps}
-                                disablePopover={disablePopover}
-                                variant={filterVariant}
-                                selectProps={{
-                                    delayBeforeAutoOpen: 150,
-                                    placement: pageKey === 'trends-filters' ? 'bottomLeft' : undefined,
-                                }}
-                            />
-                        }
+                        overlay={filterComponent(() => setOpen(false))}
                     >
                         {isValidPropertyFilter(item) ? (
-                            <PropertyFilterButton onClick={() => setOpen(!open)} item={item} />
-                        ) : (
-                            <Button
-                                type="link"
-                                data-attr={'new-prop-filter-' + pageKey}
-                                style={{ paddingLeft: 0 }}
-                                icon={<PlusCircleOutlined />}
+                            <PropertyFilterButton
+                                onClick={() => setOpen(!open)}
+                                onClose={() => onRemove(index)}
+                                item={item}
+                            />
+                        ) : isValidPathCleanFilter(item) ? (
+                            <PropertyFilterButton
+                                item={item}
+                                onClick={() => setOpen(!open)}
+                                onClose={() => onRemove(index)}
                             >
-                                Add filter
-                            </Button>
+                                {`${item['alias']}::${item['regex']}`}
+                            </PropertyFilterButton>
+                        ) : (
+                            <LemonButton
+                                onClick={() => setOpen(!open)}
+                                className="new-prop-filter"
+                                data-attr={'new-prop-filter-' + pageKey}
+                                type="secondary"
+                                size="small"
+                                icon={<IconPlus style={{ color: 'var(--primary)' }} />}
+                            >
+                                {label}
+                            </LemonButton>
                         )}
-                    </Popover>
-                    {!!Object.keys(filters[index]).length && (
-                        <CloseButton
-                            className="ml-1"
-                            onClick={() => remove(index)}
-                            style={{ cursor: 'pointer', float: 'none', marginLeft: 5 }}
-                        />
-                    )}
-                </>
-            )}
-            {key && showConditionBadge && index + 1 < totalCount && (
-                <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">
-                    AND
-                </span>
-            )}
-        </Row>
+                    </Popup>
+                )}
+                {key && showConditionBadge && index + 1 < totalCount && (
+                    <span style={{ marginLeft: 16, right: 16, position: 'absolute' }} className="stateful-badge and">
+                        AND
+                    </span>
+                )}
+            </Row>
+            {errorMessage}
+        </>
     )
 })

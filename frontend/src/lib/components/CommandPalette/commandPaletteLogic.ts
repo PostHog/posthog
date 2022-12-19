@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
-import { commandPaletteLogicType } from './commandPaletteLogicType'
+import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
@@ -14,7 +14,6 @@ import {
     ProjectOutlined,
     CheckOutlined,
     TagOutlined,
-    ClockCircleOutlined,
     UserOutlined,
     UsergroupAddOutlined,
     FlagOutlined,
@@ -34,8 +33,9 @@ import {
     LineChartOutlined,
     ApiOutlined,
     DatabaseOutlined,
+    HomeOutlined,
 } from '@ant-design/icons'
-import { DashboardType, ViewType } from '~/types'
+import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
 import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -43,8 +43,9 @@ import { personalAPIKeysLogic } from '../PersonalAPIKeys/personalAPIKeysLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import posthog from 'posthog-js'
 import { debugCHQueries } from './DebugCHQueries'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { urls } from 'scenes/sceneLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { urls } from 'scenes/urls'
+import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -111,19 +112,12 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
     return resultsWithCommand
 }
 
-export const commandPaletteLogic = kea<
-    commandPaletteLogicType<
-        Command,
-        CommandFlow,
-        CommandRegistrations,
-        CommandResult,
-        CommandResultDisplayable,
-        RegExpCommandPairs
-    >
->({
+export const commandPaletteLogic = kea<commandPaletteLogicType>({
+    path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
         actions: [personalAPIKeysLogic, ['createKey']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
+        logic: [preflightLogic, dashboardsModel],
     },
     actions: {
         hidePalette: true,
@@ -141,7 +135,6 @@ export const commandPaletteLogic = kea<
         deregisterCommand: (commandKey: string) => ({ commandKey }),
         setCustomCommand: (commandKey: string) => ({ commandKey }),
         deregisterScope: (scope: string) => ({ scope }),
-        shareFeedbackCommand: (instruction?: string) => ({ instruction }),
     },
     reducers: {
         isPaletteShown: [
@@ -198,7 +191,7 @@ export const commandPaletteLogic = kea<
                     return { ...commands, [command.key]: command }
                 },
                 deregisterCommand: (commands, { commandKey }) => {
-                    const { [commandKey]: _, ...cleanedCommands } = commands // eslint-disable-line
+                    const { [commandKey]: _discard, ...cleanedCommands } = commands
                     return cleanedCommands
                 },
             },
@@ -226,9 +219,7 @@ export const commandPaletteLogic = kea<
                 }
             }
             // Capture command execution, without useless data
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { icon, index, ...cleanedResult }: Record<string, any> = result
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const { resolver, ...cleanedCommand } = cleanedResult.source
             cleanedResult.source = cleanedCommand
             cleanedResult.isMobile = isMobile()
@@ -244,7 +235,7 @@ export const commandPaletteLogic = kea<
         setInput: async ({ input }, breakpoint) => {
             await breakpoint(300)
             if (input.length > 8) {
-                const response = await api.get('api/person/?key_identifier=' + input)
+                const response = await api.persons.list({ search: input })
                 const person = response.results[0]
                 if (person) {
                     actions.registerCommand({
@@ -264,30 +255,6 @@ export const commandPaletteLogic = kea<
                 }
             }
         },
-        shareFeedbackCommand: ({ instruction = "What's on your mind?" }) => {
-            actions.showPalette()
-            actions.activateFlow({
-                scope: 'Sharing Feedback',
-                instruction,
-                icon: CommentOutlined,
-                resolver: (argument) => ({
-                    icon: SendOutlined,
-                    display: 'Send',
-                    executor: !argument?.length
-                        ? undefined
-                        : () => {
-                              posthog.capture('palette feedback', { message: argument })
-                              return {
-                                  resolver: {
-                                      icon: CheckOutlined,
-                                      display: 'Message Sent!',
-                                      executor: true,
-                                  },
-                              }
-                          },
-                }),
-            })
-        },
     }),
     selectors: {
         isSqueak: [
@@ -305,7 +272,7 @@ export const commandPaletteLogic = kea<
         commandRegistrations: [
             (selectors) => [
                 selectors.rawCommandRegistrations,
-                dashboardsModel.selectors.dashboards,
+                dashboardsModel.selectors.nameSortedDashboards,
                 teamLogic.selectors.currentTeam,
             ],
             (rawCommandRegistrations: CommandRegistrations, dashboards: DashboardType[]): CommandRegistrations => ({
@@ -315,7 +282,7 @@ export const commandPaletteLogic = kea<
                     resolver: dashboards.map((dashboard: DashboardType) => ({
                         key: `dashboard_${dashboard.id}`,
                         icon: LineChartOutlined,
-                        display: `Go to Dashboard ${dashboard.name}`,
+                        display: `Go to Dashboard: ${dashboard.name}`,
                         executor: () => {
                             const { push } = router.actions
                             push(urls.dashboard(dashboard.id))
@@ -445,7 +412,7 @@ export const commandPaletteLogic = kea<
                         icon: RiseOutlined,
                         display: 'Go to Insights',
                         executor: () => {
-                            push(urls.insights())
+                            push(urls.savedInsights())
                         },
                     },
                     {
@@ -453,15 +420,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Trends',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.TRENDS))
-                        },
-                    },
-                    {
-                        icon: ClockCircleOutlined,
-                        display: 'Go to Sessions',
-                        executor: () => {
-                            // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.SESSIONS))
+                            push(urls.insightNew({ insight: InsightType.TRENDS }))
                         },
                     },
                     {
@@ -469,7 +428,7 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Funnels',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.FUNNELS))
+                            push(urls.insightNew({ insight: InsightType.FUNNELS }))
                         },
                     },
                     {
@@ -477,15 +436,15 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Retention',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.RETENTION))
+                            push(urls.insightNew({ insight: InsightType.RETENTION }))
                         },
                     },
                     {
                         icon: InteractionOutlined,
-                        display: 'Go to User Paths',
+                        display: 'Go to Paths',
                         executor: () => {
                             // TODO: Don't reset insight on change
-                            push(urls.insightView(ViewType.PATHS))
+                            push(urls.insightNew({ insight: InsightType.PATHS }))
                         },
                     },
                     {
@@ -500,13 +459,6 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Actions',
                         executor: () => {
                             push(urls.actions())
-                        },
-                    },
-                    {
-                        icon: ClockCircleOutlined,
-                        display: 'Go to Live Sessions',
-                        executor: () => {
-                            push(urls.sessions())
                         },
                     },
                     {
@@ -541,22 +493,29 @@ export const commandPaletteLogic = kea<
                     },
                     {
                         icon: TeamOutlined,
-                        display: 'Go to Team Members',
+                        display: 'Go to Team members',
                         synonyms: ['organization', 'members', 'invites', 'teammates'],
                         executor: () => {
                             push(urls.organizationSettings())
                         },
                     },
                     {
+                        icon: HomeOutlined,
+                        display: 'Go to project homepage',
+                        executor: () => {
+                            push(urls.projectHomepage())
+                        },
+                    },
+                    {
                         icon: ProjectOutlined,
-                        display: 'Go to Project Settings',
+                        display: 'Go to Project settings',
                         executor: () => {
                             push(urls.projectSettings())
                         },
                     },
                     {
                         icon: SmileOutlined,
-                        display: 'Go to My Settings',
+                        display: 'Go to My settings',
                         synonyms: ['account'],
                         executor: () => {
                             push(urls.mySettings())
@@ -567,27 +526,27 @@ export const commandPaletteLogic = kea<
                         display: 'Go to Plugins',
                         synonyms: ['integrations'],
                         executor: () => {
-                            push(urls.plugins())
+                            push(urls.projectApps())
                         },
                     },
                     {
                         icon: DatabaseOutlined,
-                        display: 'Go to System Status Page',
+                        display: 'Go to Instance status & settings',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
-                            push(urls.systemStatus())
+                            push(urls.instanceStatus())
                         },
                     },
                     {
                         icon: PlusOutlined,
-                        display: 'Create Action',
+                        display: 'Create action',
                         executor: () => {
                             push(urls.createAction())
                         },
                     },
                     {
                         icon: LogoutOutlined,
-                        display: 'Log Out',
+                        display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
                         },
@@ -600,11 +559,12 @@ export const commandPaletteLogic = kea<
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver:
                     userLogic.values.user?.is_staff ||
+                    userLogic.values.user?.is_impersonated ||
                     preflightLogic.values.preflight?.is_debug ||
-                    userLogic.values.user?.is_impersonated
+                    preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
                               icon: PlusOutlined,
-                              display: 'Debug ClickHouse Queries',
+                              display: 'Debug queries (ClickHouse)',
                               executor: () => {
                                   debugCHQueries()
                               },
@@ -718,7 +678,7 @@ export const commandPaletteLogic = kea<
                                     icon: FundOutlined,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
-                                        dashboardsModel.actions.addDashboard({ name: argument, show: true })
+                                        newDashboardLogic.actions.addDashboard({ name: argument })
                                     },
                                 }
                             }

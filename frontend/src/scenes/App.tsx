@@ -1,24 +1,28 @@
-import React from 'react'
-import { kea, useMountedLogic, useValues } from 'kea'
+import { kea, useMountedLogic, useValues, BindLogic } from 'kea'
 import { Layout } from 'antd'
 import { ToastContainer, Slide } from 'react-toastify'
-
-import { MainNavigation, TopNavigation, DemoWarnings } from '~/layout/navigation'
-import { BillingAlerts } from 'lib/components/BillingAlerts'
+import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneLoading } from 'lib/utils'
-import { CommandPalette } from 'lib/components/CommandPalette'
 import { UpgradeModal } from './UpgradeModal'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from './PreflightCheck/logic'
-import { BackTo } from 'lib/components/BackTo'
-import { Papercups } from 'lib/components/Papercups'
-import { appLogicType } from './AppType'
+import type { appLogicType } from './AppType'
 import { models } from '~/models'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from './teamLogic'
+import { LoadedScene } from 'scenes/sceneTypes'
+import { appScenes } from 'scenes/appScenes'
+import { Navigation } from '~/layout/navigation/Navigation'
+import { ErrorBoundary } from '~/layout/ErrorBoundary'
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
+import { ToastCloseButton } from 'lib/components/lemonToast'
+import { frontendAppsLogic } from 'scenes/apps/frontendAppsLogic'
+import { inAppPromptLogic } from 'lib/logic/inAppPrompt/inAppPromptLogic'
+import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 
 export const appLogic = kea<appLogicType>({
+    path: ['scenes', 'App'],
+    connect: [teamLogic, organizationLogic, frontendAppsLogic, inAppPromptLogic],
     actions: {
         enableDelayedSpinner: true,
         ignoreFeatureFlags: true,
@@ -61,17 +65,41 @@ export const appLogic = kea<appLogicType>({
 export function App(): JSX.Element | null {
     const { showApp, showingDelayedSpinner } = useValues(appLogic)
     const { user } = useValues(userLogic)
+    const { currentTeamId } = useValues(teamLogic)
+    useMountedLogic(sceneLogic({ scenes: appScenes }))
 
     if (showApp) {
         return (
             <>
-                {user ? <Models /> : null}
+                {user && currentTeamId ? <Models /> : null}
+                <LoadedSceneLogics />
                 <AppScene />
             </>
         )
     }
 
-    return showingDelayedSpinner ? <SceneLoading /> : null
+    return showingDelayedSpinner ? <SpinnerOverlay /> : null
+}
+
+function LoadedSceneLogic({ scene }: { scene: LoadedScene }): null {
+    if (!scene.logic) {
+        throw new Error('Loading scene without a logic')
+    }
+    useMountedLogic(scene.logic(scene.paramsToProps?.(scene.sceneParams)))
+    return null
+}
+
+function LoadedSceneLogics(): JSX.Element {
+    const { loadedScenes } = useValues(sceneLogic)
+    return (
+        <>
+            {Object.entries(loadedScenes)
+                .filter(([, { logic }]) => !!logic)
+                .map(([key, loadedScene]) => (
+                    <LoadedSceneLogic key={key} scene={loadedScene} />
+                ))}
+        </>
+    )
 }
 
 /** Loads every logic in the "src/models" folder */
@@ -81,60 +109,52 @@ function Models(): null {
 }
 
 function AppScene(): JSX.Element | null {
+    useMountedLogic(breadcrumbsLogic)
     const { user } = useValues(userLogic)
-    const { scene, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
+    const { activeScene, activeLoadedScene, sceneParams, params, loadedScenes, sceneConfig } = useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
 
     const SceneComponent: (...args: any[]) => JSX.Element | null =
-        (scene ? loadedScenes[scene]?.component : null) || (() => (showingDelayedSpinner ? <SceneLoading /> : null))
+        (activeScene ? loadedScenes[activeScene]?.component : null) ||
+        (() => (showingDelayedSpinner ? <SpinnerOverlay /> : null))
 
-    const essentialElements = (
-        // Components that should always be mounted inside Layout
-        <>
-            {featureFlags[FEATURE_FLAGS.PAPERCUPS_ENABLED] && <Papercups />}
-            <ToastContainer autoClose={8000} transition={Slide} position="top-right" />
-        </>
+    const toastContainer = (
+        <ToastContainer
+            autoClose={6000}
+            transition={Slide}
+            closeOnClick={false}
+            draggable={false}
+            closeButton={<ToastCloseButton />}
+            position="bottom-right"
+        />
+    )
+
+    const protectedBoundActiveScene = (
+        <ErrorBoundary key={activeScene}>
+            {activeLoadedScene?.logic ? (
+                <BindLogic logic={activeLoadedScene.logic} props={activeLoadedScene.paramsToProps?.(sceneParams) || {}}>
+                    <SceneComponent user={user} {...params} />
+                </BindLogic>
+            ) : (
+                <SceneComponent user={user} {...params} />
+            )}
+        </ErrorBoundary>
     )
 
     if (!user) {
-        return sceneConfig.onlyUnauthenticated || sceneConfig.allowUnauthenticated ? (
+        return sceneConfig?.onlyUnauthenticated || sceneConfig?.allowUnauthenticated ? (
             <Layout style={{ minHeight: '100vh' }}>
-                <SceneComponent {...params} />
-                {essentialElements}
+                {protectedBoundActiveScene}
+                {toastContainer}
             </Layout>
         ) : null
     }
 
-    if (sceneConfig.plain) {
-        return (
-            <Layout style={{ minHeight: '100vh' }}>
-                {!sceneConfig.hideTopNav && <TopNavigation />}
-                <SceneComponent user={user} {...params} />
-                {essentialElements}
-            </Layout>
-        )
-    }
-
     return (
         <>
-            <Layout>
-                <MainNavigation />
-                <Layout className={`${sceneConfig.dark ? 'bg-mid' : ''}`} style={{ minHeight: '100vh' }}>
-                    {!sceneConfig.hideTopNav && <TopNavigation />}
-                    {scene ? (
-                        <Layout.Content className="main-app-content" data-attr="layout-content">
-                            {!sceneConfig.hideDemoWarnings && <DemoWarnings />}
-                            <BillingAlerts />
-                            <BackTo />
-                            <SceneComponent user={user} {...params} />
-                        </Layout.Content>
-                    ) : null}
-                </Layout>
-                {essentialElements}
-            </Layout>
+            <Navigation>{protectedBoundActiveScene}</Navigation>
+            {toastContainer}
             <UpgradeModal />
-            <CommandPalette />
         </>
     )
 }

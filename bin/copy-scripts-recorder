@@ -1,0 +1,12 @@
+#!/bin/sh
+
+set -e
+
+cp node_modules/rrweb/dist/record/rrweb-record.min.js frontend/dist/recorder.js
+cp node_modules/rrweb/dist/record/rrweb-record.min.js.map frontend/dist/recorder.js.map
+sed -i -e s/rrweb-record.min.js.map/recorder.js.map/ frontend/dist/recorder.js
+
+cat node_modules/rrweb/dist/plugins/console-record.min.js >> frontend/dist/recorder.js
+cp node_modules/rrweb/dist/plugins/console-record.min.js.map frontend/dist/console-record.min.js.map
+
+sed -i -e 's/\/\/\# sourceMappingURL=recorder/window.rrweb = {record: rrwebRecord}\n\/\/# sourceMappingURL=recorder/g' frontend/dist/recorder.js

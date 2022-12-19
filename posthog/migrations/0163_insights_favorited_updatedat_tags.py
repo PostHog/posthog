@@ -11,7 +11,11 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddField(model_name="dashboarditem", name="favorited", field=models.BooleanField(default=False),),
+        migrations.AddField(
+            model_name="dashboarditem",
+            name="favorited",
+            field=models.BooleanField(default=False),
+        ),
         migrations.AddField(
             model_name="dashboarditem",
             name="tags",
@@ -19,5 +23,9 @@ class Migration(migrations.Migration):
                 base_field=models.CharField(max_length=32), blank=True, default=list, size=None
             ),
         ),
-        migrations.AddField(model_name="dashboarditem", name="updated_at", field=models.DateTimeField(auto_now=True),),
+        migrations.AddField(
+            model_name="dashboarditem",
+            name="updated_at",
+            field=models.DateTimeField(auto_now=True),
+        ),
     ]

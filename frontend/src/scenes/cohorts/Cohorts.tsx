@@ -1,72 +1,25 @@
-import React, { useState } from 'react'
-import dayjs from 'dayjs'
-import { DeleteWithUndo, toParams } from 'lib/utils'
-import { Table, Spin, Button, Input } from 'antd'
-import { ExportOutlined, DeleteOutlined, InfoCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { useState } from 'react'
+import { InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
-import { useValues, useActions, kea } from 'kea'
+import { useValues, useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
-import { PlusOutlined } from '@ant-design/icons'
-import { CohortV2, CohortV2Footer } from './CohortV2'
-import { Cohort } from './Cohort'
-import { Drawer } from 'lib/components/Drawer'
-import { CohortType } from '~/types'
-import api from 'lib/api'
+import { AvailableFeature, CohortType } from '~/types'
 import './Cohorts.scss'
 import Fuse from 'fuse.js'
-import { createdAtColumn, createdByColumn } from 'lib/components/Table/Table'
+import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { Tooltip } from 'lib/components/Tooltip'
-import relativeTime from 'dayjs/plugin/relativeTime'
-import { cohortsUrlLogicType } from './CohortsType'
 import { Link } from 'lib/components/Link'
-import { FEATURE_FLAGS, PROPERTY_MATCH_TYPE } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-
-dayjs.extend(relativeTime)
-
-const NEW_COHORT: CohortType = {
-    id: 'new',
-    groups: [
-        {
-            id: Math.random().toString().substr(2, 5),
-            matchType: PROPERTY_MATCH_TYPE,
-            properties: [],
-        },
-    ],
-}
-
-const cohortsUrlLogic = kea<cohortsUrlLogicType>({
-    actions: {
-        setOpenCohort: (cohort: CohortType | null) => ({ cohort }),
-    },
-    reducers: {
-        openCohort: [
-            null as null | CohortType,
-            {
-                setOpenCohort: (_, { cohort }) => cohort,
-            },
-        ],
-    },
-    actionToUrl: ({ values }) => ({
-        setOpenCohort: () => '/cohorts' + (values.openCohort ? '/' + (values.openCohort.id || 'new') : ''),
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/cohorts(/:cohortId)': async ({ cohortId }) => {
-            if (
-                cohortId &&
-                cohortId !== 'new' &&
-                cohortId !== 'personsModalNew' &&
-                Number(cohortId) !== values.openCohort?.id
-            ) {
-                const cohort = await api.get('api/cohort/' + cohortId)
-                actions.setOpenCohort(cohort)
-            } else if (cohortId === 'new') {
-                actions.setOpenCohort(NEW_COHORT)
-            }
-        },
-    }),
-})
+import { SceneExport } from 'scenes/sceneTypes'
+import { dayjs } from 'lib/dayjs'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { urls } from 'scenes/urls'
+import { LemonTable, LemonTableColumns, LemonTableColumn } from 'lib/components/LemonTable'
+import { userLogic } from 'scenes/userLogic'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonButton } from 'lib/components/LemonButton'
+import { LemonDivider } from 'lib/components/LemonDivider'
+import { combineUrl, router } from 'kea-router'
+import { LemonInput } from '@posthog/lemon-ui'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -79,35 +32,47 @@ const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
 
 export function Cohorts(): JSX.Element {
     const { cohorts, cohortsLoading } = useValues(cohortsModel)
-    const { loadCohorts } = useActions(cohortsModel)
-    const { openCohort } = useValues(cohortsUrlLogic)
-    const { setOpenCohort } = useActions(cohortsUrlLogic)
-    const [searchTerm, setSearchTerm] = useState(false as string | false)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { deleteCohort, exportCohortPersons } = useActions(cohortsModel)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { searchParams } = useValues(router)
+    const [searchTerm, setSearchTerm] = useState<string>('')
 
-    const columns = [
+    const columns: LemonTableColumns<CohortType> = [
         {
             title: 'Name',
             dataIndex: 'name',
-            key: 'name',
             className: 'ph-no-capture',
-            sorter: (a: CohortType, b: CohortType) => ('' + a.name).localeCompare(b.name as string),
+            width: '30%',
+            sorter: (a, b) => (a.name || '').localeCompare(b.name || ''),
+            render: function Render(name, { id, description }) {
+                return (
+                    <>
+                        <Link to={combineUrl(urls.cohort(id), searchParams).url} className="row-name">
+                            {name || 'Untitled'}
+                        </Link>
+                        {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) && description && (
+                            <span className="row-description">{description}</span>
+                        )}
+                    </>
+                )
+            },
         },
         {
             title: 'Users in cohort',
+            align: 'right',
             render: function RenderCount(_: any, cohort: CohortType) {
                 return cohort.count?.toLocaleString()
             },
-            sorter: (a: CohortType, b: CohortType) => (a.count || 0) - (b.count || 0),
+            dataIndex: 'count',
+            sorter: (a, b) => (a.count || 0) - (b.count || 0),
         },
-        createdAtColumn(),
-        createdByColumn(cohorts),
+        createdByColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
+        createdAtColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         {
             title: (
                 <span>
                     <Tooltip title="PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 15 minutes, or whenever a cohort is updated.">
-                        Last calculation
+                        Last calculated
                         <InfoCircleOutlined style={{ marginLeft: 6 }} />
                     </Tooltip>
                 </span>
@@ -117,8 +82,8 @@ export function Cohorts(): JSX.Element {
                     return <>N/A</>
                 }
                 return cohort.is_calculating ? (
-                    <span>
-                        Calculating <Spin />
+                    <span className="flex items-center">
+                        in progress <Spinner className="ml-2" />
                     </span>
                 ) : (
                     dayjs(cohort.last_calculation).fromNow()
@@ -126,54 +91,69 @@ export function Cohorts(): JSX.Element {
             },
         },
         {
-            title: 'Actions',
-            render: function RenderActions(cohort: CohortType) {
-                const filters = {
-                    filters: [
-                        {
-                            key: 'id',
-                            label: cohort.name,
-                            type: 'cohort',
-                            value: cohort.id,
-                        },
-                    ],
-                }
-
-                const sessionsLink = '/sessions?' + toParams(filters)
+            width: 0,
+            render: function RenderActions(_, cohort) {
                 return (
-                    <span>
-                        <a href={'/api/person.csv?cohort=' + cohort.id}>
-                            <Tooltip title="Export all users in this cohort as a .csv file">
-                                <ExportOutlined />
-                            </Tooltip>
-                        </a>
-                        {cohort.id !== 'new' && cohort.id !== 'personsModalNew' && (
-                            <DeleteWithUndo
-                                endpoint="cohort"
-                                object={{ name: cohort.name, id: cohort.id }}
-                                className="text-danger"
-                                style={{ marginLeft: 8, marginRight: 8 }}
-                                callback={loadCohorts}
-                            >
-                                <DeleteOutlined />
-                            </DeleteWithUndo>
-                        )}
-                        <Link
-                            onClick={(e) => {
-                                e.stopPropagation()
-                            }}
-                            to={`${sessionsLink}#backTo=cohorts&backToURL=${window.location.pathname}`}
-                            data-attr="cohorts-table-sessions"
-                        >
-                            Sessions <ClockCircleOutlined />
-                        </Link>
-                    </span>
+                    <More
+                        overlay={
+                            <>
+                                <LemonButton status="stealth" to={urls.cohort(cohort.id)} fullWidth>
+                                    Edit
+                                </LemonButton>
+                                <LemonButton
+                                    status="stealth"
+                                    to={
+                                        combineUrl(urls.sessionRecordings(), {
+                                            filters: {
+                                                properties: [
+                                                    {
+                                                        key: 'id',
+                                                        label: cohort.name,
+                                                        type: 'cohort',
+                                                        value: cohort.id,
+                                                    },
+                                                ],
+                                            },
+                                        }).url
+                                    }
+                                    fullWidth
+                                >
+                                    View session recordings
+                                </LemonButton>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() =>
+                                        exportCohortPersons(cohort.id, [
+                                            'distinct_ids.0',
+                                            'id',
+                                            'name',
+                                            'properties.email',
+                                        ])
+                                    }
+                                    tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
+                                    fullWidth
+                                >
+                                    Export important columns for users
+                                </LemonButton>
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => exportCohortPersons(cohort.id)}
+                                    tooltip="Export all users belonging to this cohort in CSV format."
+                                    fullWidth
+                                >
+                                    Export all columns for users
+                                </LemonButton>
+                                <LemonDivider />
+                                <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>
+                                    Delete cohort
+                                </LemonButton>
+                            </>
+                        }
+                    />
                 )
             },
         },
     ]
-
-    const COHORT_V2 = featureFlags[FEATURE_FLAGS.ENGAGEMENT_COHORTS] && preflight?.is_clickhouse_enabled
 
     return (
         <div>
@@ -181,50 +161,35 @@ export function Cohorts(): JSX.Element {
                 title="Cohorts"
                 caption="Create lists of users who have something in common to use in analytics or feature flags."
             />
-            <div>
-                <Input.Search
-                    allowClear
-                    enterButton
-                    style={{ maxWidth: 400, width: 'initial', flexGrow: 1 }}
-                    onChange={(e) => {
-                        setSearchTerm(e.target.value)
-                    }}
+            <div className="flex justify-between items-center mb-4 gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search for cohorts"
+                    onChange={setSearchTerm}
+                    value={searchTerm}
                 />
-                <div className="mb float-right">
-                    <Button
-                        type="primary"
-                        data-attr="create-cohort"
-                        onClick={() => setOpenCohort(NEW_COHORT)}
-                        icon={<PlusOutlined />}
-                    >
-                        New Cohort
-                    </Button>
-                </div>
-
-                <Table
-                    size="small"
-                    columns={columns}
-                    loading={cohortsLoading}
-                    rowKey="id"
-                    pagination={{ pageSize: 100, hideOnSinglePage: true }}
-                    rowClassName="cursor-pointer"
-                    onRow={(cohort) => ({
-                        onClick: () => setOpenCohort(cohort),
-                        'data-test-cohort-row': cohort.id,
-                    })}
-                    dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
-                />
-                <Drawer
-                    title={openCohort?.id === 'new' ? 'New cohort' : openCohort?.name}
-                    className="cohorts-drawer"
-                    onClose={() => setOpenCohort(null)}
-                    destroyOnClose={true}
-                    visible={!!openCohort}
-                    footer={openCohort && COHORT_V2 ? <CohortV2Footer cohort={openCohort} /> : null}
+                <LemonButton
+                    type="primary"
+                    data-attr="create-cohort"
+                    onClick={() => router.actions.push(urls.cohort('new'))}
                 >
-                    {openCohort && (COHORT_V2 ? <CohortV2 cohort={openCohort} /> : <Cohort cohort={openCohort} />)}
-                </Drawer>
+                    New Cohort
+                </LemonButton>
             </div>
+            <LemonTable
+                columns={columns}
+                loading={cohortsLoading}
+                rowKey="id"
+                pagination={{ pageSize: 100 }}
+                dataSource={searchTerm ? searchCohorts(cohorts, searchTerm) : cohorts}
+                nouns={['cohort', 'cohorts']}
+                data-attr="cohorts-table"
+            />
         </div>
     )
+}
+
+export const scene: SceneExport = {
+    component: Cohorts,
+    logic: cohortsModel,
 }

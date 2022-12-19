@@ -1,20 +1,16 @@
-import React, { useRef } from 'react'
-import { Button } from 'antd'
-import { combineUrl } from 'kea-router'
-import dayjs from 'dayjs'
-import relativeTime from 'dayjs/plugin/relativeTime'
-import { TZLabel } from 'lib/components/TimezoneAware'
-import { Link } from 'lib/components/Link'
+import { TZLabel } from 'lib/components/TZLabel'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { PersonsTabType, PersonType, SessionsPropertyFilter } from '~/types'
-import { ArrowRightOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons'
+import { PersonType } from '~/types'
 import './Persons.scss'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { midEllipsis } from 'lib/utils'
 import { PersonHeader } from './PersonHeader'
-import { ResizableColumnType, ResizableTable } from 'lib/components/ResizableTable'
-
-dayjs.extend(relativeTime)
+import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
+import { LemonButton } from '@posthog/lemon-ui'
+import { IconDelete } from 'lib/components/icons'
+import { useActions } from 'kea'
+import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { personsLogic } from 'scenes/persons/personsLogic'
 
 interface PersonsTableType {
     people: PersonType[]
@@ -23,27 +19,8 @@ interface PersonsTableType {
     hasNext?: boolean
     loadPrevious?: () => void
     loadNext?: () => void
-    allColumns?: boolean // whether to show all columns or not
-    backTo?: string // text to display next to `back to` arrow. if "Insights," deep link to Persons > Sessions
-    sessionsFilters?: Partial<SessionsPropertyFilter>[] // sessions filters from trends graphs
-    date?: string
+    compact?: boolean
 }
-
-export const deepLinkToPersonSessions = (
-    person: PersonType,
-    sessionsFilters?: Partial<SessionsPropertyFilter>[],
-    date?: string,
-    backTo?: string
-): string =>
-    combineUrl(
-        `/person/${encodeURIComponent(person.distinct_ids[0])}`,
-        { filters: sessionsFilters, date },
-        {
-            backTo,
-            backToURL: window.location.pathname + window.location.search + window.location.hash,
-            activeTab: backTo === 'Insights' ? PersonsTabType.SESSIONS : PersonsTabType.EVENTS,
-        }
-    ).url
 
 export function PersonsTable({
     people,
@@ -52,119 +29,100 @@ export function PersonsTable({
     hasNext,
     loadPrevious,
     loadNext,
-    allColumns,
-    backTo = 'Persons',
-    sessionsFilters = [],
-    date = '',
+    compact,
 }: PersonsTableType): JSX.Element {
-    const topRef = useRef<HTMLSpanElement>(null)
+    const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
+    const { loadPersons } = useActions(personsLogic)
 
-    const columns: ResizableColumnType<PersonType>[] = [
+    const columns: LemonTableColumns<PersonType> = [
         {
-            title: 'Email',
-            key: 'email',
-            span: 6,
-            render: function Render(person: PersonType) {
-                return (
-                    <Link
-                        to={deepLinkToPersonSessions(person, sessionsFilters, date, backTo)}
-                        data-attr="goto-person-email"
-                    >
-                        <PersonHeader person={person} />
-                    </Link>
-                )
+            title: 'Person',
+            key: 'person',
+            render: function Render(_, person: PersonType) {
+                return <PersonHeader withIcon person={person} />
             },
         },
         {
             title: 'ID',
             key: 'id',
-            span: 8,
-            render: function Render(person: PersonType) {
+            render: function Render(_, person: PersonType) {
                 return (
-                    <div style={{ overflow: 'hidden' }}>
+                    <div className={'overflow-hidden'}>
                         {person.distinct_ids.length && (
                             <CopyToClipboardInline
                                 explicitValue={person.distinct_ids[0]}
-                                tooltipMessage=""
                                 iconStyle={{ color: 'var(--primary)' }}
-                                iconPosition="end"
+                                description="person distinct ID"
                             >
-                                {midEllipsis(person.distinct_ids[0], 32)}
+                                {person.distinct_ids[0]}
                             </CopyToClipboardInline>
                         )}
                     </div>
                 )
             },
         },
+        ...(!compact
+            ? ([
+                  {
+                      title: 'First seen',
+                      dataIndex: 'created_at',
+                      render: function Render(created_at: PersonType['created_at']) {
+                          return created_at ? <TZLabel time={created_at} /> : <></>
+                      },
+                  },
+                  {
+                      render: function Render(_, person: PersonType) {
+                          return (
+                              <LemonButton
+                                  onClick={() => showPersonDeleteModal(person, () => loadPersons())}
+                                  icon={<IconDelete />}
+                                  status="danger"
+                                  size="small"
+                              />
+                          )
+                      },
+                  },
+              ] as Array<LemonTableColumn<PersonType, keyof PersonType | undefined>>)
+            : []),
     ]
-
-    if (allColumns) {
-        columns.push({
-            title: 'First seen',
-            key: 'created',
-            span: 3,
-            render: function Render(person: PersonType) {
-                return person.created_at ? <TZLabel time={person.created_at} /> : <></>
-            },
-        })
-    }
-
-    columns.push({
-        key: 'actions',
-        title: '',
-        span: 2,
-        render: function Render(person: PersonType, ...[, index]: [PersonType, number]) {
-            return (
-                <>
-                    <Link
-                        to={deepLinkToPersonSessions(person, sessionsFilters, date, backTo)}
-                        data-attr={`goto-person-arrow-${index}`}
-                        data-test-goto-person
-                    >
-                        <ArrowRightOutlined style={{ float: 'right' }} />
-                        {allColumns ? ' view' : ''}
-                    </Link>
-                </>
-            )
-        },
-    })
 
     return (
         <>
-            <span ref={topRef} />
-            <ResizableTable
-                size="small"
+            <LemonTable
+                data-attr="persons-table"
                 columns={columns}
                 loading={loading}
                 rowKey="id"
-                pagination={{ pageSize: 99999, hideOnSinglePage: true }}
+                pagination={{
+                    controlled: true,
+                    pageSize: 100, // From `posthog/api/person.py`
+                    onForward: hasNext
+                        ? () => {
+                              loadNext?.()
+                              window.scrollTo(0, 0)
+                          }
+                        : undefined,
+                    onBackward: hasPrevious
+                        ? () => {
+                              loadPrevious?.()
+                              window.scrollTo(0, 0)
+                          }
+                        : undefined,
+                }}
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable({ properties }) {
-                        return <PropertiesTable properties={properties} />
+                        return Object.keys(properties).length ? (
+                            <PropertiesTable properties={properties} />
+                        ) : (
+                            'This person has no properties.'
+                        )
                     },
-                    rowExpandable: ({ properties }) => Object.keys(properties).length > 0,
                 }}
                 dataSource={people}
-                className="persons-table"
+                emptyState="No persons"
+                nouns={['person', 'persons']}
             />
-            {(hasPrevious || hasNext) && (
-                <div style={{ margin: '3rem auto 10rem', width: 200, display: 'flex', alignItems: 'center' }}>
-                    <Button
-                        type="link"
-                        disabled={!hasPrevious}
-                        onClick={() => loadPrevious && loadPrevious() && window.scrollTo(0, 0)}
-                    >
-                        <LeftOutlined /> Previous
-                    </Button>
-                    <Button
-                        type="link"
-                        disabled={!hasNext}
-                        onClick={() => loadNext && loadNext() && window.scrollTo(0, 0)}
-                    >
-                        Next <RightOutlined />
-                    </Button>
-                </div>
-            )}
+            <PersonDeleteModal />
         </>
     )
 }

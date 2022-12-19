@@ -1,9 +1,9 @@
 import './PropertyKeyInfo.scss'
-import React from 'react'
-import { Popover, Typography } from 'antd'
-import { KeyMapping, PropertyFilterValue } from '~/types'
+import { Popover } from 'antd'
+import { KeyMapping, PropertyDefinition, PropertyFilterValue } from '~/types'
 import { ANTD_TOOLTIP_PLACEMENTS } from 'lib/utils'
-import { TooltipPlacement } from 'antd/es/tooltip'
+import { TooltipPlacement } from 'antd/lib/tooltip'
+import clsx from 'clsx'
 
 export interface KeyMappingInterface {
     event: Record<string, KeyMapping>
@@ -37,6 +37,11 @@ export const keyMapping: KeyMappingInterface = {
             description: 'The operating system that the user first used (first-touch).',
             examples: ['Windows', 'Mac OS X'],
         },
+        $browser_language: {
+            label: 'Browser Language',
+            description: 'Language.',
+            examples: ['en', 'en-US', 'cn', 'pl-PL'],
+        },
         $current_url: {
             label: 'Current URL',
             description: 'The URL visited for this event, including all the trimings.',
@@ -58,6 +63,7 @@ export const keyMapping: KeyMappingInterface = {
                 'The version of the browser that the user first used (first-touch). Used in combination with Browser.',
             examples: ['70', '79'],
         },
+
         $screen_height: {
             label: 'Screen Height',
             description: "The height of the user's entire screen (in pixels).",
@@ -67,6 +73,10 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Screen Width',
             description: "The width of the user's entire screen (in pixels).",
             examples: ['1440', '1920'],
+        },
+        $screen_name: {
+            label: 'Screen Name',
+            description: 'The name of the active screen.',
         },
         $viewport_height: {
             label: 'Viewport Height',
@@ -87,16 +97,6 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Library Version',
             description: 'Version of the library used to send the event. Used in combination with Library.',
             examples: ['1.0.3'],
-        },
-        $initial_referrer: {
-            label: 'Initial Referrer URL',
-            description: 'URL of where the user initially came from (first-touch).',
-            examples: ['https://google.com/search?q=posthog&rlz=1C...'],
-        },
-        $initial_referring_domain: {
-            label: 'Initial Referring Domain',
-            description: 'Domain of where the user initially came from (first-touch).',
-            examples: ['google.com', 'facebook.com'],
         },
         $referrer: {
             label: 'Referrer URL',
@@ -205,6 +205,10 @@ export const keyMapping: KeyMappingInterface = {
             description: 'User interactions that were automatically captured.',
             examples: ['clicked button'],
         },
+        $screen: {
+            label: 'Screen',
+            description: 'When a user loads a screen in a mobile app.',
+        },
         $feature_flag_called: {
             label: 'Feature Flag Called',
             description: (
@@ -224,19 +228,74 @@ export const keyMapping: KeyMappingInterface = {
         },
         $identify: {
             label: 'Identify',
-            description: 'Tie a user to their actions',
+            description: 'A user has been identified with properties',
+        },
+        $create_alias: {
+            label: 'Alias',
+            description: 'An alias ID has been added to a user',
+        },
+        $groupidentify: {
+            label: 'Group Identify',
+            description: 'A group has been identified with properties',
+        },
+        $groups: {
+            label: 'Groups',
+            description: 'Relevant groups',
+        },
+        // There are at most 5 group types per project, so indexes 0, 1, 2, 3, and 4
+        $group_0: {
+            label: 'Group 1',
+            hide: true,
+        },
+        $group_1: {
+            label: 'Group 2',
+            hide: true,
+        },
+        $group_2: {
+            label: 'Group 3',
+            hide: true,
+        },
+        $group_3: {
+            label: 'Group 4',
+            hide: true,
+        },
+        $group_4: {
+            label: 'Group 5',
+            hide: true,
+        },
+        $group_set: {
+            label: 'Group Set',
+            description: 'Group properties to be set',
+        },
+        $group_key: {
+            label: 'Group Key',
+            description: 'Specified group key',
+        },
+        $group_type: {
+            label: 'Group Type',
+            description: 'Specified group type',
+        },
+        $window_id: {
+            label: 'Window ID',
+            description: 'Unique window ID for session recording disambiguation',
+            hide: true,
+        },
+        $session_id: {
+            label: 'Session ID',
+            description: 'Unique session ID for session recording disambiguation',
+            hide: true,
         },
         $rageclick: {
             label: 'Rageclick',
-            description: 'When a user repeatedly clicks a targeted area or element over a short period of time',
+            description: 'A user has rapidly and repeatedly clicked in a single place',
         },
         $set: {
             label: 'Set',
-            description: '',
+            description: 'Person properties to be set',
         },
         $set_once: {
             label: 'Set Once',
-            description: '',
+            description: 'Person properties to be set if not set already (i.e. first-touch)',
         },
         $capture_failed_request: {
             label: 'Capture Failed Request',
@@ -272,60 +331,85 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Plugin Metric',
             description: 'Performance metrics for a given plugin.',
         },
+        $creator_event_uuid: {
+            label: 'Creator Event ID',
+            description: 'Unique ID for the event, which created this person.',
+            examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
+        },
 
         // UTM tags
         utm_source: {
             label: 'UTM Source',
-            description: 'The last UTM source tag that this user saw (last-touch).',
+            description: 'UTM source tag (last-touch).',
             examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
         },
         $initial_utm_source: {
             label: 'Initial UTM Source',
-            description: 'The initial UTM source tag that this user saw (first-touch).',
+            description: 'UTM source tag (first-touch).',
             examples: ['Google', 'Bing', 'Twitter', 'Facebook'],
         },
         utm_medium: {
             label: 'UTM Medium',
-            description: 'The last UTM medium tag that this user saw (last-touch).',
+            description: 'UTM medium tag (last-touch).',
             examples: ['Social', 'Organic', 'Paid', 'Email'],
         },
         $initial_utm_medium: {
             label: 'Initial UTM Medium',
-            description: 'The initial UTM medium tag that this user saw (first-touch).',
+            description: 'UTM medium tag (first-touch).',
             examples: ['Social', 'Organic', 'Paid', 'Email'],
         },
         utm_campaign: {
             label: 'UTM Campaign',
-            description: 'The last UTM campaign tag that this user saw (last-touch).',
+            description: 'UTM campaign tag (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        utm_name: {
+            label: 'UTM Name',
+            description: 'UTM campaign tag, sent via Segment (last-touch).',
+            examples: ['feature launch', 'discount'],
+        },
+        $initial_utm_name: {
+            label: 'Initial UTM Name',
+            description: 'UTM campaign tag, sent via Segment (first-touch).',
             examples: ['feature launch', 'discount'],
         },
         $initial_utm_campaign: {
             label: 'Initial UTM Campaign',
-            description: 'The initial UTM campaign tag that this user saw (first-touch).',
+            description: 'UTM campaign tag (first-touch).',
             examples: ['feature launch', 'discount'],
         },
         utm_content: {
             label: 'UTM Content',
-            description: 'The last UTM content tag that this user saw (last-touch).',
+            description: 'UTM content tag (last-touch).',
             examples: ['bottom link', 'second button'],
         },
         $initial_utm_content: {
             label: 'Initial UTM Content',
-            description: 'The initial UTM content tag that this user saw (first-touch).',
+            description: 'UTM content tag (first-touch).',
             examples: ['bottom link', 'second button'],
         },
         utm_term: {
             label: 'UTM Term',
-            description: 'The last UTM term tag that this user saw (last-touch).',
+            description: 'UTM term tag (last-touch).',
             examples: ['free goodies'],
         },
         $initial_utm_term: {
             label: 'Initial UTM Term',
-            description: 'The initial UTM term tag that this user saw (first-touch).',
+            description: 'UTM term tag (first-touch).',
             examples: ['free goodies'],
+        },
+        $performance_page_loaded: {
+            label: 'Page Loaded',
+            description: "The time taken until the browser's page load event in milliseconds.",
         },
 
         // Hidden fields
+        $performance_raw: {
+            label: 'Browser Performance',
+            description:
+                'The browser performance entries for navigation (the page), paint, and resources. That were available when the page view event fired',
+            hide: true,
+        },
         $had_persisted_distinct_id: {
             label: '$had_persisted_distinct_id',
             description: '',
@@ -341,6 +425,17 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Sentry exception',
             description: 'Raw Sentry exception data',
             hide: true,
+        },
+        $sentry_exception_message: {
+            label: 'Sentry exception message',
+        },
+        $sentry_exception_type: {
+            label: 'Sentry exception type',
+            description: 'Class name of the exception object',
+        },
+        $sentry_tags: {
+            label: 'Sentry tags',
+            description: 'Tags sent to Sentry along with the exception',
         },
         $ce_version: {
             label: '$ce_version',
@@ -375,13 +470,6 @@ export const keyMapping: KeyMappingInterface = {
             examples: ['16ff262c4301e5-0aa346c03894bc-39667c0e-1aeaa0-16ff262c431767'],
             hide: true,
         },
-        $environment: {
-            label: 'Environment',
-            description: 'Environment used to filter results on all queries when enabled.',
-            examples: ['test', 'production'],
-            hide: true,
-        },
-
         // GeoIP
         $geoip_city_name: {
             label: 'City Name',
@@ -454,53 +542,110 @@ export const keyMapping: KeyMappingInterface = {
             label: 'Subdivision 3 Code',
             description: `Code of the third subdivision matched to this event's IP address.`,
         },
+        // NOTE: This is a hack. $session_duration is a session property, not an event property
+        // but we don't do a good job of tracking property types, so making it a session property
+        // would require a large refactor, and this works (because all properties are treated as
+        // event properties if they're not elements)
+        $session_duration: {
+            label: 'Session duration',
+            description: (
+                <span>
+                    The duration of the session being tracked. Learn more about how PostHog tracks sessions in{' '}
+                    <a href="https://posthog.com/docs/user-guides/sessions">our documentation.</a>
+                    <br /> <br />
+                    Note, if the duration is formatted as a single number (not 'HH:MM:SS'), it's in seconds.
+                </span>
+            ),
+            examples: ['01:04:12'],
+        },
+        $app_build: {
+            label: 'App Build',
+            description: 'The build number for the app',
+        },
+        $app_name: {
+            label: 'App Name',
+            description: 'The name of the app',
+        },
+        $app_namespace: {
+            label: 'App Namespace',
+            description: 'The namespace of the app as identified in the app store',
+            examples: ['com.posthog.app'],
+        },
+        $app_version: {
+            label: 'App Version',
+            description: 'The version of the app',
+        },
+        $device_manufacturer: {
+            label: 'Device Manufacturer',
+            description: 'The manufacturer of the device',
+            examples: ['Apple', 'Samsung'],
+        },
+        $device_name: {
+            label: 'Device Name',
+            description: 'Name of the device',
+            examples: ['iPhone 12 Pro', 'Samsung Galaxy 10'],
+        },
+        $locale: {
+            label: 'Locale',
+            description: 'The locale of the device',
+            examples: ['en-US', 'de-DE'],
+        },
+        $os_name: {
+            label: 'OS Name',
+            description: 'The Operating System name',
+            examples: ['iOS', 'Android'],
+        },
+        $os_version: {
+            label: 'OS Version',
+            description: 'The Operating System version',
+            examples: ['15.5'],
+        },
+        $timezone: {
+            label: 'Timezone',
+            description: 'The timezone as reported by the device',
+        },
+
+        $touch_x: {
+            label: 'Touch X',
+            description: 'The location of a Touch event on the X axis',
+        },
+        $touch_y: {
+            label: 'Touch Y',
+            description: 'The location of a Touch event on the Y axis',
+        },
+        $exception: {
+            label: 'Exception',
+            description: 'Automatically captured exceptions from the client Sentry integration',
+        },
     },
     element: {
         tag_name: {
             label: 'Tag Name',
-            description: (
-                <span>
-                    Tag name of the element you want to filter on.
-                    <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
-                </span>
-            ),
+            description: 'HTML tag name of the element which you want to filter.',
             examples: ['a', 'button', 'input'],
         },
         selector: {
             label: 'CSS Selector',
-            description: (
-                <span>
-                    Select any element by css selector
-                    <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
-                </span>
-            ),
-            examples: ['div > a', 'table td:nth-child(2)'],
+            description: 'Select any element by CSS selector.',
+            examples: ['div > a', 'table td:nth-child(2)', '.my-class'],
         },
         text: {
             label: 'Text',
-            description: (
-                <span>
-                    The inner text of the element.
-                    <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
-                </span>
-            ),
+            description: 'Filter on the inner text of the HTML element.',
         },
         href: {
-            label: 'href',
+            label: 'Target (href)',
             description: (
                 <span>
-                    The href attribute of the element.
-                    <br />
-                    <i>Note: filtering on element properties only works with $autocapture</i>
+                    Filter on the <code>href</code> attribute of the element.
                 </span>
             ),
             examples: ['https://posthog.com/about'],
         },
     },
 }
+
+export const keyMappingKeys = Object.keys(keyMapping.event)
 
 export function isPostHogProp(key: string): boolean {
     /*
@@ -516,45 +661,59 @@ export function isPostHogProp(key: string): boolean {
 interface PropertyKeyInfoInterface {
     value: string
     type?: 'event' | 'element'
-    style?: React.CSSProperties
     tooltipPlacement?: TooltipPlacement
     disablePopover?: boolean
     disableIcon?: boolean
     ellipsis?: boolean
+    className?: string
 }
 
-export function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
+function PropertyKeyTitle({ data }: { data: KeyMapping }): JSX.Element {
     return (
-        <span>
-            <span className="property-key-info-logo" />
+        <span className="PropertyKeyInfo">
+            <span className="PropertyKeyInfoLogo" />
             {data.label}
         </span>
     )
 }
 
-export function PropertyKeyDescription({ data, value }: { data: KeyMapping; value: string }): JSX.Element {
+function PropertyKeyDescription({
+    data,
+    value,
+    propertyType,
+}: {
+    data: KeyMapping
+    value: string
+    propertyType?: PropertyDefinition['property_type'] | null
+}): JSX.Element {
     return (
         <span>
+            {data.description ? <p>{data.description}</p> : null}
             {data.examples ? (
-                <>
-                    <span>{data.description}</span>
-                    <br />
-                    <br />
-                    <span>
-                        <i>Example: </i>
-                        {data.examples.join(', ')}
-                    </span>
-                </>
-            ) : (
-                data.description
-            )}
-            <hr />
-            Sent as <pre style={{ display: 'inline', padding: '2px 3px' }}>{value}</pre>
+                <p>
+                    <i>Example: </i>
+                    {data.examples.join(', ')}
+                </p>
+            ) : null}
+            {data.description || data.examples ? <hr /> : null}
+            <div>
+                <span>
+                    Sent as <code className="p-1">{value}</code>
+                </span>
+                <span>{propertyType && <div className="property-value-type">{propertyType}</div>}</span>
+            </div>
         </span>
     )
 }
 
-export function getKeyMapping(value: string | PropertyFilterValue, type: 'event' | 'element'): KeyMapping | null {
+export function getKeyMapping(
+    value: string | PropertyFilterValue | undefined,
+    type: 'event' | 'element'
+): KeyMapping | null {
+    if (!value) {
+        return null
+    }
+
     value = `${value}` // convert to string
     let data = null
     if (value in keyMapping[type]) {
@@ -566,66 +725,78 @@ export function getKeyMapping(value: string | PropertyFilterValue, type: 'event'
             data.description = `${data.description} Data from the first time this user was seen.`
         }
         return data
+    } else if (value.startsWith('$feature/')) {
+        const featureFlagKey = value.replace(/^\$feature\//, '')
+        if (featureFlagKey) {
+            return {
+                label: `Feature: ${featureFlagKey}`,
+                description: `Value for the feature flag "${featureFlagKey}" when this event was sent.`,
+                examples: ['true', 'variant-1a'],
+            }
+        }
     }
     return null
+}
+
+export function getPropertyLabel(
+    value: PropertyKeyInfoInterface['value'],
+    type: PropertyKeyInfoInterface['type'] = 'event'
+): string {
+    const data = getKeyMapping(value, type)
+    return (data ? data.label : value)?.trim() ?? '(empty string)'
 }
 
 export function PropertyKeyInfo({
     value,
     type = 'event',
-    style,
     tooltipPlacement = undefined,
     disablePopover = false,
     disableIcon = false,
     ellipsis = true,
+    className = '',
 }: PropertyKeyInfoInterface): JSX.Element {
     value = `${value}` // convert to string
-    const data = getKeyMapping(value, type)
-    if (!data) {
-        return (
-            <Typography.Text ellipsis={ellipsis} style={{ color: 'inherit', maxWidth: 400, ...style }} title={value}>
-                {value !== '' ? value : <i>(empty string)</i>}
-            </Typography.Text>
-        )
-    }
-    if (disableIcon) {
-        return (
-            <Typography.Text ellipsis={ellipsis} style={{ color: 'inherit', maxWidth: 400 }} title={data.label}>
-                {data.label !== '' ? data.label : <i>(empty string)</i>}
-            </Typography.Text>
-        )
-    }
 
+    const data = getKeyMapping(value, type)
+    const baseValue = (data ? data.label : value)?.trim() ?? ''
+    const baseValueNode = baseValue === '' ? <i>(empty string)</i> : baseValue
+
+    // By this point, property is a PH defined property
     const innerContent = (
-        <span className="property-key-info">
-            <span className="property-key-info-logo" />
-            {data.label}
+        <span className={clsx('PropertyKeyInfo', className)}>
+            {!disableIcon && !!data && <span className="PropertyKeyInfoLogo" />}
+            <span
+                className={clsx('PropertyKeyInfo__text', ellipsis && 'PropertyKeyInfo__text--elipsis')}
+                title={baseValue}
+            >
+                {baseValueNode}
+            </span>
         </span>
     )
+
+    if (!data || disablePopover) {
+        return innerContent
+    }
+
+    const popoverProps = tooltipPlacement
+        ? {
+              visible: true,
+              placement: tooltipPlacement,
+          }
+        : {
+              align: ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight,
+          }
 
     const popoverTitle = <PropertyKeyTitle data={data} />
     const popoverContent = <PropertyKeyDescription data={data} value={value} />
 
-    return disablePopover ? (
-        innerContent
-    ) : tooltipPlacement ? (
-        <Popover
-            visible
-            overlayStyle={{ zIndex: 99999 }}
-            overlayClassName="property-key-info-tooltip"
-            placement={tooltipPlacement}
-            title={popoverTitle}
-            content={popoverContent}
-        >
-            {innerContent}
-        </Popover>
-    ) : (
+    return (
         <Popover
             overlayStyle={{ zIndex: 99999 }}
-            overlayClassName="property-key-info-tooltip"
-            align={ANTD_TOOLTIP_PLACEMENTS.horizontalPreferRight}
+            overlayClassName={`PropertyKeyInfoTooltip ${className || ''}`}
             title={popoverTitle}
             content={popoverContent}
+            {...popoverProps}
         >
             {innerContent}
         </Popover>

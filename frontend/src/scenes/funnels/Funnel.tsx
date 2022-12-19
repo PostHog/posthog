@@ -1,36 +1,31 @@
-import { useValues } from 'kea'
-import React from 'react'
+import './Funnel.scss'
+import { BindLogic, useValues } from 'kea'
 import { ChartParams, FunnelVizType } from '~/types'
-import { FunnelBarGraph } from './FunnelBarGraph'
 import { FunnelHistogram } from './FunnelHistogram'
 import { funnelLogic } from './funnelLogic'
-import { FunnelEmptyState, FunnelInvalidFiltersEmptyState } from 'scenes/insights/EmptyStates/EmptyStates'
 import { FunnelLineGraph } from 'scenes/funnels/FunnelLineGraph'
-import { Loading } from 'lib/utils'
-import './Funnel.scss'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { FunnelLayout } from 'lib/constants'
+import { FunnelBarChart } from './FunnelBarChart'
+import { FunnelBarGraph } from './FunnelBarGraph'
 
-export function Funnel(props: Omit<ChartParams, 'view'>): JSX.Element | null {
-    const logic = funnelLogic({ dashboardItemId: props.dashboardItemId, filters: props.filters })
-    const { filters, areFiltersValid, resultsLoading, isValidFunnel } = useValues(logic)
-    const funnel_viz_type = filters.funnel_viz_type || props.filters.funnel_viz_type
+export function Funnel(props: ChartParams): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { filters, barGraphLayout } = useValues(funnelLogic(insightProps))
+    const { funnel_viz_type } = filters
 
-    if (!areFiltersValid) {
-        return <FunnelInvalidFiltersEmptyState />
-    }
-    if (resultsLoading) {
-        return <Loading />
-    }
-    if (!isValidFunnel) {
-        return <FunnelEmptyState />
-    }
-
+    // Funnel Viz
     if (funnel_viz_type == FunnelVizType.Trends) {
         return <FunnelLineGraph {...props} />
     }
 
     if (funnel_viz_type == FunnelVizType.TimeToConvert) {
-        return <FunnelHistogram {...props} />
+        return <FunnelHistogram />
     }
 
-    return <FunnelBarGraph {...props} />
+    return (
+        <BindLogic logic={funnelLogic} props={insightProps}>
+            {barGraphLayout === FunnelLayout.vertical ? <FunnelBarChart {...props} /> : <FunnelBarGraph {...props} />}
+        </BindLogic>
+    )
 }

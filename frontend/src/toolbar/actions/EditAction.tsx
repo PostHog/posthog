@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
@@ -15,14 +15,8 @@ export function EditAction(): JSX.Element {
     const [form] = Form.useForm()
 
     const { initialValuesForForm, selectedActionId, inspectingElement, editingFields } = useValues(actionsTabLogic)
-    const {
-        selectAction,
-        inspectForElementWithIndex,
-        setEditingFields,
-        setForm,
-        saveAction,
-        deleteAction,
-    } = useActions(actionsTabLogic)
+    const { selectAction, inspectForElementWithIndex, setEditingFields, setForm, saveAction, deleteAction } =
+        useActions(actionsTabLogic)
 
     const { getFieldValue } = form
 
@@ -47,7 +41,8 @@ export function EditAction(): JSX.Element {
                 Cancel <CloseOutlined />
             </Button>
             <h1 className="section-title" style={{ paddingTop: 4 }}>
-                {selectedActionId === 'new' ? 'New Action' : 'Edit Action'}
+                {selectedActionId === 'new' ? 'New ' : 'Edit '}
+                action
             </h1>
 
             <Form
@@ -170,7 +165,8 @@ export function EditAction(): JSX.Element {
                         </Button>
                     ) : null}
                     <Button type="primary" htmlType="submit">
-                        {selectedActionId === 'new' ? 'Create Action' : 'Save Action'}
+                        {selectedActionId === 'new' ? 'Create ' : 'Save '}
+                        action
                     </Button>
                 </Form.Item>
             </Form>

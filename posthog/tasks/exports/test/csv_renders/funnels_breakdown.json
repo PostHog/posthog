@@ -1,0 +1,112 @@
+{
+    "csv_rows": [
+        "name,breakdown_value,action_id,count,median_conversion_time (seconds),average_conversion_time (seconds)",
+        "$pageview,slider_on,$pageview,5193,,",
+        "2671,slider_on,2671,88,30,473.5640151515152",
+        "$pageview,,$pageview,746,,",
+        "2671,,2671,1,1283,1283.25",
+        "$pageview,control,$pageview,5109,,",
+        "2671,control,2671,75,32,4309.385604617603",
+        ""
+    ],
+    "response": {
+        "result": [
+            [
+                {
+                    "action_id": "$pageview",
+                    "name": "$pageview",
+                    "custom_name": null,
+                    "order": 0,
+                    "people": [],
+                    "count": 5193,
+                    "type": "events",
+                    "average_conversion_time": null,
+                    "median_conversion_time": null,
+                    "breakdown": ["slider_on"],
+                    "breakdown_value": ["slider_on"],
+                    "converted_people_url": "/api/person/funnel/?foo=bar",
+                    "dropped_people_url": null
+                },
+                {
+                    "action_id": "2671",
+                    "name": "User Signed Up",
+                    "custom_name": null,
+                    "order": 1,
+                    "people": [],
+                    "count": 88,
+                    "type": "actions",
+                    "average_conversion_time": 473.5640151515152,
+                    "median_conversion_time": 30,
+                    "breakdown": ["slider_on"],
+                    "breakdown_value": ["slider_on"],
+                    "converted_people_url": "/api/person/funnel/?foo=bar",
+                    "dropped_people_url": "/api/person/funnel/?foo=bar"
+                }
+            ],
+            [
+                {
+                    "action_id": "$pageview",
+                    "name": "$pageview",
+                    "custom_name": null,
+                    "order": 0,
+                    "people": [],
+                    "count": 746,
+                    "type": "events",
+                    "average_conversion_time": null,
+                    "median_conversion_time": null,
+                    "breakdown": [""],
+                    "breakdown_value": [""],
+                    "converted_people_url": "/api/person/funnel/?foo=bar",
+                    "dropped_people_url": null
+                },
+                {
+                    "action_id": "2671",
+                    "name": "User Signed Up",
+                    "custom_name": null,
+                    "order": 1,
+                    "people": [],
+                    "count": 1,
+                    "type": "actions",
+                    "average_conversion_time": 1283.25,
+                    "median_conversion_time": 1283,
+                    "breakdown": [""],
+                    "breakdown_value": [""],
+                    "converted_people_url": "/api/person/funnel/?foo=bar",
+                    "dropped_people_url": "/api/person/funnel/?foo=bar"
+                }
+            ],
+            [
+                {
+                    "action_id": "$pageview",
+                    "name": "$pageview",
+                    "custom_name": null,
+                    "order": 0,
+                    "people": [],
+                    "count": 5109,
+                    "type": "events",
+                    "average_conversion_time": null,
+                    "median_conversion_time": null,
+                    "breakdown": ["control"],
+                    "breakdown_value": ["control"],
+                    "converted_people_url": "/api/person/funnel/?foo=bar",
+                    "dropped_people_url": null
+                },
+                {
+                    "action_id": "2671",
+                    "name": "User Signed Up",
+                    "custom_name": null,
+                    "order": 1,
+                    "people": [],
+                    "count": 75,
+                    "type": "actions",
+                    "average_conversion_time": 4309.385604617603,
+                    "median_conversion_time": 32,
+                    "breakdown": ["control"],
+                    "breakdown_value": ["control"],
+                    "converted_people_url": "/api/person/funnel/?foo=bar",
+                    "dropped_people_url": "/api/person/funnel/?foo=bar"
+                }
+            ]
+        ]
+    }
+}

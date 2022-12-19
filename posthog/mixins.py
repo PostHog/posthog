@@ -1,29 +1,38 @@
-from typing import Dict, Optional
+from rest_framework import mixins
 
-import posthoganalytics
-from rest_framework import response, status
+from posthog.event_usage import report_user_action
 
 
-class AnalyticsDestroyModelMixin:
+def log_deletion_metadata_to_posthog(func):
     """
-    Destroy a model instance sending analytics information.
+    wraps a DRF destroy endpoint and sends a PostHog event recording its deletion
+    so:
+        * args[0] is the ViewSet
+        * args[1] is the HTTP request
     """
 
-    def perform_destroy(self, instance):
-        instance.delete()
+    def wrapper(*args, **kwargs):
+        instance = args[0].get_object()
+        user = args[1].user
+        metadata = instance.get_analytics_metadata() if hasattr(instance, "get_analytics_metadata") else {}
 
-    def destroy(self, request, *args, **kwgars):
+        func_result = func(*args, **kwargs)
 
-        instance = self.get_object()  # type: ignore
+        report_user_action(user, f"{instance._meta.verbose_name} deleted", metadata)
 
-        metadata: Optional[Dict] = instance.get_analytics_metadata() if hasattr(
-            instance, "get_analytics_metadata",
-        ) else None
+        return func_result
 
-        self.perform_destroy(instance)
+    return wrapper
 
-        posthoganalytics.capture(
-            request.user.distinct_id, f"{instance._meta.verbose_name} deleted", metadata,
-        )
 
-        return response.Response(status=status.HTTP_204_NO_CONTENT)
+class AnalyticsDestroyModelMixin(mixins.DestroyModelMixin):
+    """
+    DestroyModelMixin enhancement that provides reporting of when an object is deleted.
+
+    Generally this would be better off executed at the serializer level,
+    but deletion (i.e. `destroy`) is performed directly in the viewset, which is why this mixin is a thing.
+    """
+
+    @log_deletion_metadata_to_posthog
+    def destroy(self, request, *args, **kwargs):
+        return super().destroy(request, *args, **kwargs)

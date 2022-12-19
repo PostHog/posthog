@@ -1,11 +1,13 @@
 import base64
 import json
+from typing import cast
 
 # This method will be used by the mock to replace requests.get
-from posthog.plugins.utils import get_json_from_zip_archive, put_json_into_zip_archive
+from posthog.plugins.utils import get_file_from_zip_archive, put_json_into_zip_archive
 
 from .plugin_archives import (
     HELLO_WORLD_PLUGIN_GITHUB_ATTACHMENT_ZIP,
+    HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP,
     HELLO_WORLD_PLUGIN_GITHUB_ZIP,
     HELLO_WORLD_PLUGIN_GITLAB_ZIP,
     HELLO_WORLD_PLUGIN_NPM_TGZ,
@@ -41,13 +43,25 @@ def mocked_plugin_requests_get(*args, **kwargs):
         def ok(self):
             return self.status_code < 300
 
-    if args[0] == "https://api.github.com/repos/PostHog/posthog/commits":
+    if args[0] == "https://api.github.com/repos/PostHog/posthog/commits?sha=&path=":
         return MockJSONResponse(
             [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
             200,
         )
 
-    if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits":
+    if args[0] == "https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=":
+        return MockJSONResponse(
+            [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
+            200,
+        )
+
+    if args[0] == "https://api.github.com/repos/PostHog/posthog/commits?sha=main&path=test/path/in/repo":
+        return MockJSONResponse(
+            [{"sha": "MOCKLATESTCOMMIT", "html_url": "https://www.github.com/PostHog/posthog/commit/MOCKLATESTCOMMIT"}],
+            200,
+        )
+
+    if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits?sha=&path=":
         return MockJSONResponse(
             [
                 {
@@ -57,6 +71,12 @@ def mocked_plugin_requests_get(*args, **kwargs):
                     ),
                 }
             ],
+            200,
+        )
+
+    if args[0] == "https://api.github.com/repos/PostHog/helloworldplugin/commits?sha=main&path=":
+        return MockJSONResponse(
+            {"commit": {"sha": HELLO_WORLD_PLUGIN_GITHUB_ZIP[0]}},
             200,
         )
 
@@ -101,6 +121,11 @@ def mocked_plugin_requests_get(*args, **kwargs):
     ):
         return MockBase64Response(HELLO_WORLD_PLUGIN_SECRET_GITHUB_ZIP[1], 200)
 
+    if args[0] == "https://github.com/PostHog/helloworldplugin/archive/{}.zip".format(
+        HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP[0]
+    ):
+        return MockBase64Response(HELLO_WORLD_PLUGIN_GITHUB_SUBDIR_ZIP[1], 200)
+
     # https://github.com/posthog-plugin/version-equals/commit/{vesrion}
     # https://github.com/posthog-plugin/version-greater-than/commit/{vesrion}
     # https://github.com/posthog-plugin/version-less-than/commit/{vesrion}
@@ -109,7 +134,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
         url_version = args[0].split("/")[6].split(".zip")[0]
 
         archive = base64.b64decode(HELLO_WORLD_PLUGIN_GITHUB_ZIP[1])
-        plugin_json = get_json_from_zip_archive(archive, "plugin.json")
+        plugin_json = cast(dict, get_file_from_zip_archive(archive, "plugin.json", json_parse=True))
         plugin_json["posthogVersion"] = url_version
 
         if url_repo == "version-greater-than":
@@ -138,7 +163,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
     if args[0] == "https://registry.npmjs.org/posthog-helloworld-plugin/-/posthog-helloworld-plugin-0.0.0.tgz":
         return MockBase64Response(HELLO_WORLD_PLUGIN_NPM_TGZ[1], 200)
 
-    if args[0] == "https://raw.githubusercontent.com/PostHog/plugin-repository/main/repository.json":
+    if args[0] == "https://raw.githubusercontent.com/PostHog/integrations-repository/main/plugins.json":
         return MockTextResponse(
             json.dumps(
                 [
@@ -146,6 +171,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
                         "name": "posthog-currency-normalization-plugin",
                         "url": "https://github.com/posthog/posthog-currency-normalization-plugin",
                         "description": "Normalise monerary values into a base currency",
+                        "icon": "https://raw.githubusercontent.com/posthog/posthog-currency-normalization-plugin/main/logo.png",
                         "verified": False,
                         "maintainer": "official",
                     },
@@ -153,6 +179,7 @@ def mocked_plugin_requests_get(*args, **kwargs):
                         "name": "helloworldplugin",
                         "url": "https://github.com/posthog/helloworldplugin",
                         "description": "Greet the World and Foo a Bar",
+                        "icon": "https://raw.githubusercontent.com/posthog/helloworldplugin/main/logo.png",
                         "verified": True,
                         "maintainer": "community",
                     },

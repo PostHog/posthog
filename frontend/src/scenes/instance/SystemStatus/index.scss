@@ -6,3 +6,12 @@
         }
     }
 }
+
+.embedded-svg-wrapper {
+    cursor: text;
+
+    svg {
+        width: 100%;
+        height: 100%;
+    }
+}

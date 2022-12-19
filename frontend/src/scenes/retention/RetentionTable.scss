@@ -1,24 +1,70 @@
-@import '~/vars';
+.RetentionTable {
+    font-weight: 500;
+    width: 100%;
 
-.retention-table {
-    .ant-table-tbody .ant-table-cell {
-        padding: 0px !important;
+    th {
+        white-space: nowrap;
+        font-weight: 500;
+        border-left: 1px solid var(--border);
+        padding: 0rem 0.5rem;
+        border-top: 10px solid transparent;
+        border-bottom: 10px solid transparent;
+        text-align: left;
+        &:first-of-type {
+            border-left: none;
+        }
     }
 
-    .percentage-cell {
-        padding: 8px;
+    tr {
+        border-left: 5px solid transparent;
+        transition: border-color 200ms linear;
+
+        &:not(:first-of-type) {
+            cursor: pointer;
+
+            &:hover {
+                border-left-color: var(--retention-table-dark-color);
+            }
+        }
     }
 
-    .period-in-progress {
-        background: repeating-linear-gradient(-45deg, #e4edf9, #e4edf9 10px, #f8fbfe 10px, #f8fbfe 20px);
-        color: #555555;
+    .RetentionTable__TextTab {
+        padding: 0rem 1rem 0rem 0.5rem;
+        white-space: nowrap;
     }
-}
 
-.retention-success {
-    border-radius: $radius;
-    background-color: lighten($primary, 20%);
-}
-.retention-dropped {
-    background-color: $bg_mid;
+    .RetentionTable__Tab {
+        padding: 0.5rem;
+        margin: 2px;
+        border-radius: 0.5rem;
+        text-align: right;
+        min-height: 2rem;
+        transition: transform 200ms ease-out;
+        background-color: var(--retention-table-dark-color); // NOTE: This is usually overridden in JS
+
+        &:hover {
+            transform: scale(1.05);
+        }
+
+        &.RetentionTable__Tab--period {
+            background-color: var(--white);
+            border: 1px solid var(--retention-table-color);
+            opacity: 0.75;
+        }
+    }
+
+    &.RetentionTable--non-interactive {
+        tr {
+            &:hover {
+                border-left-color: transparent;
+            }
+        }
+
+        .RetentionTable__Tab {
+            cursor: initial;
+            &:hover {
+                transform: none;
+            }
+        }
+    }
 }

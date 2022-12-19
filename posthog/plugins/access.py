@@ -1,12 +1,10 @@
 from typing import Optional, Union
 from uuid import UUID
 
-from django.conf import settings
-
 from posthog.models.organization import Organization
 
 
-def can_globally_manage_plugins(organization_or_id: Optional[Union[Organization, str, UUID]],) -> bool:
+def can_globally_manage_plugins(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
     if organization_or_id is None:
         return False
     organization: Organization = (
@@ -33,7 +31,7 @@ def can_install_plugins(
     return organization.plugins_access_level >= Organization.PluginsAccessLevel.INSTALL
 
 
-def can_configure_plugins(organization_or_id: Optional[Union[Organization, str, UUID]],) -> bool:
+def can_configure_plugins(organization_or_id: Optional[Union[Organization, str, UUID]]) -> bool:
     if organization_or_id is None:
         return False
     organization: Organization = (

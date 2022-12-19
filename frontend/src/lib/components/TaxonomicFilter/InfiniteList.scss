@@ -1,11 +1,13 @@
 .taxonomic-infinite-list {
     min-height: 200px;
+    flex-grow: 1;
 
     &.empty-infinite-list {
         width: 100%;
         display: flex;
         align-items: center;
         justify-content: center;
+
         .no-infinite-results {
             color: #666;
         }
@@ -20,8 +22,47 @@
         cursor: pointer;
         border: none;
 
+        .taxonomic-list-row-contents {
+            display: flex;
+            align-items: center;
+            user-select: none;
+
+            .taxonomic-list-row-contents-icon {
+                min-width: 30px;
+                display: flex;
+                justify-content: center;
+                margin-right: 4px;
+                margin-left: -4px;
+
+                svg.taxonomy-icon {
+                    vertical-align: middle;
+                    flex-shrink: 0;
+
+                    &.taxonomy-icon-muted {
+                        color: var(--muted-alt);
+                    }
+
+                    &.taxonomy-icon-verified {
+                        color: var(--success);
+                    }
+                }
+            }
+        }
+
+        & > div {
+            max-width: 100%;
+
+            & > span {
+                max-width: 100%;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+        }
+
         &.hover {
-            background: rgba(0, 0, 0, 0.1);
+            background-color: var(--primary-bg-hover);
+            border-radius: var(--radius);
         }
 
         &.selected {
@@ -33,6 +74,10 @@
             .ant-skeleton-paragraph {
                 margin-bottom: 0;
             }
+        }
+
+        &.expand-row {
+            color: var(--primary);
         }
     }
 }

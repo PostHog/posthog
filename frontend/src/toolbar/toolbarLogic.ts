@@ -1,49 +1,66 @@
-import { kea } from 'kea'
-import { toolbarLogicType } from './toolbarLogicType'
-import { EditorProps } from '~/types'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
+import type { toolbarLogicType } from './toolbarLogicType'
+import { ToolbarProps } from '~/types'
 import { clearSessionToolbarToken } from '~/toolbar/utils'
 import { posthog } from '~/toolbar/posthog'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import type { PostHog } from 'posthog-js'
+import { lemonToast } from 'lib/components/lemonToast'
 
-// input: props = all editorProps
-export const toolbarLogic = kea<toolbarLogicType>({
-    props: {} as EditorProps,
+export const toolbarLogic = kea<toolbarLogicType>([
+    path(['toolbar', 'toolbarLogic']),
+    props({} as ToolbarProps),
 
-    actions: () => ({
+    actions({
         authenticate: true,
         logout: true,
+        tokenExpired: true,
         processUserIntent: true,
         clearUserIntent: true,
         showButton: true,
         hideButton: true,
     }),
 
-    reducers: ({ props }: { props: EditorProps }) => ({
+    reducers(({ props }) => ({
         rawApiURL: [props.apiURL as string],
         rawJsURL: [(props.jsURL || props.apiURL) as string],
-        temporaryToken: [props.temporaryToken || null, { logout: () => null }],
+        temporaryToken: [props.temporaryToken || null, { logout: () => null, tokenExpired: () => null }],
         actionId: [props.actionId || null, { logout: () => null, clearUserIntent: () => null }],
         userIntent: [props.userIntent || null, { logout: () => null, clearUserIntent: () => null }],
+        source: [props.source || null, { logout: () => null }],
         buttonVisible: [true, { showButton: () => true, hideButton: () => false, logout: () => false }],
         dataAttributes: [(props.dataAttributes || []) as string[]],
+        posthog: [(props.posthog ?? null) as PostHog | null],
+    })),
+
+    selectors({
+        apiURL: [(s) => [s.rawApiURL], (apiURL) => `${apiURL.endsWith('/') ? apiURL.replace(/\/+$/, '') : apiURL}`],
+        jsURL: [
+            (s) => [s.rawJsURL, s.apiURL],
+            (rawJsURL, apiUrl) =>
+                `${rawJsURL ? (rawJsURL.endsWith('/') ? rawJsURL.replace(/\/+$/, '') : rawJsURL) : apiUrl}`,
+        ],
+        isAuthenticated: [(s) => [s.temporaryToken], (temporaryToken) => !!temporaryToken],
     }),
 
-    selectors: ({ selectors }) => ({
-        apiURL: [() => [selectors.rawApiURL], (apiURL) => `${apiURL}${apiURL.endsWith('/') ? '' : '/'}`],
-        jsURL: [() => [selectors.rawJsURL], (jsURL) => `${jsURL}${jsURL.endsWith('/') ? '' : '/'}`],
-        isAuthenticated: [() => [selectors.temporaryToken], (temporaryToken) => !!temporaryToken],
-    }),
-
-    listeners: ({ values, props }) => ({
+    listeners(({ values, props }) => ({
         authenticate: () => {
             posthog.capture('toolbar authenticate', { is_authenticated: values.isAuthenticated })
             const encodedUrl = encodeURIComponent(window.location.href)
-            window.location.href = `${values.apiURL}authorize_and_redirect/?redirect=${encodedUrl}`
+            window.location.href = `${values.apiURL}/authorize_and_redirect/?redirect=${encodedUrl}`
             clearSessionToolbarToken()
         },
         logout: () => {
             posthog.capture('toolbar logout')
+            clearSessionToolbarToken()
+        },
+        tokenExpired: () => {
+            posthog.capture('toolbar token expired')
+            console.log('PostHog Toolbar API token expired. Clearing session.')
+            if (values.source !== 'localstorage') {
+                lemonToast.error('PostHog Toolbar API token expired.')
+            }
             clearSessionToolbarToken()
         },
         processUserIntent: async () => {
@@ -53,18 +70,19 @@ export const toolbarLogic = kea<toolbarLogicType>({
                 // the right view will next be opened in `actionsTabLogic` on `getActionsSuccess`
             }
         },
-    }),
+    })),
 
-    events: ({ props, actions, values }) => ({
-        async afterMount() {
-            if (props.instrument) {
-                posthog.identify((props as EditorProps).distinctId || null, { email: props.userEmail })
-                posthog.optIn()
+    afterMount(({ props, actions, values }) => {
+        if (props.instrument) {
+            const distinctId = props.distinctId
+            if (distinctId) {
+                posthog.identify(distinctId, props.userEmail ? { email: props.userEmail } : {})
             }
-            if (props.userIntent) {
-                actions.processUserIntent()
-            }
-            posthog.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
-        },
+            posthog.optIn()
+        }
+        if (props.userIntent) {
+            actions.processUserIntent()
+        }
+        posthog.capture('toolbar loaded', { is_authenticated: values.isAuthenticated })
     }),
-})
+])

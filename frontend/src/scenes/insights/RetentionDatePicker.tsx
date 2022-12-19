@@ -1,23 +1,21 @@
-import React from 'react'
-import dayjs from 'dayjs'
-import dayjsGenerateConfig from 'rc-picker/lib/generate/dayjs'
-import generatePicker from 'antd/es/date-picker/generatePicker'
 import { useActions, useValues } from 'kea'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
-import { CalendarOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { dayjs } from 'lib/dayjs'
+import { DatePicker } from 'lib/components/DatePicker'
 
-const DatePicker = generatePicker<dayjs.Dayjs>(dayjsGenerateConfig)
+export function RetentionDatePicker({ disabled }: { disabled?: boolean }): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(retentionTableLogic(insightProps))
+    const { setFilters } = useActions(retentionTableLogic(insightProps))
 
-export function RetentionDatePicker(): JSX.Element {
-    const { filters } = useValues(retentionTableLogic({ dashboardItemId: null }))
-    const { setFilters } = useActions(retentionTableLogic({ dashboardItemId: null }))
     const yearSuffix = filters.date_to && dayjs(filters.date_to).year() !== dayjs().year() ? ', YYYY' : ''
+
     return (
         <>
             <Tooltip title="Cohorts up to this end date">
-                <span style={{ maxWidth: 100, display: 'inline-flex', alignItems: 'center' }}>
-                    <CalendarOutlined />
+                <span style={{ maxWidth: 100 }} className="flex inline-flex items-center pl-2">
                     <DatePicker
                         showTime={filters.period === 'Hour'}
                         use12Hours
@@ -27,7 +25,7 @@ export function RetentionDatePicker(): JSX.Element {
                         allowClear
                         placeholder="Today"
                         className="retention-date-picker"
-                        suffixIcon={null}
+                        disabled={disabled}
                     />
                 </span>
             </Tooltip>

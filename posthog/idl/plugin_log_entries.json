@@ -1,0 +1,56 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "file://posthog/idl/plugin_log_entries.json",
+    "title": "plugin_log_entries",
+    "description": "Plugin log entries that are destined for ClickHouse",
+    "type": "object",
+    "properties": {
+        "id": {
+            "description": "UUID for the log entry",
+            "type": "string"
+        },
+        "team_id": {
+            "description": "Team ID associated with person_distinct_id",
+            "type": "number"
+        },
+        "plugin_id": {
+            "description": "Plugin ID associated with the log entry",
+            "type": "number"
+        },
+        "plugin_config_id": {
+            "description": "Plugin Config ID associated with the log entry",
+            "type": "number"
+        },
+        "timestamp": {
+            "description": "Timestamp for when the log entry was created",
+            "type": "number"
+        },
+        "source": {
+            "description": "Source of the log entry",
+            "type": "string"
+        },
+        "type": {
+            "description": "Log entry type",
+            "type": "string"
+        },
+        "message": {
+            "description": "Log entry body",
+            "type": "string"
+        },
+        "instance_id": {
+            "description": "UUID of the instance that generated the log entry",
+            "type": "string"
+        }
+    },
+    "required": [
+        "id",
+        "team_id",
+        "plugin_id",
+        "plugin_config_id",
+        "timestamp",
+        "source",
+        "type",
+        "message",
+        "instance_id"
+    ]
+}

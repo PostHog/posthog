@@ -2,13 +2,25 @@ import { kea } from 'kea'
 import { combineUrl } from 'kea-router'
 import api from 'lib/api'
 import { RenderedRows } from 'react-virtualized/dist/es/List'
-import { EventDefinitionStorage } from '~/models/eventDefinitionsModel'
-import { infiniteListLogicType } from './infiniteListLogicType'
+import type { infiniteListLogicType } from './infiniteListLogicType'
 import { CohortType, EventDefinition } from '~/types'
 import Fuse from 'fuse.js'
-import { InfiniteListLogicProps, ListFuse, ListStorage, LoaderOptions } from 'lib/components/TaxonomicFilter/types'
+import {
+    InfiniteListLogicProps,
+    ListFuse,
+    ListStorage,
+    LoaderOptions,
+    TaxonomicDefinitionTypes,
+    TaxonomicFilterGroup,
+} from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { groups } from 'lib/components/TaxonomicFilter/groups'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+
+/*
+ by default the pop-up starts open for the first item in the list
+ this can be used with actions.setIndex to allow a caller to override that
+ */
+export const NO_ITEM_SELECTED = -1
 
 function appendAtIndex<T>(array: T[], items: any[], startIndex?: number): T[] {
     if (startIndex === undefined) {
@@ -30,17 +42,39 @@ const createEmptyListStorage = (searchQuery = '', first = false): ListStorage =>
 
 // simple cache with a setTimeout expiry
 const API_CACHE_TIMEOUT = 60000
-const apiCache: Record<string, EventDefinitionStorage> = {}
-const apiCacheTimers: Record<string, number> = {}
+let apiCache: Record<string, ListStorage> = {}
+let apiCacheTimers: Record<string, number> = {}
+
+async function fetchCachedListResponse(path: string, searchParams: Record<string, any>): Promise<ListStorage> {
+    const url = combineUrl(path, searchParams).url
+    let response
+    if (apiCache[url]) {
+        response = apiCache[url]
+    } else {
+        response = await api.get(url)
+        apiCache[url] = response
+        apiCacheTimers[url] = window.setTimeout(() => {
+            delete apiCache[url]
+            delete apiCacheTimers[url]
+        }, API_CACHE_TIMEOUT)
+    }
+    return response
+}
 
 export const infiniteListLogic = kea<infiniteListLogicType>({
+    path: (key) => ['lib', 'components', 'TaxonomicFilter', 'infiniteListLogic', key],
     props: {} as InfiniteListLogicProps,
 
     key: (props) => `${props.taxonomicFilterLogicKey}-${props.listGroupType}`,
 
     connect: (props: InfiniteListLogicProps) => ({
-        values: [taxonomicFilterLogic(props), ['searchQuery', 'value', 'groupType']],
-        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem']],
+        values: [
+            taxonomicFilterLogic(props),
+            ['searchQuery', 'value', 'groupType', 'taxonomicGroups'],
+            featureFlagsLogic,
+            ['featureFlags'],
+        ],
+        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     }),
 
     actions: {
@@ -51,16 +85,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         setLimit: (limit: number) => ({ limit }),
         onRowsRendered: (rowInfo: RenderedRows) => ({ rowInfo }),
         loadRemoteItems: (options: LoaderOptions) => options,
+        updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
+        expand: true,
     },
 
-    reducers: {
+    reducers: ({ props }) => ({
         index: [
-            0 as number,
+            (props.selectFirstItem === false ? NO_ITEM_SELECTED : 0) as number,
             {
                 setIndex: (_, { index }) => index,
                 loadRemoteItemsSuccess: (state, { remoteItems }) => (remoteItems.queryChanged ? 0 : state),
             },
         ],
+        showPopover: [props.popoverEnabled !== false, {}],
         limit: [
             100,
             {
@@ -69,7 +106,8 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
         startIndex: [0, { onRowsRendered: (_, { rowInfo: { startIndex } }) => startIndex }],
         stopIndex: [0, { onRowsRendered: (_, { rowInfo: { stopIndex } }) => stopIndex }],
-    },
+        isExpanded: [false, { expand: () => true }],
+    }),
 
     loaders: ({ values }) => ({
         remoteItems: [
@@ -79,42 +117,67 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     // avoid the 150ms delay on first load
                     if (!values.remoteItems.first) {
                         await breakpoint(150)
+                    } else {
+                        // These connected values below might be read before they are available due to circular logic mounting.
+                        // Adding a slight delay (breakpoint) fixes this.
+                        await breakpoint(1)
                     }
 
-                    const { remoteEndpoint, searchQuery } = values
+                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery, excludedProperties } = values
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
                         return createEmptyListStorage(searchQuery)
                     }
 
-                    const url = combineUrl(remoteEndpoint, {
-                        search: searchQuery,
+                    const searchParams = {
+                        [`${values.group?.searchAlias || 'search'}`]: searchQuery,
                         limit,
                         offset,
-                    }).url
-
-                    let response: EventDefinitionStorage
-
-                    if (apiCache[url]) {
-                        response = apiCache[url]
-                    } else {
-                        response = await api.get(url)
-                        apiCache[url] = response
-                        apiCacheTimers[url] = window.setTimeout(() => {
-                            delete apiCache[url]
-                            delete apiCacheTimers[url]
-                        }, API_CACHE_TIMEOUT)
-                        breakpoint()
+                        excluded_properties: JSON.stringify(excludedProperties),
                     }
+
+                    const [response, expandedCountResponse] = await Promise.all([
+                        // get the list of results
+                        fetchCachedListResponse(
+                            scopedRemoteEndpoint && !isExpanded ? scopedRemoteEndpoint : remoteEndpoint,
+                            searchParams
+                        ),
+                        // if this is an unexpanded scoped list, get the count for the normafull list
+                        scopedRemoteEndpoint && !isExpanded
+                            ? fetchCachedListResponse(remoteEndpoint, {
+                                  ...searchParams,
+                                  limit: 1,
+                                  offset: 0,
+                              })
+                            : null,
+                    ])
+                    breakpoint()
 
                     const queryChanged = values.items.searchQuery !== values.searchQuery
 
                     return {
-                        results: appendAtIndex(queryChanged ? [] : values.items.results, response.results, offset),
+                        results: appendAtIndex(
+                            queryChanged ? [] : values.items.results,
+                            response.results || response,
+                            offset
+                        ),
                         searchQuery: values.searchQuery,
                         queryChanged,
-                        count: response.count,
+                        count:
+                            response.count ||
+                            (Array.isArray(response) ? response.length : 0) ||
+                            (response.results || []).length,
+                        expandedCount: expandedCountResponse?.count,
+                    }
+                },
+                updateRemoteItem: ({ item }) => {
+                    // On updating item, invalidate cache
+                    apiCache = {}
+                    apiCacheTimers = {}
+                    return {
+                        ...values.remoteItems,
+                        results: values.remoteItems.results.map((i) => (i.name === item.name ? item : i)),
                     }
                 },
             },
@@ -144,33 +207,68 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             }
         },
         moveUp: () => {
-            const { index, totalCount } = values
-            actions.setIndex((index - 1 + totalCount) % totalCount)
+            const { index, totalListCount } = values
+            actions.setIndex((index - 1 + totalListCount) % totalListCount)
         },
         moveDown: () => {
-            const { index, totalCount } = values
-            actions.setIndex((index + 1) % totalCount)
+            const { index, totalListCount } = values
+            actions.setIndex((index + 1) % totalListCount)
         },
         selectSelected: () => {
-            actions.selectItem(props.listGroupType, values.selectedItemValue, values.selectedItem)
+            if (values.isExpandableButtonSelected) {
+                actions.expand()
+            } else {
+                actions.selectItem(values.group, values.selectedItemValue, values.selectedItem)
+            }
+        },
+        loadRemoteItemsSuccess: ({ remoteItems }) => {
+            actions.infiniteListResultsReceived(props.listGroupType, remoteItems)
+        },
+        expand: () => {
+            actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
     }),
 
     selectors: {
         listGroupType: [() => [(_, props) => props.listGroupType], (listGroupType) => listGroupType],
         isLoading: [(s) => [s.remoteItemsLoading], (remoteItemsLoading) => remoteItemsLoading],
-        group: [(s) => [s.listGroupType], (listGroupType) => groups.find((g) => g.type === listGroupType)],
+        group: [
+            (s) => [s.listGroupType, s.taxonomicGroups],
+            (listGroupType, taxonomicGroups): TaxonomicFilterGroup =>
+                taxonomicGroups.find((g) => g.type === listGroupType) as TaxonomicFilterGroup,
+        ],
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
+        excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
+        scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
+        hasRenderFunction: [(s) => [s.group], (group) => !!group?.render],
+        isExpandable: [
+            (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],
+            (remoteEndpoint, scopedRemoteEndpoint, remoteItems) =>
+                !!(
+                    remoteEndpoint &&
+                    scopedRemoteEndpoint &&
+                    remoteItems.expandedCount &&
+                    remoteItems.expandedCount > remoteItems.count
+                ),
+        ],
+        isExpandableButtonSelected: [
+            (s) => [s.isExpandable, s.index, s.totalListCount],
+            (isExpandable, index, totalListCount) => isExpandable && index === totalListCount - 1,
+        ],
         isRemoteDataSource: [(s) => [s.remoteEndpoint], (remoteEndpoint) => !!remoteEndpoint],
         rawLocalItems: [
-            () => [
+            (selectors) => [
                 (state, props) => {
-                    const group = groups.find((g) => g.type === props.listGroupType)
+                    const taxonomicGroups = selectors.taxonomicGroups(state)
+                    const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
                     if (group?.logic && group?.value) {
                         return group.logic.selectors[group.value]?.(state) || null
                     }
                     if (group?.options) {
                         return group.options
+                    }
+                    if (props.optionsFromProp && Object.keys(props.optionsFromProp).includes(props.listGroupType)) {
+                        return props.optionsFromProp[props.listGroupType]
                     }
                     return null
                 },
@@ -212,9 +310,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (s) => [s.isRemoteDataSource, s.remoteItems, s.localItems],
             (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
         ],
-        totalCount: [(s) => [s.items], (items) => items.count || 0],
+        totalResultCount: [(s) => [s.items], (items) => items.count || 0],
+        totalExtraCount: [
+            (s) => [s.isExpandable, s.hasRenderFunction],
+            (isExpandable, hasRenderFunction) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
+        ],
+        totalListCount: [
+            (s) => [s.totalResultCount, s.totalExtraCount],
+            (totalResultCount, totalExtraCount) => totalResultCount + totalExtraCount,
+        ],
+        expandedCount: [(s) => [s.items], (items) => items.expandedCount || 0],
         results: [(s) => [s.items], (items) => items.results],
-        selectedItem: [(s) => [s.index, s.items], (index, items) => (index >= 0 ? items.results[index] : undefined)],
+        selectedItem: [
+            (s) => [s.index, s.items],
+            (index, items): TaxonomicDefinitionTypes | undefined => (index >= 0 ? items.results[index] : undefined),
+        ],
         selectedItemValue: [
             (s) => [s.selectedItem, s.group],
             (selectedItem, group) => (selectedItem ? group?.getValue?.(selectedItem) || null : null),

@@ -1,15 +1,25 @@
-@import '~/vars';
-
 .dropdown-selector {
-    padding: $default_spacing / 2;
-    border: 1px solid $border_light;
-    border-radius: $radius;
+    padding: 0.5rem;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius);
     display: flex;
     align-items: center;
     cursor: pointer;
 
     &.disabled {
-        color: $text_muted;
+        color: var(--muted);
         cursor: not-allowed;
+    }
+
+    &.compact {
+        padding: 0.333rem 0.5rem;
+    }
+
+    .dropdown-arrow {
+        display: flex;
+        align-items: center;
+        padding-left: 4px;
+        font-size: 1.2em;
+        color: var(--muted-alt);
     }
 }

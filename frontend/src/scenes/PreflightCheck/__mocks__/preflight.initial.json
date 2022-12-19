@@ -1,0 +1,68 @@
+{
+    "kea": {
+        "router": {
+            "location": {
+                "pathname": "/preflight",
+                "search": "",
+                "hash": ""
+            },
+            "searchParams": {},
+            "hashParams": {}
+        }
+    },
+    "scenes": {
+        "userLogic": {
+            "user": null,
+            "userLoading": false
+        },
+        "PreflightCheck": {
+            "logic": {
+                "preflight": {
+                    "django": true,
+                    "redis": true,
+                    "plugins": false,
+                    "celery": false,
+                    "db": true,
+                    "initiated": false,
+                    "cloud": false,
+                    "clickhouse": false,
+                    "kafka": false,
+                    "realm": "hosted",
+                    "object_storage": true,
+                    "available_social_auth_providers": {
+                        "github": false,
+                        "gitlab": false,
+                        "google-oauth2": false,
+                        "saml": false
+                    },
+                    "can_create_org": true
+                },
+                "preflightLoading": false,
+                "preflightMode": null
+            }
+        },
+        "App": {
+            "showingDelayedSpinner": true,
+            "featureFlagsTimedOut": true
+        },
+        "sceneLogic": {
+            "scene": "preflightCheck",
+            "params": {},
+            "loadedScenes": {
+                "404": {},
+                "4xx": {},
+                "preflightCheck": {}
+            },
+            "loadingScene": null,
+            "upgradeModalFeatureNameAndCaption": null
+        }
+    },
+    "lib": {
+        "logic": {
+            "featureFlagLogic": {
+                "featureFlags": {},
+                "receivedFeatureFlags": true
+            }
+        }
+    }
+}

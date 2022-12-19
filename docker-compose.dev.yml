@@ -1,53 +1,71 @@
-version: '3'
+#
+# docker-compose file used ONLY for local development.
+# For more info, see:
+# https://posthog.com/handbook/engineering/developing-locally
+#
+# If you are looking at self-hosted deployment options check
+# https://posthog.com/docs/self-host
+#
 
 services:
     db:
-        image: postgres:12-alpine
-        container_name: posthog_db
-        environment:
-            POSTGRES_USER: posthog
-            POSTGRES_DB: posthog
-            POSTGRES_PASSWORD: posthog
+        extends:
+            file: docker-compose.base.yml
+            service: db
         ports:
             - '5432:5432'
+        # something in the django app when running in dev mode
+        # (maybe only in Pycharm) keeps many idle transactions open
+        # and eventually kills postgres, these settings aim to stop that happening.
+        # They are only for DEV and should not be used in production.
+        command: postgres -c max_connections=1000 -c idle_in_transaction_session_timeout=300000
+
     redis:
-        image: 'redis:5-alpine'
-        container_name: posthog_redis
+        extends:
+            file: docker-compose.base.yml
+            service: redis
         ports:
             - '6379:6379'
-    backend: &backend
-        build:
-            context: .
-            dockerfile: dev.Dockerfile
-        command: ./bin/docker-backend
+
+    clickhouse:
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        ports:
+            - '8123:8123'
+            - '9000:9000'
+            - '9440:9440'
+            - '9009:9009'
         volumes:
-            - .:/code
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            REDIS_URL: 'redis://redis:6379/'
-            SECRET_KEY: '<randomly generated secret key>'
-            DEBUG: 'true'
-            PGHOST: db
-            PGUSER: posthog
-            PGPASSWORD: posthog
-        depends_on:
-            - db
-            - redis
-        links:
-            - db:db
-            - redis:redis
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+
+    kafka:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
         ports:
-            - '8000:8000'
-    frontend:
-        <<: *backend
-        command: ./bin/docker-frontend
+            - '9092:9092'
+
+    object_storage:
+        extends:
+            file: docker-compose.base.yml
+            service: object_storage
         ports:
-            - '8234:8234'
-    worker:
-        <<: *backend
-        command: ./bin/docker-worker
-        ports: []
-        depends_on:
-            - db
-            - redis
-            - backend
+            - '19000:19000'
+            - '19001:19001'
+
+    maildev:
+        extends:
+            file: docker-compose.base.yml
+            service: maildev
+        ports:
+            - '1080:1080'
+            - '1025:1025'

@@ -1,0 +1,42 @@
+@import '../../../../styles/mixins';
+
+.BoldNumber {
+    width: 100%;
+    padding: 2rem 0 3rem;
+
+    @include screen($md) {
+        padding: 3rem 0 5rem;
+        .InsightCard & {
+            padding: 2rem 0;
+        }
+    }
+}
+
+.BoldNumber__value {
+    width: 100%;
+    text-align: center;
+    padding: 0 2rem;
+    margin: 0 auto;
+    line-height: 1;
+    font-weight: 700;
+    letter-spacing: -0.025em;
+
+    .InsightCard & {
+        padding: 0 1rem;
+    }
+
+    @include screen($md) {
+        padding: 0 5rem;
+        .InsightCard & {
+            padding: 0 2rem;
+        }
+    }
+}
+
+.BoldNumber__comparison {
+    margin-top: 0.5rem;
+    margin-bottom: -1.5rem;
+    color: var(--muted-alt);
+    font-weight: 500;
+    cursor: default;
+}

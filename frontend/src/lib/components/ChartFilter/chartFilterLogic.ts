@@ -1,53 +1,64 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
 import { objectsEqual } from 'lib/utils'
-import { chartFilterLogicType } from './chartFilterLogicType'
-import { ChartDisplayType, FunnelVizType, ViewType } from '~/types'
+import type { chartFilterLogicType } from './chartFilterLogicType'
+import { ChartDisplayType, FunnelsFilterType, FunnelVizType, InsightLogicProps, TrendsFilterType } from '~/types'
+import {
+    isFilterWithDisplay,
+    isStickinessFilter,
+    isTrendsFilter,
+    keyForInsightLogicProps,
+} from 'scenes/insights/sharedUtils'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { isFunnelsFilter } from 'scenes/insights/sharedUtils'
 
 function isFunnelVizType(filter: FunnelVizType | ChartDisplayType): filter is FunnelVizType {
     return Object.values(FunnelVizType).includes(filter as FunnelVizType)
 }
 
 export const chartFilterLogic = kea<chartFilterLogicType>({
-    actions: () => ({
-        setChartFilter: (filter: ChartDisplayType | FunnelVizType) => ({ filter }),
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('new'),
+    path: (key) => ['lib', 'components', 'ChartFilter', 'chartFilterLogic', key],
+    connect: (props: InsightLogicProps) => ({
+        actions: [insightLogic(props), ['setFilters']],
+        values: [insightLogic(props), ['filters']],
     }),
-    reducers: {
+
+    actions: () => ({
+        setChartFilter: (chartFilter: ChartDisplayType | FunnelVizType) => ({ chartFilter }),
+    }),
+
+    selectors: {
         chartFilter: [
-            null as null | ChartDisplayType | FunnelVizType,
-            {
-                setChartFilter: (_, { filter }) => filter,
+            (s) => [s.filters],
+            (filters): ChartDisplayType | FunnelVizType | null => {
+                return (
+                    (isFunnelsFilter(filters)
+                        ? filters.funnel_viz_type
+                        : isFilterWithDisplay(filters)
+                        ? filters.display
+                        : null) || null
+                )
             },
         ],
     },
-    listeners: ({ values }) => ({
-        setChartFilter: ({ filter }) => {
-            const { display, funnel_viz_type, ...searchParams } = router.values.searchParams // eslint-disable-line
-            const { pathname } = router.values.location
-            if (isFunnelVizType(filter)) {
-                searchParams.funnel_viz_type = filter
-                searchParams.display = ChartDisplayType.FunnelViz
-            } else {
-                searchParams.display = values.chartFilter
-            }
-            if (
-                (!isFunnelVizType(filter) && !objectsEqual(display, values.chartFilter)) ||
-                (isFunnelVizType(filter) && !objectsEqual(funnel_viz_type, values.chartFilter))
-            ) {
-                router.actions.replace(pathname, searchParams)
-            }
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (_, { display, insight, funnel_viz_type }) => {
-            if (display === ChartDisplayType.FunnelViz && !funnel_viz_type) {
-                actions.setChartFilter(FunnelVizType.Steps)
-            } else if (display && !funnel_viz_type) {
-                actions.setChartFilter(display)
-            } else if (insight === ViewType.RETENTION) {
-                actions.setChartFilter(ChartDisplayType.ActionsTable)
-            } else if (insight === ViewType.FUNNELS) {
-                actions.setChartFilter(funnel_viz_type || FunnelVizType.Steps)
+
+    listeners: ({ actions, values }) => ({
+        setChartFilter: ({ chartFilter }) => {
+            if (isFunnelVizType(chartFilter)) {
+                const funnel_viz_type = isFunnelsFilter(values.filters) ? values.filters.funnel_viz_type : null
+                if (funnel_viz_type !== chartFilter) {
+                    const newFilters: Partial<FunnelsFilterType> = {
+                        ...values.filters,
+                        funnel_viz_type: chartFilter,
+                    }
+                    actions.setFilters(newFilters)
+                }
+            } else if (isTrendsFilter(values.filters) || isStickinessFilter(values.filters)) {
+                if (!objectsEqual(values.filters.display, chartFilter)) {
+                    const newFilteres: Partial<TrendsFilterType> = { ...values.filters, display: chartFilter }
+                    actions.setFilters(newFilteres)
+                }
             }
         },
     }),

@@ -1,25 +1,11 @@
-@import '~/vars';
-
 .person-header {
-    display: flex;
-    @extend .text-ellipsis;
-
-    svg {
-        font-size: 1.3rem;
-        margin-right: 2px;
+    .profile-picture {
+        transition: opacity 200ms ease;
+        margin-right: 0.5rem;
     }
-
-    &.anonymous {
-        color: $text_muted;
-        svg {
-            color: $purple_300;
-        }
-    }
-
-    &.identified {
-        color: $text_default;
-        svg {
-            color: $purple_700;
+    a:hover {
+        .profile-picture {
+            opacity: 0.75;
         }
     }
 }

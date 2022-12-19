@@ -1,7 +1,6 @@
-import React from 'react'
 import { Button, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
-import { UploadFile } from 'antd/es/upload/interface'
+import { UploadFile } from 'antd/lib/upload/interface'
 
 export function UploadField({
     value,

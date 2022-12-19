@@ -1,0 +1,119 @@
+.property-names-select-container {
+    // Make sure we can absolutely position the popover
+    position: relative;
+
+    // Make sure the popover isn't cropped
+    overflow: visible;
+
+    min-width: 100px;
+
+    .property-names-select {
+        display: flex;
+        align-items: stretch;
+        align-items: center;
+        padding: 4px 8px;
+
+        /* background/clear */
+
+        background: #ffffff;
+        /* main/primary */
+
+        border: 1px solid var(--border);
+        border-radius: 4px;
+
+        .checkbox-icon {
+            font-size: 18px;
+            color: var(--primary);
+        }
+
+        .selection-status-text {
+            margin-left: 8px;
+            flex-grow: 1;
+        }
+
+        &:hover {
+            cursor: pointer;
+            .dropdown-icon {
+                border-radius: var(--radius);
+                background-color: var(--primary-light);
+            }
+        }
+
+        .dropdown-icon {
+            font-size: 1.5em;
+            line-height: 0;
+            margin-left: 4px;
+            color: var(--primary-alt);
+        }
+    }
+
+    .popover {
+        // Position the popover below the select
+        position: absolute;
+        top: calc(100% + 8px);
+        left: 0;
+        right: 0;
+
+        min-width: 320px;
+
+        // Make sure we don't get covered up
+        z-index: 100; // number is abritrary
+
+        padding: 8px;
+        /* background/clear */
+
+        background: #ffffff;
+        /* main/primary */
+
+        border: 1px solid var(--primary);
+        box-shadow: 0px 4px 4px rgba(0, 0, 0, 0.25);
+        border-radius: var(--radius);
+
+        .search-box {
+            padding: 8px;
+
+            /* background/clear */
+
+            background: #ffffff;
+            /* border/default */
+
+            border: 1px solid var(--border);
+            box-sizing: border-box;
+            border-radius: var(--radius);
+
+            &:focus-within {
+                border-color: var(--primary);
+            }
+        }
+
+        .search-results {
+            width: 100%;
+            max-height: 310px;
+            overflow-y: auto;
+
+            .checkbox {
+                padding: 8px;
+
+                height: 40px;
+                margin: 2px 0px;
+                width: 100%;
+
+                background: #ffffff;
+                border-radius: var(--radius);
+
+                &.checked {
+                    background: var(--primary-light);
+                }
+            }
+
+            .no-results-message {
+                padding: 8px;
+                text-align: center;
+                font-size: 14px;
+                line-height: 24px;
+                color: var(--default);
+                margin: 1em 4px;
+            }
+        }
+    }
+}

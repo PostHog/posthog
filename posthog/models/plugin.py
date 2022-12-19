@@ -1,10 +1,12 @@
 import datetime
 import os
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Union, cast
+from enum import Enum
+from typing import Any, Dict, List, Optional, Tuple, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.core import exceptions
 from django.db import models
 from django.db.models.signals import post_delete, post_save
 from django.dispatch.dispatcher import receiver
@@ -12,18 +14,26 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from semantic_version.base import SimpleSpec, Version
 
-from posthog.ee import is_clickhouse_enabled
+from posthog.cloud_utils import is_cloud
 from posthog.models.organization import Organization
+from posthog.models.signals import mutable_receiver
 from posthog.models.team import Team
 from posthog.plugins.access import can_configure_plugins, can_install_plugins
 from posthog.plugins.reload import reload_plugins_on_workers
-from posthog.plugins.utils import download_plugin_archive, get_json_from_archive, load_json_file, parse_url
+from posthog.plugins.site import get_decide_site_apps
+from posthog.plugins.utils import (
+    download_plugin_archive,
+    extract_plugin_code,
+    get_file_from_archive,
+    load_json_file,
+    parse_url,
+)
 from posthog.version import VERSION
 
 from .utils import UUIDModel, sane_repr
 
 try:
-    from ee.clickhouse.client import sync_execute
+    from posthog.client import sync_execute
 except ImportError:
     pass
 
@@ -32,45 +42,58 @@ def raise_if_plugin_installed(url: str, organization_id: str):
     url_without_private_key = url.split("?")[0]
     if (
         Plugin.objects.filter(
-            models.Q(url=url_without_private_key) | models.Q(url__startswith="{}?".format(url_without_private_key))
+            models.Q(url=url_without_private_key) | models.Q(url__startswith=f"{url_without_private_key}?")
         )
         .filter(organization_id=organization_id)
         .exists()
     ):
-        raise ValidationError('Plugin from URL "{}" already installed!'.format(url_without_private_key))
+        raise ValidationError(f'Plugin from URL "{url_without_private_key}" already installed!')
 
 
-def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict:
-    """If remote plugin, download the archive and get up-to-date validated_data from there."""
+def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> Dict[str, Any]:
+    """If remote plugin, download the archive and get up-to-date validated_data from there. Returns plugin.json."""
+    plugin_json: Optional[Dict[str, Any]]
     if url.startswith("file:"):
         plugin_path = url[5:]
-        json_path = os.path.join(plugin_path, "plugin.json")
-        json = load_json_file(json_path)
-        if not json:
-            raise ValidationError("Could not load plugin.json from: {}".format(json_path))
+        plugin_json_path = os.path.join(plugin_path, "plugin.json")
+        plugin_json = cast(Optional[Dict[str, Any]], load_json_file(plugin_json_path))
+        if not plugin_json:
+            raise ValidationError(f"Could not load plugin.json from: {plugin_json_path}")
         validated_data["plugin_type"] = "local"
         validated_data["url"] = url
         validated_data["tag"] = None
+        validated_data["latest_tag"] = None
         validated_data["archive"] = None
-        validated_data["name"] = json.get("name", json_path.split("/")[-2])
-        validated_data["description"] = json.get("description", "")
-        validated_data["config_schema"] = json.get("config", [])
-        validated_data["source"] = None
-        posthog_version = json.get("posthogVersion", None)
+        validated_data["name"] = plugin_json.get("name", plugin_json_path.split("/")[-2])
+        validated_data["icon"] = plugin_json.get("icon", None)
+        validated_data["description"] = plugin_json.get("description", "")
+        validated_data["config_schema"] = plugin_json.get("config", [])
+        validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
+        posthog_version = plugin_json.get("posthogVersion", None)
+        validated_data["is_stateless"] = plugin_json.get("stateless", False)
     else:
         parsed_url = parse_url(url, get_latest_if_none=True)
         if parsed_url:
-            validated_data["url"] = parsed_url["root_url"]
+            validated_data["url"] = url
             validated_data["tag"] = parsed_url.get("tag", None)
+            validated_data["latest_tag"] = parsed_url.get("tag", None)
             validated_data["archive"] = download_plugin_archive(validated_data["url"], validated_data["tag"])
-            plugin_json = get_json_from_archive(validated_data["archive"], "plugin.json")
+            plugin_json = cast(
+                Optional[Dict[str, Any]],
+                get_file_from_archive(validated_data["archive"], "plugin.json"),
+            )
             if not plugin_json:
                 raise ValidationError("Could not find plugin.json in the plugin")
             validated_data["name"] = plugin_json["name"]
             validated_data["description"] = plugin_json.get("description", "")
+            validated_data["icon"] = plugin_json.get("icon", None)
             validated_data["config_schema"] = plugin_json.get("config", [])
-            validated_data["source"] = None
+            validated_data["public_jobs"] = plugin_json.get("publicJobs", {})
             posthog_version = plugin_json.get("posthogVersion", None)
+            validated_data["is_stateless"] = plugin_json.get("stateless", False)
+
+            if validated_data["is_stateless"] and len(validated_data["config_schema"]) > 0:
+                raise ValidationError("Stateless plugins cannot have a config!")
         else:
             raise ValidationError("Must be a GitHub/GitLab repository or a npm package URL!")
 
@@ -81,7 +104,7 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
         ):
             validated_data["plugin_type"] = Plugin.PluginType.CUSTOM
 
-    if posthog_version and not settings.MULTI_TENANCY:
+    if posthog_version and not is_cloud():
         try:
             spec = SimpleSpec(posthog_version.replace(" ", ""))
         except ValueError:
@@ -91,18 +114,21 @@ def update_validated_data_from_url(validated_data: Dict[str, Any], url: str) -> 
                 f'Currently running PostHog version {VERSION} does not match this plugin\'s semantic version requirement "{posthog_version}".'
             )
 
-    return validated_data
+    return plugin_json
 
 
 class PluginManager(models.Manager):
     def install(self, **kwargs) -> "Plugin":
         if "organization_id" not in kwargs and "organization" in kwargs:
             kwargs["organization_id"] = kwargs["organization"].id
+        plugin_json: Optional[Dict[str, Any]] = None
         if kwargs.get("plugin_type", None) != Plugin.PluginType.SOURCE:
-            update_validated_data_from_url(kwargs, kwargs["url"])
+            plugin_json = update_validated_data_from_url(kwargs, kwargs["url"])
             raise_if_plugin_installed(kwargs["url"], kwargs["organization_id"])
-        reload_plugins_on_workers()
-        return Plugin.objects.create(**kwargs)
+        plugin = Plugin.objects.create(**kwargs)
+        if plugin_json:
+            PluginSourceFile.objects.sync_from_plugin_archive(plugin, plugin_json)
+        return plugin
 
 
 class Plugin(models.Model):
@@ -120,28 +146,37 @@ class Plugin(models.Model):
     )
     is_global: models.BooleanField = models.BooleanField(default=False)  # Whether plugin is installed for all orgs
     is_preinstalled: models.BooleanField = models.BooleanField(default=False)
+    is_stateless: models.BooleanField = models.BooleanField(
+        default=False, null=True, blank=True
+    )  # Whether plugin can run one VM across teams
+
     name: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     description: models.TextField = models.TextField(null=True, blank=True)
     url: models.CharField = models.CharField(max_length=800, null=True, blank=True)
+    icon: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     # Describe the fields to ask in the interface; store answers in PluginConfig->config
     # - config_schema = { [fieldKey]: { name: 'api key', type: 'string', default: '', required: true }  }
     config_schema: models.JSONField = models.JSONField(default=dict)
     tag: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     archive: models.BinaryField = models.BinaryField(blank=True, null=True)
-    source: models.TextField = models.TextField(blank=True, null=True)
     latest_tag: models.CharField = models.CharField(max_length=800, null=True, blank=True)
     latest_tag_checked_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
     capabilities: models.JSONField = models.JSONField(default=dict)
     metrics: models.JSONField = models.JSONField(default=dict, null=True)
+    public_jobs: models.JSONField = models.JSONField(default=dict, null=True)
 
     # DEPRECATED: not used for anything, all install and config errors are in PluginConfig.error
     error: models.JSONField = models.JSONField(default=None, null=True)
-    # DEPRECATED: these were used when syncing posthog.json with the db on app start
+    # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_json: models.BooleanField = models.BooleanField(default=False)
+    # DEPRECATED: this was used when syncing posthog.json with the db on app start
     from_web: models.BooleanField = models.BooleanField(default=False)
+    # DEPRECATED: using PluginSourceFile model instead
+    source: models.TextField = models.TextField(blank=True, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
-    updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
+    log_level: models.IntegerField = models.IntegerField(null=True, blank=True)
 
     objects: PluginManager = PluginManager()
 
@@ -161,12 +196,20 @@ class Plugin(models.Model):
         return config
 
     def __str__(self) -> str:
+        if not self.name:
+            return f"ID {self.id}"
         return self.name
 
     __repr__ = sane_repr("id", "name", "organization_id", "is_global")
 
 
 class PluginConfig(models.Model):
+    class Meta:
+        indexes = [
+            models.Index(fields=["web_token"]),
+            models.Index(fields=["enabled"]),
+        ]
+
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE, null=True)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
     enabled: models.BooleanField = models.BooleanField(default=False)
@@ -176,6 +219,8 @@ class PluginConfig(models.Model):
     # - e.g: "undefined is not a function on index.js line 23"
     # - error = { message: "Exception in processEvent()", time: "iso-string", ...meta }
     error: models.JSONField = models.JSONField(default=None, null=True)
+    # Used to access site.ts from a public URL
+    web_token: models.CharField = models.CharField(max_length=64, default=None, null=True)
 
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
@@ -202,45 +247,112 @@ class PluginStorage(models.Model):
     value: models.TextField = models.TextField(blank=True, null=True)
 
 
-class PluginLogEntry(UUIDModel):
+class PluginLogEntrySource(str, Enum):
+    SYSTEM = "SYSTEM"
+    PLUGIN = "PLUGIN"
+    CONSOLE = "CONSOLE"
+
+
+class PluginLogEntryType(str, Enum):
+    DEBUG = "DEBUG"
+    LOG = "LOG"
+    INFO = "INFO"
+    WARN = "WARN"
+    ERROR = "ERROR"
+
+
+class PluginSourceFileManager(models.Manager):
+    def sync_from_plugin_archive(
+        self, plugin: Plugin, plugin_json_parsed: Optional[Dict[str, Any]] = None
+    ) -> Tuple[
+        "PluginSourceFile", Optional["PluginSourceFile"], Optional["PluginSourceFile"], Optional["PluginSourceFile"]
+    ]:
+        """Create PluginSourceFile objects from a plugin that has an archive.
+
+        If plugin.json has already been parsed before this is called, its value can be passed in as an optimization."""
+        try:
+            plugin_json, index_ts, frontend_tsx, site_ts = extract_plugin_code(plugin.archive, plugin_json_parsed)
+        except ValueError as e:
+            raise exceptions.ValidationError(f"{e} in plugin {plugin}")
+        # If frontend.tsx or index.ts are not present in the archive, make sure they aren't found in the DB either
+        filenames_to_delete = []
+        # Save plugin.json
+        plugin_json_instance, _ = PluginSourceFile.objects.update_or_create(
+            plugin=plugin,
+            filename="plugin.json",
+            defaults={"source": plugin_json, "transpiled": None, "status": None, "error": None},
+        )
+        # Save frontend.tsx
+        frontend_tsx_instance: Optional["PluginSourceFile"] = None
+        if frontend_tsx is not None:
+            frontend_tsx_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin,
+                filename="frontend.tsx",
+                defaults={"source": frontend_tsx, "transpiled": None, "status": None, "error": None},
+            )
+        else:
+            filenames_to_delete.append("frontend.tsx")
+        # Save frontend.tsx
+        site_ts_instance: Optional["PluginSourceFile"] = None
+        if site_ts is not None:
+            site_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin,
+                filename="site.ts",
+                defaults={"source": site_ts, "transpiled": None, "status": None, "error": None},
+            )
+        else:
+            filenames_to_delete.append("site.ts")
+        # Save index.ts
+        index_ts_instance: Optional["PluginSourceFile"] = None
+        if index_ts is not None:
+            # The original name of the file is not preserved, but this greatly simplifies the rest of the code,
+            # and we don't need to model the whole filesystem (at this point)
+            index_ts_instance, _ = PluginSourceFile.objects.update_or_create(
+                plugin=plugin,
+                filename="index.ts",
+                defaults={"source": index_ts, "transpiled": None, "status": None, "error": None},
+            )
+        else:
+            filenames_to_delete.append("index.ts")
+        # Make sure files are gone
+        PluginSourceFile.objects.filter(plugin=plugin, filename__in=filenames_to_delete).delete()
+        # Trigger plugin server reload and code transpilation
+        plugin.save()
+        return plugin_json_instance, index_ts_instance, frontend_tsx_instance, site_ts_instance
+
+
+class PluginSourceFile(UUIDModel):
     class Meta:
-        indexes = [
-            models.Index(fields=["plugin_config_id", "timestamp"]),
-        ]
+        constraints = [models.UniqueConstraint(name="unique_filename_for_plugin", fields=("plugin_id", "filename"))]
 
-    class Source(models.TextChoices):
-        SYSTEM = "SYSTEM", "system"
-        PLUGIN = "PLUGIN", "plugin"
-        CONSOLE = "CONSOLE", "console"
-
-    class Type(models.TextChoices):
-        DEBUG = "DEBUG", "debug"
-        LOG = "LOG", "log"
-        INFO = "INFO", "info"
-        WARN = "WARN", "warn"
+    class Status(models.TextChoices):
+        LOCKED = "LOCKED", "locked"
+        TRANSPILED = "TRANSPILED", "transpiled"
         ERROR = "ERROR", "error"
 
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     plugin: models.ForeignKey = models.ForeignKey("Plugin", on_delete=models.CASCADE)
-    plugin_config: models.ForeignKey = models.ForeignKey("PluginConfig", on_delete=models.CASCADE)
-    timestamp: models.DateTimeField = models.DateTimeField(default=timezone.now)
-    source: models.CharField = models.CharField(max_length=20, choices=Source.choices)
-    type: models.CharField = models.CharField(max_length=20, choices=Type.choices)
-    message: models.TextField = models.TextField(db_index=True)
-    instance_id: models.UUIDField = models.UUIDField()
+    filename: models.CharField = models.CharField(max_length=200, blank=False)
+    # "source" can be null if we're only using this model to cache transpiled code from a ".zip"
+    source: models.TextField = models.TextField(blank=True, null=True)
+    status: models.CharField = models.CharField(max_length=20, choices=Status.choices, null=True)
+    transpiled: models.TextField = models.TextField(blank=True, null=True)
+    error: models.TextField = models.TextField(blank=True, null=True)
+    updated_at: models.DateTimeField = models.DateTimeField(null=True, blank=True)
 
-    __repr__ = sane_repr("plugin_config_id", "timestamp", "source", "type", "message")
+    objects: PluginSourceFileManager = PluginSourceFileManager()
+
+    __repr__ = sane_repr("plugin_id", "filename", "status")
 
 
-@dataclass
-class PluginLogEntryRaw:
+@dataclass(frozen=True)
+class PluginLogEntry:
     id: UUID
     team_id: int
     plugin_id: int
     plugin_config_id: int
     timestamp: datetime.datetime
-    source: PluginLogEntry.Source
-    type: PluginLogEntry.Type
+    source: PluginLogEntrySource
+    type: PluginLogEntryType
     message: str
     instance_id: UUID
 
@@ -253,51 +365,61 @@ def fetch_plugin_log_entries(
     before: Optional[timezone.datetime] = None,
     search: Optional[str] = None,
     limit: Optional[int] = None,
-) -> List[Union[PluginLogEntry, PluginLogEntryRaw]]:
-    if is_clickhouse_enabled():
-        clickhouse_where_parts: List[str] = []
-        clickhouse_kwargs: Dict[str, Any] = {}
-        if team_id is not None:
-            clickhouse_where_parts.append("team_id = %(team_id)s")
-            clickhouse_kwargs["team_id"] = team_id
-        if plugin_config_id is not None:
-            clickhouse_where_parts.append("plugin_config_id = %(plugin_config_id)s")
-            clickhouse_kwargs["plugin_config_id"] = plugin_config_id
-        if after is not None:
-            clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
-            clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
-        if before is not None:
-            clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
-            clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
-        if search:
-            clickhouse_where_parts.append("message ILIKE %(search)s")
-            clickhouse_kwargs["search"] = f"%{search}%"
-        clickhouse_query = f"""
-            SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
-            WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
-        """
-        return [PluginLogEntryRaw(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
-    else:
-        filter_kwargs: Dict[str, Any] = {}
-        if team_id is not None:
-            filter_kwargs["team_id"] = team_id
-        if plugin_config_id is not None:
-            filter_kwargs["plugin_config_id"] = plugin_config_id
-        if after is not None:
-            filter_kwargs["timestamp__gt"] = after
-        if before is not None:
-            filter_kwargs["timestamp__lt"] = before
-        if search:
-            filter_kwargs["message__icontains"] = search
-        query = PluginLogEntry.objects.order_by("-timestamp").filter(**filter_kwargs)
-        if limit:
-            query = query[:limit]
-        return list(query)
+    type_filter: List[PluginLogEntryType] = [],
+) -> List[PluginLogEntry]:
+    clickhouse_where_parts: List[str] = []
+    clickhouse_kwargs: Dict[str, Any] = {}
+    if team_id is not None:
+        clickhouse_where_parts.append("team_id = %(team_id)s")
+        clickhouse_kwargs["team_id"] = team_id
+    if plugin_config_id is not None:
+        clickhouse_where_parts.append("plugin_config_id = %(plugin_config_id)s")
+        clickhouse_kwargs["plugin_config_id"] = plugin_config_id
+    if after is not None:
+        clickhouse_where_parts.append("timestamp > toDateTime64(%(after)s, 6)")
+        clickhouse_kwargs["after"] = after.isoformat().replace("+00:00", "")
+    if before is not None:
+        clickhouse_where_parts.append("timestamp < toDateTime64(%(before)s, 6)")
+        clickhouse_kwargs["before"] = before.isoformat().replace("+00:00", "")
+    if search:
+        clickhouse_where_parts.append("message ILIKE %(search)s")
+        clickhouse_kwargs["search"] = f"%{search}%"
+    if len(type_filter) > 0:
+        clickhouse_where_parts.append("type in %(types)s")
+        clickhouse_kwargs["types"] = type_filter
+    clickhouse_query = f"""
+        SELECT id, team_id, plugin_id, plugin_config_id, timestamp, source, type, message, instance_id FROM plugin_log_entries
+        WHERE {' AND '.join(clickhouse_where_parts)} ORDER BY timestamp DESC {f'LIMIT {limit}' if limit else ''}
+    """
+    return [PluginLogEntry(*result) for result in cast(list, sync_execute(clickhouse_query, clickhouse_kwargs))]
+
+
+def validate_plugin_job_payload(plugin: Plugin, job_type: str, payload: Dict[str, Any], *, is_staff: bool):
+    if not plugin.public_jobs:
+        raise ValidationError("Plugin has no public jobs")
+    if job_type not in plugin.public_jobs:
+        raise ValidationError(f"Unknown plugin job: {repr(job_type)}")
+
+    payload_spec = plugin.public_jobs[job_type].get("payload", {})
+    for key, field_options in payload_spec.items():
+        if field_options.get("required", False) and key not in payload:
+            raise ValidationError(f"Missing required job field: {key}")
+        if (
+            field_options.get("staff_only", False)
+            and not is_staff
+            and key in payload
+            and payload.get(key) != field_options.get("default")
+        ):
+            raise ValidationError(f"Field is only settable for admins: {key}")
+
+    for key in payload:
+        if key not in payload_spec:
+            raise ValidationError(f"Unknown field for job: {key}")
 
 
 @receiver(models.signals.post_save, sender=Organization)
 def preinstall_plugins_for_new_organization(sender, instance: Organization, created: bool, **kwargs):
-    if created and not settings.MULTI_TENANCY and can_install_plugins(instance):
+    if created and not is_cloud() and can_install_plugins(instance):
         for plugin_url in settings.PLUGINS_PREINSTALLED_URLS:
             try:
                 Plugin.objects.install(
@@ -326,18 +448,27 @@ def enable_preinstalled_plugins_for_new_team(sender, instance: Team, created: bo
             )
 
 
-@receiver([post_save, post_delete], sender=Plugin)
+@mutable_receiver([post_save, post_delete], sender=Plugin)
 def plugin_reload_needed(sender, instance, created=None, **kwargs):
     # Newly created plugins don't have a config yet, so no need to reload
     if not created:
         reload_plugins_on_workers()
 
 
-@receiver([post_save, post_delete], sender=PluginConfig)
+@mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
+    sync_team_inject_web_apps(instance.team)
 
 
-@receiver([post_save, post_delete], sender=PluginAttachment)
+def sync_team_inject_web_apps(team: Optional[Team]):
+    if not team:
+        return
+    inject_web_apps = len(get_decide_site_apps(team)) > 0
+    if inject_web_apps != team.inject_web_apps:
+        Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
+
+
+@mutable_receiver([post_save, post_delete], sender=PluginAttachment)
 def plugin_attachement_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()

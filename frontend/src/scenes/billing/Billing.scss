@@ -1,16 +1,16 @@
-@import '~/vars';
-
-.billing-page {
-    .plan-description {
+.BillingPlan {
+    max-width: 500px;
+    flex-grow: 1;
+    .BillingPlan__description {
         ol,
         ul {
-            margin-top: $default_spacing;
+            margin-top: 1rem;
             padding-left: 0;
             list-style: none;
             text-align: center;
             li {
                 line-height: 1.2rem;
-                margin-bottom: $default_spacing;
+                margin-bottom: 1rem;
             }
             .disclaimer {
                 font-size: 10px;
@@ -22,15 +22,8 @@
 
         .disclaimer-details {
             font-size: 0.75rem;
-            color: $text_muted;
-            margin-top: $default_spacing;
+            color: var(--muted);
+            margin-top: 1rem;
         }
-    }
-
-    .bill-amount {
-        margin-top: $default_spacing / 2;
-        font-size: 1.2rem;
-        font-weight: bold;
-        text-align: center;
     }
 }

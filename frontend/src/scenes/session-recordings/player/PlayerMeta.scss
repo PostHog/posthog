@@ -1,0 +1,125 @@
+.PlayerMeta {
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+
+    .PlayerMetaPersonProperties {
+        background: var(--side);
+        overflow: auto;
+
+        border-bottom: 1px solid transparent;
+    }
+
+    &:not(.PlayerMeta--fullscreen) {
+        .PlayerMetaPersonProperties {
+            transition: 200ms height ease-out, 200ms border-bottom-color ease-out;
+
+            &--enter {
+                height: 0px;
+            }
+
+            &--enter-active,
+            &--enter-done {
+                height: 14rem;
+                border-bottom-color: var(--border);
+            }
+
+            &--exit {
+                height: 14rem;
+                border-bottom-color: var(--border);
+            }
+
+            &--exit-active {
+                height: 0px;
+            }
+        }
+
+        .LemonModal & {
+            .PlayerMeta__top {
+                padding-right: 3.5rem;
+            }
+        }
+    }
+
+    &--fullscreen {
+        flex-direction: row;
+        justify-content: space-between;
+        align-items: center;
+        height: 48px;
+
+        .PlayerMetaPersonProperties {
+            position: fixed;
+            top: 48px;
+            left: 0px;
+            bottom: 97px; // NOTE: This isn't perfect but for now hardcoded to match the bottom area size.
+            z-index: 1;
+            max-width: 40rem;
+            width: 100%;
+            border-right: 1px solid var(--border);
+            transition: 200ms transform ease-out;
+
+            &--enter {
+                transform: translateX(-100%);
+            }
+
+            &--enter-active,
+            &--enter-done {
+                transform: translateX(0);
+            }
+
+            &--exit {
+                transform: translateX(0);
+            }
+
+            &--exit-active {
+                transform: translateX(-100%);
+            }
+        }
+    }
+
+    .PlayerMeta__escape {
+        position: absolute;
+        left: 50%;
+        top: 0px;
+        z-index: 10;
+        width: 300px;
+        margin-left: -150px;
+        transition: all 500ms ease-out;
+        transform: translateY(-100px);
+        text-align: center;
+        animation: player-meta-escape 5s ease;
+
+        &--enter {
+            transform: translateY(-100px);
+        }
+
+        &--enter-active {
+            transform: translateY(0px);
+        }
+
+        &--enter-done {
+            transform: translateY(-100px);
+        }
+    }
+}
+
+@keyframes player-meta-escape {
+    0% {
+        transform: translateY(-100px);
+    }
+
+    10% {
+        transform: translateY(0px);
+    }
+
+    90% {
+        transform: translateY(0px);
+    }
+
+    100% {
+        transform: translateY(-100px);
+    }
+}

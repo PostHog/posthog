@@ -1,31 +1,39 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { List, Space, Spin } from 'antd'
+import { List, Space } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getShadowRootPopupContainer } from '~/toolbar/utils'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonInput } from 'lib/components/LemonInput/LemonInput'
+import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 
 export function HeatmapStats(): JSX.Element {
     const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter } = useValues(heatmapLogic)
     const { setHeatmapFilter } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
+    const { wildcardHref } = useValues(currentPageLogic)
+    const { setWildcardHref } = useActions(currentPageLogic)
 
     return (
-        <div>
+        <div className="m-4">
             {heatmapEnabled ? (
-                <>
-                    <div style={{ marginTop: 0, marginBottom: 10 }}>
+                <div className="space-y-2">
+                    <div>
+                        <LemonInput value={wildcardHref} onChange={setWildcardHref} />
+                        <div className="text-muted">Use * as a wildcard</div>
+                    </div>
+                    <div className="flex items-center gap-2">
                         <DateFilter
-                            defaultValue="Last 7 days"
-                            dateFrom={heatmapFilter.date_from}
+                            dateFrom={heatmapFilter.date_from ?? '-7d'}
                             dateTo={heatmapFilter.date_to}
                             onChange={(date_from, date_to) => setHeatmapFilter({ date_from, date_to })}
                             getPopupContainer={getShadowRootPopupContainer}
                         />
-                        {heatmapLoading ? <Spin style={{ marginLeft: 8 }} /> : null}
+
+                        {heatmapLoading ? <Spinner /> : null}
                     </div>
-                    <div style={{ marginTop: 20, marginBottom: 10 }}>
+                    <div>
                         Found: {countedElements.length} elements / {clickCount} clicks!
                     </div>
                     <List
@@ -64,7 +72,7 @@ export function HeatmapStats(): JSX.Element {
                             </List.Item>
                         )}
                     />
-                </>
+                </div>
             ) : null}
         </div>
     )

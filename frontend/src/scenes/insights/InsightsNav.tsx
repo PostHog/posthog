@@ -1,139 +1,107 @@
-import { Button, Row, Tabs } from 'antd'
+import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
-import { isMobile } from 'lib/utils'
-import React from 'react'
-import { HotKeys, ViewType } from '~/types'
+import { ReactNode, RefObject, useMemo, useRef } from 'react'
+import { InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
-import { ClockCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import clsx from 'clsx'
+import { FunnelsCue } from './views/Trends/FunnelsCue'
+import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
+import { Link } from 'lib/components/Link'
+import { urls } from 'scenes/urls'
 
 const { TabPane } = Tabs
 
-function InsightHotkey({ hotkey }: { hotkey: HotKeys }): JSX.Element {
-    return !isMobile() ? <span className="hotkey">{hotkey}</span> : <></>
+interface Tab {
+    label: string
+    type: InsightType
+    dataAttr: string
+    ref?: RefObject<HTMLSpanElement>
+    className?: string
 }
 
 export function InsightsNav(): JSX.Element {
-    const { activeView } = useValues(insightLogic)
+    const { activeView, filters } = useValues(insightLogic)
     const { setActiveView } = useActions(insightLogic)
+    const funnelTab = useRef<HTMLSpanElement>(null)
+
+    const tabs: Tab[] = useMemo(
+        () => [
+            {
+                label: 'Trends',
+                type: InsightType.TRENDS,
+                dataAttr: 'insight-trends-tab',
+            },
+            {
+                label: 'Funnels',
+                type: InsightType.FUNNELS,
+                dataAttr: 'insight-funnels-tab',
+                ref: funnelTab,
+            },
+            {
+                label: 'Retention',
+                type: InsightType.RETENTION,
+                dataAttr: 'insight-retention-tab',
+            },
+            {
+                label: 'User Paths',
+                type: InsightType.PATHS,
+                dataAttr: 'insight-path-tab',
+            },
+            {
+                label: 'Stickiness',
+                type: InsightType.STICKINESS,
+                dataAttr: 'insight-stickiness-tab',
+            },
+            {
+                label: 'Lifecycle',
+                type: InsightType.LIFECYCLE,
+                dataAttr: 'insight-lifecycle-tab',
+            },
+        ],
+        [funnelTab]
+    )
 
     return (
-        <Row justify="space-between" align="middle" className="top-bar">
+        <>
+            <FunnelsCue
+                tooltipPosition={
+                    // 1.5x because it's 2 tabs (trends & funnels) + margin between tabs
+                    funnelTab?.current ? funnelTab.current.getBoundingClientRect().width * 1.5 + 16 : undefined
+                }
+            />
             <Tabs
                 activeKey={activeView}
-                style={{
-                    overflow: 'visible',
-                }}
                 className="top-bar"
-                onChange={(key) => setActiveView(key as ViewType)}
+                onChange={(key) => setActiveView(key as InsightType)}
                 animated={false}
-                tabBarExtraContent={{
-                    right: (
-                        <Button
-                            type="link"
-                            data-attr="insight-history-button"
-                            className={`insight-history-button${activeView === ViewType.HISTORY ? ' active' : ''}`}
-                            onClick={() => setActiveView(ViewType.HISTORY)}
-                            icon={<ClockCircleOutlined />}
-                        >
-                            History
-                        </Button>
-                    ),
-                }}
             >
-                <TabPane
-                    tab={
-                        <span data-attr="insight-trends-tab">
-                            Trends
-                            <InsightHotkey hotkey="t" />
-                        </span>
-                    }
-                    key={ViewType.TRENDS}
-                />
-                <TabPane
-                    tab={
-                        <span data-attr="insight-funnels-tab">
-                            Funnels
-                            <InsightHotkey hotkey="f" />
-                        </span>
-                    }
-                    key={ViewType.FUNNELS}
-                />
-                <TabPane
-                    tab={
-                        <span data-attr="insight-retention-tab">
-                            Retention
-                            <InsightHotkey hotkey="r" />
-                        </span>
-                    }
-                    key={ViewType.RETENTION}
-                />
-                <TabPane
-                    tab={
-                        <span data-attr="insight-path-tab">
-                            User Paths
-                            <InsightHotkey hotkey="p" />
-                        </span>
-                    }
-                    key={ViewType.PATHS}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip
-                            placement="top"
-                            title="View average and distribution of session durations."
-                            data-attr="insight-sessions-tab"
-                        >
-                            Sessions
-                            <InsightHotkey hotkey="o" />
-                        </Tooltip>
-                    }
-                    key={ViewType.SESSIONS}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip
-                            placement="top"
-                            title={
-                                <>
-                                    Stickiness shows you how many days users performed an action repeatedly within a
-                                    timeframe.
-                                    <br />
-                                    <br />
-                                    <i>
-                                        Example: If a user performed an action on Monday and again on Friday, it would
-                                        be shown as "2 days".
-                                    </i>
-                                </>
+                {tabs.map(({ label, type, dataAttr, ref, className }) => {
+                    const Outer = ({ children }: { children: ReactNode }): JSX.Element =>
+                        INSIGHT_TYPES_METADATA[type]?.description ? (
+                            <Tooltip placement="top" title={INSIGHT_TYPES_METADATA[type].description}>
+                                {children}
+                            </Tooltip>
+                        ) : (
+                            <span ref={ref}>{children}</span>
+                        )
+                    return (
+                        <TabPane
+                            key={type}
+                            tab={
+                                <Link
+                                    className={clsx('tab-text', className)}
+                                    to={urls.insightNew({ ...filters, insight: type })}
+                                    preventClick
+                                    data-attr={dataAttr}
+                                >
+                                    <Outer>{label}</Outer>
+                                </Link>
                             }
-                            data-attr="insight-stickiness-tab"
-                        >
-                            Stickiness
-                            <InsightHotkey hotkey="i" />
-                        </Tooltip>
-                    }
-                    key={ViewType.STICKINESS}
-                />
-                <TabPane
-                    tab={
-                        <Tooltip
-                            placement="top"
-                            title={
-                                <>
-                                    Lifecycle will show you new, resurrected, returning and dormant users so you
-                                    understand how your user base is composed. This can help you understand where your
-                                    user growth is coming from.
-                                </>
-                            }
-                            data-attr="insight-lifecycle-tab"
-                        >
-                            Lifecycle
-                            <InsightHotkey hotkey="l" />
-                        </Tooltip>
-                    }
-                    key={ViewType.LIFECYCLE}
-                />
+                        />
+                    )
+                })}
             </Tabs>
-        </Row>
+        </>
     )
 }

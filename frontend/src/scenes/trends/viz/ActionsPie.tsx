@@ -1,89 +1,101 @@
 import './ActionsPie.scss'
-
-import React, { useState, useEffect } from 'react'
-import { Loading, maybeAddCommasToInteger } from 'lib/utils'
-import { LineGraph } from '../../insights/LineGraph'
-import { getChartColors } from 'lib/colors'
-import { useValues, useActions } from 'kea'
+import { useState, useEffect } from 'react'
+import { getSeriesColor } from 'lib/colors'
+import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { ChartParams, TrendResultWithAggregate } from '~/types'
-import { personsModalLogic } from '../personsModalLogic'
+import { ChartParams, GraphType, GraphDataset } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
+import { openPersonsModal } from '../persons-modal/PersonsModal'
+import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
+import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import clsx from 'clsx'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
-export function ActionsPie({
-    dashboardItemId,
-    view,
-    filters: filtersParam,
-    color = 'white',
-    cachedResults,
-    inSharedMode,
-}: ChartParams): JSX.Element {
-    const [data, setData] = useState<Record<string, any>[] | null>(null)
+export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
+    const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
-    const logic = trendsLogic({ dashboardItemId, view, filters: filtersParam, cachedResults })
-    const { loadPeople } = useActions(personsModalLogic)
-    const { results, resultsLoading } = useValues(logic)
+    const { insightProps, insight } = useValues(insightLogic)
+    const logic = trendsLogic(insightProps)
+    const { indexedResults, labelGroupType, hiddenLegendKeys, filters } = useValues(logic)
 
     function updateData(): void {
-        const _data = results as TrendResultWithAggregate[]
-        _data.sort((a, b) => b.aggregated_value - a.aggregated_value)
-        const days = results.length > 0 ? results[0].days : []
-
-        const colorList = getChartColors(color)
+        const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
+        const days = _data.length > 0 ? _data[0].days : []
+        const colorList = _data.map(({ id }) => getSeriesColor(id))
 
         setData([
             {
+                id: 0,
                 labels: _data.map((item) => item.label),
                 data: _data.map((item) => item.aggregated_value),
                 actions: _data.map((item) => item.action),
+                breakdownValues: _data.map((item) => item.breakdown_value),
+                personsValues: _data.map((item) => item.persons),
                 days,
                 backgroundColor: colorList,
-                hoverBackgroundColor: colorList,
-                hoverBorderColor: colorList,
-                borderColor: colorList,
-                hoverBorderWidth: 10,
-                borderWidth: 1,
             },
         ])
-        setTotal(_data.reduce((prev, item) => prev + item.aggregated_value, 0))
+        setTotal(_data.reduce((prev, item, i) => prev + (!hiddenLegendKeys?.[i] ? item.aggregated_value : 0), 0))
     }
 
     useEffect(() => {
-        if (results) {
+        if (indexedResults) {
             updateData()
         }
-    }, [results, color])
+    }, [indexedResults, hiddenLegendKeys])
 
-    return data && !resultsLoading ? (
+    return data ? (
         data[0] && data[0].labels ? (
-            <div className="actions-pie-component">
-                <div className="pie-chart">
-                    <LineGraph
-                        data-attr="trend-pie-graph"
-                        color={color}
-                        type="doughnut"
-                        datasets={data}
-                        labels={data[0].labels}
-                        inSharedMode={inSharedMode}
-                        dashboardItemId={dashboardItemId}
-                        onClick={(point) => {
-                            const { dataset } = point
-                            const action = dataset.actions[point.index]
-                            const label = dataset.labels[point.index]
-                            const date_from = dataset.days[0]
-                            const date_to = dataset.days[dataset.days.length - 1]
-                            loadPeople({ action, label, date_from, date_to, filters: filtersParam })
-                        }}
-                    />
+            <div
+                className={clsx(
+                    'ActionsPie w-full',
+                    inCardView && 'flex flex-row h-full items-center',
+                    isTrendsFilter(filters) && filters.show_legend && 'pr-4'
+                )}
+            >
+                <div className={clsx('actions-pie-component', inCardView && 'grow')}>
+                    <div className="pie-chart">
+                        <PieChart
+                            data-attr="trend-pie-graph"
+                            hiddenLegendKeys={hiddenLegendKeys}
+                            type={GraphType.Pie}
+                            datasets={data}
+                            labels={data[0].labels}
+                            labelGroupType={labelGroupType}
+                            inSharedMode={!!inSharedMode}
+                            showPersonsModal={showPersonsModal}
+                            filters={insight.filters}
+                            onClick={
+                                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters?.formula)
+                                    ? undefined
+                                    : (payload) => {
+                                          const { points, index, crossDataset } = payload
+                                          const dataset = points.referencePoint.dataset
+                                          const label = dataset.labels?.[index]
+
+                                          const urls = urlsForDatasets(crossDataset, index)
+                                          const selectedUrl = urls[index]?.value
+
+                                          if (selectedUrl) {
+                                              openPersonsModal({
+                                                  urls,
+                                                  urlsIndex: index,
+                                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                                              })
+                                          }
+                                      }
+                            }
+                        />
+                    </div>
+                    <h1 className="text-7xl text-center mb-0">{formatAggregationAxisValue(insight.filters, total)}</h1>
                 </div>
-                <h1>
-                    <span className="label">Total: </span>
-                    {maybeAddCommasToInteger(total)}
-                </h1>
+                {inCardView && isTrendsFilter(filters) && filters.show_legend && <InsightLegend inCardView />}
             </div>
         ) : (
-            <p style={{ textAlign: 'center', marginTop: '4rem' }}>We couldn't find any matching actions.</p>
+            <p className="text-center mt-16">We couldn't find any matching actions.</p>
         )
-    ) : (
-        <Loading />
-    )
+    ) : null
 }

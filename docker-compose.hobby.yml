@@ -1,0 +1,114 @@
+#
+# `docker-compose` file used ONLY for hobby deployments.
+#
+# Please take a look at https://posthog.com/docs/self-host/deploy/hobby
+# for more info.
+#
+
+services:
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+    redis:
+        extends:
+            file: docker-compose.base.yml
+            service: redis
+    clickhouse:
+        #
+        # Note: please keep the default version in sync across
+        #       `posthog` and the `charts-clickhouse` repos
+        #
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        restart: on-failure
+        depends_on:
+            - kafka
+            - zookeeper
+        volumes:
+            - ./posthog/posthog/idl:/idl
+            - ./posthog/docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./posthog/docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
+            - clickhouse-data:/var/lib/clickhouse
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+        volumes:
+            - zookeeper-datalog:/datalog
+            - zookeeper-data:/data
+            - zookeeper-logs:/logs
+    kafka:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
+
+    worker:
+        extends:
+            file: docker-compose.base.yml
+            service: worker
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SECRET
+        image: posthog/posthog:$POSTHOG_APP_TAG
+    web:
+        extends:
+            file: docker-compose.base.yml
+            service: web
+        volumes:
+            - ./compose:/compose
+        image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SECRET
+    plugins:
+        extends:
+            file: docker-compose.base.yml
+            service: plugins
+        image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SECRET
+
+    caddy:
+        image: caddy:2.6.1
+        restart: unless-stopped
+        ports:
+            - '80:80'
+            - '443:443'
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile
+        depends_on:
+            - web
+    object_storage:
+        extends:
+            file: docker-compose.base.yml
+            service: object_storage
+        restart: on-failure
+        volumes:
+            - object_storage:/data
+
+    asyncmigrationscheck:
+        extends:
+            file: docker-compose.base.yml
+            service: asyncmigrationscheck
+        image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SECRET
+
+volumes:
+    zookeeper-data:
+    zookeeper-datalog:
+    zookeeper-logs:
+    object_storage:
+    postgres-data:
+    clickhouse-data:

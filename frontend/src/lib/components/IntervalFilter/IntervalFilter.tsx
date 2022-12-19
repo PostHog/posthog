@@ -1,56 +1,32 @@
-import React from 'react'
-import { Select } from 'antd'
 import { intervalFilterLogic } from './intervalFilterLogic'
-import { useValues, useActions } from 'kea'
-import { disableHourFor, disableMinuteFor } from 'lib/utils'
-import { CalendarOutlined } from '@ant-design/icons'
-import { defaultInterval, IntervalKeyType, intervals } from 'lib/components/IntervalFilter/intervals'
-import { ViewType } from '~/types'
+import { useActions, useValues } from 'kea'
+import { intervals } from 'lib/components/IntervalFilter/intervals'
+import { InsightType, IntervalType } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 interface InvertalFilterProps {
-    view: ViewType
+    view: InsightType
     disabled?: boolean
 }
 
-export function IntervalFilter({ view, disabled }: InvertalFilterProps): JSX.Element {
-    const { interval } = useValues(intervalFilterLogic)
-    const { setIntervalFilter, setDateFrom } = useActions(intervalFilterLogic)
-    const options = Object.entries(intervals).map(([key, { label }]) => ({
-        key,
-        value: key,
-        label:
-            key === interval ? (
-                <>
-                    <CalendarOutlined /> {label}
-                </>
-            ) : (
-                label
-            ),
-        disabled: (key === 'minute' || key === 'hour') && view === ViewType.SESSIONS,
-    }))
+export function IntervalFilter({ disabled }: InvertalFilterProps): JSX.Element {
+    const { insightProps } = useValues(insightLogic)
+    const { interval } = useValues(intervalFilterLogic(insightProps))
+    const { setInterval } = useActions(intervalFilterLogic(insightProps))
     return (
-        <Select
-            bordered={false}
+        <LemonSelect
+            size={'small'}
             disabled={disabled}
-            defaultValue={interval || 'day'}
             value={interval || undefined}
             dropdownMatchSelectWidth={false}
-            onChange={(key) => {
-                const { newDateFrom } = intervals[key as IntervalKeyType] || defaultInterval
-                const minuteDisabled = key === 'minute' && newDateFrom && disableMinuteFor[newDateFrom]
-                const hourDisabled = key === 'hour' && newDateFrom && disableHourFor[newDateFrom]
-                if (minuteDisabled || hourDisabled) {
-                    return false
+            onChange={(value) => {
+                if (value) {
+                    setInterval(String(value) as IntervalType)
                 }
-
-                if (newDateFrom) {
-                    setDateFrom(newDateFrom)
-                }
-
-                setIntervalFilter(key)
             }}
             data-attr="interval-filter"
-            options={options}
+            options={Object.entries(intervals).map(([value, { label }]) => ({ value, label }))}
         />
     )
 }

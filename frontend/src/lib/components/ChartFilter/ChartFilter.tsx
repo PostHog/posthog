@@ -1,141 +1,131 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
-import { Select, Tag } from 'antd'
 import { chartFilterLogic } from './chartFilterLogic'
 import {
-    AreaChartOutlined,
-    BarChartOutlined,
-    LineChartOutlined,
-    OrderedListOutlined,
-    PieChartOutlined,
-    TableOutlined,
-} from '@ant-design/icons'
-import { ChartDisplayType, FilterType, FunnelVizType, ViewType } from '~/types'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+    IconShowChart,
+    IconCumulativeChart,
+    IconBarChart,
+    IconAreaChart,
+    Icon123,
+    IconPieChart,
+    IconTableChart,
+    IconPublic,
+} from 'lib/components/icons'
+
+import { ChartDisplayType, FilterType, FunnelVizType } from '~/types'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface ChartFilterProps {
     filters: FilterType
-    onChange: (chartFilter: ChartDisplayType | FunnelVizType) => void
-    disabled: boolean
+    onChange?: (chartFilter: ChartDisplayType | FunnelVizType) => void
+    disabled?: boolean
 }
 
 export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): JSX.Element {
-    const { chartFilter } = useValues(chartFilterLogic)
-    const { setChartFilter } = useActions(chartFilterLogic)
-    const { preflight } = useValues(preflightLogic)
+    const { insightProps, isSingleSeries } = useValues(insightLogic)
+    const { chartFilter } = useValues(chartFilterLogic(insightProps))
+    const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    const linearDisabled = !!filters.session && filters.session === 'dist'
-    const cumulativeDisabled =
-        !!filters.session || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
-    const tableDisabled = false
-    const pieDisabled =
-        !!filters.session || filters.insight === ViewType.RETENTION || filters.insight === ViewType.STICKINESS
-    const barDisabled = !!filters.session || filters.insight === ViewType.RETENTION
-    const barValueDisabled =
-        barDisabled || filters.insight === ViewType.STICKINESS || filters.insight === ViewType.RETENTION
-    const defaultDisplay: ChartDisplayType =
-        filters.insight === ViewType.RETENTION
-            ? ChartDisplayType.ActionsTable
-            : filters.insight === ViewType.FUNNELS
-            ? ChartDisplayType.FunnelViz
-            : ChartDisplayType.ActionsLineGraphLinear
+    const isTrends = isTrendsFilter(filters)
+    const trendsOnlyDisabledReason = !isTrends ? "This type isn't available for this insight type." : undefined
+    const singleSeriesOnlyDisabledReason = !isSingleSeries
+        ? "This type isn't available, because there are multiple trend series."
+        : undefined
 
-    function Label({ icon, children = null }: { icon: React.ReactNode; children: React.ReactNode }): JSX.Element {
-        return (
-            <>
-                {icon} {children}
-            </>
-        )
-    }
+    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> = [
+        {
+            title: 'Time Series',
+            options: [
+                {
+                    value: ChartDisplayType.ActionsLineGraph,
+                    icon: <IconShowChart />,
+                    label: 'Line',
+                },
+                {
+                    value: ChartDisplayType.ActionsBar,
+                    icon: <IconBarChart />,
+                    label: 'Bar',
+                },
+                {
+                    value: ChartDisplayType.ActionsAreaGraph,
+                    icon: <IconAreaChart />,
+                    label: 'Area',
+                },
+            ],
+        },
+        {
+            title: 'Cumulative Time Series',
+            options: [
+                {
+                    value: ChartDisplayType.ActionsLineGraphCumulative,
+                    icon: <IconCumulativeChart />,
+                    label: 'Line',
+                    disabledReason: trendsOnlyDisabledReason,
+                },
+            ],
+        },
+        {
+            title: 'Total Value',
+            options: [
+                {
+                    value: ChartDisplayType.BoldNumber,
+                    icon: <Icon123 />,
+                    label: 'Number',
+                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                },
+                {
+                    value: ChartDisplayType.ActionsPie,
+                    icon: <IconPieChart />,
+                    label: 'Pie',
+                    disabledReason: trendsOnlyDisabledReason,
+                },
+                {
+                    value: ChartDisplayType.ActionsBarValue,
+                    icon: <IconBarChart className="rotate-90" />,
+                    label: 'Bar',
+                    disabledReason: trendsOnlyDisabledReason,
+                },
+                {
+                    value: ChartDisplayType.ActionsTable,
+                    icon: <IconTableChart />,
+                    label: 'Table',
+                },
+                {
+                    value: ChartDisplayType.WorldMap,
+                    icon: <IconPublic />,
+                    label: 'World Map',
+                    tooltip: 'Visualize data by country.',
+                    disabledReason:
+                        trendsOnlyDisabledReason ||
+                        singleSeriesOnlyDisabledReason ||
+                        (isTrends && filters.formula
+                            ? "This type isn't available, because it doesn't support formulas."
+                            : !!filters.breakdown &&
+                              filters.breakdown !== '$geoip_country_code' &&
+                              filters.breakdown !== '$geoip_country_name'
+                            ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                            : undefined),
+                },
+            ],
+        },
+    ]
 
-    function WarningTag({ children = null }: { children: React.ReactNode }): JSX.Element {
-        return (
-            <Tag color="orange" style={{ marginLeft: 8, fontSize: 10 }}>
-                {children}
-            </Tag>
-        )
-    }
-
-    const options =
-        filters.insight === ViewType.FUNNELS
-            ? preflight?.is_clickhouse_enabled
-                ? [
-                      {
-                          value: FunnelVizType.Steps,
-                          label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                      },
-                      {
-                          value: FunnelVizType.Trends,
-                          label: (
-                              <Label icon={<LineChartOutlined />}>
-                                  Trends
-                                  <WarningTag>BETA</WarningTag>
-                              </Label>
-                          ),
-                      },
-                  ]
-                : [
-                      {
-                          value: FunnelVizType.Steps,
-                          label: <Label icon={<OrderedListOutlined />}>Steps</Label>,
-                      },
-                  ]
-            : [
-                  {
-                      label: 'Line Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsLineGraphLinear,
-                              label: <Label icon={<LineChartOutlined />}>Linear</Label>,
-                              disabled: linearDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsLineGraphCumulative,
-                              label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
-                              disabled: cumulativeDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      label: 'Bar Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsBarChart,
-                              label: <Label icon={<BarChartOutlined />}>Time</Label>,
-                              disabled: barDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsBarChartValue,
-                              label: <Label icon={<BarChartOutlined />}>Value</Label>,
-                              disabled: barValueDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      value: ChartDisplayType.ActionsTable,
-                      label: <Label icon={<TableOutlined />}>Table</Label>,
-                      disabled: tableDisabled,
-                  },
-                  {
-                      value: ChartDisplayType.ActionsPieChart,
-                      label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                      disabled: pieDisabled,
-                  },
-              ]
     return (
-        <Select
+        <LemonSelect
             key="2"
-            defaultValue={filters.display || defaultDisplay}
-            value={chartFilter || defaultDisplay}
-            onChange={(value: ChartDisplayType | FunnelVizType) => {
-                setChartFilter(value)
-                onChange(value)
+            value={chartFilter || ChartDisplayType.ActionsLineGraph}
+            onChange={(value) => {
+                setChartFilter(value as ChartDisplayType | FunnelVizType)
+                onChange?.(value as ChartDisplayType | FunnelVizType)
             }}
-            bordered={false}
+            dropdownPlacement="bottom-end"
+            optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             disabled={disabled}
             options={options}
+            size="small"
         />
     )
 }

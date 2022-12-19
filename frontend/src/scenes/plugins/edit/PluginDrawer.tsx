@@ -8,17 +8,20 @@ import { PluginImage } from 'scenes/plugins/plugin/PluginImage'
 import { Drawer } from 'lib/components/Drawer'
 import { LocalPluginTag } from 'scenes/plugins/plugin/LocalPluginTag'
 import { defaultConfigForPlugin, doFieldRequirementsMatch, getConfigSchemaArray } from 'scenes/plugins/utils'
-import Markdown from 'react-markdown'
+import ReactMarkdown from 'react-markdown'
 import { SourcePluginTag } from 'scenes/plugins/plugin/SourcePluginTag'
-import { PluginSource } from './PluginSource'
+import { PluginSource } from '../source/PluginSource'
 import { PluginConfigChoice, PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginField } from 'scenes/plugins/edit/PluginField'
 import { endWithPunctation } from 'lib/utils'
 import { canGloballyManagePlugins, canInstallPlugins } from '../access'
-import { PluginAboutButton } from '../plugin/PluginCard'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capabilitiesInfo } from './CapabilitiesInfo'
 import { Tooltip } from 'lib/components/Tooltip'
+import { PluginJobOptions } from './interface-jobs/PluginJobOptions'
+import { MOCK_NODE_PROCESS } from 'lib/constants'
+
+window.process = MOCK_NODE_PROCESS
 
 function EnabledDisabledSwitch({
     value,
@@ -57,7 +60,9 @@ export function PluginDrawer(): JSX.Element {
         setEditingSource,
         generateApiKeysIfNeeded,
         patchPlugin,
+        showPluginLogs,
     } = useActions(pluginsLogic)
+
     const [form] = Form.useForm()
 
     const [invisibleFields, setInvisibleFields] = useState<string[]>([])
@@ -136,7 +141,7 @@ export function PluginDrawer(): JSX.Element {
                 forceRender={true}
                 visible={!!editingPlugin}
                 onClose={() => editPlugin(null)}
-                width="min(90vw, 420px)"
+                width="min(90vw, 500px)"
                 title={editingPlugin?.name}
                 data-attr="plugin-drawer"
                 footer={
@@ -147,7 +152,7 @@ export function PluginDrawer(): JSX.Element {
                                 canInstallPlugins(user?.organization, editingPlugin.organization_id) && (
                                     <Popconfirm
                                         placement="topLeft"
-                                        title="Are you sure you wish to uninstall this plugin completely?"
+                                        title="Are you sure you wish to uninstall this app completely?"
                                         onConfirm={() => uninstallPlugin(editingPlugin.name)}
                                         okText="Uninstall"
                                         cancelText="Cancel"
@@ -170,8 +175,8 @@ export function PluginDrawer(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                This plugin can currently be used by other organizations in this
-                                                instance of PostHog. This action will <b>disable and hide it</b> for all
+                                                This app can currently be used by other organizations in this instance
+                                                of PostHog. This action will <b>disable and hide it</b> for all
                                                 organizations other than yours.
                                             </>
                                         }
@@ -189,8 +194,8 @@ export function PluginDrawer(): JSX.Element {
                                     <Tooltip
                                         title={
                                             <>
-                                                This action will mark this plugin as installed for{' '}
-                                                <b>all organizations</b> in this instance of PostHog.
+                                                This action will mark this app as installed for <b>all organizations</b>{' '}
+                                                in this instance of PostHog.
                                             </>
                                         }
                                     >
@@ -222,12 +227,14 @@ export function PluginDrawer(): JSX.Element {
                 }
             >
                 <Form form={form} layout="vertical" name="basic" onFinish={savePluginConfig}>
+                    {/* TODO: Rework as Kea form with Lemon UI components */}
                     {editingPlugin ? (
                         <div>
                             <div style={{ display: 'flex', marginBottom: 16 }}>
                                 <PluginImage
                                     pluginType={editingPlugin.plugin_type}
                                     url={editingPlugin.url}
+                                    icon={editingPlugin.icon}
                                     size="large"
                                 />
                                 <div style={{ flexGrow: 1, paddingLeft: 16 }}>
@@ -238,7 +245,11 @@ export function PluginDrawer(): JSX.Element {
                                         ) : editingPlugin.plugin_type === 'source' ? (
                                             <SourcePluginTag />
                                         ) : null}
-                                        {editingPlugin.url && <PluginAboutButton url={editingPlugin.url} />}
+                                        {editingPlugin.url && (
+                                            <a href={editingPlugin.url}>
+                                                <i>⤷ Learn more</i>
+                                            </a>
+                                        )}
                                     </div>
                                     <div style={{ display: 'flex', alignItems: 'center', marginTop: 5 }}>
                                         <Form.Item
@@ -253,7 +264,7 @@ export function PluginDrawer(): JSX.Element {
                                 </div>
                             </div>
 
-                            {editingPlugin.plugin_type === 'source' ? (
+                            {editingPlugin.plugin_type === 'source' && canGloballyManagePlugins(user?.organization) ? (
                                 <div>
                                     <Button
                                         type={editingSource ? 'default' : 'primary'}
@@ -261,7 +272,7 @@ export function PluginDrawer(): JSX.Element {
                                         onClick={() => setEditingSource(!editingSource)}
                                         data-attr="plugin-edit-source"
                                     >
-                                        Edit Source
+                                        Edit source
                                     </Button>
                                 </div>
                             ) : null}
@@ -294,16 +305,31 @@ export function PluginDrawer(): JSX.Element {
                                 </>
                             ) : null}
 
+                            {!!(
+                                editingPlugin.pluginConfig.id &&
+                                editingPlugin.capabilities?.jobs?.length &&
+                                editingPlugin.public_jobs &&
+                                Object.keys(editingPlugin.public_jobs).length
+                            ) && (
+                                <PluginJobOptions
+                                    pluginId={editingPlugin.id}
+                                    pluginConfigId={editingPlugin.pluginConfig.id}
+                                    capabilities={editingPlugin.capabilities}
+                                    publicJobs={editingPlugin.public_jobs}
+                                    onSubmit={() => showPluginLogs(editingPlugin.id)}
+                                />
+                            )}
+
                             <h3 className="l3" style={{ marginTop: 32 }}>
                                 Configuration
                             </h3>
                             {getConfigSchemaArray(editingPlugin.config_schema).length === 0 ? (
-                                <div>This plugin is not configurable.</div>
+                                <div>This app is not configurable.</div>
                             ) : null}
                             {getConfigSchemaArray(editingPlugin.config_schema).map((fieldConfig, index) => (
                                 <React.Fragment key={fieldConfig.key || `__key__${index}`}>
                                     {fieldConfig.markdown && (
-                                        <Markdown source={fieldConfig.markdown} linkTarget="_blank" />
+                                        <ReactMarkdown source={fieldConfig.markdown} linkTarget="_blank" />
                                     )}
                                     {fieldConfig.type && isValidField(fieldConfig) ? (
                                         <Form.Item
@@ -316,7 +342,10 @@ export function PluginDrawer(): JSX.Element {
                                             }
                                             extra={
                                                 fieldConfig.hint && (
-                                                    <Markdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                    <small>
+                                                        <div style={{ height: 2 }} />
+                                                        <ReactMarkdown source={fieldConfig.hint} linkTarget="_blank" />
+                                                    </small>
                                                 )
                                             }
                                             name={fieldConfig.key}
@@ -353,7 +382,14 @@ export function PluginDrawer(): JSX.Element {
                     ) : null}
                 </Form>
             </Drawer>
-            {editingPlugin?.plugin_type === 'source' ? <PluginSource /> : null}
+            {editingPlugin?.plugin_type === 'source' && editingPlugin.id ? (
+                <PluginSource
+                    visible={editingSource}
+                    close={() => setEditingSource(false)}
+                    pluginId={editingPlugin.id}
+                    pluginConfigId={editingPlugin.pluginConfig?.id}
+                />
+            ) : null}
         </>
     )
 }

@@ -1,17 +1,19 @@
-from typing import Any, Dict, Optional, Union, cast
+from typing import Any, Dict, List, Optional, cast
 
-from django.conf import settings
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
-from rest_framework import exceptions, permissions, response, serializers, viewsets
+from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
-from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import TeamBasicSerializer
-from posthog.event_usage import report_onboarding_completed
-from posthog.mixins import AnalyticsDestroyModelMixin
+from posthog.cloud_utils import is_cloud
+from posthog.constants import AvailableFeature
+from posthog.event_usage import report_organization_deleted
 from posthog.models import Organization, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.organization import OrganizationMembership
+from posthog.models.signals import mute_selected_signals
+from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminWritePermissions,
@@ -28,10 +30,13 @@ class PremiumMultiorganizationPermissions(permissions.BasePermission):
     def has_permission(self, request: Request, view) -> bool:
         user = cast(User, request.user)
         if (
-            # make multiple orgs only premium on self-hosted, since enforcement of this is not possible on Cloud
-            not getattr(settings, "MULTI_TENANCY", False)
+            # Make multiple orgs only premium on self-hosted, since enforcement of this wouldn't make sense on Cloud
+            not is_cloud()
             and request.method in CREATE_METHODS
-            and (user.organization is None or not user.organization.is_feature_available("organizations_projects"))
+            and (
+                user.organization is None
+                or not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
+            )
             and user.organizations.count() >= 1
         ):
             return False
@@ -55,75 +60,86 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
 
 class OrganizationSerializer(serializers.ModelSerializer):
     membership_level = serializers.SerializerMethodField()
-    setup = (
-        serializers.SerializerMethodField()
-    )  # Information related to the current state of the onboarding/setup process
-    teams = TeamBasicSerializer(many=True, read_only=True)
+    teams = serializers.SerializerMethodField()
+    metadata = serializers.SerializerMethodField()
 
     class Meta:
         model = Organization
         fields = [
             "id",
             "name",
+            "slug",
             "created_at",
             "updated_at",
             "membership_level",
-            "personalization",
-            "setup",
-            "setup_section_2_completed",
             "plugins_access_level",
             "teams",
             "available_features",
-            "domain_whitelist",
             "is_member_join_email_enabled",
+            "metadata",
+            "customer_id",
         ]
         read_only_fields = [
             "id",
+            "slug",
             "created_at",
             "updated_at",
+            "membership_level",
+            "plugins_access_level",
+            "teams",
+            "available_features",
+            "metadata",
+            "customer_id",
         ]
-        extra_kwargs = {"setup_section_2_completed": {"write_only": True}}  # `setup` is used for reading this attribute
+        extra_kwargs = {
+            "slug": {
+                "required": False,
+            },  # slug is not required here as it's generated automatically for new organizations
+        }
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Organization:
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
-        organization, _, _ = Organization.objects.bootstrap(self.context["request"].user, **validated_data)
+        user = self.context["request"].user
+        organization, _, _ = Organization.objects.bootstrap(user, **validated_data)
+
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
         membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user,
+            organization=organization,
+            user=self.context["request"].user,
         ).first()
         return membership.level if membership is not None else None
 
-    def get_setup(self, instance: Organization) -> Dict[str, Union[bool, int, str, None]]:
+    def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
+        teams = cast(
+            List[Dict[str, Any]], TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data
+        )
+        visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
+        return visible_teams
 
-        if not instance.is_onboarding_active:
-            # As Section 2 is the last one of the setup process (as of today),
-            # if it's completed it means the setup process is done
-            return {"is_active": False, "current_section": None}
-
-        non_demo_team_id = next((team.pk for team in instance.teams.filter(is_demo=False)), None)
-        any_project_ingested_events = instance.teams.filter(is_demo=False, ingested_event=True).exists()
-        any_project_completed_snippet_onboarding = instance.teams.filter(
-            is_demo=False, completed_snippet_onboarding=True,
-        ).exists()
-
-        current_section = 1
-        if non_demo_team_id and any_project_ingested_events and any_project_completed_snippet_onboarding:
-            # All steps from section 1 completed, move on to section 2
-            current_section = 2
-
-        return {
-            "is_active": True,
-            "current_section": current_section,
-            "any_project_ingested_events": any_project_ingested_events,
-            "any_project_completed_snippet_onboarding": any_project_completed_snippet_onboarding,
-            "non_demo_team_id": non_demo_team_id,
-            "has_invited_team_members": instance.invites.exists() or instance.members.count() > 1,
+    def get_metadata(self, instance: Organization) -> Dict[str, int]:
+        output = {
+            "taxonomy_set_events_count": 0,
+            "taxonomy_set_properties_count": 0,
         }
 
+        try:
+            from ee.models import EnterpriseEventDefinition, EnterprisePropertyDefinition
+        except ImportError:
+            return output
 
-class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
+        output["taxonomy_set_events_count"] = EnterpriseEventDefinition.objects.exclude(
+            description="", tagged_items__isnull=True
+        ).count()
+        output["taxonomy_set_properties_count"] = EnterprisePropertyDefinition.objects.exclude(
+            description="", tagged_items__isnull=True
+        ).count()
+
+        return output
+
+
+class OrganizationViewSet(viewsets.ModelViewSet):
     serializer_class = OrganizationSerializer
     permission_classes = [
         permissions.IsAuthenticated,
@@ -157,26 +173,18 @@ class OrganizationViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         self.check_object_permissions(self.request, organization)
         return organization
 
-
-class OrganizationOnboardingViewset(StructuredViewSetMixin, viewsets.GenericViewSet):
-
-    serializer_class = OrganizationSerializer
-    permission_classes = [
-        permissions.IsAuthenticated,
-        OrganizationMemberPermissions,
-    ]
-
-    def create(self, request, *args, **kwargs):
-        # Complete onboarding
-        instance: Organization = self.organization
-        self.check_object_permissions(request, instance)
-
-        if not instance.is_onboarding_active:
-            raise exceptions.ValidationError("Onboarding already completed.")
-
-        instance.complete_onboarding()
-
-        report_onboarding_completed(organization=instance, current_user=request.user)
-
-        serializer = self.get_serializer(instance=instance)
-        return response.Response(serializer.data)
+    def perform_destroy(self, organization: Organization):
+        user = cast(User, self.request.user)
+        report_organization_deleted(user, organization)
+        team_ids = [team.pk for team in organization.teams.all()]
+        delete_bulky_postgres_data(team_ids=team_ids)
+        with mute_selected_signals():
+            super().perform_destroy(organization)
+        # Once the organization is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=user)
+                for team_id in team_ids
+            ],
+            ignore_conflicts=True,
+        )

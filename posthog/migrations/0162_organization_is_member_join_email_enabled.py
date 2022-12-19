@@ -11,6 +11,8 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.AddField(
-            model_name="organization", name="is_member_join_email_enabled", field=models.BooleanField(default=True),
+            model_name="organization",
+            name="is_member_join_email_enabled",
+            field=models.BooleanField(default=True),
         ),
     ]

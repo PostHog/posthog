@@ -1,8 +1,0 @@
-syntax = "proto3";
-
-message PersonStaticCohort {
-  string id = 1;
-  string person_id = 2;
-  uint64 cohort_id = 3;
-  uint64 team_id = 4;
-}

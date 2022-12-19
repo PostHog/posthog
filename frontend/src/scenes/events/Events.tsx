@@ -1,58 +1,27 @@
-import React from 'react'
-import { kea, useActions, useValues } from 'kea'
-import { Tabs } from 'antd'
-import { ActionsTable } from 'scenes/actions/ActionsTable'
-import { EventsTable } from './EventsTable'
-import { EventsVolumeTable } from './EventsVolumeTable'
-import { PropertiesVolumeTable } from './PropertiesVolumeTable'
-import { eventsLogicType } from './EventsType'
-import { DefinitionDrawer } from './definitions/DefinitionDrawer'
+import { SceneExport } from 'scenes/sceneTypes'
+import { EventsTable } from 'scenes/events/EventsTable'
+import { PageHeader } from 'lib/components/PageHeader'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { EventsScene } from 'scenes/events/EventsScene'
 
-const eventsLogic = kea<eventsLogicType>({
-    actions: {
-        setTab: (tab: string) => ({ tab }),
-    },
-    reducers: {
-        tab: [
-            'live',
-            {
-                setTab: (_, { tab }) => tab,
-            },
-        ],
-    },
-    actionToUrl: ({ values }) => ({
-        setTab: () => '/events' + (values.tab === 'live' ? '' : '/' + values.tab),
-    }),
-    urlToAction: ({ actions, values }) => ({
-        '/events(/:tab)': ({ tab }) => {
-            const currentTab = tab || 'live'
-            if (currentTab !== values.tab) {
-                actions.setTab(currentTab)
-            }
-        },
-    }),
-})
+export const scene: SceneExport = {
+    component: Events,
+    // NOTE: Removing the lines below because turbo mode messes up having two separate versions of this scene.
+    //       It's a small price to pay. Put this back when the flag is removed.
+    // logic: eventsTableLogic,
+    // paramsToProps: ({ params: { fixedFilters } }) => ({ fixedFilters, key: 'EventsTable', sceneUrl: urls.events() }),
+}
 
-export function ManageEvents(): JSX.Element {
-    const { tab } = useValues(eventsLogic)
-    const { setTab } = useActions(eventsLogic)
+export function Events(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
     return (
-        <div data-attr="manage-events-table" style={{ paddingTop: 32 }}>
-            <Tabs tabPosition="top" animated={false} activeKey={tab} onTabClick={setTab}>
-                <Tabs.TabPane tab="Events" key="live">
-                    <EventsTable />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab={<span data-attr="events-actions-tab">Actions</span>} key="actions">
-                    <ActionsTable />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab="Events Stats" key="stats">
-                    <EventsVolumeTable />
-                </Tabs.TabPane>
-                <Tabs.TabPane tab="Properties Stats" key="properties">
-                    <PropertiesVolumeTable />
-                </Tabs.TabPane>
-            </Tabs>
-            <DefinitionDrawer />
-        </div>
+        <>
+            <PageHeader title="Live events" caption="Event history limited to the last twelve months." />
+            <div className="pt-4 border-t" />
+            {featureDataExploration ? <EventsScene /> : <EventsTable pageKey={'EventsTable'} />}
+        </>
     )
 }

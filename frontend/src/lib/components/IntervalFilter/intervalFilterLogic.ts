@@ -1,58 +1,68 @@
 import { kea } from 'kea'
-import { router } from 'kea-router'
-import { objectsEqual } from 'lib/utils'
-import { intervalFilterLogicType } from './intervalFilterLogicType'
+import { objectsEqual, dateMapping } from 'lib/utils'
+import type { intervalFilterLogicType } from './intervalFilterLogicType'
 import { IntervalKeyType } from 'lib/components/IntervalFilter/intervals'
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { InsightLogicProps, IntervalType } from '~/types'
+import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { dayjs } from 'lib/dayjs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
+    props: {} as InsightLogicProps,
+    key: keyForInsightLogicProps('new'),
+    path: (key) => ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic', key],
+    connect: (props: InsightLogicProps) => ({
+        actions: [insightLogic(props), ['setFilters']],
+        values: [insightLogic(props), ['filters'], featureFlagLogic, ['featureFlags']],
+    }),
     actions: () => ({
-        setIntervalFilter: (filter: IntervalKeyType) => ({ filter }),
-        setDateFrom: (dateFrom: string) => ({ dateFrom }),
+        setInterval: (interval: IntervalKeyType) => ({ interval }),
     }),
-    reducers: {
-        interval: [
-            null as null | IntervalKeyType,
-            {
-                setIntervalFilter: (_, { filter }) => filter,
-            },
-        ],
-        dateFrom: [
-            null as null | string,
-            {
-                setDateFrom: (_, { dateFrom }) => dateFrom,
-            },
-        ],
+    listeners: ({ values, actions, selectors }) => ({
+        setInterval: ({ interval }) => {
+            if (!objectsEqual(interval, values.filters.interval)) {
+                actions.setFilters({ ...values.filters, interval })
+            }
+        },
+        setFilters: ({ filters }, _, __, previousState) => {
+            const { date_from, date_to } = filters
+            const previousFilters = selectors.filters(previousState)
+            if (
+                !date_from ||
+                (objectsEqual(date_from, previousFilters.date_from) && objectsEqual(date_to, previousFilters.date_to))
+            ) {
+                return
+            }
+
+            // automatically set an interval for fixed date ranges
+            if (date_from && date_to && dayjs(filters.date_from).isValid() && dayjs(filters.date_to).isValid()) {
+                if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
+                    actions.setInterval('hour')
+                } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
+                    actions.setInterval('day')
+                } else {
+                    actions.setInterval('month')
+                }
+                return
+            }
+            // get a defaultInterval for dateOptions that have a default value
+            let interval: IntervalType = 'day'
+            for (const { key, values, defaultInterval } of dateMapping) {
+                if (
+                    values[0] === date_from &&
+                    values[1] === (date_to || undefined) &&
+                    key !== 'Custom' &&
+                    defaultInterval
+                ) {
+                    interval = defaultInterval
+                    break
+                }
+            }
+            actions.setInterval(interval)
+        },
+    }),
+    selectors: {
+        interval: [(s) => [s.filters], (filters) => filters?.interval],
     },
-    listeners: ({ values }) => ({
-        setIntervalFilter: () => {
-            const { interval, ...searchParams } = router.values.searchParams
-            const { pathname } = router.values.location
-
-            searchParams.interval = values.interval
-
-            if (!objectsEqual(interval, values.interval)) {
-                router.actions.replace(pathname, searchParams)
-            }
-        },
-        setDateFrom: () => {
-            const { date_from, ...searchParams } = router.values.searchParams
-            const { pathname } = router.values.location
-
-            searchParams.date_from = values.dateFrom
-
-            if (!objectsEqual(date_from, values.dateFrom)) {
-                router.actions.replace(pathname, searchParams)
-            }
-        },
-    }),
-    urlToAction: ({ actions }) => ({
-        '/insights': (_, { interval, date_from }) => {
-            if (interval) {
-                actions.setIntervalFilter(interval)
-            }
-            if (date_from) {
-                actions.setDateFrom(date_from)
-            }
-        },
-    }),
 })

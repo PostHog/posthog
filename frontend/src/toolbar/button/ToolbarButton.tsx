@@ -1,6 +1,6 @@
 import './ToolbarButton.scss'
 
-import React, { useRef, useEffect } from 'react'
+import { useRef, useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { HogLogo } from '~/toolbar/assets/HogLogo'
 import { Circle } from '~/toolbar/button/Circle'
@@ -16,11 +16,10 @@ import { Magnifier } from '~/toolbar/button/icons/Magnifier'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
-import { QuestionOutlined } from '@ant-design/icons'
+import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 
-const HELP_URL =
-    'https://posthog.com/docs/tutorials/toolbar?utm_medium=in-product&utm_source=in-product&utm_campaign=toolbar-help-button'
+const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 export function ToolbarButton(): JSX.Element {
     const {
@@ -35,10 +34,18 @@ export function ToolbarButton(): JSX.Element {
         heatmapExtensionPercentage,
         actionsExtensionPercentage,
         actionsInfoVisible,
+        featureFlagsExtensionPercentage,
+        flagsVisible,
     } = useValues(toolbarButtonLogic)
-    const { setExtensionPercentage, showHeatmapInfo, hideHeatmapInfo, showActionsInfo, hideActionsInfo } = useActions(
-        toolbarButtonLogic
-    )
+    const {
+        setExtensionPercentage,
+        showHeatmapInfo,
+        hideHeatmapInfo,
+        showActionsInfo,
+        hideActionsInfo,
+        showFlags,
+        hideFlags,
+    } = useActions(toolbarButtonLogic)
     const { buttonActionsVisible, showActionsTooltip } = useValues(actionsTabLogic)
     const { hideButtonActions, showButtonActions } = useActions(actionsTabLogic)
     const { actionCount, allActionsLoading } = useValues(actionsLogic)
@@ -89,7 +96,7 @@ export function ToolbarButton(): JSX.Element {
         },
         {
             ms: undefined,
-            clickMs: 1,
+            clickMs: 1 as any,
             touch: true,
             click: true,
         }
@@ -259,10 +266,8 @@ export function ToolbarButton(): JSX.Element {
                             opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,
                         }}
                         content={
-                            <Flag
-                                style={{ height: 29 }}
-                                engaged={buttonActionsVisible}
-                                animated={buttonActionsVisible && allActionsLoading}
+                            <AimOutlined
+                                style={{ fontSize: '28px', color: buttonActionsVisible ? '#fef5e2' : '#f1aa04' }}
                             />
                         }
                         zIndex={1}
@@ -270,7 +275,7 @@ export function ToolbarButton(): JSX.Element {
                         style={{
                             cursor: 'pointer',
                             transform: `scale(${0.2 + 0.8 * actionsExtensionPercentage})`,
-                            background: buttonActionsVisible ? '#94D674' : '#D6EBCC',
+                            background: buttonActionsVisible ? '#f1aa04' : '#fef5e2',
                             borderRadius,
                         }}
                     >
@@ -297,8 +302,8 @@ export function ToolbarButton(): JSX.Element {
                                 onClick={actionsInfoVisible ? hideActionsInfo : showActionsInfo}
                                 style={{
                                     cursor: 'pointer',
-                                    background: actionsInfoVisible ? 'hsl(100, 65%, 31%)' : 'hsla(101, 44%, 93%, 1)',
-                                    color: actionsInfoVisible ? 'hsl(100, 22%, 93%)' : 'hsla(100, 34%, 35%, 1)',
+                                    background: actionsInfoVisible ? '#f1aa04' : '#fef5e2',
+                                    color: actionsInfoVisible ? '#fef5e2' : '#f1aa04',
                                     width: 'auto',
                                     minWidth: 26,
                                     fontSize: '20px',
@@ -310,6 +315,30 @@ export function ToolbarButton(): JSX.Element {
                             />
                         ) : null}
                     </Circle>
+                    <Circle
+                        width={buttonWidth}
+                        x={side === 'left' ? 80 : -80}
+                        y={toolbarListVerticalPadding + n++ * 60}
+                        extensionPercentage={featureFlagsExtensionPercentage}
+                        rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
+                        label="Feature Flags"
+                        labelPosition={side === 'left' ? 'right' : 'left'}
+                        labelStyle={{
+                            opacity:
+                                featureFlagsExtensionPercentage > 0.8
+                                    ? (featureFlagsExtensionPercentage - 0.8) / 0.2
+                                    : 0,
+                        }}
+                        content={<Flag style={{ height: 29 }} engaged={flagsVisible} />}
+                        zIndex={1}
+                        onClick={flagsVisible ? hideFlags : showFlags}
+                        style={{
+                            cursor: 'pointer',
+                            transform: `scale(${0.2 + 0.8 * featureFlagsExtensionPercentage})`,
+                            background: flagsVisible ? '#94D674' : '#D6EBCC',
+                            borderRadius,
+                        }}
+                    />
                 </>
             ) : null}
         </Circle>

@@ -1,0 +1,161 @@
+{
+    "count": 4,
+    "next": null,
+    "previous": null,
+    "results": [
+        {
+            "id": 1779,
+            "name": "Enable viewing console logs in session recordings",
+            "key": "session-recording-console",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": 1,
+                                "operator": null
+                            }
+                        ],
+                        "rollout_percentage": null
+                    },
+                    {
+                        "properties": [
+                            {
+                                "key": "email",
+                                "type": "person",
+                                "value": ["hedgehog@posthog.com"],
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": null
+                    }
+                ],
+                "multivariate": null
+            },
+            "deleted": false,
+            "active": true,
+            "created_by": {
+                "id": 4765,
+                "uuid": "4609ea95-6a1c-4577-bc5d-00ded02ffca9",
+                "distinct_id": "98ca6644-43b2-4d78-a35b-0cb1cc520e35",
+                "first_name": "Rick",
+                "email": "rick@posthog.com"
+            },
+            "created_at": "2022-03-16T18:01:41.362030Z",
+            "is_simple_flag": false,
+            "rollout_percentage": null
+        },
+        {
+            "id": 1526,
+            "name": "",
+            "key": "london-banner",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "$geoip_country_name",
+                                "type": "person",
+                                "value": ["United Kingdom"],
+                                "operator": "exact"
+                            }
+                        ],
+                        "rollout_percentage": null
+                    }
+                ],
+                "multivariate": null
+            },
+            "deleted": false,
+            "active": false,
+            "created_by": {
+                "id": 4633,
+                "uuid": "57564f8c-76cb-4e07-9ae1-7d2ba73ed156",
+                "distinct_id": "85e86af4-ccca-4b5e-a38b-7909c10ad4c9",
+                "first_name": "Eli",
+                "email": "eli@posthog.com"
+            },
+            "created_at": "2022-02-12T02:50:55.201243Z",
+            "is_simple_flag": false,
+            "rollout_percentage": null
+        },
+        {
+            "id": 1502,
+            "name": "",
+            "key": "nav-bar-color-2",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": "id",
+                                "type": "cohort",
+                                "value": 1,
+                                "operator": null
+                            }
+                        ],
+                        "rollout_percentage": 1
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "red",
+                            "name": "",
+                            "rollout_percentage": 33
+                        },
+                        {
+                            "key": "blue",
+                            "name": "",
+                            "rollout_percentage": 33
+                        },
+                        {
+                            "key": "greeen",
+                            "name": "",
+                            "rollout_percentage": 34
+                        }
+                    ]
+                }
+            },
+            "deleted": false,
+            "active": true,
+            "created_by": {
+                "id": 6352,
+                "uuid": "cf25089d-71f1-4f70-9d0b-7577e47d78c1",
+                "distinct_id": "8ed346b4-01e9-44e2-b5a1-286cb131a400",
+                "first_name": "Cameron",
+                "email": "cameron@posthog.com"
+            },
+            "created_at": "2022-02-08T20:54:04.344072Z",
+            "is_simple_flag": false,
+            "rollout_percentage": null
+        },
+        {
+            "id": 1498,
+            "name": "Feature https://github.com/PostHog/posthog/issues/3636.",
+            "key": "dashboard-permissions",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": null
+                    }
+                ],
+                "multivariate": null
+            },
+            "deleted": false,
+            "active": true,
+            "created_by": {
+                "id": 717,
+                "uuid": "95b04aed-a768-4ebe-a027-9f4658842af5",
+                "distinct_id": "f3500320-4f6e-4841-a438-ebd356f82f7b",
+                "first_name": "Michael",
+                "email": "michael@posthog.com"
+            },
+            "created_at": "2022-02-08T16:51:27.696618Z",
+            "is_simple_flag": true,
+            "rollout_percentage": null
+        }
+    ]
+}

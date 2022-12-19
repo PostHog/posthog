@@ -1,29 +1,49 @@
-/* This file contains the logic to report custom frontend events */
 import { kea } from 'kea'
-import { isPostHogProp, keyMapping } from 'lib/components/PropertyKeyInfo'
+import { isPostHogProp, keyMappingKeys } from 'lib/components/PropertyKeyInfo'
 import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
-import { eventUsageLogicType } from './eventUsageLogicType'
+import type { eventUsageLogicType } from './eventUsageLogicType'
 import {
     AnnotationType,
     FilterType,
     DashboardType,
     PersonType,
     DashboardMode,
-    HotKeys,
-    GlobalHotKeys,
     EntityType,
-    DashboardItemType,
-    ViewType,
+    InsightModel,
     InsightType,
-    PropertyFilter,
+    HelpType,
+    AvailableFeature,
+    SessionRecordingUsageType,
+    FunnelCorrelation,
+    ItemMode,
+    AnyPropertyFilter,
+    Experiment,
+    PropertyGroupFilter,
+    FilterLogicalOperator,
+    PropertyFilterValue,
+    InsightShortId,
+    YesOrNoResponse,
+    SessionPlayerData,
+    AnyPartialFilterType,
 } from '~/types'
-import { Dayjs } from 'dayjs'
-import { preflightLogic } from 'scenes/PreflightCheck/logic'
-import { PersonModalParams } from 'scenes/trends/personsModalLogic'
+import type { Dayjs } from 'lib/dayjs'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { EventIndex } from '@posthog/react-rrweb-player'
+import { convertPropertyGroupToProperties } from 'lib/utils'
 
-const keyMappingKeys = Object.keys(keyMapping.event)
-
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { PlatformType, Framework } from 'scenes/ingestion/v1/types'
+import { now } from 'lib/dayjs'
+import {
+    isFilterWithDisplay,
+    isFunnelsFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
+import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -48,10 +68,44 @@ export enum InsightEventSource {
     AddDescription = 'add_insight_description',
 }
 
-function flattenProperties(properties: PropertyFilter[]): string[] {
+export enum GraphSeriesAddedSource {
+    Default = 'default',
+    Duplicate = 'duplicate',
+}
+
+export enum SessionRecordingFilterType {
+    Duration = 'duration',
+    EventAndAction = 'event_and_action',
+    PersonAndCohort = 'person_and_cohort',
+    DateRange = 'date_range',
+}
+
+interface RecordingViewedProps {
+    delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
+    load_time: number // How much time it took to load the session (backend) (milliseconds)
+    duration: number // How long is the total recording (milliseconds)
+    start_time?: number // Start timestamp of the session
+    end_time?: number // End timestamp of the session
+    page_change_events_length: number
+    recording_width?: number
+}
+
+export interface RecordingViewedSummaryAnalytics {
+    viewed_time_ms?: number
+    recording_duration_ms?: number
+    recording_age_days?: number
+    meta_data_load_time_ms?: number
+    first_snapshot_load_time_ms?: number
+    first_snapshot_and_meta_load_time_ms?: number
+    all_snapshots_load_time_ms?: number
+    rrweb_warning_count: number
+    error_count_during_recording_playback: number
+}
+
+function flattenProperties(properties: AnyPropertyFilter[]): string[] {
     const output = []
     for (const prop of properties || []) {
-        if (isPostHogProp(prop.key)) {
+        if (prop.key && isPostHogProp(prop.key)) {
             output.push(prop.key)
         } else {
             output.push('redacted') // Custom property names are not reported
@@ -60,81 +114,136 @@ function flattenProperties(properties: PropertyFilter[]): string[] {
     return output
 }
 
+function hasGroupProperties(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): boolean {
+    const flattenedProperties = convertPropertyGroupToProperties(properties)
+    return (
+        !!flattenedProperties &&
+        flattenedProperties.some(
+            (property) => isGroupPropertyFilter(property) && property.group_type_index !== undefined
+        )
+    )
+}
+
+function usedCohortFilterIds(properties: AnyPropertyFilter[] | PropertyGroupFilter | undefined): PropertyFilterValue[] {
+    const flattenedProperties = convertPropertyGroupToProperties(properties)
+    const cohortIds = flattenedProperties?.filter((p) => p.type === 'cohort').map((p) => p.value)
+
+    return cohortIds || []
+}
+
 /*
     Takes a full list of filters for an insight and sanitizes any potentially sensitive info to report usage
 */
-function sanitizeFilterParams(filters: Partial<FilterType>): Record<string, any> {
-    const {
-        display,
-        interval,
-        date_from,
-        date_to,
-        filter_test_accounts,
-        formula,
-        insight,
-        funnel_viz_type,
-        funnel_from_step,
-        funnel_to_step,
-    } = filters
+function sanitizeFilterParams(filters: AnyPartialFilterType): Record<string, any> {
+    const { interval, date_from, date_to, filter_test_accounts, insight } = filters
 
     let properties_local: string[] = []
-    for (const event of filters.events || []) {
-        properties_local = properties_local.concat(flattenProperties(event.properties || []))
-    }
-    for (const action of filters.actions || []) {
-        properties_local = properties_local.concat(flattenProperties(action.properties || []))
-    }
 
-    const properties_global = flattenProperties(filters.properties || [])
+    // // If we're aggregating this query by groups
+    // properties.aggregating_by_groups = filters.aggregation_group_type_index != undefined
+    // // If groups are being used in this query
+    // properties.using_groups =
+    //     hasGroupProperties(filters.properties) || filters.breakdown_group_type_index != undefined
+
+    // let totalEventActionFilters = 0
+    // const entities = (filters.events || []).concat(filters.actions || [])
+    // entities.forEach((entity) => {
+    //     if (entity.properties?.length) {
+    //         totalEventActionFilters += entity.properties.length
+    //         properties.using_groups = properties.using_groups || hasGroupProperties(entity.properties)
+    //     }
+    //     if (entity.math_group_type_index != undefined) {
+    //         properties.aggregating_by_groups = true
+    //     }
+    // })
+    // properties.using_groups = properties.using_groups || properties.aggregating_by_groups
+
+    const properties = Array.isArray(filters.properties) ? filters.properties : []
+    const events = Array.isArray(filters.events) ? filters.events : []
+    const actions = Array.isArray(filters.actions) ? filters.actions : []
+    const entities = events.concat(actions)
+
+    // If we're aggregating this query by groups
+    let aggregating_by_groups = filters.aggregation_group_type_index != undefined
+    const breakdown_by_groups = filters.breakdown_group_type_index != undefined
+    // If groups are being used in this query
+    let using_groups = hasGroupProperties(filters.properties)
+    const used_cohort_filter_ids = usedCohortFilterIds(filters.properties)
+
+    for (const entity of entities) {
+        properties_local = properties_local.concat(flattenProperties(entity.properties || []))
+
+        using_groups = using_groups || hasGroupProperties(entity.properties || [])
+        if (entity.math_group_type_index != undefined) {
+            aggregating_by_groups = true
+        }
+    }
+    const properties_global = flattenProperties(properties)
 
     return {
-        insight,
-        display,
+        display: isFilterWithDisplay(filters) ? filters.display : undefined,
         interval,
         date_from,
         date_to,
         filter_test_accounts,
-        formula,
-        filters_count: filters.properties?.length || 0,
-        events_count: filters.events?.length || 0,
-        actions_count: filters.actions?.length || 0,
-        funnel_viz_type,
-        funnel_from_step,
-        funnel_to_step,
+        formula: isTrendsFilter(filters) ? filters.formula : undefined,
+        filters_count: properties?.length || 0,
+        events_count: events?.length || 0,
+        actions_count: actions?.length || 0,
+        funnel_viz_type: isFunnelsFilter(filters) ? filters.funnel_viz_type : undefined,
+        funnel_from_step: isFunnelsFilter(filters) ? filters.funnel_from_step : undefined,
+        funnel_to_step: isFunnelsFilter(filters) ? filters.funnel_to_step : undefined,
         properties_global,
         properties_global_custom_count: properties_global.filter((item) => item === 'custom').length,
         properties_local,
         properties_local_custom_count: properties_local.filter((item) => item === 'custom').length,
-        properties_all: properties_global.concat(properties_local), // Global and local properties together
+        properties_all: properties_global.concat(properties_local),
+        aggregating_by_groups,
+        breakdown_by_groups,
+        using_groups: using_groups || aggregating_by_groups || breakdown_by_groups,
+        used_cohort_filter_ids,
+        insight,
     }
 }
 
-export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
-    connect: [preflightLogic],
+export const eventUsageLogic = kea<eventUsageLogicType>({
+    path: ['lib', 'utils', 'eventUsageLogic'],
+    connect: {
+        values: [preflightLogic, ['realm'], userLogic, ['user']],
+    },
     actions: {
+        reportEventsTablePollingReactedToPageVisibility: (pageIsVisible: boolean) => ({ pageIsVisible }),
         reportAnnotationViewed: (annotations: AnnotationType[] | null) => ({ annotations }),
         reportPersonDetailViewed: (person: PersonType) => ({ person }),
+        reportInsightCreated: (insightType: InsightType | null) => ({ insightType }),
+        reportInsightSaved: (filters: Partial<FilterType>, isNewInsight: boolean) => ({ filters, isNewInsight }),
         reportInsightViewed: (
+            insightModel: Partial<InsightModel>,
             filters: Partial<FilterType>,
+            insightMode: ItemMode,
             isFirstLoad: boolean,
             fromDashboard: boolean,
-            delay?: number
+            delay?: number,
+            changedFilters?: Record<string, any>,
+            isUsingSessionAnalysis?: boolean
         ) => ({
+            insightModel,
             filters,
+            insightMode,
             isFirstLoad,
             fromDashboard,
-            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            delay,
+            changedFilters,
+            isUsingSessionAnalysis,
         }),
-        reportPersonModalViewed: (params: PersonModalParams, count: number, hasNext: boolean) => ({
+        reportPersonsModalViewed: (params: any) => ({
             params,
-            count,
-            hasNext,
         }),
-        reportCohortCreatedFromPersonModal: (filters: Partial<FilterType>) => ({ filters }),
+        reportCohortCreatedFromPersonsModal: (filters: Partial<FilterType>) => ({ filters }),
         reportBookmarkletDragged: true,
         reportIngestionBookmarkletCollapsible: (activePanels: string[]) => ({ activePanels }),
         reportProjectCreationSubmitted: (projectCount: number, nameLength: number) => ({ projectCount, nameLength }),
-        reportDemoWarningDismissed: (key: string) => ({ key }),
+        reportProjectNoticeDismissed: (key: string) => ({ key }),
         reportOnboardingStepTriggered: (stepKey: string, extraArgs: Record<string, string | number | boolean>) => ({
             stepKey,
             extraArgs,
@@ -148,29 +257,40 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             eventCount: number,
             actionCount: number,
             interval: string,
+            funnelVizType: string | undefined,
             success: boolean,
             error?: string
         ) => ({
             eventCount,
             actionCount,
             interval,
+            funnelVizType,
             success,
             error,
         }),
+        reportFunnelStepReordered: true,
         reportPersonPropertyUpdated: (
             action: 'added' | 'updated' | 'removed',
             totalProperties: number,
             oldPropertyType?: string,
             newPropertyType?: string
         ) => ({ action, totalProperties, oldPropertyType, newPropertyType }),
-        reportDashboardViewed: (dashboard: DashboardType, hasShareToken: boolean) => ({ dashboard, hasShareToken }),
+        reportDashboardViewed: (dashboard: DashboardType, lastRefreshed: Dayjs | null, delay?: number) => ({
+            dashboard,
+            delay,
+            lastRefreshed,
+        }),
         reportDashboardModeToggled: (mode: DashboardMode, source: DashboardEventSource | null) => ({ mode, source }),
-        reportDashboardRefreshed: (lastRefreshed?: string | Dayjs | null) => ({ lastRefreshed }),
-        reportDashboardItemRefreshed: (dashboardItem: DashboardItemType) => ({ dashboardItem }),
-        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs, dateTo?: string | Dayjs | null) => ({
+        reportDashboardRefreshed: (dashboardId: number, lastRefreshed?: string | Dayjs | null) => ({
+            dashboardId,
+            lastRefreshed,
+        }),
+        reportDashboardItemRefreshed: (dashboardItem: InsightModel) => ({ dashboardItem }),
+        reportDashboardDateRangeChanged: (dateFrom?: string | Dayjs | null, dateTo?: string | Dayjs | null) => ({
             dateFrom,
             dateTo,
         }),
+        reportDashboardPropertiesChanged: true,
         reportDashboardPinToggled: (pinned: boolean, source: DashboardEventSource) => ({
             pinned,
             source,
@@ -183,12 +303,11 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportUpgradeModalShown: (featureName: string) => ({ featureName }),
-        reportHotkeyNavigation: (scope: 'global' | 'insights', hotkey: HotKeys | GlobalHotKeys) => ({ scope, hotkey }),
-        reportIngestionLandingSeen: (isGridView: boolean) => ({ isGridView }),
+        reportIngestionLandingSeen: true,
         reportTimezoneComponentViewed: (
             component: 'label' | 'indicator',
             project_timezone?: string,
-            device_timezone?: string
+            device_timezone?: string | null
         ) => ({ component, project_timezone, device_timezone }),
         reportTestAccountFiltersUpdated: (filters: Record<string, any>[]) => ({ filters }),
         reportProjectHomeItemClicked: (
@@ -207,7 +326,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         }),
         reportInsightFilterUpdated: (index: number, name: string | null, type?: EntityType) => ({ type, index, name }),
         reportInsightFilterRemoved: (index: number) => ({ index }),
-        reportInsightFilterAdded: (newLength: number) => ({ newLength }),
+        reportInsightFilterAdded: (newLength: number, source: GraphSeriesAddedSource) => ({ newLength, source }),
         reportInsightFilterSet: (
             filters: Array<{
                 id: string | number | null
@@ -218,12 +337,179 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
         reportSavedInsightToDashboard: true,
+        reportRemovedInsightFromDashboard: true,
         reportInsightsTabReset: true,
-        reportInsightsControlsCollapseToggle: (collapsed: boolean) => ({ collapsed }),
         reportInsightsTableCalcToggled: (mode: string) => ({ mode }),
         reportInsightShortUrlVisited: (valid: boolean, insight: InsightType | null) => ({ valid, insight }),
+        reportSavedInsightTabChanged: (tab: string) => ({ tab }),
+        reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
+        reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
+        reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
+        reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
+        reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
+        reportPersonMerged: (merge_count: number) => ({ merge_count }),
+        reportPersonSplit: (merge_count: number) => ({ merge_count }),
+        reportRecording: (
+            playerData: SessionPlayerData,
+            loadTime: number,
+            type: SessionRecordingUsageType,
+            delay?: number
+        ) => ({ playerData, loadTime, type, delay }),
+        reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
+        reportHelpButtonViewed: true,
+        reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
+        reportCorrelationViewed: (filters: Partial<FilterType>, delay?: number, propertiesTable?: boolean) => ({
+            filters,
+            delay, // Number of delayed seconds to report event (useful to measure insights where users don't navigate immediately away)
+            propertiesTable,
+        }),
+        reportCorrelationInteraction: (
+            correlationType: FunnelCorrelation['result_type'],
+            action: string,
+            props?: Record<string, any>
+        ) => ({ correlationType, action, props }),
+        reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
+        reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
+        reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
+        reportRecordingsListFetched: (loadTime: number) => ({ loadTime }),
+        reportRecordingsListPropertiesFetched: (loadTime: number) => ({ loadTime }),
+        reportRecordingsListFilterAdded: (filterType: SessionRecordingFilterType) => ({ filterType }),
+        reportRecordingPlayerSeekbarEventHovered: true,
+        reportRecordingPlayerSpeedChanged: (newSpeed: number) => ({ newSpeed }),
+        reportRecordingPlayerSkipInactivityToggled: (skipInactivity: boolean) => ({ skipInactivity }),
+        reportRecordingConsoleFeedback: (logCount: number, response: YesOrNoResponse, question: string) => ({
+            logCount,
+            response,
+            question,
+        }),
+        reportRecordingConsoleViewed: (logCount: number) => ({ logCount }),
+        reportRecordingViewedSummary: (recordingViewedSummary: RecordingViewedSummaryAnalytics) => ({
+            recordingViewedSummary,
+        }),
+        reportNextRecordingTriggered: (automatic: boolean) => ({
+            automatic,
+        }),
+        reportRecordingExportedToFile: true,
+        reportRecordingLoadedFromFile: (data: { success: boolean; error?: string }) => data,
+        reportRecordingListVisibilityToggled: (type: string, visible: boolean) => ({ type, visible }),
+        reportRecordingPinnedToList: (pinned: boolean) => ({ pinned }),
+        reportRecordingPlaylistCreated: (source: 'filters' | 'new' | 'pin' | 'duplicate') => ({ source }),
+        reportExperimentArchived: (experiment: Experiment) => ({ experiment }),
+        reportExperimentCreated: (experiment: Experiment) => ({ experiment }),
+        reportExperimentViewed: (experiment: Experiment) => ({ experiment }),
+        reportExperimentLaunched: (experiment: Experiment, launchDate: Dayjs) => ({ experiment, launchDate }),
+        reportExperimentCompleted: (
+            experiment: Experiment,
+            endDate: Dayjs,
+            duration: number,
+            significant: boolean
+        ) => ({
+            experiment,
+            endDate,
+            duration,
+            significant,
+        }),
+        reportPropertyGroupFilterAdded: true,
+        reportChangeOuterPropertyGroupFiltersType: (type: FilterLogicalOperator, groupsLength: number) => ({
+            type,
+            groupsLength,
+        }),
+        reportChangeInnerPropertyGroupFiltersType: (type: FilterLogicalOperator, filtersLength: number) => ({
+            type,
+            filtersLength,
+        }),
+        reportPrimaryDashboardModalOpened: true,
+        reportPrimaryDashboardChanged: true,
+        // Definition Popup
+        reportDataManagementDefinitionHovered: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionClickView: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionClickEdit: (type: TaxonomicFilterGroupType) => ({ type }),
+        reportDataManagementDefinitionSaveSucceeded: (type: TaxonomicFilterGroupType, loadTime: number) => ({
+            type,
+            loadTime,
+        }),
+        reportDataManagementDefinitionSaveFailed: (
+            type: TaxonomicFilterGroupType,
+            loadTime: number,
+            error: string
+        ) => ({ type, loadTime, error }),
+        reportDataManagementDefinitionCancel: (type: TaxonomicFilterGroupType) => ({ type }),
+        // Data Management Pages
+        reportDataManagementEventDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
+            loadTime,
+            resultsLength,
+        }),
+        reportDataManagementEventDefinitionsPageLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: (loadTime: number) => ({
+            loadTime,
+        }),
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
+        reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: (loadTime: number, resultsLength: number) => ({
+            loadTime,
+            resultsLength,
+        }),
+        reportDataManagementEventPropertyDefinitionsPageLoadFailed: (loadTime: number, error: string) => ({
+            loadTime,
+            error,
+        }),
+        reportInsightRefreshTime: (loadingMilliseconds: number, insightShortId: InsightShortId) => ({
+            loadingMilliseconds,
+            insightShortId,
+        }),
+        reportInsightOpenedFromRecentInsightList: true,
+        reportRecordingOpenedFromRecentRecordingList: true,
+        reportPersonOpenedFromNewlySeenPersonsList: true,
+        reportIngestionSelectPlatformType: (platform: PlatformType) => ({ platform }),
+        reportIngestionSelectFrameworkType: (framework: Framework) => ({ framework }),
+        reportIngestionHelpClicked: (type: string) => ({ type }),
+        reportIngestionTryWithBookmarkletClicked: true,
+        reportIngestionTryWithDemoDataClicked: true,
+        reportIngestionContinueWithoutVerifying: true,
+        reportIngestionContinueWithoutBilling: true,
+        reportIngestionBillingCancelled: true,
+        reportIngestionThirdPartyAboutClicked: (name: string) => ({ name }),
+        reportIngestionThirdPartyConfigureClicked: (name: string) => ({ name }),
+        reportIngestionThirdPartyPluginInstalled: (name: string) => ({ name }),
+        reportFailedToCreateFeatureFlagWithCohort: (code: string, detail: string) => ({ code, detail }),
+        reportInviteMembersButtonClicked: true,
+        reportIngestionSidebarButtonClicked: (name: string) => ({ name }),
+        reportDashboardLoadingTime: (loadingMilliseconds: number, dashboardId: number) => ({
+            loadingMilliseconds,
+            dashboardId,
+        }),
+        reportInstanceSettingChange: (name: string, value: string | boolean | number) => ({ name, value }),
+        reportAxisUnitsChanged: (properties: Record<string, any>) => ({ ...properties }),
+        reportTeamSettingChange: (name: string, value: any) => ({ name, value }),
+        reportActivationSideBarShown: (
+            activeTasksCount: number,
+            completedTasksCount: number,
+            completionPercent: number
+        ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
+        reportActivationSideBarTaskClicked: (key: string) => ({ key }),
+        reportBillingUpgradeClicked: (plan: string) => ({ plan }),
     },
-    listeners: {
+    listeners: ({ values }) => ({
+        reportAxisUnitsChanged: (properties) => {
+            posthog.capture('axis units changed', properties)
+        },
+        reportInstanceSettingChange: ({ name, value }) => {
+            posthog.capture('instance setting change', { name, value })
+        },
+        reportDashboardLoadingTime: async ({ loadingMilliseconds, dashboardId }) => {
+            posthog.capture('dashboard loading time', { loadingMilliseconds, dashboardId })
+        },
+        reportInsightRefreshTime: async ({ loadingMilliseconds, insightShortId }) => {
+            posthog.capture('insight refresh time', { loadingMilliseconds, insightShortId })
+        },
+        reportEventsTablePollingReactedToPageVisibility: async ({ pageIsVisible }) => {
+            posthog.capture(`events table polling ${pageIsVisible ? 'resumed' : 'paused'}`, { pageIsVisible })
+        },
         reportAnnotationViewed: async ({ annotations }, breakpoint) => {
             if (!annotations) {
                 // If value is `null` the component has been unmounted, don't report
@@ -239,10 +525,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                     content_length: annotation.content.length,
                     scope: annotation.scope,
                     deleted: annotation.deleted,
-                    created_by_me:
-                        annotation.created_by &&
-                        annotation.created_by !== 'local' &&
-                        annotation.created_by?.uuid === userLogic.values.user?.uuid,
+                    created_by_me: annotation.created_by && annotation.created_by?.uuid === userLogic.values.user?.uuid,
                     creation_type: annotation.creation_type,
                     created_at: annotation.created_at,
                     updated_at: annotation.updated_at,
@@ -272,7 +555,6 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
 
             const properties = {
                 properties_count: Object.keys(person.properties).length,
-                is_identified: person.is_identified,
                 has_email: !!person.properties.email,
                 has_name: !!person.properties.name,
                 custom_properties_count,
@@ -280,31 +562,39 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             }
             posthog.capture('person viewed', properties)
         },
-        reportInsightViewed: async ({ filters, isFirstLoad, fromDashboard, delay }, breakpoint) => {
-            if (!delay) {
-                await breakpoint(500) // Debounce to avoid noisy events from changing filters multiple times
-            }
-
-            const { insight } = filters
-
+        reportInsightCreated: async ({ insightType }, breakpoint) => {
+            // "insight created" essentially means that the user clicked "New insight"
+            await breakpoint(500) // Debounce to avoid multiple quick "New insight" clicks being reported
+            posthog.capture('insight created', { insight: insightType })
+        },
+        reportInsightSaved: async ({ filters, isNewInsight }) => {
+            // "insight saved" is a proxy for the new insight's results being valuable to the user
+            posthog.capture('insight saved', { ...filters, is_new_insight: isNewInsight })
+        },
+        reportInsightViewed: ({
+            insightModel,
+            filters,
+            insightMode,
+            isFirstLoad,
+            fromDashboard,
+            delay,
+            changedFilters,
+            isUsingSessionAnalysis,
+        }) => {
             const properties: Record<string, any> = {
                 ...sanitizeFilterParams(filters),
                 report_delay: delay,
                 is_first_component_load: isFirstLoad,
-                from_dashboard: fromDashboard, // Whether the insight is on a dashboard
+                from_dashboard: fromDashboard,
             }
 
             properties.total_event_actions_count = (properties.events_count || 0) + (properties.actions_count || 0)
 
             let totalEventActionFilters = 0
-            filters.events?.forEach((event) => {
-                if (event.properties?.length) {
-                    totalEventActionFilters += event.properties.length
-                }
-            })
-            filters.actions?.forEach((action) => {
-                if (action.properties?.length) {
-                    totalEventActionFilters += action.properties.length
+            const entities = (filters.events || []).concat(filters.actions || [])
+            entities.forEach((entity) => {
+                if (entity.properties?.length) {
+                    totalEventActionFilters += entity.properties.length
                 }
             })
 
@@ -312,75 +602,99 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             properties.total_event_action_filters_count = totalEventActionFilters
 
             // Custom properties for each insight
-            if (insight === 'TRENDS') {
+            if (isTrendsFilter(filters)) {
                 properties.breakdown_type = filters.breakdown_type
                 properties.breakdown = filters.breakdown
-            } else if (insight === 'SESSIONS') {
-                properties.session_distribution = filters.session
-            } else if (insight === 'FUNNELS') {
-                properties.session_distribution = filters.session
-            } else if (insight === 'RETENTION') {
+                properties.using_session_analysis = isUsingSessionAnalysis
+                properties.compare = filters.compare // "Compare previous" option
+                properties.show_legend = filters.show_legend
+            } else if (isRetentionFilter(filters)) {
                 properties.period = filters.period
                 properties.date_to = filters.date_to
-                properties.retention_type = filters.retentionType
+                properties.retention_type = filters.retention_type
                 const cohortizingEvent = filters.target_entity
                 const retainingEvent = filters.returning_entity
                 properties.same_retention_and_cohortizing_event =
                     cohortizingEvent?.id == retainingEvent?.id && cohortizingEvent?.type == retainingEvent?.type
-            } else if (insight === 'PATHS') {
+            } else if (isPathsFilter(filters)) {
                 properties.path_type = filters.path_type
                 properties.has_start_point = !!filters.start_point
-            } else if (insight === 'STICKINESS') {
+                properties.has_end_point = !!filters.end_point
+                properties.has_funnel_filter = Object.keys(filters.funnel_filter || {}).length > 0
+                properties.funnel_paths = filters.funnel_paths
+                properties.has_min_edge_weight = !!filters.min_edge_weight
+                properties.has_max_edge_weight = !!filters.max_edge_weight
+                properties.has_edge_limit = !!filters.edge_limit
+                properties.has_local_cleaning_filters = (filters.local_path_cleaning_filters || []).length > 0
+                properties.has_path_replacements = !!filters.path_replacements
+                properties.has_wildcards = (filters.path_groupings || []).length > 0
+                properties.using_advanced_features =
+                    properties.has_min_edge_weight ||
+                    properties.has_max_edge_weight ||
+                    properties.has_edge_limit ||
+                    properties.has_local_cleaning_filters ||
+                    properties.has_path_replacements
+                properties.using_basic_features =
+                    properties.has_start_point ||
+                    properties.has_end_point ||
+                    properties.has_funnel_filter ||
+                    properties.has_wildcards
+            } else if (isStickinessFilter(filters)) {
                 properties.stickiness_days = filters.stickiness_days
             }
+            properties.mode = insightMode // View or edit
+            properties.viewer_is_creator = insightModel.created_by?.uuid === values.user?.uuid ?? null // `null` means we couldn't determine this
+            properties.is_saved = insightModel.saved
+            properties.description_length = insightModel.description?.length ?? 0
+            properties.tags_count = insightModel.tags?.length ?? 0
 
             const eventName = delay ? 'insight analyzed' : 'insight viewed'
-
-            posthog.capture(eventName, properties)
+            posthog.capture(eventName, { ...properties, ...(changedFilters ? changedFilters : {}) })
         },
-        reportPersonModalViewed: async ({ params, count, hasNext }) => {
-            const { funnelStep, filters, breakdown_value, saveOriginal, searchTerm, date_from, date_to } = params
-            const properties = {
-                ...sanitizeFilterParams(filters),
-                date_from,
-                date_to,
-                funnel_step: funnelStep,
-                has_breakdown_value: Boolean(breakdown_value),
-                save_original: saveOriginal,
-                has_search_term: Boolean(searchTerm),
-                count, // Total count of persons
-                has_next: hasNext, // Whether there are other persons to be loaded (pagination)
-            }
-            posthog.capture('insight person modal viewed', properties)
+        reportPersonsModalViewed: async ({ params }) => {
+            posthog.capture('insight person modal viewed', params)
         },
-        reportCohortCreatedFromPersonModal: async ({ filters }) => {
+        reportCohortCreatedFromPersonsModal: async ({ filters }) => {
             posthog.capture('person modal cohort created', sanitizeFilterParams(filters))
         },
-        reportDashboardViewed: async ({ dashboard, hasShareToken }, breakpoint) => {
-            await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
-            const { created_at, is_shared, pinned, creation_mode } = dashboard
+        reportDashboardViewed: async ({ dashboard, lastRefreshed, delay }, breakpoint) => {
+            if (!delay) {
+                await breakpoint(500) // Debounce to avoid noisy events from continuous navigation
+            }
+            const { created_at, is_shared, pinned, creation_mode, id } = dashboard
             const properties: Record<string, any> = {
                 created_at,
                 is_shared,
                 pinned,
                 creation_mode,
                 sample_items_count: 0,
-                item_count: dashboard.items.length,
+                item_count: dashboard.tiles?.length || 0,
                 created_by_system: !dashboard.created_by,
-                has_share_token: hasShareToken,
+                dashboard_id: id,
+                lastRefreshed: lastRefreshed?.toISOString(),
+                refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
             }
 
-            for (const item of dashboard.items) {
-                const key = `${item.filters?.insight?.toLowerCase() || ViewType.TRENDS}_count`
-                if (!properties[key]) {
-                    properties[key] = 1
+            for (const item of dashboard.tiles || []) {
+                if (!!item.insight) {
+                    const key = `${item.insight.filters?.insight?.toLowerCase() || InsightType.TRENDS}_count`
+                    if (!properties[key]) {
+                        properties[key] = 1
+                    } else {
+                        properties[key] += 1
+                    }
+                    properties.sample_items_count += item.insight.is_sample ? 1 : 0
                 } else {
-                    properties[key] += 1
+                    if (!properties['text_tiles_count']) {
+                        properties['text_tiles_count'] = 1
+                    } else {
+                        properties['text_tiles_count'] += 1
+                    }
                 }
-                properties.sample_items_count += item.is_sample ? 1 : 0
             }
 
-            posthog.capture('viewed dashboard', properties)
+            const eventName = delay ? 'dashboard analyzed' : 'viewed dashboard' // `viewed dashboard` name is kept for backwards compatibility
+            posthog.capture(eventName, properties)
         },
         reportBookmarkletDragged: async (_, breakpoint) => {
             await breakpoint(500)
@@ -403,7 +717,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
                 name_length: nameLength,
             })
         },
-        reportDemoWarningDismissed: async ({ key }) => {
+        reportProjectNoticeDismissed: async ({ key }) => {
+            // ProjectNotice was previously called DemoWarning
             posthog.capture('demo warning dismissed', { warning_key: key })
         },
         reportOnboardingStepTriggered: async ({ stepKey, extraArgs }) => {
@@ -419,22 +734,30 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         }) => {
             // namesCount -> Number of invitees for which a name was provided
             posthog.capture('bulk invite attempted', { invitees_count: inviteesCount, name_count: namesCount })
+            for (let i = 0; i < inviteesCount; i++) {
+                posthog.capture('team member invited')
+            }
         },
         reportInviteAttempted: async ({ nameProvided, instanceEmailAvailable }) => {
+            posthog.capture('team member invited')
             posthog.capture('team invite attempted', {
                 name_provided: nameProvided,
                 instance_email_available: instanceEmailAvailable,
             })
         },
-        reportFunnelCalculated: async ({ eventCount, actionCount, interval, success, error }) => {
+        reportFunnelCalculated: async ({ eventCount, actionCount, interval, funnelVizType, success, error }) => {
             posthog.capture('funnel result calculated', {
                 event_count: eventCount,
                 action_count: actionCount,
                 total_count_actions_events: eventCount + actionCount,
                 interval: interval,
+                funnel_viz_type: funnelVizType,
                 success: success,
                 error: error,
             })
+        },
+        reportFunnelStepReordered: async () => {
+            posthog.capture('funnel step reordered')
         },
         reportPersonPropertyUpdated: async ({ action, totalProperties, oldPropertyType, newPropertyType }) => {
             posthog.capture(`person property ${action}`, {
@@ -446,14 +769,21 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportDashboardModeToggled: async ({ mode, source }) => {
             posthog.capture('dashboard mode toggled', { mode, source })
         },
-        reportDashboardRefreshed: async ({ lastRefreshed }) => {
-            posthog.capture(`dashboard refreshed`, { last_refreshed: lastRefreshed?.toString() })
+        reportDashboardRefreshed: async ({ dashboardId, lastRefreshed }) => {
+            posthog.capture(`dashboard refreshed`, {
+                dashboard_id: dashboardId,
+                last_refreshed: lastRefreshed?.toString(),
+                refreshAge: lastRefreshed ? now().diff(lastRefreshed, 'seconds') : undefined,
+            })
         },
         reportDashboardDateRangeChanged: async ({ dateFrom, dateTo }) => {
             posthog.capture(`dashboard date range changed`, {
-                date_from: dateFrom?.toString(),
+                date_from: dateFrom?.toString() || 'Custom',
                 date_to: dateTo?.toString(),
             })
+        },
+        reportDashboardPropertiesChanged: async () => {
+            posthog.capture(`dashboard properties changed`)
         },
         reportDashboardPinToggled: async (payload) => {
             posthog.capture(`dashboard pin toggled`, payload)
@@ -476,9 +806,6 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportUpgradeModalShown: async (payload) => {
             posthog.capture('upgrade modal shown', payload)
         },
-        reportHotkeyNavigation: async (payload) => {
-            posthog.capture('hotkey navigation', payload)
-        },
         reportTimezoneComponentViewed: async (payload) => {
             posthog.capture('timezone component viewed', payload)
         },
@@ -491,8 +818,8 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
             }
             posthog.capture('test account filters updated', payload)
         },
-        reportIngestionLandingSeen: async ({ isGridView }) => {
-            posthog.capture('ingestion landing seen', { grid_view: isGridView })
+        reportIngestionLandingSeen: async () => {
+            posthog.capture('ingestion landing seen')
         },
         reportProjectHomeItemClicked: async ({ module, item, extraProps }) => {
             const defaultProps = { module, item }
@@ -518,7 +845,7 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
 
         reportEventSearched: async ({ searchTerm, extraProps }) => {
             // This event is only captured on PostHog Cloud
-            if (preflightLogic.values.realm === 'cloud') {
+            if (values.realm === 'cloud') {
                 // Triggered when a search is executed for an action/event (mainly for use on insights)
                 posthog.capture('event searched', { searchTerm, ...extraProps })
             }
@@ -547,11 +874,11 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportSavedInsightToDashboard: async () => {
             posthog.capture('saved insight to dashboard')
         },
+        reportRemovedInsightFromDashboard: async () => {
+            posthog.capture('removed insight from dashboard')
+        },
         reportInsightsTabReset: async () => {
             posthog.capture('insights tab reset')
-        },
-        reportInsightsControlsCollapseToggle: async (payload) => {
-            posthog.capture('insight controls collapse toggled', payload)
         },
         reportInsightsTableCalcToggled: async (payload) => {
             posthog.capture('insights table calc toggled', payload)
@@ -559,5 +886,318 @@ export const eventUsageLogic = kea<eventUsageLogicType<DashboardEventSource>>({
         reportInsightShortUrlVisited: (props) => {
             posthog.capture('insight short url visited', props)
         },
-    },
+        reportSavedInsightFilterUsed: ({ filterKeys }) => {
+            posthog.capture('saved insights list page filter used', { filter_keys: filterKeys })
+        },
+        reportSavedInsightTabChanged: ({ tab }) => {
+            posthog.capture('saved insights list page tab changed', { tab })
+        },
+        reportSavedInsightLayoutChanged: ({ layout }) => {
+            posthog.capture('saved insights list page layout changed', { layout })
+        },
+        reportSavedInsightNewInsightClicked: ({ insightType }) => {
+            posthog.capture('saved insights new insight clicked', { insight_type: insightType })
+        },
+        reportRecording: ({ playerData, loadTime, type }) => {
+            // @ts-expect-error
+            const eventIndex = new EventIndex(playerData?.snapshots || [])
+            const payload: Partial<RecordingViewedProps> = {
+                load_time: loadTime,
+                duration: eventIndex.getDuration(),
+                start_time: playerData.metadata.segments[0]?.startTimeEpochMs,
+                end_time: playerData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
+                page_change_events_length: eventIndex.pageChangeEvents().length,
+                recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
+            }
+            posthog.capture(`recording ${type}`, payload)
+        },
+        reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
+            posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
+        },
+        reportRecordingScrollTo: ({ rowIndex }) => {
+            posthog.capture(`recording event list scrolled`, { rowIndex })
+        },
+        reportPayGateShown: (props) => {
+            posthog.capture('pay gate shown', props)
+        },
+        reportPayGateDismissed: (props) => {
+            posthog.capture('pay gate dismissed', props)
+        },
+        reportPersonMerged: (props) => {
+            posthog.capture('merge person completed', props)
+        },
+        reportPersonSplit: (props) => {
+            posthog.capture('split person started', props)
+        },
+        reportHelpButtonViewed: () => {
+            posthog.capture('help button viewed')
+        },
+        reportHelpButtonUsed: (props) => {
+            posthog.capture('help button used', props)
+        },
+        reportCorrelationAnalysisFeedback: (props) => {
+            posthog.capture('correlation analysis feedback', props)
+        },
+        reportCorrelationAnalysisDetailedFeedback: (props) => {
+            posthog.capture('correlation analysis detailed feedback', props)
+        },
+        reportCorrelationInteraction: ({ correlationType, action, props }) => {
+            posthog.capture('correlation interaction', { correlation_type: correlationType, action, ...props })
+        },
+        reportCorrelationViewed: ({ delay, filters, propertiesTable }) => {
+            if (delay === 0) {
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} viewed`, { filters })
+            } else {
+                posthog.capture(`correlation${propertiesTable ? ' properties' : ''} analyzed`, {
+                    filters,
+                    delay,
+                })
+            }
+        },
+        reportRecordingsListFilterAdded: ({ filterType }) => {
+            posthog.capture('recording list filter added', { filter_type: filterType })
+        },
+        reportRecordingsListFetched: ({ loadTime }) => {
+            posthog.capture('recording list fetched', { load_time: loadTime })
+        },
+        reportRecordingsListPropertiesFetched: ({ loadTime }) => {
+            posthog.capture('recording list properties fetched', { load_time: loadTime })
+        },
+        reportRecordingPlayerSeekbarEventHovered: () => {
+            posthog.capture('recording player seekbar event hovered')
+        },
+        reportRecordingPlayerSpeedChanged: ({ newSpeed }) => {
+            posthog.capture('recording player speed changed', { new_speed: newSpeed })
+        },
+        reportRecordingPlayerSkipInactivityToggled: ({ skipInactivity }) => {
+            posthog.capture('recording player skip inactivity toggled', { skip_inactivity: skipInactivity })
+        },
+        reportRecordingConsoleFeedback: ({ response, logCount, question }) => {
+            posthog.capture('recording console feedback', { question, response, log_count: logCount })
+        },
+        reportRecordingConsoleViewed: ({ logCount }) => {
+            posthog.capture('recording console logs viewed', { log_count: logCount })
+        },
+        reportRecordingViewedSummary: ({ recordingViewedSummary }) => {
+            posthog.capture('recording viewed summary', { ...recordingViewedSummary })
+        },
+        reportNextRecordingTriggered: ({ automatic }) => {
+            posthog.capture('recording next recording triggered', { automatic })
+        },
+        reportRecordingExportedToFile: () => {
+            posthog.capture('recording exported to file')
+        },
+        reportRecordingLoadedFromFile: (properties) => {
+            posthog.capture('recording loaded from file', properties)
+        },
+        reportRecordingListVisibilityToggled: (properties) => {
+            posthog.capture('recording list visibility toggled', properties)
+        },
+        reportRecordingPinnedToList: (properties) => {
+            posthog.capture('recording pinned to list', properties)
+        },
+        reportRecordingPlaylistCreated: (properties) => {
+            posthog.capture('recording playlist created', properties)
+        },
+
+        reportExperimentArchived: ({ experiment }) => {
+            posthog.capture('experiment archived', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+            })
+        },
+        reportExperimentCreated: ({ experiment }) => {
+            posthog.capture('experiment created', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
+            })
+        },
+        reportExperimentViewed: ({ experiment }) => {
+            posthog.capture('experiment viewed', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
+            })
+        },
+        reportExperimentLaunched: ({ experiment, launchDate }) => {
+            posthog.capture('experiment launched', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
+                launch_date: launchDate.toISOString(),
+            })
+        },
+        reportExperimentCompleted: ({ experiment, endDate, duration, significant }) => {
+            posthog.capture('experiment completed', {
+                name: experiment.name,
+                id: experiment.id,
+                filters: sanitizeFilterParams(experiment.filters),
+                parameters: experiment.parameters,
+                secondary_metrics_count: experiment.secondary_metrics.length,
+                end_date: endDate.toISOString(),
+                duration,
+                significant,
+            })
+        },
+        reportPropertyGroupFilterAdded: () => {
+            posthog.capture('property group filter added')
+        },
+        reportChangeOuterPropertyGroupFiltersType: ({ type, groupsLength }) => {
+            posthog.capture('outer match property groups type changed', { type, groupsLength })
+        },
+        reportChangeInnerPropertyGroupFiltersType: ({ type, filtersLength }) => {
+            posthog.capture('inner match property group filters type changed', { type, filtersLength })
+        },
+        reportPrimaryDashboardModalOpened: () => {
+            posthog.capture('primary dashboard modal opened')
+        },
+        reportPrimaryDashboardChanged: () => {
+            posthog.capture('primary dashboard changed')
+        },
+        reportDataManagementDefinitionHovered: ({ type }) => {
+            posthog.capture('definition hovered', { type })
+        },
+        reportDataManagementDefinitionClickView: ({ type }) => {
+            posthog.capture('definition click view', { type })
+        },
+        reportDataManagementDefinitionClickEdit: ({ type }) => {
+            posthog.capture('definition click edit', { type })
+        },
+        reportDataManagementDefinitionSaveSucceeded: ({ type, loadTime }) => {
+            posthog.capture('definition save succeeded', { type, load_time: loadTime })
+        },
+        reportDataManagementDefinitionSaveFailed: ({ type, loadTime, error }) => {
+            posthog.capture('definition save failed', { type, load_time: loadTime, error })
+        },
+        reportDataManagementDefinitionCancel: ({ type }) => {
+            posthog.capture('definition cancelled', { type })
+        },
+        reportDataManagementEventDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
+            posthog.capture('event definitions page load succeeded', {
+                load_time: loadTime,
+                num_results: resultsLength,
+            })
+        },
+        reportDataManagementEventDefinitionsPageLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page load failed', { load_time: loadTime, error })
+        },
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadSucceeded: ({ loadTime }) => {
+            posthog.capture('event definitions page event nested properties load succeeded', { load_time: loadTime })
+        },
+        reportDataManagementEventDefinitionsPageNestedPropertiesLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event definitions page event nested properties load failed', {
+                load_time: loadTime,
+                error,
+            })
+        },
+        reportDataManagementEventPropertyDefinitionsPageLoadSucceeded: ({ loadTime, resultsLength }) => {
+            posthog.capture('event property definitions page load succeeded', {
+                load_time: loadTime,
+                num_results: resultsLength,
+            })
+        },
+        reportDataManagementEventPropertyDefinitionsPageLoadFailed: ({ loadTime, error }) => {
+            posthog.capture('event property definitions page load failed', {
+                load_time: loadTime,
+                error,
+            })
+        },
+        reportInsightOpenedFromRecentInsightList: () => {
+            posthog.capture('insight opened from recent insight list')
+        },
+        reportRecordingOpenedFromRecentRecordingList: () => {
+            posthog.capture('recording opened from recent recording list')
+        },
+        reportPersonOpenedFromNewlySeenPersonsList: () => {
+            posthog.capture('person opened from newly seen persons list')
+        },
+        reportIngestionSelectPlatformType: ({ platform }) => {
+            posthog.capture('ingestion select platform type', {
+                platform: platform,
+            })
+        },
+        reportIngestionSelectFrameworkType: ({ framework }) => {
+            posthog.capture('ingestion select framework type', {
+                framework: framework,
+            })
+        },
+        reportIngestionHelpClicked: ({ type }) => {
+            posthog.capture('ingestion help clicked', {
+                type: type,
+            })
+        },
+        reportIngestionTryWithBookmarkletClicked: () => {
+            posthog.capture('ingestion try posthog with bookmarklet clicked')
+        },
+        reportIngestionTryWithDemoDataClicked: () => {
+            posthog.capture('ingestion try posthog with demo data clicked')
+        },
+        reportIngestionContinueWithoutVerifying: () => {
+            posthog.capture('ingestion continue without verifying')
+        },
+        reportIngestionContinueWithoutBilling: () => {
+            posthog.capture('ingestion continue without adding billing details')
+        },
+        reportIngestionBillingCancelled: () => {
+            posthog.capture('ingestion billing cancelled')
+        },
+        reportIngestionThirdPartyAboutClicked: ({ name }) => {
+            posthog.capture('ingestion third party about clicked', {
+                name: name,
+            })
+        },
+        reportIngestionThirdPartyConfigureClicked: ({ name }) => {
+            posthog.capture('ingestion third party configure clicked', {
+                name: name,
+            })
+        },
+        reportIngestionThirdPartyPluginInstalled: ({ name }) => {
+            posthog.capture('report ingestion third party plugin installed', {
+                name: name,
+            })
+        },
+        reportFailedToCreateFeatureFlagWithCohort: ({ detail, code }) => {
+            posthog.capture('failed to create feature flag with cohort', { detail, code })
+        },
+        reportInviteMembersButtonClicked: () => {
+            posthog.capture('invite members button clicked')
+        },
+        reportIngestionSidebarButtonClicked: ({ name }) => {
+            posthog.capture('ingestion sidebar button clicked', {
+                name: name,
+            })
+        },
+        reportTeamSettingChange: ({ name, value }) => {
+            posthog.capture(`${name} team setting updated`, {
+                setting: name,
+                value,
+            })
+        },
+        reportActivationSideBarShown: ({ activeTasksCount, completedTasksCount, completionPercent }) => {
+            posthog.capture('activation sidebar shown', {
+                active_tasks_count: activeTasksCount,
+                completed_tasks_count: completedTasksCount,
+                completion_percent_count: completionPercent,
+            })
+        },
+        reportActivationSideBarTaskClicked: ({ key }) => {
+            posthog.capture('activation sidebar task clicked', {
+                key,
+            })
+        },
+        reportBillingUpgradeClicked: ({ plan }) => {
+            posthog.capture('billing upgrade button clicked', {
+                plan,
+            })
+        },
+    }),
 })

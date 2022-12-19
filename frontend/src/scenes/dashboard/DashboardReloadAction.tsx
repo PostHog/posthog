@@ -1,19 +1,21 @@
-import React, { useState } from 'react'
+import React from 'react'
+import { useState } from 'react'
 import { Checkbox, Dropdown, Menu, Radio, Space } from 'antd'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DownOutlined, LoadingOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import dayjs from 'dayjs'
 import { humanFriendlyDuration } from 'lib/utils'
 import clsx from 'clsx'
 import { Tooltip } from 'lib/components/Tooltip'
+import { dayjs } from 'lib/dayjs'
 
 export const LastRefreshText = (): JSX.Element => {
     const { lastRefreshed } = useValues(dashboardLogic)
     return (
-        <>
-            Last updated <b>{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</b>
-        </>
+        <span>
+            Last updated{' '}
+            <span className="font-medium">{lastRefreshed ? dayjs(lastRefreshed).fromNow() : 'a while ago'}</span>
+        </span>
     )
 }
 
@@ -96,11 +98,20 @@ export function DashboardReloadAction(): JSX.Element {
                 <span className="dashboard-items-action-icon">
                     {itemsLoading ? <LoadingOutlined /> : <ReloadOutlined />}
                 </span>
-                <span className={clsx('dashboard-items-action-refresh-text', { hidden: itemsLoading })}>
-                    <LastRefreshText />
-                </span>
-                <span className={clsx('dashboard-items-action-refresh-text', 'completed', { hidden: !itemsLoading })}>
-                    Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
+                <span className={clsx('dashboard-items-action-refresh-text')}>
+                    {itemsLoading ? (
+                        <>
+                            {refreshMetrics.total ? (
+                                <>
+                                    Refreshed {refreshMetrics.completed} out of {refreshMetrics.total}
+                                </>
+                            ) : (
+                                <>Refreshing...</>
+                            )}
+                        </>
+                    ) : (
+                        <LastRefreshText />
+                    )}
                 </span>
             </Dropdown.Button>
         </>

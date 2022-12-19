@@ -1,5 +1,17 @@
-from typing import Any, Dict, List, Optional, Tuple
+import json
+import sys
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    TypedDict,
+    Union,
+)
 
+import structlog
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.db import models, transaction
@@ -9,24 +21,34 @@ from django.dispatch import receiver
 from django.utils import timezone
 from rest_framework import exceptions
 
+from posthog.cloud_utils import is_cloud
+from posthog.constants import MAX_SLUG_LENGTH, AvailableFeature
 from posthog.email import is_email_available
-from posthog.utils import mask_email_address
+from posthog.models.utils import LowercaseSlugField, UUIDModel, create_with_slug, sane_repr
+from posthog.redis import get_client
+from posthog.utils import absolute_uri
 
-from .utils import UUIDModel, sane_repr
+if TYPE_CHECKING:
+    from posthog.models import Team, User
 
-try:
-    from ee.models.license import License
-except ImportError:
-    License = None  # type: ignore
 
+logger = structlog.get_logger(__name__)
 
 INVITE_DAYS_VALIDITY = 3  # number of days for which team invites are valid
 
 
+class OrganizationUsageInfo(TypedDict):
+    usage: Optional[int]
+    limit: Optional[int]
+
+
 class OrganizationManager(models.Manager):
+    def create(self, *args: Any, **kwargs: Any):
+        return create_with_slug(super().create, *args, **kwargs)
+
     def bootstrap(
-        self, user: Any, *, team_fields: Optional[Dict[str, Any]] = None, **kwargs,
-    ) -> Tuple["Organization", Optional["OrganizationMembership"], Any]:
+        self, user: Optional["User"], *, team_fields: Optional[Dict[str, Any]] = None, **kwargs
+    ) -> Tuple["Organization", Optional["OrganizationMembership"], "Team"]:
         """Instead of doing the legwork of creating an organization yourself, delegate the details with bootstrap."""
         from .team import Team  # Avoiding circular import
 
@@ -36,11 +58,12 @@ class OrganizationManager(models.Manager):
             organization_membership: Optional[OrganizationMembership] = None
             if user is not None:
                 organization_membership = OrganizationMembership.objects.create(
-                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER,
+                    organization=organization, user=user, level=OrganizationMembership.Level.OWNER
                 )
                 user.current_organization = organization
                 user.current_team = team
                 user.save()
+
         return organization, organization_membership, team
 
 
@@ -51,7 +74,7 @@ class Organization(UUIDModel):
                 fields=["for_internal_metrics"],
                 condition=Q(for_internal_metrics=True),
                 name="single_for_internal_metrics",
-            ),
+            )
         ]
 
     class PluginsAccessLevel(models.IntegerChoices):
@@ -74,20 +97,33 @@ class Organization(UUIDModel):
         related_query_name="organization",
     )
     name: models.CharField = models.CharField(max_length=64)
+    slug: LowercaseSlugField = LowercaseSlugField(unique=True, max_length=MAX_SLUG_LENGTH)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
-    domain_whitelist: ArrayField = ArrayField(
-        models.CharField(max_length=256, blank=False), blank=True, default=list
-    )  # used to allow self-serve account creation based on social login (#5111)
-    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)  # Onboarding (#2822)
-    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
     plugins_access_level: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(
-        default=PluginsAccessLevel.CONFIG if settings.MULTI_TENANCY else PluginsAccessLevel.ROOT,
+        default=PluginsAccessLevel.CONFIG,
         choices=PluginsAccessLevel.choices,
     )
-    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
     for_internal_metrics: models.BooleanField = models.BooleanField(default=False)
     is_member_join_email_enabled: models.BooleanField = models.BooleanField(default=True)
+
+    # Managed by Billing
+    customer_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)
+    available_features = ArrayField(models.CharField(max_length=64, blank=False), blank=True, default=list)
+    # Managed by Billing, cached here for usage controls
+    # Like {
+    #   'events': { 'usage': 10000, 'limit': 20000 },
+    #   'recordings': { 'usage': 10000, 'limit': 20000 }
+    # }
+    # Also currently indicates if the organization is on billing V2 or not
+    usage: models.JSONField = models.JSONField(null=True, blank=True)
+
+    # DEPRECATED attributes (should be removed on next major version)
+    setup_section_2_completed: models.BooleanField = models.BooleanField(default=True)
+    personalization: models.JSONField = models.JSONField(default=dict, null=False, blank=True)
+    domain_whitelist: ArrayField = ArrayField(
+        models.CharField(max_length=256, blank=False), blank=True, default=list
+    )  # DEPRECATED in favor of `OrganizationDomain` model; previously used to allow self-serve account creation based on social login (#5111)
 
     objects: OrganizationManager = OrganizationManager()
 
@@ -102,13 +138,18 @@ class Organization(UUIDModel):
         Obtains details on the billing plan for the organization.
         Returns a tuple with (billing_plan_key, billing_realm)
         """
-
+        try:
+            from ee.models.license import License
+        except ImportError:
+            License = None  # type: ignore
+        # Demo gets all features
+        if settings.DEMO or "generate_demo_data" in sys.argv[1:2]:
+            return (License.ENTERPRISE_PLAN, "demo")
         # If on Cloud, grab the organization's price
         if hasattr(self, "billing"):
             if self.billing is None:  # type: ignore
                 return (None, None)
             return (self.billing.get_plan_key(), "cloud")  # type: ignore
-
         # Otherwise, try to find a valid license on this instance
         if License is not None:
             license = License.objects.first_valid()
@@ -120,40 +161,58 @@ class Organization(UUIDModel):
     def billing_plan(self) -> Optional[str]:
         return self._billing_plan_details[0]
 
-    def update_available_features(self) -> List[str]:
+    def update_available_features(self) -> List[Union[AvailableFeature, str]]:
         """Updates field `available_features`. Does not `save()`."""
+        # TODO BW: Get available features from billing service
+
+        if self.has_billing_v2_setup:
+            # Usage indicates billing V2 - we don't update billing as that is done
+            # whenever the billing service is called
+            return self.available_features
+
         plan, realm = self._billing_plan_details
         if not plan:
             self.available_features = []
-        elif realm == "ee":
+        elif realm in ("ee", "demo"):
+            try:
+                from ee.models.license import License
+            except ImportError:
+                License = None  # type: ignore
             self.available_features = License.PLANS.get(plan, [])
         else:
             self.available_features = self.billing.available_features  # type: ignore
         return self.available_features
 
-    def is_feature_available(self, feature: str) -> bool:
+    def is_feature_available(self, feature: Union[AvailableFeature, str]) -> bool:
         return feature in self.available_features
 
+    def get_usage_for_feature(self, feature: str) -> Optional[int]:
+        if not self.usage:
+            return None
+        return self.usage.get(feature, {}).get("usage", None)
+
+    def get_limit_for_feature(self, feature: str) -> Optional[int]:
+        if not self.usage:
+            return None
+        return self.usage.get(feature, {}).get("limit", None)
+
     @property
-    def is_onboarding_active(self) -> bool:
-        return not self.setup_section_2_completed
+    def has_billing_v2_setup(self):
+        if hasattr(self, "billing") and self.billing.stripe_subscription_id:  # type: ignore
+            return False
+
+        return self.usage is not None
 
     @property
     def active_invites(self) -> QuerySet:
         return self.invites.filter(created_at__gte=timezone.now() - timezone.timedelta(days=INVITE_DAYS_VALIDITY))
 
-    def complete_onboarding(self) -> "Organization":
-        self.setup_section_2_completed = True
-        self.save()
-        return self
-
     def get_analytics_metadata(self):
         return {
             "member_count": self.members.count(),
             "project_count": self.teams.count(),
-            "person_count": sum((team.person_set.count() for team in self.teams.all())),
-            "setup_section_2_completed": self.setup_section_2_completed,
-            "personalization": self.personalization,
+            "person_count": sum(team.person_set.count() for team in self.teams.all()),
+            "name": self.name,
         }
 
 
@@ -161,15 +220,22 @@ class Organization(UUIDModel):
 def organization_about_to_be_created(sender, instance: Organization, raw, using, **kwargs):
     if instance._state.adding:
         instance.update_available_features()
+        if not is_cloud():
+            instance.plugins_access_level = Organization.PluginsAccessLevel.ROOT
 
 
-@receiver(models.signals.pre_delete, sender=Organization)
-def organization_about_to_be_deleted(sender, instance, **kwargs):
-    instance.teams.all().delete()
+@receiver(models.signals.post_save, sender=Organization)
+def ensure_available_features_sync(sender, instance: Organization, **kwargs):
+    updated_fields = kwargs.get("update_fields") or []
+    if "available_features" in updated_fields:
+        logger.info("Notifying plugin-server to reset available features cache.", {"organization_id": instance.id})
+        get_client().publish("reset-available-features-cache", json.dumps({"organization_id": str(instance.id)}))
 
 
 class OrganizationMembership(UUIDModel):
     class Level(models.IntegerChoices):
+        """Keep in sync with TeamMembership.Level (only difference being projects not having an Owner)."""
+
         MEMBER = 1, "member"
         ADMIN = 8, "administrator"
         OWNER = 15, "owner"
@@ -230,7 +296,7 @@ class OrganizationMembership(UUIDModel):
 
 class OrganizationInvite(UUIDModel):
     organization: models.ForeignKey = models.ForeignKey(
-        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite",
+        "posthog.Organization", on_delete=models.CASCADE, related_name="invites", related_query_name="invite"
     )
     target_email: models.EmailField = models.EmailField(null=True, db_index=True)
     first_name: models.CharField = models.CharField(max_length=30, blank=True, default="")
@@ -244,43 +310,43 @@ class OrganizationInvite(UUIDModel):
     emailing_attempt_made: models.BooleanField = models.BooleanField(default=False)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True)
     updated_at: models.DateTimeField = models.DateTimeField(auto_now=True)
+    message: models.TextField = models.TextField(blank=True, null=True)
 
-    def validate(self, *, user: Any = None, email: Optional[str] = None) -> None:
-        _email = email or (hasattr(user, "email") and user.email)
+    def validate(self, *, user: Optional["User"] = None, email: Optional[str] = None) -> None:
+        _email = email or getattr(user, "email", None)
 
         if _email and _email != self.target_email:
             raise exceptions.ValidationError(
-                f"This invite is intended for another email address: {mask_email_address(self.target_email)}"
-                f". You tried to sign up with {_email}.",
+                "This invite is intended for another email address.",
                 code="invalid_recipient",
             )
 
         if self.is_expired():
             raise exceptions.ValidationError(
-                "This invite has expired. Please ask your admin for a new one.", code="expired",
+                "This invite has expired. Please ask your admin for a new one.", code="expired"
             )
 
         if OrganizationMembership.objects.filter(organization=self.organization, user=user).exists():
             raise exceptions.ValidationError(
-                "You already are a member of this organization.", code="user_already_member",
+                "You already are a member of this organization.", code="user_already_member"
             )
 
         if OrganizationMembership.objects.filter(
-            organization=self.organization, user__email=self.target_email,
+            organization=self.organization, user__email=self.target_email
         ).exists():
             raise exceptions.ValidationError(
                 "Another user with this email address already belongs to this organization.",
                 code="existing_email_address",
             )
 
-    def use(self, user: Any, *, prevalidated: bool = False) -> None:
+    def use(self, user: "User", *, prevalidated: bool = False) -> None:
         if not prevalidated:
             self.validate(user=user)
         user.join(organization=self.organization)
         if is_email_available(with_absolute_urls=True) and self.organization.is_member_join_email_enabled:
             from posthog.tasks.email import send_member_join
 
-            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization.id})
+            send_member_join.apply_async(kwargs={"invitee_uuid": user.uuid, "organization_id": self.organization_id})
         OrganizationInvite.objects.filter(target_email__iexact=self.target_email).delete()
 
     def is_expired(self) -> bool:
@@ -288,7 +354,7 @@ class OrganizationInvite(UUIDModel):
         return self.created_at < timezone.now() - timezone.timedelta(INVITE_DAYS_VALIDITY)
 
     def __str__(self):
-        return f"{settings.SITE_URL}/signup/{self.id}"
+        return absolute_uri(f"/signup/{self.id}")
 
     __repr__ = sane_repr("organization", "target_email", "created_by")
 

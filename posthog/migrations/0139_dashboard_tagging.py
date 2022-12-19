@@ -16,7 +16,10 @@ class Migration(migrations.Migration):
             model_name="dashboard",
             name="tags",
             field=django.contrib.postgres.fields.ArrayField(
-                base_field=models.CharField(max_length=32), blank=True, default=list, size=None,
+                base_field=models.CharField(max_length=32),
+                blank=True,
+                default=list,
+                size=None,
             ),
         ),
     ]

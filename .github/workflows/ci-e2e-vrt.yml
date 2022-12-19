@@ -1,0 +1,50 @@
+name: E2E Visual Regression Tests
+
+on:
+    pull_request:
+    push:
+        branches:
+            - master
+
+jobs:
+    playwright:
+        name: Visual Regression Tests
+        runs-on: ubuntu-20.04
+        steps:
+            - uses: actions/checkout@v3
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
+
+            - name: Build Storybook
+              run: pnpm build-storybook --quiet
+
+            - name: Install Playwright Browsers
+              run: pnpm dlx playwright@1.28.1 install --with-deps
+
+            - name: Serve Storybook and run tests
+              run: |
+                  pnpm dlx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
+                    "pnpm dlx http-server storybook-static --port 6006" \
+                    "pnpm dlx wait-on http://127.0.0.1:6006 --timeout 60 && pnpm dlx playwright@1.28.1 test"
+
+            - name: Upload Playwright report
+              uses: actions/upload-artifact@v3
+              if: always()
+              with:
+                  name: playwright-report
+                  path: |
+                      playwright-report/
+                      test-results/
+                  retention-days: 30

@@ -1,0 +1,38 @@
+.Spinner {
+    display: block;
+    animation: spinner 2s infinite linear;
+    flex-shrink: 0;
+}
+
+@keyframes spinner {
+    0% {
+        transform: rotate(0deg);
+    }
+    25% {
+        transform: rotate(90deg);
+    }
+    50% {
+        transform: rotate(180deg);
+    }
+    75% {
+        transform: rotate(270deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+.SpinnerOverlay {
+    width: 100%;
+    height: 100%;
+    position: absolute;
+    top: 0;
+    left: 0;
+    background: rgba(255, 255, 255, 0.5);
+    text-align: center;
+    min-height: 6rem;
+    z-index: var(--z-content-overlay);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}

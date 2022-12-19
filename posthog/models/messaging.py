@@ -6,12 +6,16 @@ from django.db import models
 from .utils import UUIDModel
 
 
+def get_email_hash(email: str) -> str:
+    return hashlib.sha256(f"{settings.SECRET_KEY}_{email}".encode()).hexdigest()
+
+
 class MessagingRecordManager(models.Manager):
     def get_or_create(self, defaults=None, **kwargs):
         raw_email = kwargs.pop("raw_email", None)
 
         if raw_email:
-            kwargs["email_hash"] = hashlib.sha256(f"{settings.SECRET_KEY}_{raw_email}".encode()).hexdigest()
+            kwargs["email_hash"] = get_email_hash(raw_email)
 
         return super().get_or_create(defaults, **kwargs)
 
