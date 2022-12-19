@@ -251,6 +251,8 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm install
+                  npx cypress cache clear
+                  npx cypress install
 
             - name: Stop/Start stack with Docker Compose
               run: |
