@@ -11,7 +11,6 @@ import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
 import { OrganizationMembershipLevel } from '../lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { systemStatusLogic } from './instance/SystemStatus/systemStatusLogic'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -27,7 +26,6 @@ export const teamLogic = kea<teamLogicType>([
     path(['scenes', 'teamLogic']),
     connect({
         actions: [userLogic, ['loadUser']],
-        values: [systemStatusLogic, ['instanceSettings']],
     }),
     actions({
         deleteTeam: (team: TeamType) => ({ team }),
@@ -110,11 +108,6 @@ export const teamLogic = kea<teamLogicType>([
             // If project has been loaded and is still null, it means the user just doesn't have access.
             (currentTeam, currentTeamLoading): boolean =>
                 !currentTeam?.effective_membership_level && !currentTeamLoading,
-        ],
-        sentryIntegrationEnabled: [
-            (selectors) => [selectors.instanceSettings],
-            (instanceSettings): boolean =>
-                instanceSettings?.filter((setting) => setting.key.startsWith('SENTRY') && setting.value).length > 0,
         ],
         demoOnlyProject: [
             (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
