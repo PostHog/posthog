@@ -232,6 +232,7 @@ jobs:
             fail-fast: false
             matrix:
                 specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
+                node: [18]
 
         steps:
             - name: Checkout
@@ -246,10 +247,6 @@ jobs:
               uses: actions/setup-node@v3
               with:
                   node-version: 18
-                  cache: pnpm
-
-            - name: Install package.json dependencies with pnpm
-              run: pnpm install
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -307,7 +304,7 @@ jobs:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.specs }}
-                  install: false
+                  install-command: pnpm i
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3
