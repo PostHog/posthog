@@ -144,7 +144,7 @@ export function AddToDashboardModal({
                     This insight is referenced on <strong className="text-default">{insight.dashboards?.length}</strong>{' '}
                     {pluralize(insight.dashboards?.length || 0, 'dashboard', 'dashboards', false)}
                 </div>
-                <div style={{ minHeight: 420 }}>
+                <div className="AddToDashboard--list">
                     <AutoSizer>
                         {({ height, width }) => (
                             <List
