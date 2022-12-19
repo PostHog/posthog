@@ -48,7 +48,7 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                     render: function RenderView() {
                         return (
                             <div className="flex justify-center">
-                                <LemonCheckbox defaultChecked disabled />
+                                <LemonCheckbox defaultChecked disabled color="gray" />
                             </div>
                         )
                     },
