@@ -3,7 +3,7 @@ import { DefinitionPageMode } from 'scenes/data-management/definition/definition
 import { useActions, useValues } from 'kea'
 import { definitionEditLogic, DefinitionEditLogicProps } from 'scenes/data-management/definition/definitionEditLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Col, Divider, Row } from 'antd'
+import { Col, Row } from 'antd'
 import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -12,6 +12,7 @@ import { VerifiedEventCheckbox } from 'lib/components/DefinitionPopup/Definition
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { Form } from 'kea-forms'
 import { tagsModel } from '~/models/tagsModel'
+import { LemonDivider } from 'lib/components/LemonDivider'
 
 export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
     const logic = definitionEditLogic(props)
@@ -48,15 +49,16 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                     </>
                 }
             />
-            <Divider />
-            <Row gutter={[16, 24]} style={{ maxWidth: 640 }} className="ph-ignore-input">
-                <Col span={24}>
-                    <h1>{getPropertyLabel(definition.name) || ''}</h1>
-                    <div className="definition-sent-as">
-                        Raw event name: <pre>{definition.name}</pre>
+            <LemonDivider />
+            <div>
+                <h1>{getPropertyLabel(definition.name) || ''}</h1>
+                <div className="definition-sent-as flex-wrap">
+                    <div>Raw event name:</div>
+                    <div>
+                        <pre>{definition.name}</pre>
                     </div>
-                </Col>
-            </Row>
+                </div>
+            </div>
             {hasTaxonomyFeatures && (
                 <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
                     <Col span={24}>
@@ -120,7 +122,7 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                     </Col>
                 </Row>
             )}
-            <Divider />
+            <LemonDivider />
         </Form>
     )
 }
