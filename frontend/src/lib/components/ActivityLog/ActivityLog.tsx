@@ -106,7 +106,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
             ) : humanizedActivity.length > 0 ? (
                 <>
                     {humanizedActivity.map((logItem, index) => (
-                        <ActivityLogRow key={index} logItem={logItem} />
+                        <ActivityLogRow key={index} logItem={logItem} showExtendedDescription={true} />
                     ))}
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>
