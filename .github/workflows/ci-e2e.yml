@@ -232,7 +232,6 @@ jobs:
             fail-fast: false
             matrix:
                 specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
-                node: [18]
 
         steps:
             - name: Checkout
