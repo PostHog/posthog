@@ -248,6 +248,9 @@ jobs:
                   node-version: 18
                   #todo understand this line
                   cache: pnpm
+                  cache-dependency-path: |
+                      **/package-lock.json
+                      /home/runner/.cache/Cypress
 
             - name: Install package.json dependencies with pnpm
               run: pnpm install
