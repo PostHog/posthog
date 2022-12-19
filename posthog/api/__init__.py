@@ -71,7 +71,7 @@ project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
 projects_router.register(
-    r"dashboard_tiles", dashboard_tiles.DashboardTileViewSet, "project_dashboard_tles", ["team_id"]
+    r"dashboard_tiles", dashboard_tiles.DashboardTileViewSet, "project_dashboard_tiles", ["team_id"]
 )
 
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
