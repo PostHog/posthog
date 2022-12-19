@@ -916,7 +916,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         [dashboardsModel.actionTypes.insightRemovedFromDashboard]: ({ dashboardId }) => {
-            // TODO could this be on the loader?
             // when removing an insight from a dashboard, we need to reload the dashboard to remove the tile
             if (dashboardId === props.id) {
                 actions.loadDashboardItems({ action: 'update' })
