@@ -233,6 +233,9 @@ jobs:
             matrix:
                 specs: ${{ fromJson(needs.cypress_prep.outputs.specs) }}
 
+        env:
+            CYPRESS_CACHE_FOLDER: './cypress/cache'
+
         steps:
             - name: Checkout
               uses: actions/checkout@v3
@@ -252,8 +255,7 @@ jobs:
               with:
                   key: cypress-runner-cache
                   path: |
-                      ~/.cache/Cypress
-                      node_modules
+                      ./cypress/cache
 
             - name: Install package.json dependencies with pnpm
               run: pnpm install
