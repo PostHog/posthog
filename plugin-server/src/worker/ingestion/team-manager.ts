@@ -4,7 +4,7 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { ONE_HOUR, ONE_MINUTE } from '../../config/constants'
-import { PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
+import { BillingUsage, OrgId, PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { posthog } from '../../utils/posthog'
@@ -30,6 +30,7 @@ const NOT_SYNCED_PROPERTIES = new Set([
 export class TeamManager {
     db: DB
     teamCache: LRU<TeamId, Team | null>
+    billingUsageCache: LRU<OrgId, BillingUsage | null>
     eventDefinitionsCache: LRU<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
@@ -45,6 +46,13 @@ export class TeamManager {
         this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
 
         this.teamCache = new LRU({
+            max: 10000,
+            maxAge: 2 * ONE_MINUTE,
+            // being explicit about the fact that we want to update
+            // the team cache every 2min, irrespective of the last access
+            updateAgeOnGet: false,
+        })
+        this.billingUsageCache = new LRU({
             max: 10000,
             maxAge: 2 * ONE_MINUTE,
             // being explicit about the fact that we want to update
@@ -87,6 +95,42 @@ export class TeamManager {
         } finally {
             clearTimeout(timeout)
         }
+    }
+
+    public async fetchBillingUsage(organization_id: string): Promise<BillingUsage | null> {
+        const cachedUsage = this.billingUsageCache.get(organization_id)
+        if (cachedUsage !== undefined) {
+            return cachedUsage
+        }
+
+        const timeout = timeoutGuard(`Still running "fetchBillingUsage". Timeout warning after 30 sec!`)
+        try {
+            let usage: BillingUsage | null = await this.db.fetchBillingUsage(organization_id)
+            if (!usage) {
+                usage = {}
+            }
+            this.billingUsageCache.set(organization_id, usage)
+            return usage
+        } finally {
+            clearTimeout(timeout)
+        }
+    }
+
+    public async isAboveUsageLimit(organization_id: string, key: string): Promise<boolean> {
+        const billingUsage = await this.fetchBillingUsage(organization_id)
+        if (!billingUsage) {
+            return false
+        }
+        const usageRecord = billingUsage[key]
+        if (!usageRecord) {
+            return false
+        }
+        const limit = usageRecord.limit
+        if (!limit) {
+            return false
+        }
+        const current = usageRecord.usage
+        return current > limit
     }
 
     public async getTeamByToken(token: string): Promise<Team | null> {

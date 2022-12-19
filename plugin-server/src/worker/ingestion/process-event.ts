@@ -73,9 +73,11 @@ export class EventsProcessor {
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
-
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
+                    if (await this.teamManager.isAboveUsageLimit(team.organization_id, 'recordings')) {
+                        return null
+                    }
                     const timeout2 = timeoutGuard(
                         'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
                         { eventUuid }
@@ -98,6 +100,9 @@ export class EventsProcessor {
                     }
                 }
             } else {
+                if (await this.teamManager.isAboveUsageLimit(team.organization_id, 'events')) {
+                    return null
+                }
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
                     result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)

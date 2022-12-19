@@ -13,6 +13,7 @@ import { KAFKA_GROUPS, KAFKA_PERSON_DISTINCT_ID, KAFKA_PLUGIN_LOG_ENTRIES } from
 import {
     Action,
     ActionStep,
+    BillingUsage,
     ClickHouseEvent,
     ClickhouseGroup,
     ClickHousePerson,
@@ -1474,6 +1475,21 @@ export class DB {
             'fetchTeamByToken'
         )
         return selectResult.rows[0] ?? null
+    }
+
+    public async fetchBillingUsage(organizationId: Team['organization_id']): Promise<BillingUsage | null> {
+        const selectResult = await this.postgresQuery<{ usage: BillingUsage }>(
+            `
+            SELECT
+                usage
+            FROM posthog_organization
+            WHERE id = $1
+            LIMIT 1
+                `,
+            [organizationId],
+            'fetchUsage'
+        )
+        return selectResult.rows[0] ? selectResult.rows[0].usage : null
     }
 
     // Hook (EE)

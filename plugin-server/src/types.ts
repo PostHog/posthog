@@ -236,6 +236,7 @@ export enum JobName {
 export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
+export type OrgId = Team['organization_id']
 
 export enum MetricMathOperations {
     Increment = 'increment',
@@ -475,6 +476,13 @@ export interface Team {
     session_recording_opt_in: boolean
     ingested_event: boolean
 }
+
+export interface BillingUsageItem {
+    usage: number
+    limit: number | null
+}
+
+export type BillingUsage = Record<string, BillingUsageItem>
 
 /** Properties shared by RawEventMessage and EventMessage. */
 export interface BaseEventMessage {
