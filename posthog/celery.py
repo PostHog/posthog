@@ -293,7 +293,7 @@ def pg_plugin_server_query_timing():
             pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "person_distinct_id2", "session_recording_events"]
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
 
 
 @app.task(ignore_result=True)
