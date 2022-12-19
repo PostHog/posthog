@@ -1,4 +1,4 @@
-import { Card, Col, Collapse, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Collapse, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -667,15 +667,15 @@ export function Experiment(): JSX.Element {
                             )}
                             {experiment && experiment.start_date && !experiment.end_date && (
                                 <div className="flex flex-row gap-2">
-                                    <LemonButton
-                                        tooltip="Reset this experiment and go back to draft mode. Previous data will be unused."
-                                        type="secondary"
-                                        status="primary"
-                                        onClick={() => resetExperiment()}
+                                    <Popconfirm
+                                        placement="top"
+                                        title="Reset this experiment and go back to draft mode? Data collected prior to the new start date will be unused for this experiment."
+                                        onConfirm={() => resetExperiment()}
                                     >
-                                        Reset
-                                    </LemonButton>
-
+                                        <LemonButton type="secondary" status="primary">
+                                            Reset
+                                        </LemonButton>
+                                    </Popconfirm>
                                     <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
                                         Stop
                                     </LemonButton>
