@@ -15,12 +15,16 @@ import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useDebouncedCallback } from 'use-debounce'
 import { LemonButton } from '@posthog/lemon-ui'
+import React from 'react'
+import { Tooltip } from 'lib/components/Tooltip'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
     [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
     [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
 }
+
+const PLAYER_INSPECTOR_LIST_ITEM_MARGIN_TOP = 4
 
 function PlayerInspectorListItem({
     item,
@@ -31,7 +35,7 @@ function PlayerInspectorListItem({
     item: SharedListItem
     index: number
     logicProps: SessionRecordingPlayerLogicProps
-    onLayout: () => void
+    onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
     const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, timestampMode } = useValues(
         sharedListLogic(logicProps)
@@ -49,12 +53,32 @@ function PlayerInspectorListItem({
 
     const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
     const { ref, width, height } = useResizeObserver({})
+
+    const totalHeight = height && index > 0 ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN_TOP : height
+
     // Height changes should layout immediately but width ones (browser resize can be much slower)
-    useEffect(() => onLayoutDebounced(), [width])
-    useEffect(() => onLayout(), [height])
+    useEffect(() => {
+        if (!width || !totalHeight) {
+            return
+        }
+        onLayoutDebounced({ width, height: totalHeight })
+    }, [width])
+    useEffect(() => {
+        if (!width || !totalHeight) {
+            return
+        }
+        onLayout({ width, height: totalHeight })
+    }, [totalHeight])
 
     return (
-        <div ref={ref} className={clsx('flex flex-1 overflow-hidden gap-2', index > 0 && 'mt-1')}>
+        <div
+            ref={ref}
+            className={clsx('flex flex-1 overflow-hidden gap-2')}
+            // eslint-disable-next-line react/forbid-dom-props
+            style={{
+                marginTop: index > 0 ? PLAYER_INSPECTOR_LIST_ITEM_MARGIN_TOP : undefined, // Style as we need it for the layout optimisation
+            }}
+        >
             {!isExpanded && showIcon ? (
                 <span className="shrink-0 text-lg text-muted-alt h-8 w-5 text-center flex items-center justify-center">
                     {TabToIcon[item.type]}
@@ -91,9 +115,16 @@ function PlayerInspectorListItem({
                             <>{item.timestamp.format('DD MMM HH:mm:ss')}</>
                         ) : (
                             <>
-                                {item.timeInRecording < 0
-                                    ? 'LOAD'
-                                    : colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)}
+                                {item.timeInRecording < 0 ? (
+                                    <Tooltip
+                                        title="This event occured before the recording started, likely as the page was loading."
+                                        placement="left"
+                                    >
+                                        LOAD
+                                    </Tooltip>
+                                ) : (
+                                    colonDelimitedDuration(item.timeInRecording / 1000, fixedUnits)
+                                )}
                             </>
                         )}
                     </span>
@@ -103,6 +134,9 @@ function PlayerInspectorListItem({
     )
 }
 
+// Without `memo` all rows get rendered when anything in the parent component changes.
+// const PlayerInspectorListItem = React.memo(PlayerInspectorListItemRaw) as typeof PlayerInspectorListItemRaw
+
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { items } = useValues(sharedListLogic(props))
 
@@ -111,31 +145,37 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
             new CellMeasurerCache({
                 fixedWidth: true,
                 minHeight: 10,
+                defaultHeight: 40,
             }),
-        [items]
+        []
     )
 
-    const renderRow: ListRowRenderer = useCallback(
-        ({ index, key, parent, style }) => {
-            return (
-                <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
-                    {({ measure, registerChild }) => (
-                        // eslint-disable-next-line react/forbid-dom-props
-                        <div ref={(r) => registerChild?.(r || undefined)} style={style}>
-                            <PlayerInspectorListItem
-                                key={index}
-                                item={items[index]}
-                                index={index}
-                                logicProps={props}
-                                onLayout={measure}
-                            />
-                        </div>
-                    )}
-                </CellMeasurer>
-            )
-        },
-        [items]
-    )
+    const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
+        console.log('RENDERING', index)
+
+        return (
+            <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
+                {({ measure, registerChild }) => (
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div ref={(r) => registerChild?.(r || undefined)} style={style}>
+                        <PlayerInspectorListItem
+                            key={index}
+                            item={items[index]}
+                            index={index}
+                            logicProps={props}
+                            onLayout={({ height }) => {
+                                // Optimization to ensure that we only call measure if the dimensions have actually changed
+                                if (height !== cellMeasurerCache.getHeight(index, 0)) {
+                                    console.log('LAyout!!', cellMeasurerCache.getHeight(index, 0), height)
+                                    measure()
+                                }
+                            }}
+                        />
+                    </div>
+                )}
+            </CellMeasurer>
+        )
+    }
 
     return (
         <div className="flex flex-col bg-side flex-1 overflow-hidden relative">
@@ -148,7 +188,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                 height={height}
                                 width={width}
                                 deferredMeasurementCache={cellMeasurerCache}
-                                overscanRowCount={10}
+                                overscanRowCount={20}
                                 rowCount={items.length}
                                 rowHeight={cellMeasurerCache.rowHeight}
                                 rowRenderer={renderRow}

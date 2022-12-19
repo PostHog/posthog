@@ -72,12 +72,6 @@ const MiniFilters: SharedListMiniFilter[] = [
     },
     {
         tab: SessionRecordingPlayerTab.ALL,
-        key: 'all-verbose',
-        name: 'Verbose',
-        alone: true,
-    },
-    {
-        tab: SessionRecordingPlayerTab.ALL,
         key: 'all-everything',
         name: 'Everything',
         alone: true,
@@ -303,12 +297,9 @@ export const sharedListLogic = kea<sharedListLogicType>([
         ],
 
         matchingEvents: [
-            (s) => [s.showOnlyMatching, (_, props) => props.matching],
-            (showOnlyMatching, matchingEvents): MatchedRecordingEvent[] | undefined => {
-                if (!showOnlyMatching || !matchingEvents) {
-                    return
-                }
-                return matchingEvents.map((x: any) => x.events).flat()
+            () => [(_, props) => props.matching],
+            (matchingEvents): MatchedRecordingEvent[] => {
+                return matchingEvents?.map((x: any) => x.events).flat() ?? []
             },
         ],
 
@@ -322,6 +313,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 s.featureFlags,
                 s.miniFiltersByKey,
                 s.matchingEvents,
+                s.showOnlyMatching,
             ],
             (
                 tab,
@@ -331,7 +323,8 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 eventsData,
                 featureFlags,
                 miniFiltersByKey,
-                matchingEvents
+                matchingEvents,
+                showOnlyMatching
             ): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
@@ -484,14 +477,11 @@ export const sharedListLogic = kea<sharedListLogicType>([
                             include = true
                         }
 
-                        let highlightColor: 'primary' | undefined = undefined
+                        const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
 
-                        // Special case - overrides the others
-                        if (matchingEvents?.find((x) => x.uuid === String(event.id))) {
-                            include = true
-                            highlightColor = 'primary'
-                        } else if (matchingEvents) {
-                            include = false
+                        if (showOnlyMatching && tab === SessionRecordingPlayerTab.EVENTS) {
+                            // Special case - overrides the others
+                            include = include && isMatchingEvent
                         }
 
                         if (!include) {
@@ -509,12 +499,14 @@ export const sharedListLogic = kea<sharedListLogicType>([
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: search,
                             data: event,
-                            highlightColor,
+                            highlightColor: isMatchingEvent ? 'primary' : undefined,
                         })
                     }
                 }
 
-                items.sort((a, b) => a.timestamp.diff(b.timestamp))
+                // NOTE: Native JS sorting is super slow here!
+
+                items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
 
                 return items
             },
@@ -546,7 +538,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     keys: ['search'],
                     findAllMatches: true,
                     ignoreLocation: true,
-                    sortFn: (a, b) => allItems[a.idx].timestamp.diff(allItems[b.idx].timestamp) || a.score - b.score,
+                    shouldSort: false,
                 }),
         ],
 

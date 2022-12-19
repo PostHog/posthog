@@ -315,8 +315,7 @@ export function PlayerInspectorControls({
                             </LemonButton>
                         </div>
                     </div>
-                    {matching?.length &&
-                    [SessionRecordingPlayerTab.ALL, SessionRecordingPlayerTab.EVENTS].includes(tab) ? (
+                    {matching?.length && tab === SessionRecordingPlayerTab.EVENTS ? (
                         <div className="flex items-center">
                             <span className="flex items-center whitespace-nowrap text-xs gap-1">
                                 Only events matching filters

@@ -30,7 +30,7 @@ import {
 } from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { CONSOLE_LOG_PLUGIN_NAME, parseConsoleLogPayload } from './inspector/consoleLogsUtils'
+import { CONSOLE_LOG_PLUGIN_NAME, parseConsoleLogPayload, parseConsoleLogPayloadV2 } from './inspector/consoleLogsUtils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -450,8 +450,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                             snapshot.type === 6 && // RRWeb plugin event type
                             snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
                         ) {
-                            const parsed = parseConsoleLogPayload(snapshot.data.payload as any)
-                            parsed.timestamp = snapshot.timestamp
+                            const parsed = parseConsoleLogPayloadV2(snapshot as any)
                             logs.push(parsed)
                         }
                     })

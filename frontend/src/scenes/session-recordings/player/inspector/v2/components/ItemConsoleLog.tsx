@@ -9,7 +9,7 @@ export interface ItemConsoleLogProps {
 export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogProps): JSX.Element {
     return (
         <>
-            <div className="relative cursor-pointer" onClick={() => setExpanded(!expanded)}>
+            <div className="relative cursor-pointer overflow-hidden" onClick={() => setExpanded(!expanded)}>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate font-mono">
                     {item.data.previewContent}
                 </div>
