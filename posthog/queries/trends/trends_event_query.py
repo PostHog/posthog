@@ -186,7 +186,7 @@ class TrendsEventQuery(EventQuery):
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
-            entity=self._entity,
+            allowed_entities=[self._entity],
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS

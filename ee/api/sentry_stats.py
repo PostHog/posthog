@@ -107,9 +107,9 @@ def sentry_stats(request: HttpRequest):
         target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
         target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-        data, total_count = get_sentry_stats(target_start_date, target_end_date)
+        _, total_count = get_sentry_stats(target_start_date, target_end_date)
 
     except Exception as e:
         return JsonResponse({"error": "Error fetching stats from sentry", "exception": str(e)})
 
-    return JsonResponse({"total_count": total_count, "data": data})
+    return JsonResponse({"sentry_integration_enabled": True, "total_count": total_count})

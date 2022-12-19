@@ -13,6 +13,6 @@
   - There are various sub-components as needed, e.g. `<AutoLoad />`, `<ColumnConfigurator />`). Some of them depend on a logic, likely `dataNodeLogic`, being in a `BindLogic` context, so read the source.
 - `examples.ts` - Various examples used in storybook
 - `query.ts` - make API calls to fetch data for any query
-- `schema.json` - JSON schema, used for query editor, built with `yarn schema:build`
+- `schema.json` - JSON schema, used for query editor, built with `pnpm schema:build`
 - `schema.ts` - typescript types for all query nodes
 - `utils.ts` - type narrowing utilities

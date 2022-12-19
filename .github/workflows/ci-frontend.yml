@@ -21,32 +21,28 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - name: Set up Node 16
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
+                  cache: pnpm
 
-            - uses: actions/cache@v3
-              id: node-modules-cache
-              with:
-                  path: |
-                      node_modules
-                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
-                  restore-keys: |
-                      ${{ runner.os }}-node-modules
-
-            - name: Install package.json dependencies with Yarn
-              if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
 
             - name: Check formatting with prettier
-              run: yarn prettier:check
+              run: pnpm prettier:check
 
             - name: Lint with ESLint
-              run: yarn eslint
+              run: pnpm eslint
 
             - name: Generate logic types and run typescript with strict
-              run: yarn typegen:write && yarn typescript:check
+              run: pnpm typegen:write && pnpm typescript:check
 
     jest-setup:
         # Split the tests into multiple chunks
@@ -56,21 +52,24 @@ jobs:
             test-chunk-ids: ${{ steps['set-test-chunk-ids'].outputs['test-chunk-ids'] }}
         steps:
             - uses: actions/checkout@v3
-            - uses: actions/cache@v3
-              id: node-modules-cache
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
               with:
-                  path: |
-                      node_modules
-                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
-                  restore-keys: |
-                      ${{ runner.os }}-node-modules-
-            - run: yarn install --frozen-lockfile
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
+            - run: pnpm install --frozen-lockfile
             - id: set-test-chunks
               name: Set Chunks
-              # Looks at the output of 'yarn test --listTests --json'
-              # Take the 3rd line of the output (the first two are yarn non-sense)
+              # Looks at the output of 'pnpm test -- --listTests --json'
+              # Take the 5th line of the output (the first two are pnpm non-sense)
               # Split the test into 3 parts. To increase the number split change the denominator in `length / 3`
-              run: echo "test-chunks=$(yarn test --listTests --json | sed -n 3p | jq -cM '[_nwise(length / 3 | ceil)]')" >> $GITHUB_OUTPUT
+              run: echo "test-chunks=$(pnpm test -- --listTests --json | sed -n 5p | jq -cM '[_nwise(length / 3 | ceil)]')" >> $GITHUB_OUTPUT
             - id: set-test-chunk-ids
               name: Set Chunk IDs
               run: echo "test-chunk-ids=$(echo $CHUNKS | jq -cM 'to_entries | map(.key)')" >> $GITHUB_OUTPUT
@@ -90,27 +89,24 @@ jobs:
 
         steps:
             - uses: actions/checkout@v3
-            - name: Set up Node 16
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
+                  cache: pnpm
 
-            - uses: actions/cache@v3
-              id: node-modules-cache
-              with:
-                  path: |
-                      node_modules
-                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
-                  restore-keys: |
-                      ${{ runner.os }}-node-modules-
-
-            - name: Install package.json dependencies with Yarn
-              if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
 
             - name: Test with Jest
               # set maxWorkers or Jest only uses 1 CPU in GitHub Actions
-              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs yarn test --maxWorkers=2
+              run: echo $CHUNKS | jq '.[${{ matrix.chunk }}] | .[] | @text' | xargs pnpm test -- --maxWorkers=2
               env:
                   NODE_OPTIONS: --max-old-space-size=6144
                   CHUNKS: ${{ needs.jest-setup.outputs['test-chunks'] }}

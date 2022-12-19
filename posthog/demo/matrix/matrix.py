@@ -14,13 +14,14 @@ from typing import (
 
 import mimesis
 import mimesis.random
+from django.conf import settings
 from django.utils import timezone
 
 from posthog.constants import GROUP_TYPES_LIMIT
 from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.models import Team, User
+from posthog.models.utils import UUIDT
 
-from ...models.utils import UUIDT
 from .models import Effect, SimPerson, SimServerClient
 
 
@@ -84,13 +85,13 @@ class Cluster(ABC):
         """Return cluster ID. Overriding this is recommended but optional."""
         return f"#{self.index + 1}"
 
-    @abstractmethod
     def radius_distribution(self) -> float:
         """Return a value between 0 and 1 signifying where the radius should fall between MIN_RADIUS and MAX_RADIUS."""
+        return self.random.uniform(self.MIN_RADIUS, self.MAX_RADIUS)
 
-    @abstractmethod
     def initation_distribution(self) -> float:
         """Return a value between 0 and 1 determining how far into the overall simulation should this cluster be initiated."""
+        return self.random.random()
 
     def list_neighbors(self, person: SimPerson) -> List[SimPerson]:
         """Return a list of neighbors of a person at (x, y)."""
@@ -222,13 +223,13 @@ class Matrix(ABC):
         now: Optional[dt.datetime] = None,
         days_past: int = 180,
         days_future: int = 30,
-        n_clusters: int = 500,
+        n_clusters: int = settings.DEMO_MATRIX_N_CLUSTERS,
     ):
         if now is None:
             now = timezone.now()
         self.now = now
         self.start = (now - dt.timedelta(days=days_past)).replace(hour=0, minute=0, second=0, microsecond=0)
-        self.end = (now + dt.timedelta(days=days_future + 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+        self.end = (now + dt.timedelta(days=days_future)).replace(hour=0, minute=0, second=0, microsecond=0)
         # We initialize random data providers here and pass it down as a performance measure
         # Provider initialization is a bit intensive, as it loads some JSON data,
         # so doing it at cluster or person level could be overly taxing

@@ -47,8 +47,6 @@ export const personsLogic = kea<personsLogicType>({
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
-        showPersonDeleteModal: (person: PersonType | null) => ({ person }),
-        deletePerson: (payload: { person: PersonType; deleteEvents: boolean }) => payload,
         setDistinctId: (distinctId: string) => ({ distinctId }),
     },
     reducers: {
@@ -91,12 +89,6 @@ export const personsLogic = kea<personsLogicType>({
             loadPerson: () => null,
             setPerson: (_, { person }): PersonType | null => person,
         },
-        personDeleteModal: [
-            null as PersonType | null,
-            {
-                showPersonDeleteModal: (_, { person }) => person,
-            },
-        ],
         distinctId: [
             null as string | null,
             {
@@ -155,20 +147,6 @@ export const personsLogic = kea<personsLogicType>({
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
     }),
     listeners: ({ actions, values }) => ({
-        deletePersonSuccess: ({ deletedPerson }) => {
-            // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
-            // This can take up to an hour. Until then, the plugin server won't know to regenerate the person.
-            lemonToast.success(
-                <>
-                    The person <strong>{asDisplay(deletedPerson.person)}</strong> was removed from the project.
-                    {deletedPerson.deleteEvents
-                        ? ' Corresponding events will be deleted on a set schedule during non-peak usage times.'
-                        : ' Their ID(s) will be usable again in an hour or so.'}
-                </>
-            )
-            actions.loadPersons()
-            router.actions.push(urls.persons())
-        },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
 
@@ -272,16 +250,6 @@ export const personsLogic = kea<personsLogicType>({
                     }
                     const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
                     return response.results
-                },
-            },
-        ],
-        deletedPerson: [
-            {} as { person?: PersonType; deleteEvents?: boolean },
-            {
-                deletePerson: async ({ person, deleteEvents }) => {
-                    const params = deleteEvents ? { delete_events: true } : {}
-                    await api.delete(`api/person/${person.id}?${toParams(params)}`)
-                    return { person, deleteEvents }
                 },
             },
         ],

@@ -9,6 +9,8 @@ labels: bug
 *Please describe.*  
 *If this affects the front-end, screenshots would be of great help.*  
 
+*If you are on PostHog Cloud it would be really valuable if you can share any links where the problem occurs. This speeds up our ability to troubleshoot tremendously.* 
+
 ## How to reproduce
 
 1.

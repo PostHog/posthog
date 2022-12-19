@@ -22,7 +22,7 @@ export function GroupsTabs(): JSX.Element {
             <Tabs.TabPane tab="Persons" key="-1" />
 
             {showGroupsIntroductionPage ? (
-                <Tabs.TabPane tab="Introducing Group Analytics" key="0" />
+                <Tabs.TabPane tab="Groups" key="0" />
             ) : (
                 groupTypes.map((groupType) => (
                     <Tabs.TabPane

@@ -240,6 +240,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
+        hasRenderFunction: [(s) => [s.group], (group) => !!group?.render],
         isExpandable: [
             (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],
             (remoteEndpoint, scopedRemoteEndpoint, remoteItems) =>
@@ -310,7 +311,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
         ],
         totalResultCount: [(s) => [s.items], (items) => items.count || 0],
-        totalExtraCount: [(s) => [s.isExpandable], (isExpandable) => (isExpandable ? 1 : 0)],
+        totalExtraCount: [
+            (s) => [s.isExpandable, s.hasRenderFunction],
+            (isExpandable, hasRenderFunction) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
+        ],
         totalListCount: [
             (s) => [s.totalResultCount, s.totalExtraCount],
             (totalResultCount, totalExtraCount) => totalResultCount + totalExtraCount,

@@ -127,7 +127,7 @@ class TestMixin:
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_person_on_events = True
+            util.can_enable_actor_on_events = True
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
@@ -523,7 +523,7 @@ def _create_person(*args, **kwargs):
 class ClickhouseTestMixin(QueryMatchingTest):
     RUN_MATERIALIZED_COLUMN_TESTS = True
     # overrides the basetest in posthog/test/base.py
-    #  this way the team id will increment so we don't have to destroy all clickhouse tables on each test
+    # this way the team id will increment so we don't have to destroy all clickhouse tables on each test
     CLASS_DATA_LEVEL_SETUP = False
 
     snapshot: Any

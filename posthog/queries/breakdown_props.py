@@ -72,7 +72,7 @@ def get_breakdown_prop_values(
     sessions_join_clause = ""
     sessions_join_params: Dict = {}
 
-    null_person_filter = f"AND e.person_id != toUUIDOrZero('')" if team.actor_on_events_querying_enabled else ""
+    null_person_filter = f"AND e.person_id != toUUIDOrZero('')" if team.person_on_events_querying_enabled else ""
 
     if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
         outer_properties: Optional[PropertyGroup] = props_to_filter
@@ -120,12 +120,12 @@ def get_breakdown_prop_values(
         from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 
         entity_filter, entity_params = FunnelEventQuery(
-            filter, team, using_person_on_events=team.actor_on_events_querying_enabled
+            filter, team, using_person_on_events=team.person_on_events_querying_enabled
         )._get_entity_query()
         entity_format_params = {"entity_query": entity_filter}
     else:
         entity_params, entity_format_params = get_entity_filtering_params(
-            entity=entity,
+            allowed_entities=[entity],
             team_id=team.pk,
             table_name="e",
             person_id_joined_alias=person_id_joined_alias,

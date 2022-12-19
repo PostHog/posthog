@@ -405,7 +405,7 @@ class ClickhouseFunnelBase(ABC):
             team=self._team,
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.actor_on_events_querying_enabled,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -525,7 +525,7 @@ class ClickhouseFunnelBase(ABC):
                 action=action,
                 prepend=f"{entity_name}_{step_prefix}step_{index}",
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-                if self._team.actor_on_events_querying_enabled
+                if self._team.person_on_events_querying_enabled
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
                 person_id_joined_alias="person_id",
             )
@@ -548,7 +548,7 @@ class ClickhouseFunnelBase(ABC):
             property_group=entity.property_groups,
             prepend=str(index),
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._team.actor_on_events_querying_enabled
+            if self._team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="person_id",
         )
@@ -694,7 +694,7 @@ class ClickhouseFunnelBase(ABC):
         self.params.update({"breakdown": self._filter.breakdown})
         if self._filter.breakdown_type == "person":
 
-            if self._team.actor_on_events_querying_enabled:
+            if self._team.person_on_events_querying_enabled:
                 basic_prop_selector = get_single_or_multi_property_string_expr(
                     self._filter.breakdown,
                     table="events",
@@ -721,7 +721,7 @@ class ClickhouseFunnelBase(ABC):
             # :TRICKY: We only support string breakdown for group properties
             assert isinstance(self._filter.breakdown, str)
 
-            if self._team.actor_on_events_querying_enabled and groups_on_events_querying_enabled():
+            if self._team.person_on_events_querying_enabled and groups_on_events_querying_enabled():
                 properties_field = f"group{self._filter.breakdown_group_type_index}_properties"
                 expression, _ = get_property_string_expr(
                     table="events",
@@ -821,7 +821,7 @@ class ClickhouseFunnelBase(ABC):
                 extra_params={"offset": 0},
                 use_all_funnel_entities=use_all_funnel_entities,
                 person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-                if self._team.actor_on_events_querying_enabled
+                if self._team.person_on_events_querying_enabled
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             )
 

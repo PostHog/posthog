@@ -351,8 +351,9 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
             raise exceptions.ValidationError("Missing condition for which to get blast radius")
 
         condition = request.data.get("condition") or {}
+        group_type_index = request.data.get("group_type_index", None)
 
-        users_affected, total_users = get_user_blast_radius(condition, self.team)
+        users_affected, total_users = get_user_blast_radius(self.team, condition, group_type_index)
 
         return Response(
             {

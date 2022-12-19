@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.indexes import index_by_kafka_timestamp, projection_for_max_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
@@ -39,6 +40,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     group4_created_at DateTime64
     {materialized_columns}
     {extra_fields}
+    {indexes}
 ) ENGINE = {engine}
 """
 
@@ -78,6 +80,10 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     engine=EVENTS_DATA_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+    indexes=f"""
+    , {projection_for_max_kafka_timestamp(EVENTS_DATA_TABLE())}
+    , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
+    """,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
 )
@@ -97,6 +103,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
     extra_fields="",
     materialized_columns="",
+    indexes="",
 )
 
 EVENTS_TABLE_JSON_MV_SQL = lambda: """
@@ -142,6 +149,7 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
+    indexes="",
 )
 
 # This table is responsible for reading from events on a cluster setting
@@ -151,6 +159,7 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
+    indexes="",
 )
 
 INSERT_EVENT_SQL = (
@@ -303,6 +312,20 @@ team_id = %(team_id)s
 ORDER BY timestamp {order} {limit}
 """
 
+SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART = """
+SELECT {columns}
+FROM events
+WHERE
+team_id = %(team_id)s
+{conditions}
+{filters}
+{where}
+{group}
+{having}
+{order}
+{limit}
+"""
+
 SELECT_ONE_EVENT_SQL = """
 SELECT
     uuid,
@@ -377,7 +400,15 @@ GET_CUSTOM_EVENTS = """
 SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
 """
 
-GET_EVENTS_VOLUME = "SELECT event, count() AS count, max(timestamp) AS last_seen_at FROM events WHERE team_id = %(team_id)s AND timestamp > %(timestamp)s GROUP BY event ORDER BY count DESC"
+GET_EVENTS_VOLUME = """
+SELECT event, count() AS count, max(timestamp) AS last_seen_at
+FROM events
+PREWHERE team_id = %(team_id)s
+AND timestamp > %(timestamp)s
+GROUP BY event ORDER BY count DESC
+"""
+
+
 GET_EVENT_PROPERTY_SAMPLE_JSON_VALUES = """
     WITH property_tuples AS (
         SELECT DISTINCT ON (property_tuple.1)

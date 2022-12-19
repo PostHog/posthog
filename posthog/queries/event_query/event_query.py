@@ -6,6 +6,7 @@ from posthog.models import Cohort, Filter, Property
 from posthog.models.cohort.util import is_precalculated_query
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -26,7 +27,9 @@ class EventQuery(metaclass=ABCMeta):
     SESSION_TABLE_ALIAS = "sessions"
     EVENT_TABLE_ALIAS = "e"
 
-    _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter]
+    _filter: Union[
+        Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
+    ]
     _team_id: int
     _column_optimizer: ColumnOptimizer
     _should_join_distinct_ids = False
@@ -39,7 +42,9 @@ class EventQuery(metaclass=ABCMeta):
 
     def __init__(
         self,
-        filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter],
+        filter: Union[
+            Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
+        ],
         team: Team,
         round_interval=False,
         should_join_distinct_ids=False,
@@ -107,8 +112,11 @@ class EventQuery(metaclass=ABCMeta):
             return
 
         # :KLUDGE: The following is mostly making sure if cohorts are included as well.
-        #   Can be simplified significantly after https://github.com/PostHog/posthog/issues/5854
-        if any(self._should_property_join_persons(prop) for prop in self._filter.property_groups.flat):
+        # Can be simplified significantly after https://github.com/PostHog/posthog/issues/5854
+        # Properties timeline never needs to join persons, as it's purely event-based
+        if not isinstance(self._filter, PropertiesTimelineFilter) and any(
+            self._should_property_join_persons(prop) for prop in self._filter.property_groups.flat
+        ):
             self._should_join_distinct_ids = True
             self._should_join_persons = True
             return
@@ -123,6 +131,8 @@ class EventQuery(metaclass=ABCMeta):
         return prop.type == "cohort" and self._does_cohort_need_persons(prop)
 
     def _determine_should_join_sessions(self) -> None:
+        if isinstance(self._filter, PropertiesTimelineFilter):
+            return  # Properties timeline never uses sessions
         if SessionQuery(self._filter, self._team).is_used:
             self._should_join_sessions = True
 
@@ -141,7 +151,9 @@ class EventQuery(metaclass=ABCMeta):
         return False
 
     @cached_property
-    def _person_query(self):
+    def _person_query(self) -> PersonQuery:
+        if isinstance(self._filter, PropertiesTimelineFilter):
+            raise Exception("Properties Timeline never needs person query")
         return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=self._extra_person_fields)
 
     def _get_person_query(self) -> Tuple[str, Dict]:
@@ -160,9 +172,15 @@ class EventQuery(metaclass=ABCMeta):
     def _get_groups_query(self) -> Tuple[str, Dict]:
         return "", {}
 
+    @cached_property
+    def _sessions_query(self) -> SessionQuery:
+        if isinstance(self._filter, PropertiesTimelineFilter):
+            raise Exception("Properties Timeline never needs sessions query")
+        return SessionQuery(filter=self._filter, team=self._team)
+
     def _get_sessions_query(self) -> Tuple[str, Dict]:
         if self._should_join_sessions:
-            session_query, session_params = SessionQuery(filter=self._filter, team=self._team).get_query()
+            session_query, session_params = self._sessions_query.get_query()
 
             return (
                 f"""

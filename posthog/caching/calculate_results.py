@@ -16,7 +16,7 @@ from posthog.constants import (
 )
 from posthog.decorators import CacheType
 from posthog.logging.timing import timed
-from posthog.models import Dashboard, EventDefinition, Filter, Insight, RetentionFilter, Team
+from posthog.models import Dashboard, DashboardTile, EventDefinition, Filter, Insight, RetentionFilter, Team
 from posthog.models.filters import PathFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import get_filter
@@ -37,6 +37,16 @@ CACHE_TYPE_TO_INSIGHT_CLASS = {
 }
 
 logger = structlog.get_logger(__name__)
+
+
+def calculate_cache_key(target: Union[DashboardTile, Insight]) -> Optional[str]:
+    insight = target if isinstance(target, Insight) else target.insight
+    dashboard = target.dashboard if isinstance(target, DashboardTile) else None
+
+    if insight is None or not insight.filters:
+        return None
+
+    return generate_insight_cache_key(insight, dashboard)
 
 
 def get_cache_type(filter: FilterType) -> CacheType:
