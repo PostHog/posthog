@@ -60,7 +60,8 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         exporterResourceParams,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
+    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights, abortAnyRunningQuery } =
+        useActions(logic)
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -72,6 +73,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
+        return () => {
+            abortAnyRunningQuery()
+        }
     }, [insightId])
 
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]

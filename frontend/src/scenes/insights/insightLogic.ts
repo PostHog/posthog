@@ -171,6 +171,7 @@ export const insightLogic = kea<insightLogicType>([
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        abortAnyRunningQuery: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -749,7 +750,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     }),
-    listeners(({ actions, selectors, values }) => ({
+    listeners(({ actions, selectors, values, cache }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },
@@ -861,6 +862,12 @@ export const insightLogic = kea<insightLogicType>([
                 }, SHOW_TIMEOUT_MESSAGE_AFTER)
             )
             actions.setIsLoading(true)
+        },
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+            }
+            cache.abortController = null
         },
         abortQuery: async ({ queryId }) => {
             const { currentTeamId } = values
