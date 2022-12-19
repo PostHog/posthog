@@ -61,9 +61,6 @@ import {
 import { CardMeta, Resizeable } from 'lib/components/Cards/Card'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 
-// TODO: Add support for Retention to InsightDetails
-export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
-
 type DisplayedType = ChartDisplayType | 'RetentionContainer' | 'FunnelContainer' | 'PathsContainer'
 
 const displayMap: Record<

@@ -28,6 +28,55 @@
      HAVING max(is_deleted) = 0)
   '
 ---
+# name: TestBlastRadius.test_user_blast_radius_with_groups
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
+     WHERE team_id = 2
+       AND group_type_index = 0
+     GROUP BY group_key
+     HAVING 1=1
+     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_groups.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT group_key)
+  FROM groups
+  WHERE team_id = 2
+    AND group_type_index = 0
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
+     WHERE team_id = 2
+       AND group_type_index = 0
+     GROUP BY group_key
+     HAVING 1=1
+     AND ((has(['0', '1', '2', '3', '4'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+          AND (has(['2', '3', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))))
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT group_key)
+  FROM groups
+  WHERE team_id = 2
+    AND group_type_index = 0
+  '
+---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
   '
   

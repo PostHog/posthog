@@ -81,5 +81,5 @@ def extend_api_router(
 
 urlpatterns: List[Any] = [
     path("api/saml/metadata/", authentication.saml_metadata_view),
-    path("api/sentry_errors/", sentry_stats.sentry_stats),
+    path("api/sentry_stats/", sentry_stats.sentry_stats),
 ]
