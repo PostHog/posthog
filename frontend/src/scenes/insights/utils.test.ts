@@ -4,7 +4,9 @@ import {
     formatAggregationValue,
     formatBreakdownLabel,
     getDisplayNameFromEntityFilter,
+    getDisplayNameFromEntityNode,
     summarizeInsightFilters,
+    summarizeInsightQuery,
 } from 'scenes/insights/utils'
 import {
     BASE_MATH_DEFINITIONS,
@@ -16,6 +18,8 @@ import {
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { Noun } from '~/models/groupsModel'
+import { EventsNode, ActionsNode, NodeKind } from '~/queries/schema'
+import { isEventsNode } from '~/queries/utils'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
     return {
@@ -44,6 +48,63 @@ describe('getDisplayNameFromEntityFilter()', () => {
         it(`expect "${expected}" for Filter<custom_name="${filter.custom_name}", name="${filter.name}", id="${filter.id}">`, () => {
             expect(getDisplayNameFromEntityFilter(filter, isCustom)).toEqual(expected)
         })
+    })
+})
+
+const createEventsNode = (id?: Entity['id'], name?: string, custom_name?: string): EventsNode => {
+    return {
+        kind: NodeKind.EventsNode,
+        custom_name,
+        name,
+        event: id ? String(id) : undefined,
+    }
+}
+
+const createActionsNode = (id?: Entity['id'], name?: string, custom_name?: string): ActionsNode => {
+    return {
+        kind: NodeKind.ActionsNode,
+        custom_name,
+        name,
+        id: Number(id),
+    }
+}
+
+describe('getDisplayNameFromEntityNode()', () => {
+    const paramsToExpected: [EventsNode | ActionsNode, boolean, string | null][] = [
+        [createEventsNode(3, 'name', 'custom_name'), true, 'custom_name'],
+        [createEventsNode(3, 'name', ''), true, 'name'],
+        [createEventsNode(3, 'name', '    '), true, 'name'],
+        [createEventsNode(3, 'name'), true, 'name'],
+        [createEventsNode(3, '', ''), true, '3'],
+        [createEventsNode(3, '  ', '    '), true, '3'],
+        [createEventsNode(3), true, '3'],
+        [createEventsNode('hi'), true, 'hi'],
+        [createEventsNode(), true, null],
+        [createEventsNode(3, 'name', 'custom_name'), false, 'name'],
+        [createEventsNode(3, '  ', 'custom_name'), false, '3'],
+
+        [createActionsNode(3, 'name', 'custom_name'), true, 'custom_name'],
+        [createActionsNode(3, 'name', ''), true, 'name'],
+        [createActionsNode(3, 'name', '    '), true, 'name'],
+        [createActionsNode(3, 'name'), true, 'name'],
+        [createActionsNode(3, '', ''), true, '3'],
+        [createActionsNode(3, '  ', '    '), true, '3'],
+        [createActionsNode(3), true, '3'],
+        [createActionsNode(), true, null],
+        [createActionsNode(3, 'name', 'custom_name'), false, 'name'],
+        [createActionsNode(3, '  ', 'custom_name'), false, '3'],
+    ]
+
+    paramsToExpected.forEach(([node, isCustom, expected]) => {
+        if (isEventsNode(node)) {
+            it(`expect "${expected}" for EventsNode<custom_name="${node.custom_name}", name="${node.name}", event="${node.event}">, isCustom<${isCustom}>`, () => {
+                expect(getDisplayNameFromEntityNode(node, isCustom)).toEqual(expected)
+            })
+        } else {
+            it(`expect "${expected}" for ActionsNode<custom_name="${node.custom_name}", name="${node.name}", id="${node.id}">, isCustom<${isCustom}`, () => {
+                expect(getDisplayNameFromEntityNode(node, isCustom)).toEqual(expected)
+            })
+        }
     })
 })
 
@@ -525,6 +586,25 @@ describe('summarizeInsightFilters()', () => {
                 mathDefinitions
             )
         ).toEqual('User lifecycle based on Rageclick')
+    })
+})
+
+describe('summarizeInsightQuery()', () => {
+    describe('lifecycle query', () => {
+        it('summarizes based on used series', () => {
+            const result = summarizeInsightQuery({
+                kind: NodeKind.LifecycleQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        event: '$rageclick',
+                        name: '$rageclick',
+                    },
+                ],
+            })
+
+            expect(result).toEqual('User lifecycle based on Rageclick')
+        })
     })
 })
 

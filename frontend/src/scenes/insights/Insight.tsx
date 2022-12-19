@@ -17,7 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconLock } from 'lib/components/icons'
-import { summarizeInsightFilters } from './utils'
+import { summarizeInsightFilters, summarizeInsightQuery } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -112,7 +112,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
+                        placeholder={
+                            isUsingDataExploration
+                                ? summarizeInsightQuery(query.source)
+                                : summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+                        }
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model

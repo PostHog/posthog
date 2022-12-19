@@ -39,6 +39,8 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
+import { ActionsNode, EventsNode, InsightQueryNode } from '~/queries/schema'
+import { isEventsNode, isLifecycleQuery } from '~/queries/utils'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -53,6 +55,20 @@ export const getDisplayNameFromEntityFilter = (
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (filter?.id ? `${filter?.id}` : null)
+}
+
+export const getDisplayNameFromEntityNode = (node: EventsNode | ActionsNode, isCustom = true): string | null => {
+    // Make sure names aren't blank strings
+    const customName = ensureStringIsNotBlank(node?.custom_name)
+    let name = ensureStringIsNotBlank(node?.name)
+    if (name && name in keyMapping.event) {
+        name = keyMapping.event[name].label
+    }
+
+    const id = isEventsNode(node) ? node.event : node.id
+
+    // Return custom name. If that doesn't exist then the name, then the id, then just null.
+    return (isCustom ? customName : null) ?? name ?? (!!id ? `${id}` : null)
 }
 
 export function extractObjectDiffKeys(
@@ -308,6 +324,14 @@ export function summarizeInsightFilters(
 
         return summary
     }
+    return ''
+}
+
+export function summarizeInsightQuery(query: InsightQueryNode): string {
+    if (isLifecycleQuery(query)) {
+        return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
+    }
+
     return ''
 }
 
