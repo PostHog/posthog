@@ -7,8 +7,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 
-@shared_task(ignore_result=True, bind=True)
-def create_data_for_demo_team(self, team_id: int, user_id: int) -> None:
+@shared_task(ignore_result=True)
+def create_data_for_demo_team(team_id: int, user_id: int) -> None:
     team = Team.objects.get(pk=team_id)
     user = User.objects.get(pk=user_id)
     if team and user:
