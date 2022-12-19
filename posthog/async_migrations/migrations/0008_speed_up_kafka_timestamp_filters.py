@@ -1,3 +1,5 @@
+from functools import cached_property
+
 import structlog
 from django.conf import settings
 
@@ -31,35 +33,40 @@ class Migration(AsyncMigrationDefinition):
         )
         return result[0][0] if len(result) > 0 else ""
 
-    operations = [
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD PROJECTION fast_max_kafka_timestamp (SELECT max(_timestamp))",
-            rollback=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP PROJECTION fast_max_kafka_timestamp",
-        ),
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE PROJECTION fast_max_kafka_timestamp",
-            rollback=None,
-        ),
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD INDEX kafka_timestamp_minmax _timestamp TYPE minmax GRANULARITY 3",
-            rollback=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP INDEX kafka_timestamp_minmax",
-        ),
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ALTER TABLE sharded_events ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE INDEX kafka_timestamp_minmax",
-            rollback=None,
-        ),
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD INDEX kafka_timestamp_minmax_dlq _timestamp TYPE minmax GRANULARITY 3",
-            rollback=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP INDEX kafka_timestamp_minmax_dlq",
-        ),
-        AsyncMigrationOperationSQL(
-            database=AnalyticsDBMS.CLICKHOUSE,
-            sql=f"ALTER TABLE events_dead_letter_queue ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE INDEX kafka_timestamp_minmax_dlq",
-            rollback=None,
-        ),
-    ]
+    @cached_property
+    def operations(self):
+        operations = []
+
+        for table in ["sharded_events", "person", "person_distinct_id2", "sharded_session_recording_events"]:
+            operations.extend(
+                [
+                    AsyncMigrationOperationSQL(
+                        database=AnalyticsDBMS.CLICKHOUSE,
+                        sql=f"ALTER TABLE {table} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD PROJECTION fast_max_kafka_timestamp_{table} (SELECT max(_timestamp))",
+                        rollback=f"ALTER TABLE {table} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP PROJECTION fast_max_kafka_timestamp_{table}",
+                    ),
+                    AsyncMigrationOperationSQL(
+                        database=AnalyticsDBMS.CLICKHOUSE,
+                        sql=f"ALTER TABLE {table} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE PROJECTION fast_max_kafka_timestamp_{table}",
+                        rollback=None,
+                    ),
+                ]
+            )
+
+        for table in ["sharded_events", "events_dead_letter_queue"]:
+            operations.extend(
+                [
+                    AsyncMigrationOperationSQL(
+                        database=AnalyticsDBMS.CLICKHOUSE,
+                        sql=f"ALTER TABLE {table} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' ADD INDEX kafka_timestamp_minmax_{table} _timestamp TYPE minmax GRANULARITY 3",
+                        rollback=f"ALTER TABLE {table} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' DROP INDEX kafka_timestamp_minmax_{table}",
+                    ),
+                    AsyncMigrationOperationSQL(
+                        database=AnalyticsDBMS.CLICKHOUSE,
+                        sql=f"ALTER TABLE {table} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MATERIALIZE INDEX kafka_timestamp_minmax_{table}",
+                        rollback=None,
+                    ),
+                ]
+            )
+
+        return operations
