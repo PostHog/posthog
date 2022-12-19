@@ -5,6 +5,7 @@ from rest_framework import mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 
 from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
+from ee.models.organization_resource_access import OrganizationResourceAccess
 from ee.models.role import Role, RoleMembership
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -50,7 +51,15 @@ class RoleSerializer(serializers.ModelSerializer):
         return name
 
     def create(self, validated_data):
-        validated_data["organization"] = self.context["request"].user.organization
+        organization = self.context["request"].user.organization
+        validated_data["organization"] = organization
+        try:
+            default_flags_org_setting = OrganizationResourceAccess.objects.get(
+                organization=organization, resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+            ).access_level
+        except OrganizationResourceAccess.DoesNotExist:
+            default_flags_org_setting = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
+        validated_data["feature_flags_access_level"] = default_flags_org_setting
         return super().create(validated_data)
 
     def get_members(self, role: Role):
