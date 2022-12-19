@@ -135,9 +135,7 @@ def dead_letter_queue_ratio() -> Tuple[bool, int]:
     return dead_letter_queue_ingestion_ratio >= 0.2, dead_letter_queue_events_last_day
 
 
-@cache_for(
-    timedelta(minutes=5), redis_cache_key="dead_letter_queue_ratio_ok_cached", redis_cache_time=timedelta(hours=1)
-)
+@cache_for(timedelta(minutes=5))
 def dead_letter_queue_ratio_ok_cached() -> bool:
     return dead_letter_queue_ratio()[0]
 
