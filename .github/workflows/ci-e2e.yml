@@ -258,7 +258,9 @@ jobs:
                       ./cypress/cache
 
             - name: Install package.json dependencies with pnpm
-              run: pnpm install
+              run: |
+                  pnpm install
+                  pnpm cypress install
 
             - name: Stop/Start stack with Docker Compose
               run: |
