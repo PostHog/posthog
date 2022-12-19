@@ -470,6 +470,9 @@ const api = {
                 .dashboardTiles()
                 .create({ data: { insight_id: insightId, dashboard_id: dashboardId } })
         },
+        async addText(text: Record<string, any>, dashboardId: number): Promise<void> {
+            return new ApiRequest().dashboardTiles().create({ data: { text, dashboard_id: dashboardId } })
+        },
         async remove(insightId: number, dashboardId: number): Promise<void> {
             return new ApiRequest()
                 .removeDashboardTiles()

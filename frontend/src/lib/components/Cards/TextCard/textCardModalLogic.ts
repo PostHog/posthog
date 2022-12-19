@@ -5,6 +5,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { DashboardTile, DashboardType } from '~/types'
 
 import type { textCardModalLogicType } from './textCardModalLogicType'
+import api from 'lib/api'
+import { toast } from 'react-toastify'
 
 export interface TextTileForm {
     body: string
@@ -26,7 +28,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
     path(['scenes', 'dashboard', 'dashboardTextTileModal', 'logic']),
     props({} as TextCardModalProps),
     key((props) => `textCardModalLogic-${props.dashboard.id}-${props.textTileId}`),
-    connect({ actions: [dashboardsModel, ['updateDashboard']] }),
+    connect({ actions: [dashboardsModel, ['tileAddedToDashboard']] }),
     listeners(({ props, actions }) => ({
         submitTextTileFailure: (error) => {
             if (props.dashboard && props.textTileId) {
@@ -53,12 +55,17 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
                     body: !body ? 'A text tile must have text content.' : null,
                 }
             },
-            submit: (formValues) => {
+            submit: async (formValues) => {
                 // only id and body, layout and color could be out-of-date
                 const textTiles = (props.dashboard.tiles || []).map((t) => ({ id: t.id, text: t.text }))
 
                 if (props.textTileId === 'new') {
-                    actions.updateDashboard({ id: props.dashboard.id, tiles: [{ text: formValues }] })
+                    try {
+                        await api.dashboardTiles.addText(formValues, props.dashboard.id)
+                        actions.tileAddedToDashboard(props.dashboard.id)
+                    } catch (e: any) {
+                        toast.error('Could not add text to dashboard: ', e)
+                    }
                 } else {
                     const updatedTiles = [...textTiles].reduce((acc, tile) => {
                         if (tile.id === props.textTileId && tile.text) {

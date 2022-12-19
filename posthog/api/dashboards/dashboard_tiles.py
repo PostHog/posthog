@@ -8,9 +8,10 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.dashboards.dashboard import TextSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Dashboard, DashboardTile, Insight, User
+from posthog.models import Dashboard, DashboardTile, Insight, Text, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -19,13 +20,26 @@ logger = structlog.get_logger(__name__)
 
 
 class BasicDashboardTileSerializer(serializers.Serializer):
-    """
-    Serializes a tile to only the insight and dashboard ids that it links to
-    TODO: so wait, what about text tiles?
-    """
-
-    insight_id: serializers.IntegerField = serializers.IntegerField(required=True)
+    insight_id: serializers.IntegerField = serializers.IntegerField(required=False)
     dashboard_id: serializers.IntegerField = serializers.IntegerField(required=True)
+    text: TextSerializer = TextSerializer(required=False)
+
+    def to_internal_value(self, data):
+        if "text" in data:
+            team_id = self.context["team_id"]
+            text = data.get("text", None)
+            if text and team_id not in text:
+                # if team isn't included explicitly then set it here
+                text["team"] = team_id
+
+        return super(BasicDashboardTileSerializer, self).to_internal_value(data)
+
+    def validate_text(self, value: Dict) -> Dict:
+        team_id = self.context["team_id"]
+        if value["team"].pk != team_id:
+            raise PermissionDenied("You cannot access this team")
+
+        return value
 
     def validate_insight_id(self, value: int) -> int:
         team_id = self.context["team_id"]
@@ -58,13 +72,19 @@ class BasicDashboardTileSerializer(serializers.Serializer):
         return value
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> DashboardTile:
-        insight = Insight.objects.get(id=validated_data["insight_id"])
         dashboard = Dashboard.objects.get(id=validated_data["dashboard_id"])
 
-        tile, created = DashboardTile.objects.get_or_create(dashboard=dashboard, insight=insight)
-        if not created and tile.deleted:
-            tile.deleted = False
-            tile.save()
+        if validated_data.get("insight_id", None):
+            insight = Insight.objects.get(id=validated_data["insight_id"])
+            tile, created = DashboardTile.objects.get_or_create(dashboard=dashboard, insight=insight)
+            if not created and tile.deleted:
+                tile.deleted = False
+                tile.save()
+        elif validated_data.get("text", None):
+            text, _ = Text.objects.get_or_create(**validated_data["text"])
+            tile, created = DashboardTile.objects.get_or_create(dashboard=dashboard, text=text)
+        else:
+            raise ValidationError("you must provide only an insight or text for a tile")
 
         return tile
 
@@ -89,7 +109,7 @@ class DashboardTileViewSet(
         serializer.save()
 
         self._write_to_activity_log(
-            insight_id=serializer.validated_data["insight_id"],
+            insight_id=serializer.validated_data.get("insight_id", None),
             dashboard_id=serializer.validated_data["dashboard_id"],
             user=cast(User, request.user),
             # only need to flag that a dashboard was added
@@ -107,7 +127,7 @@ class DashboardTileViewSet(
         self.get_queryset().filter(**serializer.validated_data).update(deleted=True)
 
         self._write_to_activity_log(
-            insight_id=serializer.validated_data["insight_id"],
+            insight_id=serializer.validated_data.get("insight_id", None),
             dashboard_id=serializer.validated_data["dashboard_id"],
             user=request.user,  # type: ignore
             # only need to flag the removed dashboard to the log
@@ -119,12 +139,16 @@ class DashboardTileViewSet(
 
     def _write_to_activity_log(
         self,
-        insight_id: int,
+        insight_id: Optional[int],
         dashboard_id: int,
         user: User,
         before: Optional[Callable[[DashboardTile], Optional[Any]]] = None,
         after: Optional[Callable[[DashboardTile], Optional[Any]]] = None,
     ) -> None:
+        if insight_id is None:
+            # there is no dashboard activity log yet, so...
+            return
+
         try:
             dashboard_tile = (
                 DashboardTile.objects.filter(

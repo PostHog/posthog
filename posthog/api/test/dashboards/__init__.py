@@ -23,7 +23,8 @@ class DashboardAPI:
             extra_data = {}
 
         api_response = self.client.patch(
-            f"/api/projects/{self.team.id}/{model_type}/{model_id}", {"deleted": True, **extra_data}
+            f"/api/projects/{self.team.id}/{model_type}/{model_id}",
+            {"deleted": True, **extra_data},
         )
         assert api_response.status_code == status.HTTP_200_OK
         self.assertEqual(
@@ -136,7 +137,10 @@ class DashboardAPI:
         return response_json
 
     def create_insight(
-        self, data: Dict[str, Any], team_id: Optional[int] = None, expected_status: int = status.HTTP_201_CREATED
+        self,
+        data: Dict[str, Any],
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_201_CREATED,
     ) -> Tuple[int, Dict[str, Any]]:
         if team_id is None:
             team_id = self.team.id
@@ -193,7 +197,8 @@ class DashboardAPI:
             extra_data = {}
 
         response = self.client.patch(
-            f"/api/projects/{team_id}/dashboards/{dashboard_id}", {"tiles": [{"text": {"body": text}, **extra_data}]}
+            f"/api/projects/{team_id}/dashboards/{dashboard_id}",
+            {"tiles": [{"text": {"body": text}, **extra_data}]},
         )
 
         self.assertEqual(response.status_code, expected_status, response.json())
@@ -202,7 +207,10 @@ class DashboardAPI:
         return response_json.get("id", None), response_json
 
     def get_insight_activity(
-        self, insight_id: Optional[int] = None, team_id: Optional[int] = None, expected_status: int = status.HTTP_200_OK
+        self,
+        insight_id: Optional[int] = None,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
     ):
         if team_id is None:
             team_id = self.team.id
@@ -282,7 +290,8 @@ class DashboardAPI:
             team_id = self.team.id
 
         response = self.client.post(
-            f"/api/projects/{team_id}/dashboard_tiles", {"insight_id": insight_id, "dashboard_id": dashboard_id}
+            f"/api/projects/{team_id}/dashboard_tiles",
+            {"insight_id": insight_id, "dashboard_id": dashboard_id},
         )
 
         self.assertEqual(response.status_code, expected_status, response.json())
@@ -290,10 +299,11 @@ class DashboardAPI:
         response_json = response.json()
         return response_json.get("id", None), response_json
 
-    def remove_insight_from_dashboard(
+    def remove_tile_from_dashboard(
         self,
-        insight_id: int,
         dashboard_id: int,
+        insight_id: Optional[int] = None,
+        text_id: Optional[int] = None,
         team_id: Optional[int] = None,
         expected_status: int = status.HTTP_200_OK,
     ) -> None:
@@ -301,8 +311,36 @@ class DashboardAPI:
         if team_id is None:
             team_id = self.team.id
 
+        payload = {"dashboard_id": dashboard_id}
+        if insight_id:
+            payload["insight_id"] = insight_id
+        if text_id:
+            payload["text_id"] = text_id
+
         response = self.client.post(
-            f"/api/projects/{team_id}/dashboard_tiles/remove", {"insight_id": insight_id, "dashboard_id": dashboard_id}
+            f"/api/projects/{team_id}/dashboard_tiles/remove",
+            payload,
         )
 
         self.assertEqual(response.status_code, expected_status)
+
+    def add_text_to_dashboard(
+        self,
+        text: Dict,
+        dashboard_id: int,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_201_CREATED,
+    ) -> Tuple[int, Dict[str, Any]]:
+
+        if team_id is None:
+            team_id = self.team.id
+
+        response = self.client.post(
+            f"/api/projects/{team_id}/dashboard_tiles",
+            {**text, "dashboard_id": dashboard_id},
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+        response_json = response.json()
+        return response_json.get("id", None), response_json

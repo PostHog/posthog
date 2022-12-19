@@ -36,7 +36,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight_id, _ = self.dashboard_api.create_insight({"name": "My insight"})
 
         self.dashboard_api.add_insight_to_dashboard(insight_id, dashboard_id)
-        self.dashboard_api.remove_insight_from_dashboard(insight_id, dashboard_id)
+        self.dashboard_api.remove_tile_from_dashboard(dashboard_id, insight_id=insight_id)
 
         dashboard = self.dashboard_api.get_dashboard(dashboard_id)
         assert dashboard["tiles"] == []
@@ -73,7 +73,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.client.force_login(self.other_org_user)
         self.dashboard_api.add_insight_to_dashboard(insight_id, dashboard_id, expected_status=status.HTTP_403_FORBIDDEN)
         self.dashboard_api.add_insight_to_dashboard(
-            insight_id, dashboard_id, team_id=self.other_org_team.id, expected_status=status.HTTP_403_FORBIDDEN
+            insight_id,
+            dashboard_id,
+            team_id=self.other_org_team.id,
+            expected_status=status.HTTP_403_FORBIDDEN,
         )
 
     def test_adding_insight_to_dashboard_updates_activity_log(self) -> None:
@@ -92,7 +95,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         "changes": [
                             {
                                 "action": "changed",
-                                "after": [{"dashboard": {"id": dashboard_id, "name": "My dashboard"}}],
+                                "after": [
+                                    {
+                                        "dashboard": {
+                                            "id": dashboard_id,
+                                            "name": "My dashboard",
+                                        }
+                                    }
+                                ],
                                 "before": [],
                                 "field": "dashboards",
                                 "type": "Insight",
@@ -128,7 +138,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         insight_id, insight_json = self.dashboard_api.create_insight({"name": "My insight"})
 
         self.dashboard_api.add_insight_to_dashboard(insight_id, dashboard_id)
-        self.dashboard_api.remove_insight_from_dashboard(insight_id, dashboard_id)
+        self.dashboard_api.remove_tile_from_dashboard(dashboard_id, insight_id=insight_id)
 
         self._assert_logs_the_activity(
             insight_id,
@@ -141,7 +151,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                             {
                                 "action": "changed",
                                 "after": [],
-                                "before": [{"dashboard": {"id": dashboard_id, "name": "My dashboard"}}],
+                                "before": [
+                                    {
+                                        "dashboard": {
+                                            "id": dashboard_id,
+                                            "name": "My dashboard",
+                                        }
+                                    }
+                                ],
                                 "field": "dashboards",
                                 "type": "Insight",
                             }
@@ -161,7 +178,14 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                         "changes": [
                             {
                                 "action": "changed",
-                                "after": [{"dashboard": {"id": dashboard_id, "name": "My dashboard"}}],
+                                "after": [
+                                    {
+                                        "dashboard": {
+                                            "id": dashboard_id,
+                                            "name": "My dashboard",
+                                        }
+                                    }
+                                ],
                                 "before": [],
                                 "field": "dashboards",
                                 "type": "Insight",
@@ -192,6 +216,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             expected_log_items=3,
         )
 
+    def test_can_add_text_tile_to_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "My dashboard"})
+
+        self.dashboard_api.add_text_to_dashboard({"text": {"body": "test"}}, dashboard_id)
+        self.dashboard_api.add_text_to_dashboard({"text": {"body": "second"}}, dashboard_id)
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id)
+        assert dashboard["tiles"][0]["text"]["body"] == "test"
+        assert dashboard["tiles"][1]["text"]["body"] == "second"
+
+    def test_can_remove_tile_from_dashboard(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "My dashboard"})
+
+        self.dashboard_api.add_text_to_dashboard({"text": {"body": "test", "team": self.team.pk}}, dashboard_id)
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id)
+        text_tile = dashboard["tiles"][0]["text"]
+
+        self.dashboard_api.remove_tile_from_dashboard(dashboard_id, text_id=text_tile["id"])
+
+        dashboard = self.dashboard_api.get_dashboard(dashboard_id)
+        assert dashboard["tiles"] == []
+
     def _get_insight_activity(self, insight_id: int, expected_status: int = status.HTTP_200_OK):
         url = f"/api/projects/{self.team.id}/insights/{insight_id}/activity"
         activity = self.client.get(url)
@@ -199,7 +246,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         return activity.json()
 
     def _assert_logs_the_activity(
-        self, insight_id: int, expected: List[Dict], expected_log_items: Optional[int] = None
+        self,
+        insight_id: int,
+        expected: List[Dict],
+        expected_log_items: Optional[int] = None,
     ) -> None:
         activity_response = self._get_insight_activity(insight_id)
 
