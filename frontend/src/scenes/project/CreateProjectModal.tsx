@@ -40,18 +40,19 @@ export function CreateProjectModal({
             title={currentOrganization ? `Create a project in ${currentOrganization.name}` : 'Create a project'}
             description={
                 <>
-                    <p>For most companies we recommend using 3 projects:</p>
-                    <ol>
+                    <p>For most companies, we recommend using 3 projects:</p>
+                    <ol className={'mt-2'}>
                         <li>Local Development</li>
                         <li>Staging</li>
                         <li>Production</li>
                     </ol>
                     <p>
                         <strong>Tip:</strong> we recommend using the same project for both your website and app to track
-                        across them. You can always apply a filter to focus on just one.{' '}
+                        across them. You can always apply a filter to focus on just one. Read the{' '}
                         <Link to="https://posthog.com/manual/organizations-and-projects#projects" target="_blank">
-                            Learn more here.
+                            project docs{' '}
                         </Link>
+                        for more information.
                     </p>
                     <p>
                         <strong>Bonus tip:</strong> you can rename your "Default Project" to "Production".
