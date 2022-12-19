@@ -57,7 +57,15 @@ class TestInstanceStatus(APIBaseTest):
                 ],
             )
 
-    def test_navigation_ok(self):
+    @patch("posthog.api.instance_status.is_postgres_alive")
+    @patch("posthog.api.instance_status.is_redis_alive")
+    @patch("posthog.api.instance_status.is_plugin_server_alive")
+    @patch("posthog.api.instance_status.dead_letter_queue_ratio_ok_cached")
+    @patch("posthog.api.instance_status.async_migrations_ok")
+    def test_navigation_ok(self, *mocks):
+        for mock in mocks:
+            mock.return_value = True
+
         response = self.client.get("/api/instance_status/navigation").json()
         self.assertEqual(
             response,
@@ -69,9 +77,9 @@ class TestInstanceStatus(APIBaseTest):
 
     @patch("posthog.api.instance_status.is_postgres_alive")
     @patch("posthog.api.instance_status.async_migrations_ok")
-    def test_navigation_not_ok(self, mock_is_postgres_alive, mock_async_migrations_ok):
-        mock_is_postgres_alive.return_value = False
-        mock_async_migrations_ok.return_value = False
+    def test_navigation_not_ok(self, *mocks):
+        for mock in mocks:
+            mock.return_value = False
 
         response = self.client.get("/api/instance_status/navigation").json()
 

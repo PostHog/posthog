@@ -9,7 +9,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.async_migrations.status import async_migrations_ok
-from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok
+from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
 from posthog.gitsha import GIT_SHA
 from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
 from posthog.storage import object_storage
@@ -149,7 +149,7 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                     is_redis_alive()
                     and is_postgres_alive()
                     and is_plugin_server_alive()
-                    and dead_letter_queue_ratio_ok()
+                    and dead_letter_queue_ratio_ok_cached()
                 ),
                 "async_migrations_ok": async_migrations_ok(),
             }
