@@ -122,6 +122,10 @@
             flex-direction: row;
             justify-content: flex-end;
         }
+
+        .DefinitionEdit--form {
+            max-width: 640px;
+        }
     }
 
     // Shared across definition view and edit modes
