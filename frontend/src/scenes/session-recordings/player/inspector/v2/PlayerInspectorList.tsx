@@ -6,7 +6,7 @@ import { useEffect, useMemo } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { SessionRecordingPlayerTab } from '~/types'
-import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
 import { SharedListItem, sharedListLogic } from '../sharedListLogic'
 import { ItemConsoleLog } from './components/ItemConsoleLog'
 import { ItemEvent } from './components/ItemEvent'
@@ -39,6 +39,7 @@ function PlayerInspectorListItem({
     const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, timestampMode } = useValues(
         sharedListLogic(logicProps)
     )
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { setItemExpanded } = useActions(sharedListLogic(logicProps))
     const showIcon = tab === SessionRecordingPlayerTab.ALL
     const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
@@ -106,7 +107,8 @@ function PlayerInspectorListItem({
                     noPadding
                     status="primary-alt"
                     onClick={() => {
-                        // TODO
+                        // NOTE: We offset by 1 second so that the playback startsjust before the event occurs
+                        seekToTime(item.timeInRecording - 1000)
                     }}
                 >
                     <span className="p-1 text-xs">
