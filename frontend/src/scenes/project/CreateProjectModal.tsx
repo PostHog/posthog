@@ -37,26 +37,25 @@ export function CreateProjectModal({
 
     return (
         <LemonModal
-            title={currentOrganization ? `Create a project in ${currentOrganization.name}` : 'Create a project'}
+            title={currentOrganization ? `Create a project within ${currentOrganization.name}` : 'Create a project'}
             description={
                 <>
-                    <p>For most companies, we recommend using 3 projects:</p>
-                    <ol className={'mt-2'}>
-                        <li>Local Development</li>
-                        <li>Staging</li>
-                        <li>Production</li>
-                    </ol>
                     <p>
-                        <strong>Tip:</strong> we recommend using the same project for both your website and app to track
-                        across them. You can always apply a filter to focus on just one. Read the{' '}
+                        Use Projects to organize your data into separate collections. A project usually means
+                        a completely distinct product, or an environment (production, staging, development).
+                    </p>
+                    <p>
+                        <strong>Tip:</strong> We recommend using the same project for both your website and app to track
+                        conversion fully.{' '}
                         <Link to="https://posthog.com/manual/organizations-and-projects#projects" target="_blank">
-                            project docs{' '}
+                            Learn more in Docs.
                         </Link>
-                        for more information.
                     </p>
-                    <p>
-                        <strong>Bonus tip:</strong> you can rename your "Default Project" to "Production".
-                    </p>
+                    {currentOrganization?.teams?.some((team) => team.name === 'Default Project') && (
+                        <p>
+                            <strong>Bonus tip:</strong> You can always rename your "Default Project".
+                        </p>
+                    )}
                 </>
             }
             footer={
@@ -77,7 +76,7 @@ export function CreateProjectModal({
         >
             <PureField label="Project name">
                 <LemonInput
-                    placeholder="Production / Staging / Local Development"
+                    placeholder="The Next Big Thing"
                     maxLength={64}
                     autoFocus
                     value={name}
