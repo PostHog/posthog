@@ -1,6 +1,7 @@
 from django.conf import settings
 
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.indexes import index_by_kafka_timestamp, projection_for_max_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine, trim_quotes_expr
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
@@ -79,9 +80,9 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     engine=EVENTS_DATA_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
-    indexes="""
-    , PROJECTION fast_max_kafka_timestamp (SELECT max(_timestamp))
-    , INDEX kafka_timestamp_minmax _timestamp TYPE minmax GRANULARITY 3
+    indexes=f"""
+    , {projection_for_max_kafka_timestamp(EVENTS_DATA_TABLE())}
+    , {index_by_kafka_timestamp(EVENTS_DATA_TABLE())}
     """,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
