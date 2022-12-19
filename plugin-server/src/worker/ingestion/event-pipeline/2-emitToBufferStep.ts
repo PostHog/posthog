@@ -1,7 +1,7 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
 import { KAFKA_BUFFER } from '../../../config/kafka-topics'
-import { Hub, IngestionPersonData, TeamId } from '../../../types'
+import { Hub, Person, TeamId } from '../../../types'
 import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
@@ -12,7 +12,7 @@ export async function emitToBufferStep(
     shouldBuffer: (
         hub: Hub,
         event: PluginEvent,
-        person: IngestionPersonData | undefined,
+        person: Person | undefined,
         teamId: TeamId
     ) => boolean = shouldSendEventToBuffer
 ): Promise<StepResult> {
@@ -91,7 +91,7 @@ export async function emitToBufferStep(
 export function shouldSendEventToBuffer(
     hub: Hub,
     event: PluginEvent,
-    person: IngestionPersonData | undefined,
+    person: Person | undefined,
     teamId: TeamId
 ): boolean {
     // Libraries by default create a unique id for this `type-name_value` for $groupidentify,
@@ -121,7 +121,14 @@ export function shouldSendEventToBuffer(
         isMergingAliasEvent: isMergingAliasEvent.toString(),
         isMergingIdentifyEvent: isMergingIdentifyEvent.toString(),
     }
-    if (conversionBufferDisabled || person || isGroupIdentifyEvent || isMergingIdentifyEvent || isMergingAliasEvent) {
+
+    if (
+        conversionBufferDisabled ||
+        person?.is_identified ||
+        isGroupIdentifyEvent ||
+        isMergingIdentifyEvent ||
+        isMergingAliasEvent
+    ) {
         status.debug('🔁', 'Not sending event to buffer', {
             event,
             person,
