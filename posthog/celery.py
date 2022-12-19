@@ -295,9 +295,6 @@ def pg_plugin_server_query_timing():
 
 CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "person_distinct_id2", "session_recording_events"]
 
-if settings.CLICKHOUSE_REPLICATION:
-    CLICKHOUSE_TABLES.extend(["sharded_events", "sharded_session_recording_events"])
-
 
 @app.task(ignore_result=True)
 def clickhouse_lag():

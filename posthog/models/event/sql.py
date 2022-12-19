@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
     group4_created_at DateTime64
     {materialized_columns}
     {extra_fields}
+    {indexes}
 ) ENGINE = {engine}
 """
 
@@ -78,6 +79,10 @@ ORDER BY (team_id, toDate(timestamp), event, cityHash64(distinct_id), cityHash64
     engine=EVENTS_DATA_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_MATERIALIZED_COLUMNS,
+    indexes="""
+    , PROJECTION fast_max_kafka_timestamp (SELECT max(_timestamp))
+    , INDEX kafka_timestamp_minmax _timestamp TYPE minmax GRANULARITY 3
+    """,
     sample_by="SAMPLE BY cityHash64(distinct_id)",
     storage_policy=STORAGE_POLICY(),
 )
@@ -97,6 +102,7 @@ KAFKA_EVENTS_TABLE_JSON_SQL = lambda: (
     engine=kafka_engine(topic=KAFKA_EVENTS_JSON),
     extra_fields="",
     materialized_columns="",
+    indexes="",
 )
 
 EVENTS_TABLE_JSON_MV_SQL = lambda: """
@@ -142,6 +148,7 @@ WRITABLE_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns="",
+    indexes="",
 )
 
 # This table is responsible for reading from events on a cluster setting
@@ -151,6 +158,7 @@ DISTRIBUTED_EVENTS_TABLE_SQL = lambda: EVENTS_TABLE_BASE_SQL.format(
     engine=Distributed(data_table=EVENTS_DATA_TABLE(), sharding_key="sipHash64(distinct_id)"),
     extra_fields=KAFKA_COLUMNS,
     materialized_columns=EVENTS_TABLE_PROXY_MATERIALIZED_COLUMNS,
+    indexes="",
 )
 
 INSERT_EVENT_SQL = (
