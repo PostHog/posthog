@@ -260,7 +260,7 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: |
                   pnpm install
-                  pnpm cypress install
+                  pnpm cypress cache clear
 
             - name: Stop/Start stack with Docker Compose
               run: |
