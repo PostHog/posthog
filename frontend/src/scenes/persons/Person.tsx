@@ -163,6 +163,7 @@ export function Person(): JSX.Element | null {
                         <Query
                             query={{
                                 kind: NodeKind.DataTableNode,
+                                hiddenColumns: ['person'],
                                 source: {
                                     kind: NodeKind.EventsNode,
                                     personId: person.id,
@@ -196,11 +197,7 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    <SessionRecordingsPlaylist
-                        logicKey={person.uuid || 'persons'} // force refresh if user changes
-                        personUUID={person.uuid}
-                        updateSearchParams
-                    />
+                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>

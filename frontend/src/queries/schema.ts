@@ -23,6 +23,7 @@ import {
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
+    EventsQuery = 'EventsQuery',
     ActionsNode = 'ActionsNode',
     PersonsNode = 'PersonsNode',
 
@@ -43,6 +44,7 @@ export enum NodeKind {
 export type QuerySchema =
     // Data nodes (see utils.ts)
     | EventsNode
+    | EventsQuery
     | ActionsNode
     | PersonsNode
 
@@ -95,9 +97,25 @@ export interface EventsNode extends EntityNode {
     before?: string
     /** Only fetch events that happened after this timestamp */
     after?: string
+    /** Columns to order by */
+    orderBy?: string[]
+    /** Return a limited set of data */
     response?: {
         results: EventType[]
         next?: string
+    }
+}
+
+export interface EventsQuery extends Omit<EventsNode, 'kind' | 'response'> {
+    kind: NodeKind.EventsQuery
+    /** Return a limited set of data. Required. */
+    select: DataTableColumn[]
+    /** Filters to apply before and after data is returned */
+    where?: DataTableColumn[]
+    response?: {
+        columns: string[]
+        types: string[]
+        results: any[][]
     }
 }
 
@@ -122,9 +140,11 @@ export interface PersonsNode extends DataNode {
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | PersonsNode
+    source: EventsNode | EventsQuery | PersonsNode
     /** Columns shown in the table  */
     columns?: DataTableColumn[]
+    /** Columns that aren't shown in the table, even if in columns */
+    hiddenColumns?: DataTableColumn[]
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
@@ -145,6 +165,8 @@ export interface DataTableNode extends Node {
     propertiesViaUrl?: boolean
     /** Show warning about live events being buffered max 60 sec (default: false) */
     showEventsBufferWarning?: boolean
+    /** Can the user click on column headers to sort the table? (default: true) */
+    allowSorting?: boolean
 }
 
 // Insight viz node

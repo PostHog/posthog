@@ -1,5 +1,5 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import api, { PaginatedResponse } from 'lib/api'
+import api from 'lib/api'
 import { toParams } from 'lib/utils'
 import {
     PropertyFilter,
@@ -7,8 +7,6 @@ import {
     PropertyOperator,
     RecordingFilters,
     SessionRecordingId,
-    SessionRecordingPlaylistType,
-    SessionRecordingPropertiesType,
     SessionRecordingsResponse,
     SessionRecordingType,
 } from '~/types'
@@ -18,7 +16,6 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
 import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
-import { subscriptions } from 'kea-subscriptions'
 
 export type PersonUUID = string
 interface Params {
@@ -29,7 +26,8 @@ interface HashParams {
     sessionRecordingId?: SessionRecordingId
 }
 
-export const PLAYLIST_LIMIT = 20
+export const RECORDINGS_LIMIT = 20
+export const PINNED_RECORDINGS_LIMIT = 100 // NOTE: This is high but avoids the need for pagination for now...
 
 export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     session_recording_duration: {
@@ -96,24 +94,24 @@ export const defaultPageviewPropertyEntityFilter = (
     }
 }
 
+export function generateSessionRecordingListLogicKey(props: SessionRecordingListLogicProps): string {
+    return `${props.key}-${props.playlistShortId}-${props.personUUID}-${props.updateSearchParams ?? '-with-search'}`
+}
+
 export interface SessionRecordingListLogicProps {
-    key: string
+    key?: string
+    playlistShortId?: string
     personUUID?: PersonUUID
     filters?: RecordingFilters
     updateSearchParams?: boolean
-    isStatic?: boolean
-    staticRecordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
     path((key) => ['scenes', 'session-recordings', 'playlist', 'sessionRecordingsListLogic', key]),
     props({} as SessionRecordingListLogicProps),
-    key((props) => `${props.key}-${props.updateSearchParams ?? '-with-search'}`),
+    key(generateSessionRecordingListLogicKey),
     connect({
-        actions: [
-            eventUsageLogic,
-            ['reportRecordingsListFetched', 'reportRecordingsListPropertiesFetched', 'reportRecordingsListFilterAdded'],
-        ],
+        actions: [eventUsageLogic, ['reportRecordingsListFetched', 'reportRecordingsListFilterAdded']],
     }),
     actions({
         setFilters: (filters: Partial<RecordingFilters>) => ({ filters }),
@@ -133,18 +131,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             } as SessionRecordingsResponse,
             {
                 getSessionRecordings: async (_, breakpoint) => {
-                    let paramsDict = {
+                    const paramsDict = {
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
-                        limit: PLAYLIST_LIMIT,
-                    }
-
-                    // If list should be a static list
-                    if (props.isStatic) {
-                        paramsDict = {
-                            ...paramsDict,
-                            static_recordings: values.staticRecordings ?? [],
-                        }
+                        limit: RECORDINGS_LIMIT,
                     }
 
                     const params = toParams(paramsDict)
@@ -161,29 +151,21 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 },
             },
         ],
-        sessionRecordingsPropertiesResponse: [
+        pinnedRecordingsResponse: [
+            null as SessionRecordingsResponse | null,
             {
-                results: [],
-            } as PaginatedResponse<SessionRecordingPropertiesType>,
-            {
-                getSessionRecordingsProperties: async (_, breakpoint) => {
-                    if (values.sessionRecordingsResponse.results.length < 1) {
-                        return {
-                            results: [],
-                        }
+                loadPinnedRecordings: async (_, breakpoint) => {
+                    if (!props.playlistShortId) {
+                        return null
                     }
+
                     const paramsDict = {
-                        session_ids: values.sessionRecordingsResponse.results.map(({ id }) => id),
+                        limit: PINNED_RECORDINGS_LIMIT,
                     }
+
                     const params = toParams(paramsDict)
-                    await breakpoint(100) // Debounce for lots of quick filter changes
-
-                    const startTime = performance.now()
-                    const response = await api.recordings.listProperties(params)
-                    const loadTimeMs = performance.now() - startTime
-
-                    actions.reportRecordingsListPropertiesFetched(loadTimeMs)
-
+                    await breakpoint(100)
+                    const response = await api.recordings.listPlaylistRecordings(props.playlistShortId, params)
                     breakpoint()
                     return response
                 },
@@ -201,7 +183,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                 }),
             },
         ],
-
         showFilters: [
             false,
             {
@@ -246,31 +227,16 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         },
         loadNext: () => {
             actions.setFilters({
-                offset: (values.filters?.offset || 0) + PLAYLIST_LIMIT,
+                offset: (values.filters?.offset || 0) + RECORDINGS_LIMIT,
             })
         },
         loadPrev: () => {
             actions.setFilters({
-                offset: Math.max((values.filters?.offset || 0) - PLAYLIST_LIMIT, 0),
+                offset: Math.max((values.filters?.offset || 0) - RECORDINGS_LIMIT, 0),
             })
-        },
-        getSessionRecordingsSuccess: () => {
-            actions.getSessionRecordingsProperties({})
         },
     })),
     selectors({
-        sessionRecordingIdToProperties: [
-            (s) => [s.sessionRecordingsPropertiesResponse],
-            (propertiesResponse: PaginatedResponse<SessionRecordingPropertiesType>) => {
-                return (
-                    Object.fromEntries(propertiesResponse.results.map(({ id, properties }) => [id, properties])) ?? {}
-                )
-            },
-        ],
-        staticRecordings: [
-            () => [(_, props) => props.staticRecordings],
-            (staticRecordings) => staticRecordings ?? null,
-        ],
         activeSessionRecording: [
             (s) => [s.selectedRecordingId, s.sessionRecordings],
             (selectedRecordingId, sessionRecordings): Partial<SessionRecordingType> | undefined => {
@@ -360,19 +326,9 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         }
     }),
 
-    subscriptions(({ actions, props }) => ({
-        staticRecordings: (staticRecording, oldStaticRecording) => {
-            if (!props.isStatic) {
-                return
-            }
-            if (!equal(staticRecording || [], oldStaticRecording || [])) {
-                actions.getSessionRecordings({})
-            }
-        },
-    })),
-
     // NOTE: It is important this comes after urlToAction, as it will override the default behavior
     afterMount(({ actions }) => {
         actions.getSessionRecordings({})
+        actions.loadPinnedRecordings({})
     }),
 ])

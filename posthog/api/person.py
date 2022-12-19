@@ -39,6 +39,7 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
@@ -50,6 +51,7 @@ from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrict
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -515,6 +517,18 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         # cached_function expects a dict with the key result
         return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
+
+    @action(methods=["GET"], detail=True)
+    def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        if request.user.is_anonymous or not self.team:
+            return response.Response(data=[])
+
+        person = self.get_object()
+        filter = PropertiesTimelineFilter(request=request, team=self.team)
+
+        properties_timeline = PropertiesTimeline().run(filter, self.team, person)
+
+        return response.Response(data=properties_timeline)
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:

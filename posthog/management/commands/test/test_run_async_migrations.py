@@ -58,7 +58,7 @@ def test_complete_noop_migrations(caplog):
     # First validate the 0001 is present
     call_command("run_async_migrations", "--plan")
     output = "\n".join([rec.message for rec in caplog.records])
-    assert "0001" in output
+    assert "0001_events_sample_by" in output
 
     call_command("run_async_migrations", "--complete-noop-migrations")
 
@@ -66,7 +66,7 @@ def test_complete_noop_migrations(caplog):
     caplog.clear()
     call_command("run_async_migrations", "--plan")
     output = "\n".join([rec.message for rec in caplog.records])
-    assert "0001" not in output
+    assert "0001_events_sample_by" not in output
 
 
 @pytest.fixture(autouse=True)

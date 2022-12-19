@@ -132,8 +132,8 @@ const renderItemContents = ({
             ) : (
                 <>
                     {group.getIcon ? icon : null}
-                    <span className="truncate" title={group.getName(item) || item.name || ''}>
-                        {group.getName(item) || item.name || ''}
+                    <span className="truncate" title={group.getName?.(item) || item.name || ''}>
+                        {group.getName?.(item) || item.name || ''}
                     </span>
                 </>
             )}
@@ -149,7 +149,7 @@ const selectedItemHasPopup = (
     return (
         // NB: also update "renderItemPopup" above
         !!item &&
-        !!group?.getValue(item) &&
+        !!group?.getValue?.(item) &&
         !!listGroupType &&
         ([
             TaxonomicFilterGroupType.Actions,

@@ -134,6 +134,7 @@ describe('Event Pipeline integration test', () => {
             body: JSON.stringify(expectedPayload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
             method: 'POST',
+            timeout: 10000,
         })
     })
 

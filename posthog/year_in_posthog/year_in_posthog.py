@@ -56,7 +56,7 @@ def stats_for_badge(data: Dict, badge: str) -> List[Dict[str, Union[int, str]]]:
                 else []
             )
         elif badge == "curator":
-            return [{"count": stats["dashboard_created_count"], "description": "Dashboards created"}]
+            return [{"count": stats["dashboards_created_count"], "description": "Dashboards created"}]
         elif badge == "flag_raiser":
             return [{"count": stats["flag_created_count"], "description": "Feature flags created"}]
         elif badge == "popcorn_muncher":
@@ -87,11 +87,19 @@ def sort_list_based_on_preference(badges: List[str]) -> str:
 @cache_control(public=True, max_age=300)  # cache for 5 minutes
 def render_2022(request, user_uuid: str) -> HttpResponse:
     data = None
+
     try:
         data = calculate_year_in_posthog_2022(user_uuid)
 
-        badge = sort_list_based_on_preference(data["badges"])
+        badge = sort_list_based_on_preference(data["badges"] or ["astronaut"])
+    except Exception as e:
+        # because Harry is trying to hack my URLs
+        logger.error("year_in_posthog_2022_error_loading_data", exc_info=True, exc=e, data=data or "no data")
+        capture_exception(e)
+        badge = "astronaut"
+        data = data or {"stats": {}}
 
+    try:
         stats = stats_for_badge(data, badge)
 
         context = {
@@ -100,7 +108,8 @@ def render_2022(request, user_uuid: str) -> HttpResponse:
             "badge": badge,
             "human_badge": human_badge.get(badge),
             "highlight_color": highlight_color.get(badge),
-            "image": f"badges/2022_{badge}.png",
+            "image_png": f"badges/2022_{badge}.png",
+            "image_webp": f"badges/2022_{badge}.webp",
             "opengraph_image": f"open-graph/2022_{badge}.png",
             "explanation": explanation.get(badge),
             "stats": stats,
