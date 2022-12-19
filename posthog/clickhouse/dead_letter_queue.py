@@ -43,7 +43,7 @@ SETTINGS index_granularity=512
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=f"""
     {KAFKA_COLUMNS}
-    , INDEX kafka_timestamp_minmax _timestamp TYPE minmax GRANULARITY 3
+    , INDEX kafka_timestamp_minmax_dlq _timestamp TYPE minmax GRANULARITY 3
     """,
     engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
     ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
