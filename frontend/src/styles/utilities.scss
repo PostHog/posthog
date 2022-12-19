@@ -143,10 +143,27 @@
         #{$kind}-top: auto;
         #{$kind}-bottom: auto;
     }
+    .#{$char}-px {
+        #{$kind}: 1px;
+    }
+
+    .#{$char}x-px {
+        #{$kind}-left: 1px;
+        #{$kind}-right: 1px;
+    }
+
+    .#{$char}y-px {
+        #{$kind}-top: 1px;
+        #{$kind}-bottom: 1px;
+    }
 
     @each $side in $sides {
-        .m#{str-slice($side, 0, 1)}-auto {
+        .#{$char}#{str-slice($side, 0, 1)}-auto {
             #{$kind}-#{$side}: auto;
+        }
+
+        .#{$char}#{str-slice($side, 0, 1)}-px {
+            #{$kind}-#{$side}: 1px;
         }
     }
 }

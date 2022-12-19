@@ -1,4 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, autoCaptureEventToDescription } from 'lib/utils'
 import { SharedListItemEvent } from '../../sharedListLogic'
@@ -13,7 +13,7 @@ export interface ItemEventProps {
 export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.Element {
     return (
         <div>
-            <div className="relative cursor-pointer" onClick={() => setExpanded(!expanded)}>
+            <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate">
                     <PropertyKeyInfo
                         className="font-medium"
@@ -28,7 +28,7 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                         </span>
                     ) : null}
                 </div>
-            </div>
+            </LemonButton>
 
             {expanded && (
                 <div className="p-2 text-xs border-t">

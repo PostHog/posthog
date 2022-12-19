@@ -94,6 +94,10 @@
         height: auto;
         width: auto;
         padding: 0;
+
+        &.LemonButton--full-width {
+            width: 100%;
+        }
     }
 
     .LemonButton__icon {

@@ -309,6 +309,12 @@ export function PlayerInspectorControls({
                                 noPadding
                                 status="primary-alt"
                                 onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
+                                tooltipPlacement="left"
+                                tooltip={
+                                    timestampMode === 'absolute'
+                                        ? 'Showing absolute timestamps'
+                                        : 'Showing timestamps relative to the start of the recording'
+                                }
                             >
                                 <span className="p-1 text-xs">{capitalizeFirstLetter(timestampMode)}</span>{' '}
                                 <IconSchedule className="text-lg" />

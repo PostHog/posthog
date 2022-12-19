@@ -1,4 +1,4 @@
-import { LemonDivider, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, humanizeBytes } from 'lib/utils'
@@ -51,68 +51,70 @@ export function ItemPerformanceEvent({
 
     return (
         <div>
-            <div className="relative cursor-pointer" onClick={() => setExpanded(!expanded)}>
-                <div
-                    className="absolute bg-primary rounded-sm opacity-75"
-                    // eslint-disable-next-line react/forbid-dom-props
-                    style={{
-                        height: 4,
-                        bottom: 2,
-                        left: `${(startTime / contextLengthMs) * 100}%`,
-                        width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
-                    }}
-                />
-                {item.entry_type === 'navigation' ? (
-                    <>
-                        <div className="flex items-center p-2">
-                            <div className="flex-1 p-2 text-center">
-                                <div className="text-sm font-semibold">Interactive</div>
-                                <div className="text-lg">{ms(item.dom_interactive)}</div>
+            <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
+                <div className="flex-1 overflow-hidden">
+                    <div
+                        className="absolute bg-primary rounded-sm opacity-75"
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{
+                            height: 4,
+                            bottom: 2,
+                            left: `${(startTime / contextLengthMs) * 100}%`,
+                            width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
+                        }}
+                    />
+                    {item.entry_type === 'navigation' ? (
+                        <>
+                            <div className="flex items-center p-2">
+                                <div className="flex-1 p-2 text-center">
+                                    <div className="text-sm font-semibold">Interactive</div>
+                                    <div className="text-lg">{ms(item.dom_interactive)}</div>
+                                </div>
+                                <LemonDivider vertical dashed />
+                                <div className="flex-1 p-2 text-center">
+                                    <div className="text-sm font-semibold">Ready</div>
+                                    <div className="text-lg">{ms(item.dom_complete)}</div>
+                                </div>
+                                <LemonDivider vertical dashed />
+                                <div className="flex-1 p-2 text-center">
+                                    <div className="text-sm font-semibold">Done</div>
+                                    <div className="text-lg">{ms(item.duration)}</div>
+                                </div>
                             </div>
-                            <LemonDivider vertical dashed />
-                            <div className="flex-1 p-2 text-center">
-                                <div className="text-sm font-semibold">Ready</div>
-                                <div className="text-lg">{ms(item.dom_complete)}</div>
+                            <div className={clsx('text-xs flex-1 overflow-hidden p-2', !expanded && 'truncate')}>
+                                {item.name}
                             </div>
-                            <LemonDivider vertical dashed />
-                            <div className="flex-1 p-2 text-center">
-                                <div className="text-sm font-semibold">Done</div>
-                                <div className="text-lg">{ms(item.duration)}</div>
-                            </div>
+                        </>
+                    ) : item.entry_type === 'paint' ? (
+                        <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
+                            <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
+                                {capitalizeFirstLetter(item.name?.replace(/-/g, ' ') || '')}
+                            </span>
+                            <span
+                                className={clsx('font-semibold', {
+                                    'text-danger-dark': startTime >= 2000,
+                                    'text-warning-dark': startTime > 500 && startTime < 2000,
+                                })}
+                            >
+                                {ms(startTime)}
+                            </span>
                         </div>
-                        <div className={clsx('text-xs flex-1 overflow-hidden p-2', !expanded && 'truncate')}>
-                            {item.name}
+                    ) : (
+                        <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
+                            <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>{item.name}</span>
+                            <span className={clsx('font-semibold')}>{bytes}</span>
+                            <span
+                                className={clsx('font-semibold', {
+                                    'text-danger-dark': duration >= 2000,
+                                    'text-warning-dark': duration > 500 && duration < 2000,
+                                })}
+                            >
+                                {ms(duration)}
+                            </span>
                         </div>
-                    </>
-                ) : item.entry_type === 'paint' ? (
-                    <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
-                        <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
-                            {capitalizeFirstLetter(item.name?.replace(/-/g, ' ') || '')}
-                        </span>
-                        <span
-                            className={clsx('font-semibold', {
-                                'text-danger-dark': startTime >= 2000,
-                                'text-warning-dark': startTime > 500 && startTime < 2000,
-                            })}
-                        >
-                            {ms(startTime)}
-                        </span>
-                    </div>
-                ) : (
-                    <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
-                        <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>{item.name}</span>
-                        <span className={clsx('font-semibold')}>{bytes}</span>
-                        <span
-                            className={clsx('font-semibold', {
-                                'text-danger-dark': duration >= 2000,
-                                'text-warning-dark': duration > 500 && duration < 2000,
-                            })}
-                        >
-                            {ms(duration)}
-                        </span>
-                    </div>
-                )}
-            </div>
+                    )}
+                </div>
+            </LemonButton>
 
             {expanded && (
                 <div className="p-2 text-xs border-t">
