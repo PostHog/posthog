@@ -248,6 +248,13 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
+            - uses: actions/cache@v2
+              with:
+                  key: cypress-runner-cache
+                  path: |
+                      ~/.cache/Cypress
+                      node_modules
+
             - name: Install package.json dependencies with pnpm
               run: pnpm install
 
