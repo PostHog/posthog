@@ -131,7 +131,7 @@ def dead_letter_queue_ratio() -> Tuple[bool, int]:
         dead_letter_queue_events_last_day + total_events_ingested_last_day, 1
     )
 
-    # if the dead letter queue has as many events today as ingestion, issue an alert
+    # if the dead letter queue has above 20% of events compared to ingestion, issue an alert
     return dead_letter_queue_ingestion_ratio >= 0.2, dead_letter_queue_events_last_day
 
 
