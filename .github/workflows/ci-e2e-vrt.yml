@@ -31,7 +31,7 @@ jobs:
               run: pnpm build-storybook --quiet
 
             - name: Install Playwright Browsers
-              run: pnpm dlx playwright install --with-deps
+              run: pnpm dlx playwright@1.28.1 install --with-deps
 
             - name: Serve Storybook and run tests
               run: |
