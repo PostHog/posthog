@@ -15,7 +15,14 @@ from posthog.models.utils import UUIDT, UUIDModel
 
 logger = structlog.get_logger(__name__)
 
-ActivityScope = Literal["FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig", "SessionRecordingPlaylist"]
+ActivityScope = Literal[
+    "FeatureFlag",
+    "Person",
+    "Insight",
+    "Plugin",
+    "PluginConfig",
+    "SessionRecordingPlaylist",
+]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
 
@@ -88,7 +95,15 @@ class ActivityLog(UUIDModel):
 
 
 field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"], List[str]] = {
-    "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
+    "FeatureFlag": [
+        "id",
+        "created_at",
+        "created_by",
+        "is_simple_flag",
+        "experiment",
+        "team",
+        "featureflagoverride",
+    ],
     "Person": [
         "id",
         "uuid",
@@ -132,7 +147,14 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecor
         "caching_states",
         "dashboards",
     ],
-    "SessionRecordingPlaylist": ["id", "short_id", "created_at", "created_by", "last_modified_at", "last_modified_by"],
+    "SessionRecordingPlaylist": [
+        "id",
+        "short_id",
+        "created_at",
+        "created_by",
+        "last_modified_at",
+        "last_modified_by",
+    ],
 }
 
 
@@ -199,7 +221,15 @@ def changes_between(
             elif right is None and left is not None:
                 changes.append(Change(type=model_type, field=field, action="deleted", before=left))
             elif left != right:
-                changes.append(Change(type=model_type, field=field, action="changed", before=left, after=right))
+                changes.append(
+                    Change(
+                        type=model_type,
+                        field=field,
+                        action="changed",
+                        before=left,
+                        after=right,
+                    )
+                )
 
     return changes
 
@@ -225,17 +255,30 @@ def dict_changes_between(model_type: ActivityScope, previous: Dict[Any, Any], ne
         if previous_value is None and new_value is not None:
             changes.append(Change(type=model_type, field=field, action="created", after=new_value))
         elif new_value is None and previous_value is not None:
-            changes.append(Change(type=model_type, field=field, action="deleted", before=previous_value))
+            changes.append(
+                Change(
+                    type=model_type,
+                    field=field,
+                    action="deleted",
+                    before=previous_value,
+                )
+            )
         elif previous_value != new_value:
             changes.append(
-                Change(type=model_type, field=field, action="changed", before=previous_value, after=new_value)
+                Change(
+                    type=model_type,
+                    field=field,
+                    action="changed",
+                    before=previous_value,
+                    after=new_value,
+                )
             )
 
     return changes
 
 
 def log_activity(
-    organization_id: Union[str, UUIDT],
+    organization_id: UUIDT,
     team_id: int,
     user: User,
     item_id: Optional[Union[int, str, UUIDT]],
@@ -298,7 +341,11 @@ def get_activity_page(activity_query: models.QuerySet, limit: int = 10, page: in
 
 
 def load_activity(
-    scope: ActivityScope, team_id: int, item_id: Optional[int] = None, limit: int = 10, page: int = 1
+    scope: ActivityScope,
+    team_id: int,
+    item_id: Optional[int] = None,
+    limit: int = 10,
+    page: int = 1,
 ) -> ActivityPage:
     # TODO in follow-up to posthog #8931 selecting specific fields into a return type from this query
 

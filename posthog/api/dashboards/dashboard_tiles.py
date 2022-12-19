@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, cast
 
 import structlog
 from rest_framework import serializers, status, viewsets
@@ -12,12 +12,18 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.models import Dashboard, DashboardTile, Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 logger = structlog.get_logger(__name__)
 
 
-class SimpleDashboardTileSerializer(serializers.Serializer):
+class BasicDashboardTileSerializer(serializers.Serializer):
+    """
+    Serializes a tile to only the insight and dashboard ids that it links to
+    TODO: so wait, what about text tiles?
+    """
+
     insight_id: serializers.IntegerField = serializers.IntegerField(required=True)
     dashboard_id: serializers.IntegerField = serializers.IntegerField(required=True)
 
@@ -69,7 +75,7 @@ class DashboardTileViewSet(
     viewsets.GenericViewSet,
 ):
     queryset = DashboardTile.objects.all()
-    serializer_class = SimpleDashboardTileSerializer
+    serializer_class = BasicDashboardTileSerializer
     filter_rewrite_rules = {"team_id": "dashboard__team_id"}
     permission_classes = [
         IsAuthenticated,
@@ -85,7 +91,7 @@ class DashboardTileViewSet(
         self._write_to_activity_log(
             insight_id=serializer.validated_data["insight_id"],
             dashboard_id=serializer.validated_data["dashboard_id"],
-            user=request.user,  # type: ignore
+            user=cast(User, request.user),
             # only need to flag that a dashboard was added
             before=lambda x: [],
             after=lambda tile: [{"dashboard": {"id": tile.dashboard.id, "name": tile.dashboard.name}}],
@@ -140,7 +146,7 @@ class DashboardTileViewSet(
                 )
             ]
             log_activity(
-                organization_id=self.organization_id,
+                organization_id=UUIDT(uuid_str=self.organization_id),
                 team_id=self.team_id,
                 user=user,
                 item_id=insight_id,
