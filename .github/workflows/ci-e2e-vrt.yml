@@ -31,13 +31,13 @@ jobs:
               run: pnpm build-storybook --quiet
 
             - name: Install Playwright Browsers
-              run: pnpm dlx playwright install --with-deps
+              run: pnpm dlx playwright@1.28.1 install --with-deps
 
             - name: Serve Storybook and run tests
               run: |
                   pnpm dlx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
                     "pnpm dlx http-server storybook-static --port 6006" \
-                    "pnpm dlx wait-on http://127.0.0.1:6006 --timeout 60 && pnpm dlx playwright test"
+                    "pnpm dlx wait-on http://127.0.0.1:6006 --timeout 60 && pnpm dlx playwright@1.28.1 test"
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3

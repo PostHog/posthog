@@ -11,8 +11,6 @@ HOOK_EVENTS: Dict[str, str] = {
     # "event_name": "App.Model.Action" (created/updated/deleted)
     "action_performed": "posthog.Action.performed",
 }
-HOOK_FINDER = "ee.models.hook.find_and_fire_hook"
-HOOK_DELIVERER = "ee.models.hook.deliver_hook_wrapper"
 
 # SSO
 AUTHENTICATION_BACKENDS = AUTHENTICATION_BACKENDS + [

@@ -1,7 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -129,41 +128,21 @@ export const navigationLogic = kea<navigationLogicType>({
                 (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
         ],
         systemStatus: [
-            () => [
-                systemStatusLogic.selectors.overview,
-                systemStatusLogic.selectors.systemStatusLoading,
-                preflightLogic.selectors.siteUrlMisconfigured,
-            ],
-            (statusMetrics, statusLoading, siteUrlMisconfigured) => {
-                if (statusLoading) {
-                    return true
-                }
-
+            (s) => [s.navigationStatus, preflightLogic.selectors.siteUrlMisconfigured],
+            (status, siteUrlMisconfigured) => {
                 if (siteUrlMisconfigured) {
                     return false
                 }
 
                 // On cloud non staff users don't have status metrics to review
-                const hasNoStatusMetrics = !statusMetrics || statusMetrics.length === 0
-                if (hasNoStatusMetrics && preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
+                if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
                     return true
                 }
 
-                // if you have status metrics these three must have `value: true`
-                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive', 'dead_letter_queue_ratio_ok']
-                const aliveSignals = statusMetrics
-                    .filter((sm) => sm.key && aliveMetrics.includes(sm.key))
-                    .filter((sm) => sm.value).length
-                return aliveSignals >= aliveMetrics.length
+                return status.system_status_ok
             },
         ],
-        asyncMigrationsOk: [
-            () => [systemStatusLogic.selectors.overview, systemStatusLogic.selectors.systemStatusLoading],
-            (statusMetrics, systemStatusLoading) => {
-                const asyncMigrations = statusMetrics.filter((sm) => sm.key && sm.key == 'async_migrations_ok')[0]
-                return systemStatusLoading || !asyncMigrations || asyncMigrations.value
-            },
-        ],
+        asyncMigrationsOk: [(s) => [s.navigationStatus], (status) => status.async_migrations_ok],
         anyUpdateAvailable: [
             (selectors) => [
                 selectors.latestVersion,
@@ -260,6 +239,17 @@ export const navigationLogic = kea<navigationLogicType>({
                         return version.version
                     }
                     return null
+                },
+            },
+        ],
+        navigationStatus: [
+            { system_status_ok: true, async_migrations_ok: true } as {
+                system_status_ok: boolean
+                async_migrations_ok: boolean
+            },
+            {
+                loadNavigationStatus: async () => {
+                    return await api.get('api/instance_settings')
                 },
             },
         ],
