@@ -25,6 +25,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
     isAreaChartDisplay,
+    isLifecycleFilter,
 } from 'scenes/insights/sharedUtils'
 interface InsightDisplayConfigProps {
     filters: FilterType
@@ -40,6 +41,11 @@ const showIntervalFilter = function (filter: Partial<FilterType>): boolean {
     if (isRetentionFilter(filter) || isPathsFilter(filter)) {
         return false
     }
+
+    if (isLifecycleFilter(filter)) {
+        return true
+    }
+
     return (
         (isTrendsFilter(filter) || isStickinessFilter(filter)) &&
         (!filter.display || !NON_TIME_SERIES_DISPLAY_TYPES.includes(filter.display))
