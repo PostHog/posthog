@@ -27,7 +27,7 @@ export function EventElements({ event }: { event: EventType }): JSX.Element {
                     {indent(index)}
                     &lt;{element.tag_name}
                     {element.attr_id && ` id="${element.attr_id}"`}
-                    {Object.entries(element.attributes).map(([key, value]) => (
+                    {Object.entries(element.attributes ?? {}).map(([key, value]) => (
                         <span key={key}>{` ${key.replace('attr__', '')}="${value}"`}</span>
                     ))}
                     &gt;{element.text}

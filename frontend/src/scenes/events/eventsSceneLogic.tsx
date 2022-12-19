@@ -11,9 +11,19 @@ import { lemonToast } from 'lib/components/lemonToast'
 const getDefaultQuery = (): DataTableNode => ({
     kind: NodeKind.DataTableNode,
     source: {
-        kind: NodeKind.EventsNode,
+        kind: NodeKind.EventsQuery,
+        select: [
+            '*',
+            'event',
+            'person',
+            'coalesce(properties.$current_url, properties.$screen_name) # Url / Screen',
+            'properties.$lib',
+            'timestamp',
+        ],
+        orderBy: ['-timestamp'],
         limit: 100,
     },
+    hiddenColumns: ['*'],
     propertiesViaUrl: true,
     showEventsBufferWarning: true,
     showColumnConfigurator: true,
@@ -21,6 +31,7 @@ const getDefaultQuery = (): DataTableNode => ({
     showExport: true,
     showPropertyFilter: true,
     showReload: true,
+    allowSorting: false,
 })
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([

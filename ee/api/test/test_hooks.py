@@ -1,4 +1,4 @@
-from typing import Type, cast
+from typing import cast
 
 from ee.api.hooks import valid_domain
 from ee.api.test.base import APILicensedTest
@@ -10,8 +10,10 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
     def test_create_hook(self):
         data = {"target": "https://hooks.zapier.com/abcd/", "event": "action_performed"}
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+        response_data = response.json()
+
+        hook = Hook.objects.get(id=response_data["id"])
         self.assertEqual(response.status_code, 201)
-        hook: Type[Hook] = Hook.objects.first()
         self.assertEqual(hook.team, self.team)
         self.assertEqual(hook.target, data["target"])
         self.assertEqual(hook.event, data["event"])
@@ -30,8 +32,10 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
     def test_create_hook_with_resource_id(self):
         data = {"target": "https://hooks.zapier.com/abcd/", "event": "action_performed", "resource_id": "66"}
         response = self.client.post(f"/api/projects/{self.team.id}/hooks/", data)
+        response_data = response.json()
+
+        hook = Hook.objects.get(id=response_data["id"])
         self.assertEqual(response.status_code, 201)
-        hook: Type[Hook] = Hook.objects.first()
         self.assertEqual(hook.team, self.team)
         self.assertEqual(hook.target, data["target"])
         self.assertEqual(hook.event, data["event"])

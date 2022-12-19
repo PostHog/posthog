@@ -83,7 +83,6 @@ specifiers:
   pretty-bytes: ^5.6.0
   prom-client: ^14.1.0
   re2: ^1.17.7
-  rimraf: ^3.0.2
   safe-stable-stringify: ^2.4.0
   snowflake-sdk: ^1.6.10
   timekeeper: ^2.2.0
@@ -182,7 +181,6 @@ devDependencies:
   parse-prometheus-text-format: 1.1.1
   pino-pretty: 9.1.1
   prettier: 2.7.1
-  rimraf: 3.0.2
   timekeeper: 2.2.0
   ts-node: 10.9.1_uusaoo756f3l7x5w4ayk4pz43y
   ts-node-dev: 2.0.0_uusaoo756f3l7x5w4ayk4pz43y
