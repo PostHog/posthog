@@ -250,6 +250,7 @@ jobs:
 
             - uses: actions/cache@v2
               with:
+                  key: cypress-runner-cache
                   path: |
                       ~/.cache/Cypress
                       node_modules
