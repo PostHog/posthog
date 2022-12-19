@@ -248,16 +248,14 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
+            - uses: actions/cache@v2
+              with:
+                  path: |
+                      ~/.cache/Cypress
+                      node_modules
+
             - name: Install package.json dependencies with pnpm
               run: pnpm install
-
-            - name: Cache Cypress runners
-              id: cypress-runner-cache
-              uses: actions/cache@v3
-              with:
-                  key: cypress-runner-cache
-                  path: |
-                      /home/runner/.cache/Cypress
 
             - name: Stop/Start stack with Docker Compose
               run: |
@@ -315,8 +313,7 @@ jobs:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.specs }}
-                  # if there is no cached cypress runner, install one
-                  install: ${{ steps.cypress-runner-cache.outputs.cache-hit != 'true' }}
+                  install: false
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3
