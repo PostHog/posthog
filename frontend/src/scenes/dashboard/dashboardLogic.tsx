@@ -386,7 +386,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                         if (tileIndex >= 0) {
                             if (insight.dashboards?.includes(props.id)) {
-                                // TODO stop passing around a Partual<InsightModel>
                                 newTiles[tileIndex] = {
                                     ...newTiles[tileIndex],
                                     insight: { ...newTiles[tileIndex].insight, ...insight } as InsightModel,
