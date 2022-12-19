@@ -3,7 +3,6 @@ import { DefinitionPageMode } from 'scenes/data-management/definition/definition
 import { useActions, useValues } from 'kea'
 import { definitionEditLogic, DefinitionEditLogicProps } from 'scenes/data-management/definition/definitionEditLogic'
 import { LemonButton } from 'lib/components/LemonButton'
-import { Col, Row } from 'antd'
 import { Field } from 'lib/forms/Field'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
@@ -50,27 +49,25 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                 }
             />
             <LemonDivider />
-            <div>
-                <h1>{getPropertyLabel(definition.name) || ''}</h1>
-                <div className="definition-sent-as flex-wrap">
-                    <div>Raw event name:</div>
-                    <div>
-                        <pre>{definition.name}</pre>
+            <div className={'DefinitionEdit--form my-4'}>
+                <div>
+                    <h1>{getPropertyLabel(definition.name) || ''}</h1>
+                    <div className="definition-sent-as flex-wrap">
+                        <div>Raw event name:</div>
+                        <div>
+                            <pre>{definition.name}</pre>
+                        </div>
                     </div>
                 </div>
-            </div>
-            {hasTaxonomyFeatures && (
-                <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
-                    <Col span={24}>
+                {hasTaxonomyFeatures && (
+                    <div className="mt-4 ph-ignore-input">
                         <Field name="description" label="Description" data-attr="definition-description">
                             <LemonTextArea value={definition.description} />
                         </Field>
-                    </Col>
-                </Row>
-            )}
-            {hasTaxonomyFeatures && isEvent && !isPostHogProp(definition.name) && 'verified' in definition && (
-                <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
-                    <Col span={24}>
+                    </div>
+                )}
+                {hasTaxonomyFeatures && isEvent && !isPostHogProp(definition.name) && 'verified' in definition && (
+                    <div className="mt-4 ph-ignore-input">
                         <Field name="verified" data-attr="definition-verified">
                             {({ value, onChange }) => (
                                 <VerifiedEventCheckbox
@@ -81,12 +78,10 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                 />
                             )}
                         </Field>
-                    </Col>
-                </Row>
-            )}
-            {hasTaxonomyFeatures && 'tags' in definition && (
-                <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
-                    <Col span={24}>
+                    </div>
+                )}
+                {hasTaxonomyFeatures && 'tags' in definition && (
+                    <div className="mt-4 ph-ignore-input">
                         <Field name="tags" label="Tags" data-attr="definition-tags">
                             {({ value, onChange }) => (
                                 <ObjectTags
@@ -99,12 +94,10 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                 />
                             )}
                         </Field>
-                    </Col>
-                </Row>
-            )}
-            {hasTaxonomyFeatures && !isEvent && (
-                <Row gutter={[16, 24]} className="mt-4 ph-ignore-input" style={{ maxWidth: 640 }}>
-                    <Col span={24}>
+                    </div>
+                )}
+                {hasTaxonomyFeatures && !isEvent && (
+                    <div className="mt-4 ph-ignore-input">
                         <Field name="property_type" label="Property Type" data-attr="property-type">
                             {({ value, onChange }) => (
                                 <LemonSelect
@@ -119,9 +112,9 @@ export function DefinitionEdit(props: DefinitionEditLogicProps): JSX.Element {
                                 />
                             )}
                         </Field>
-                    </Col>
-                </Row>
-            )}
+                    </div>
+                )}
+            </div>
             <LemonDivider />
         </Form>
     )
