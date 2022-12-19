@@ -267,6 +267,6 @@ describe('shouldSendEventToBuffer()', () => {
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 2)).toEqual(true)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, undefined, 3)).toEqual(false)
         expect(shouldSendEventToBuffer(runner.hub, anonEvent, { is_identified: true } as Person, 1)).toEqual(false)
-        expect(shouldSendEventToBuffer(runner.hub, anonEvent, { is_identified: false } as Person, 1)).toEqual(false)
+        expect(shouldSendEventToBuffer(runner.hub, anonEvent, { is_identified: false } as Person, 1)).toEqual(true)
     })
 })
