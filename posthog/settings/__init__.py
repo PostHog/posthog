@@ -91,6 +91,8 @@ BILLING_V2_ENABLED = get_from_env("BILLING_V2_ENABLED", False, type_cast=str_to_
 
 AUTO_LOGIN = get_from_env("AUTO_LOGIN", False, type_cast=str_to_bool)
 
+CONTAINER_HOSTNAME = os.getenv("HOSTNAME", "unknown")
+
 
 # Extend and override these settings with EE's ones
 if "ee.apps.EnterpriseConfig" in INSTALLED_APPS:

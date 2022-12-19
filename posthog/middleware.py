@@ -184,6 +184,7 @@ class CHQueries:
             route_id=route.route,
             client_query_id=self._get_param(request, "client_query_id"),
             session_id=self._get_param(request, "session_id"),
+            container_hostname=settings.CONTAINER_HOSTNAME,
         )
 
         if hasattr(user, "current_team_id") and user.current_team_id:
@@ -225,7 +226,12 @@ class ShortCircuitMiddleware:
         if request.path == "/decide/" or request.path == "/decide":
             try:
                 # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
-                tag_queries(kind="request", id=request.path, route_id=resolve(request.path).route)
+                tag_queries(
+                    kind="request",
+                    id=request.path,
+                    route_id=resolve(request.path).route,
+                    container_hostname=settings.CONTAINER_HOSTNAME,
+                )
                 return get_decide(request)
             finally:
                 reset_query_tags()
