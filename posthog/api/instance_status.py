@@ -146,10 +146,14 @@ class InstanceStatusViewSet(viewsets.ViewSet):
         return Response(
             {
                 "system_status_ok": (
-                    is_redis_alive()
-                    and is_postgres_alive()
-                    and is_plugin_server_alive()
-                    and dead_letter_queue_ratio_ok_cached()
+                    # :TRICKY: Cloud alerts of services down via pagerduty
+                    settings.MULTI_TENANCY
+                    or (
+                        is_redis_alive()
+                        and is_postgres_alive()
+                        and is_plugin_server_alive()
+                        and dead_letter_queue_ratio_ok_cached()
+                    )
                 ),
                 "async_migrations_ok": async_migrations_ok(),
             }
