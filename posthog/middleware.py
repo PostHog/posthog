@@ -223,6 +223,11 @@ class ShortCircuitMiddleware:
 
     def __call__(self, request: HttpRequest):
         if request.path == "/decide/" or request.path == "/decide":
-            return get_decide(request)
+            try:
+                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
+                tag_queries(kind="request", id=request.path, route_id=resolve(request.path).route)
+                return get_decide(request)
+            finally:
+                reset_query_tags()
         response: HttpResponse = self.get_response(request)
         return response
