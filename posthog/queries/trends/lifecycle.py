@@ -129,7 +129,7 @@ class LifecycleEventQuery(EventQuery):
         self.params.update(groups_params)
 
         entity_params, entity_format_params = get_entity_filtering_params(
-            entity=self._filter.entities[0],
+            allowed_entities=[self._filter.entities[0]],
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS

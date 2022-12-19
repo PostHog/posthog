@@ -4,22 +4,23 @@ import { Popconfirm } from 'antd'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import { DataNode, DataTableNode } from '~/queries/schema'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
-import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
 
 const EXPORT_LIMIT_EVENTS = 3500
 const EXPORT_LIMIT_PERSONS = 10000
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
-    const exportContext = isEventsNode(query.source)
-        ? {
-              path: getEventsEndpoint({ ...query.source, limit: EXPORT_LIMIT_EVENTS }),
-              max_limit: query.source.limit ?? EXPORT_LIMIT_EVENTS,
-          }
-        : isPersonsNode(query.source)
-        ? { path: getPersonsEndpoint(query.source), max_limit: EXPORT_LIMIT_PERSONS }
-        : undefined
+    const exportContext =
+        isEventsNode(query.source) || isEventsQuery(query.source)
+            ? {
+                  path: getEventsEndpoint({ ...query.source, limit: EXPORT_LIMIT_EVENTS }),
+                  max_limit: query.source.limit ?? EXPORT_LIMIT_EVENTS,
+              }
+            : isPersonsNode(query.source)
+            ? { path: getPersonsEndpoint(query.source), max_limit: EXPORT_LIMIT_PERSONS }
+            : undefined
     if (!exportContext) {
         throw new Error('Unsupported node type')
     }
@@ -53,8 +54,9 @@ interface DataTableExportProps {
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
     const source: DataNode = query.source
     const filterCount =
-        (isEventsNode(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
+        (isEventsNode(source) || isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
         (isEventsNode(source) && source.event ? 1 : 0) +
+        (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
 
     return (
@@ -112,8 +114,8 @@ function ExportWithConfirmation({ query, placement, onConfirm, children }: Expor
                 <>
                     Exporting by csv is limited to {limit} {actor}.
                     <br />
-                    To return more, please use <a href={`https://posthog.com/docs/api/{actor}`}>the API</a>. Do you want
-                    to export by CSV?
+                    To return more, please use <a href={`https://posthog.com/docs/api/${actor}`}>the API</a>. Do you
+                    want to export by CSV?
                 </>
             }
             onConfirm={onConfirm}

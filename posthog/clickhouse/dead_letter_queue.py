@@ -41,7 +41,10 @@ SETTINGS index_granularity=512
 ).format(
     table_name=DEAD_LETTER_QUEUE_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=f"""
+    {KAFKA_COLUMNS}
+    , INDEX kafka_timestamp_minmax_dlq _timestamp TYPE minmax GRANULARITY 3
+    """,
     engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
     ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
 )

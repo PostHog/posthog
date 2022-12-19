@@ -244,7 +244,7 @@ function OrganizationResourcePermissionRoles({ roles }: { roles: RoleType[] }): 
             <h5 className="mt-4">Roles with edit access</h5>
             <Row>
                 {roles.map((role) => (
-                    <span key={role.id} className="simple-tag tag-light-blue text-primary-alt">
+                    <span key={role.id} className="simple-tag tag-light-blue text-primary-alt mr-2">
                         <b>{role.name}</b>{' '}
                     </span>
                 ))}

@@ -4,7 +4,6 @@
 # - `pip-compile --rebuild requirements.in`
 # - `pip-compile --rebuild requirements-dev.in`
 #
-django-rest-hooks@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.6.0
 boto3==1.21.29
 celery==4.4.7
@@ -32,7 +31,7 @@ djangorestframework-dataclasses==1.1.1
 dnspython==2.2.1
 drf-exceptions-hog==0.3.0
 drf-extensions==0.7.0
-drf-spectacular==0.21.1
+drf-spectacular==0.24.2
 geoip2==4.6.0
 google-cloud-sqlcommenter==2.0.0
 gunicorn==20.1.0
