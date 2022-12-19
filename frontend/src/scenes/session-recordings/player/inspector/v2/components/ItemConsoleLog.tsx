@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { SharedListItemConsole } from '../../sharedListLogic'
 
 export interface ItemConsoleLogProps {
@@ -8,17 +7,8 @@ export interface ItemConsoleLogProps {
 }
 
 export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogProps): JSX.Element {
-    const color = item.data.level === 'error' ? 'danger' : item.data.level === 'warn' ? 'warning' : undefined
-
     return (
-        <div
-            className={clsx(
-                'rounded border',
-                expanded && 'border-primary',
-                color && `border-${color}-dark bg-${color}-highlight`,
-                !color && 'bg-light'
-            )}
-        >
+        <>
             <div className="relative cursor-pointer" onClick={() => setExpanded(!expanded)}>
                 <div className="flex gap-2 items-start p-2 text-xs cursor-pointer truncate font-mono">
                     {item.data.previewContent}
@@ -30,6 +20,6 @@ export function ItemConsoleLog({ item, expanded, setExpanded }: ItemConsoleLogPr
                     <pre className="whitespace-pre-wrap">{item.data.fullContent}</pre>
                 </div>
             )}
-        </div>
+        </>
     )
 }

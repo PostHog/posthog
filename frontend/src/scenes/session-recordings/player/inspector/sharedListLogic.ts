@@ -1,5 +1,6 @@
 import { actions, kea, reducers, path, listeners, connect, props, key, selectors } from 'kea'
 import {
+    MatchedRecordingEvent,
     PerformanceEvent,
     PlayerPosition,
     RecordingConsoleLogBase,
@@ -26,6 +27,7 @@ type SharedListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
     search: string
+    highlightColor?: 'danger' | 'warning' | 'primary'
 }
 
 export type SharedListItemEvent = SharedListItemBase & {
@@ -163,7 +165,6 @@ export const sharedListLogic = kea<sharedListLogicType>([
             featureFlagLogic,
             ['featureFlags'],
         ],
-        actions: [playerSettingsLogic, ['setShowOnlyMatching']],
     })),
     actions(() => ({
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
@@ -301,6 +302,16 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
 
+        matchingEvents: [
+            (s) => [s.showOnlyMatching, (_, props) => props.matching],
+            (showOnlyMatching, matchingEvents): MatchedRecordingEvent[] | undefined => {
+                if (!showOnlyMatching || !matchingEvents) {
+                    return
+                }
+                return matchingEvents.map((x: any) => x.events).flat()
+            },
+        ],
+
         allItems: [
             (s) => [
                 s.tab,
@@ -310,6 +321,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 s.sessionEventsData,
                 s.featureFlags,
                 s.miniFiltersByKey,
+                s.matchingEvents,
             ],
             (
                 tab,
@@ -318,7 +330,8 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 consoleLogs,
                 eventsData,
                 featureFlags,
-                miniFiltersByKey
+                miniFiltersByKey,
+                matchingEvents
             ): SharedListItem[] => {
                 const items: SharedListItem[] = []
 
@@ -426,6 +439,8 @@ export const sharedListLogic = kea<sharedListLogicType>([
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.rawString,
                             data: event,
+                            highlightColor:
+                                event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : undefined,
                         })
                     }
                 }
@@ -469,6 +484,16 @@ export const sharedListLogic = kea<sharedListLogicType>([
                             include = true
                         }
 
+                        let highlightColor: 'primary' | undefined = undefined
+
+                        // Special case - overrides the others
+                        if (matchingEvents?.find((x) => x.uuid === String(event.id))) {
+                            include = true
+                            highlightColor = 'primary'
+                        } else if (matchingEvents) {
+                            include = false
+                        }
+
                         if (!include) {
                             continue
                         }
@@ -484,6 +509,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: search,
                             data: event,
+                            highlightColor,
                         })
                     }
                 }

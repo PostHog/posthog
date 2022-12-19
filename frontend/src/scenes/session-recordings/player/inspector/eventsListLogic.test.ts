@@ -13,7 +13,7 @@ import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recordin
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
-import { MatchedRecordingEvents } from '~/types'
+import { MatchedRecordingEvent } from '~/types'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -265,7 +265,7 @@ describe('eventsListLogic', () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
                 sessionRecordingPlayerLogic(playerLogicProps).actions.setMatching([
                     {
-                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvents[],
+                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvent[],
                     },
                 ])
             })
@@ -293,7 +293,7 @@ describe('eventsListLogic', () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
                 sessionRecordingPlayerLogic(playerLogicProps).actions.setMatching([
                     {
-                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvents[],
+                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvent[],
                     },
                 ])
                 sharedListLogic(playerLogicProps).actions.setShowOnlyMatching(true)

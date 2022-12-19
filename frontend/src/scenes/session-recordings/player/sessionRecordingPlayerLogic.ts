@@ -70,8 +70,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     'loadFirstSnapshotTimeMs',
                     'loadAllSnapshotsTimeMs',
                 ],
-                sharedListLogic({ sessionRecordingId, playerKey }),
-                ['tab'],
                 playerSettingsLogic,
                 ['speed', 'skipInactivitySetting', 'isFullScreen'],
                 userLogic,
@@ -80,8 +78,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             actions: [
                 sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, sessionRecordingData }),
                 ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
-                sharedListLogic({ sessionRecordingId, playerKey }),
-                ['setTab'],
                 playerSettingsLogic,
                 ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
                 eventUsageLogic,

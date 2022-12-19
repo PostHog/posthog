@@ -7,7 +7,7 @@ import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
 import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import { EventDetails } from 'scenes/events'
 import React, { useMemo } from 'react'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
 import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge, IconSchedule } from 'lib/components/icons'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { Tooltip } from 'antd'
@@ -18,6 +18,7 @@ import { playerMetaLogic } from '../playerMetaLogic'
 import { PlayerInspectorList } from './v2/PlayerInspectorList'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { playerSettingsLogic } from '../playerSettingsLogic'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -153,11 +154,12 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, showOnlyMatching, tab, searchQuery, miniFilters, timestampMode } = useValues(
+    const { windowIdFilter, tab, searchQuery, miniFilters, timestampMode } = useValues(sharedListLogic(logicProps))
+    const { setWindowIdFilter, setTab, setSearchQuery, setTimestampMode, setMiniFilter } = useActions(
         sharedListLogic(logicProps)
     )
-    const { setWindowIdFilter, setShowOnlyMatching, setTab, setSearchQuery, setTimestampMode, setMiniFilter } =
-        useActions(sharedListLogic(logicProps))
+    const { showOnlyMatching } = useValues(playerSettingsLogic)
+    const { setShowOnlyMatching } = useActions(playerSettingsLogic)
     const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
     const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
     const { consoleListLocalFilters } = useValues(consoleLogsListLogic(logicProps))
@@ -181,8 +183,8 @@ export function PlayerInspectorControls({
     }, [inspectorV2, inspectorPerformance])
 
     return (
-        <div className="bg-side">
-            <div className="flex justify-between gap-2 m-2 flex-wrap">
+        <div className="bg-side p-2 space-y-2">
+            <div className="flex justify-between gap-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
                     {tabs.map((tabId) => (
                         <LemonButton
@@ -281,37 +283,60 @@ export function PlayerInspectorControls({
                 ) : null}
             </div>
             {inspectorV2 ? (
-                <div className="flex items-center gap-2 justify-between px-2 my-2">
-                    <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt">
-                        {miniFilters.map((filter) => (
+                <>
+                    <div className="flex items-center gap-2 justify-between">
+                        <div className="flex items-center gap-1 flex-wrap font-medium text-primary-alt">
+                            {miniFilters.map((filter) => (
+                                <LemonButton
+                                    key={filter.key}
+                                    size="small"
+                                    noPadding
+                                    status="primary-alt"
+                                    active={filter.enabled}
+                                    onClick={() => {
+                                        // "alone" should always be a select-to-true action
+                                        setMiniFilter(filter.key, filter.alone || !filter.enabled)
+                                    }}
+                                >
+                                    <span className="p-1 text-xs">{filter.name}</span>
+                                </LemonButton>
+                            ))}
+                        </div>
+
+                        <div className="flex">
                             <LemonButton
-                                key={filter.key}
                                 size="small"
                                 noPadding
                                 status="primary-alt"
-                                active={filter.enabled}
-                                onClick={() => {
-                                    // "alone" should always be a select-to-true action
-                                    setMiniFilter(filter.key, filter.alone || !filter.enabled)
-                                }}
+                                onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
                             >
-                                <span className="p-1 text-xs">{filter.name}</span>
+                                <span className="p-1 text-xs">{capitalizeFirstLetter(timestampMode)}</span>{' '}
+                                <IconSchedule className="text-lg" />
                             </LemonButton>
-                        ))}
+                        </div>
                     </div>
+                    {matching?.length &&
+                    [SessionRecordingPlayerTab.ALL, SessionRecordingPlayerTab.EVENTS].includes(tab) ? (
+                        <div className="flex items-center">
+                            <span className="flex items-center whitespace-nowrap text-xs gap-1">
+                                Only events matching filters
+                                <Tooltip
+                                    title="Display only the events that match the global filter."
+                                    className="text-base text-muted-alt"
+                                >
+                                    <IconInfo />
+                                </Tooltip>
+                            </span>
 
-                    <div className="flex">
-                        <LemonButton
-                            size="small"
-                            noPadding
-                            status="primary-alt"
-                            onClick={() => setTimestampMode(timestampMode === 'absolute' ? 'relative' : 'absolute')}
-                        >
-                            <span className="p-1 text-xs">{capitalizeFirstLetter(timestampMode)}</span>{' '}
-                            <IconSchedule className="text-lg" />
-                        </LemonButton>
-                    </div>
-                </div>
+                            <LemonCheckbox
+                                className="mx-2"
+                                checked={showOnlyMatching}
+                                size="small"
+                                onChange={setShowOnlyMatching}
+                            />
+                        </div>
+                    ) : null}
+                </>
             ) : null}
         </div>
     )

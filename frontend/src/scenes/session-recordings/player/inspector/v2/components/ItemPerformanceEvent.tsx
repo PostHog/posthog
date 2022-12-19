@@ -1,4 +1,4 @@
-import { LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, humanizeBytes } from 'lib/utils'
@@ -50,7 +50,7 @@ export function ItemPerformanceEvent({
     } = item
 
     return (
-        <div className={clsx('rounded bg-light border', expanded && 'border-primary')}>
+        <div>
             <div className="relative cursor-pointer" onClick={() => setExpanded(!expanded)}>
                 <div
                     className="absolute bg-primary rounded-sm opacity-75"
@@ -120,15 +120,29 @@ export function ItemPerformanceEvent({
                         <p>
                             {item.name === 'first-paint' ? (
                                 <>
-                                    The first contentful paint occured after <b>{ms(startTime)}</b>.
+                                    <b>First Paint</b> is the time between navigation and when the browser first renders
+                                    pixels to the screen, rendering anything that is visually different from the default
+                                    background color of the body. It is the first key moment in page load and will
+                                    answer the question "Has the browser started to render the page?"
                                     <br />
-                                    This represents the first time that the user was able to see the page.
+                                    <Link
+                                        to="https://developer.mozilla.org/en-US/docs/Glossary/First_paint"
+                                        target="_blank"
+                                    >
+                                        Read more on the mozilla developer network
+                                    </Link>
                                 </>
                             ) : item.name === 'first-contentful-paint' ? (
                                 <>
-                                    The first paint occured after <b>{ms(startTime)}</b>.
-                                    <br />
-                                    This represents the first time that the page contained useful content.
+                                    <b>First Contentful Paint (FCP)</b> is when the browser renders the first bit of
+                                    content from the DOM, providing the first feedback to the user that the page is
+                                    actually loading. <br />
+                                    <Link
+                                        to="https://developer.mozilla.org/en-US/docs/Glossary/First_contentful_paint"
+                                        target="_blank"
+                                    >
+                                        Read more on the mozilla developer network
+                                    </Link>
                                 </>
                             ) : null}
                         </p>

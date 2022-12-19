@@ -664,7 +664,7 @@ export interface PersonListParams {
     distinct_id?: string
 }
 
-export interface MatchedRecordingEvents {
+export interface MatchedRecordingEvent {
     uuid: string
     session_id: string
     window_id: string
@@ -673,7 +673,7 @@ export interface MatchedRecordingEvents {
 
 export interface MatchedRecording {
     session_id?: string
-    events: MatchedRecordingEvents[]
+    events: MatchedRecordingEvent[]
 }
 
 interface CommonActorType {
