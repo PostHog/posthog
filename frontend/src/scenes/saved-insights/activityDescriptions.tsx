@@ -66,7 +66,7 @@ const insightActionsMapping: Record<
         const filtersAfter = change?.after as Partial<FilterType>
 
         return {
-            description: 'changed query definition',
+            description: ['changed query definition'],
             extendedDescription: (
                 <div className="summary-card">
                     <QuerySummary filters={filtersAfter} />
