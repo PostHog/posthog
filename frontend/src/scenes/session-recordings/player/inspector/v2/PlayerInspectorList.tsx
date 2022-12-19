@@ -133,9 +133,6 @@ function PlayerInspectorListItem({
     )
 }
 
-// Without `memo` all rows get rendered when anything in the parent component changes.
-// const PlayerInspectorListItem = React.memo(PlayerInspectorListItemRaw) as typeof PlayerInspectorListItemRaw
-
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { items } = useValues(sharedListLogic(props))
 
@@ -150,8 +147,6 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
     )
 
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
-        console.log('RENDERING', index)
-
         return (
             <CellMeasurer cache={cellMeasurerCache} columnIndex={0} key={key} rowIndex={index} parent={parent}>
                 {({ measure, registerChild }) => (

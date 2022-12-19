@@ -541,6 +541,31 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             }
         },
 
+        seekToTime: (timeInMilliseconds: number) => {
+            // TODO
+            // const currentPlayerTime = getPlayerTimeFromPlayerPosition(
+            //     values.currentPlayerPosition,
+            //     values.sessionPlayerData.metadata.segments
+            // )
+            // let nextPlayerPosition = getPlayerPositionFromPlayerTime(
+            //     timeInMilliseconds,
+            //     values.sessionPlayerData.metadata.segments
+            // )
+            // actions.setEndReached(false)
+            // const currentPlayerTime = getPlayerTimeFromPlayerPosition(
+            //     values.currentPlayerPosition,
+            //     values.sessionPlayerData.metadata.segments
+            // )
+            // if (currentPlayerTime !== null) {
+            //     const nextPlayerTime = Math.max(currentPlayerTime - amount, 0)
+            //     const nextPlayerPosition = getPlayerPositionFromPlayerTime(
+            //         nextPlayerTime,
+            //         values.sessionPlayerData.metadata.segments
+            //     )
+            //     actions.seek(nextPlayerPosition)
+            // }
+        },
+
         togglePlayPause: () => {
             // If buffering, toggle is a noop
             if (values.currentPlayerState === SessionPlayerState.BUFFER) {
