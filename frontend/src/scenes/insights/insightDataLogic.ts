@@ -9,6 +9,8 @@ import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/queryNodeToFilter'
 import { isLifecycleQuery } from '~/queries/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const getDefaultQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery): InsightVizNode => {
     if (kind == NodeKind.LifecycleQuery) {
@@ -44,6 +46,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     connect({
         actions: [insightLogic, ['setFilters', 'setActiveView']],
+        values: [featureFlagLogic, ['featureFlags']],
     }),
 
     actions({
@@ -71,7 +74,10 @@ export const insightDataLogic = kea<insightDataLogicType>([
             actions.setQuery({ ...values.query, source: { ...values.query.source, ...query } })
         },
         setQuery: ({ query }) => {
-            // TODO: check for feature flag here to make sure we never do this accidentally for non-feature-flagged users
+            // safeguard against accidentally overwriting filters for non-flagged users
+            if (values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]) {
+                return
+            }
 
             if (isLifecycleQuery(query.source)) {
                 const filters = queryNodeToFilter(query.source)
