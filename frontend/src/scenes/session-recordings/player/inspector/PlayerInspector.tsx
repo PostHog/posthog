@@ -154,14 +154,10 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, searchQuery, miniFilters, timestampMode, syncScroll, loading } = useValues(
-        sharedListLogic(logicProps)
-    )
-    const { setWindowIdFilter, setTab, setSearchQuery, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(
-        sharedListLogic(logicProps)
-    )
-    const { showOnlyMatching } = useValues(playerSettingsLogic)
-    const { setShowOnlyMatching } = useActions(playerSettingsLogic)
+    const { windowIdFilter, tab, searchQuery, syncScroll, loading } = useValues(sharedListLogic(logicProps))
+    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScroll } = useActions(sharedListLogic(logicProps))
+    const { showOnlyMatching, timestampMode, miniFilters } = useValues(playerSettingsLogic)
+    const { setShowOnlyMatching, setTimestampMode, setMiniFilter } = useActions(playerSettingsLogic)
     const { eventListLocalFilters } = useValues(eventsListLogic(logicProps))
     const { setEventListLocalFilters } = useActions(eventsListLogic(logicProps))
     const { consoleListLocalFilters } = useValues(consoleLogsListLogic(logicProps))

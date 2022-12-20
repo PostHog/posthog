@@ -20,6 +20,7 @@ import './PlayerInspectorList.scss'
 import { range } from 'd3'
 import { teamLogic } from 'scenes/teamLogic'
 import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
+import { playerSettingsLogic } from '../../playerSettingsLogic'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -40,9 +41,9 @@ function PlayerInspectorListItem({
     logicProps: SessionRecordingPlayerLogicProps
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
-    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, timestampMode } = useValues(
-        sharedListLogic(logicProps)
-    )
+    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems } = useValues(sharedListLogic(logicProps))
+    const { timestampMode } = useValues(playerSettingsLogic)
+
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
     const { setItemExpanded } = useActions(sharedListLogic(logicProps))
     const showIcon = tab === SessionRecordingPlayerTab.ALL
