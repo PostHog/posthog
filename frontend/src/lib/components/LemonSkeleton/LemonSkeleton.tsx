@@ -1,16 +1,17 @@
 import clsx from 'clsx'
 import { range } from 'lib/utils'
-import React from 'react'
 import { LemonButtonProps } from '../LemonButton'
 import './LemonSkeleton.scss'
 
 export interface LemonSkeletonProps {
     className?: string
+    /** Repeat this component this many of times */
     repeat?: number
+    /** Used in combination with repeat to progressively fade out the repeated skeletons */
+    fade?: boolean
     active?: boolean
 }
-
-export function LemonSkeleton({ className, repeat, active = true }: LemonSkeletonProps): JSX.Element {
+export function LemonSkeleton({ className, repeat, active = true, fade = false }: LemonSkeletonProps): JSX.Element {
     const content = (
         <div className={clsx('LemonSkeleton rounded h-4', !active && 'LemonSkeleton--static', className || 'w-full')} />
     )
@@ -19,7 +20,10 @@ export function LemonSkeleton({ className, repeat, active = true }: LemonSkeleto
         return (
             <>
                 {range(repeat).map((i) => (
-                    <React.Fragment key={i}>{content}</React.Fragment>
+                    // eslint-disable-next-line react/forbid-dom-props
+                    <div key={i} style={fade ? { opacity: 1 - i / repeat } : undefined}>
+                        {content}
+                    </div>
                 ))}
             </>
         )

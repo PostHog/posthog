@@ -1,13 +1,16 @@
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import { RecordingConsoleLog, RecordingTimeMixinType, RRWebRecordingConsoleLogPayload } from '~/types'
+import { RecordingConsoleLogBase, RRWebRecordingConsoleLogPayload } from '~/types'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/list/ConsoleDetails'
+import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/inspector/ConsoleDetails'
 import md5 from 'md5'
+import { eventWithTime, pluginEvent } from 'rrweb/typings/types'
 
 const STRING_INCLUDES_URL = new RegExp(
     '([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?'
 )
+
+export const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export interface ParsedEntry {
     type: 'array' | 'object' | 'string'
@@ -112,9 +115,7 @@ export function parseEntry(entry?: string): ParsedEntry {
 }
 
 // Parses a rrweb console log payload into something the frontend likes
-export function parseConsoleLogPayload(
-    payload: RRWebRecordingConsoleLogPayload
-): Omit<RecordingConsoleLog, keyof RecordingTimeMixinType> {
+export function parseConsoleLogPayload(payload: RRWebRecordingConsoleLogPayload): RecordingConsoleLogBase {
     const { level, payload: content, trace } = payload
 
     // Parse each string entry in content and trace
@@ -155,6 +156,60 @@ export function parseConsoleLogPayload(
         rawString: parsedEntries.map(({ rawString }) => rawString).join(' '),
         count: 1,
         hash: md5(parsedPayload),
+        level,
+    }
+}
+
+// Parses a rrweb console log payload into something the frontend likes
+export function parseConsoleLogPayloadV2(
+    event: pluginEvent<RRWebRecordingConsoleLogPayload> & {
+        timestamp: number
+        delay?: number | undefined
+    }
+): RecordingConsoleLogBase {
+    const payload: RRWebRecordingConsoleLogPayload = event.data.payload
+    const { level, payload: consolePayload } = payload
+
+    // Parse each string entry in content and trace
+    // const contentFiltered = Array.isArray(content) ? content?.filter((entry): entry is string => !!entry) ?? [] : []
+
+    const content = (Array.isArray(consolePayload) ? consolePayload : [consolePayload])
+        .filter((entry) => !!entry)
+        .join('\n')
+
+    // // Create a preview and full version of logs
+    // const previewContent = parsedEntries
+    //     .map(({ type, size, parsed }) => {
+    //         if (['array', 'object'].includes(type)) {
+    //             return `${capitalizeFirstLetter(type)} (${size})`
+    //         }
+    //         return parsed
+    //     })
+    //     .flat()
+    // const fullContent = [
+    //     ...parsedEntries.map(({ parsed, type }, idx) => {
+    //         if (['array', 'object'].includes(type)) {
+    //             return <ConsoleDetails json={parsed as ConsoleDetailsProps['json']} key={idx} />
+    //         }
+    //         return parsed
+    //     }),
+    //     ...parsedTrace.map(({ parsed }) => parsed),
+    // ].flat()
+    // const traceContent = parsedTrace.map(({ traceUrl }) => traceUrl).filter((traceUrl) => !!traceUrl)
+
+    // const parsedPayload = contentFiltered
+    //     .map((item) => (item && item.startsWith('"') && item.endsWith('"') ? item.slice(1, -1) : item))
+    //     .join(' ')
+
+    return {
+        timestamp: event.timestamp,
+        parsedPayload: content,
+        previewContent: content,
+        fullContent: content,
+        traceContent: content,
+        rawString: content,
+        count: 1,
+        // hash: md5(contentFiltered.join(' ')),
         level,
     }
 }

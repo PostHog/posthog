@@ -8,7 +8,7 @@ import {
     listLogic,
     OVERSCANNED_ROW_COUNT,
     RowStatus,
-} from 'scenes/session-recordings/player/list/listLogic'
+} from 'scenes/session-recordings/player/inspector/listLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { List } from 'react-virtualized/dist/es/List'
 import { Empty } from 'antd'
@@ -17,7 +17,7 @@ import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined } from '@ant-design/i
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { ExpandableConfig } from 'lib/components/LemonTable'
-import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
+import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/inspector/PlayerListRow'
 import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton } from 'lib/components/LemonButton'

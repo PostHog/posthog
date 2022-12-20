@@ -16,10 +16,10 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import Fuse from 'fuse.js'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
+import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
 
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 

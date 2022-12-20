@@ -4,7 +4,7 @@ import { initKeaTests } from '~/test/init'
 import {
     DEFAULT_SCROLLING_RESET_TIME_INTERVAL,
     eventsListLogic,
-} from 'scenes/session-recordings/player/list/eventsListLogic'
+} from 'scenes/session-recordings/player/inspector/eventsListLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -12,8 +12,8 @@ import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
-import { MatchedRecordingEvents } from '~/types'
+import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
+import { MatchedRecordingEvent } from '~/types'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -265,7 +265,7 @@ describe('eventsListLogic', () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
                 sessionRecordingPlayerLogic(playerLogicProps).actions.setMatching([
                     {
-                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvents[],
+                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvent[],
                     },
                 ])
             })
@@ -293,7 +293,7 @@ describe('eventsListLogic', () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
                 sessionRecordingPlayerLogic(playerLogicProps).actions.setMatching([
                     {
-                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvents[],
+                        events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvent[],
                     },
                 ])
                 sharedListLogic(playerLogicProps).actions.setShowOnlyMatching(true)

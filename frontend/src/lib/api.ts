@@ -35,6 +35,7 @@ import {
     RolesListParams,
     FeatureFlagAssociatedRoleType,
     SessionRecordingType,
+    PerformanceEvent,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -407,6 +408,11 @@ class ApiRequest {
         id: FeatureFlagAssociatedRoleType['id']
     ): ApiRequest {
         return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
+    }
+
+    // Performance events
+    public performanceEvents(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('performance_events')
     }
 
     // Request finalization
@@ -1073,6 +1079,15 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
+        },
+    },
+
+    performanceEvents: {
+        async list(
+            params: any,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<PerformanceEvent>> {
+            return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
         },
     },
 

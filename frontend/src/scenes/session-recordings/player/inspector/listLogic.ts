@@ -2,13 +2,13 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { PlayerPosition, SessionRecordingPlayerTab } from '~/types'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
+import { eventsListLogic } from 'scenes/session-recordings/player/inspector/eventsListLogic'
 import { ceilMsToClosestSecond, clamp, findLastIndex, floorMsToClosestSecond } from 'lib/utils'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
+import { consoleLogsListLogic } from 'scenes/session-recordings/player/inspector/consoleLogsListLogic'
 import type { listLogicType } from './listLogicType'
 
 export enum RowStatus {
