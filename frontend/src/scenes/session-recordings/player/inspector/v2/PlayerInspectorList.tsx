@@ -17,6 +17,7 @@ import { useDebouncedCallback } from 'use-debounce'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PlayerInspectorList.scss'
+import { range } from 'd3'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -24,7 +25,7 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
 }
 
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN_TOP = 4
+const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
 
 function PlayerInspectorListItem({
     item,
@@ -37,7 +38,7 @@ function PlayerInspectorListItem({
     logicProps: SessionRecordingPlayerLogicProps
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
-    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, timestampMode, playerPosition } = useValues(
+    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, timestampMode } = useValues(
         sharedListLogic(logicProps)
     )
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
@@ -55,9 +56,7 @@ function PlayerInspectorListItem({
     const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
     const { ref, width, height } = useResizeObserver({})
 
-    const totalHeight = height && index > 0 ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN_TOP : height
-
-    console.log('RENDER', index, playerPosition)
+    const totalHeight = height && index > 0 ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
 
     // Height changes should layout immediately but width ones (browser resize can be much slower)
     useEffect(() => {
@@ -79,17 +78,14 @@ function PlayerInspectorListItem({
             className={clsx('flex flex-1 overflow-hidden gap-2 relative')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                marginTop: index > 0 ? PLAYER_INSPECTOR_LIST_ITEM_MARGIN_TOP : undefined, // Style as we need it for the layout optimisation
+                marginTop: index > 0 ? PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2 : undefined, // Style as we need it for the layout optimisation
+                marginBottom: index > 0 ? PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2 : undefined, // Style as we need it for the layout optimisation
             }}
         >
             {!isExpanded && showIcon ? (
                 <span className="shrink-0 text-lg text-muted-alt h-8 w-5 text-center flex items-center justify-center">
                     {TabToIcon[item.type]}
                 </span>
-            ) : null}
-
-            {playerPosition.markerPosition === index ? (
-                <span className="absolute right-0 top-0 bg-primary-light rounded p-2">HERE!</span>
             ) : null}
 
             <span
@@ -143,7 +139,8 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playerPosition } = useValues(sharedListLogic(props))
+    const { items, playbackIndicatorIndex, syncScroll } = useValues(sharedListLogic(props))
+    const { setSyncScroll } = useActions(sharedListLogic(props))
 
     const cellMeasurerCache = useMemo(
         () =>
@@ -156,6 +153,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
     )
 
     const listRef = useRef<List | null>()
+    const scrolledByJsFlag = useRef<boolean>(true)
 
     // TRICKY: this is hacky but there is no other way to add a timestamp marker to the <List> component children
     // We want this as otherwise we would have a tonne of unecessary re-rendering going on or poor scroll matching
@@ -170,14 +168,17 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
 
     useEffect(() => {
         if (listRef.current) {
-            const markerTopPos = listRef.current?.getOffsetForRow({
-                alignment: 'start',
-                index: playerPosition.markerPosition,
-            })
-            console.log({ markerTopPos })
-            document.getElementById('PlayerInspectorListMarker')?.setAttribute('style', `top: ${markerTopPos}px`)
+            const offset = range(playbackIndicatorIndex).reduce((acc, x) => acc + cellMeasurerCache.getHeight(x, 0), 0)
+            document
+                .getElementById('PlayerInspectorListMarker')
+                ?.setAttribute('style', `transform: translateY(${offset}px)`)
+
+            if (syncScroll) {
+                scrolledByJsFlag.current = true
+                listRef.current.scrollToRow(playbackIndicatorIndex)
+            }
         }
-    }, [playerPosition.markerPosition])
+    }, [playbackIndicatorIndex, syncScroll])
 
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
         return (
@@ -193,7 +194,6 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                             onLayout={({ height }) => {
                                 // Optimization to ensure that we only call measure if the dimensions have actually changed
                                 if (height !== cellMeasurerCache.getHeight(index, 0)) {
-                                    console.log('LAyout!!', cellMeasurerCache.getHeight(index, 0), height)
                                     measure()
                                 }
                             }}
@@ -219,8 +219,14 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                 rowCount={items.length}
                                 rowHeight={cellMeasurerCache.rowHeight}
                                 rowRenderer={renderRow}
-                                ref={listRef}
+                                ref={listRef as any}
                                 id="PlayerInspectorList"
+                                onScroll={() => {
+                                    if (!scrolledByJsFlag.current) {
+                                        setSyncScroll(false)
+                                    }
+                                    scrolledByJsFlag.current = false
+                                }}
                             />
                         )}
                     </AutoSizer>

@@ -169,6 +169,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
+        setSyncScroll: (syncScroll: boolean) => ({ syncScroll }),
     })),
     reducers(({ values }) => ({
         searchQuery: [
@@ -253,6 +254,15 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 },
             },
         ],
+
+        syncScroll: [
+            true,
+            {
+                setTab: () => true,
+                setMiniFilter: () => true,
+                setSyncScroll: (_, { syncScroll }) => syncScroll,
+            },
+        ],
     })),
     listeners(() => ({
         setTab: ({ tab }) => {
@@ -266,7 +276,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
         },
     })),
 
-    selectors(({ values }) => ({
+    selectors(({}) => ({
         miniFilters: [
             (s) => [s.tab, s.selectedMiniFilters],
             (tab, selectedMiniFilters): SharedListMiniFilter[] => {
@@ -514,20 +524,19 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
 
-        playerPosition: [
-            (s) => [s.currentPlayerTime, s.allItems],
-            (playerTime, allItems): { markerPosition: number; items: number[] } => {
+        playbackIndicatorIndex: [
+            (s) => [s.currentPlayerTime, s.items],
+            (playerTime, items): number => {
                 // Return the indexes of all the events
                 if (!playerTime) {
-                    return { markerPosition: 0, items: [] }
+                    return 0
                 }
 
                 const timeSeconds = Math.floor(playerTime / 1000)
-                const startIndex = allItems.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
+                const startIndex = items.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
 
-                return { markerPosition: startIndex, items: [] }
+                return startIndex
             },
-            { resultEqualityCheck: (a, b) => a.markerPosition === b.markerPosition },
         ],
 
         lastItemTimestamp: [

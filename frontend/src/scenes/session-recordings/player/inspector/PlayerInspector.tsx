@@ -8,7 +8,7 @@ import { sharedListLogic, WindowOption } from 'scenes/session-recordings/player/
 import { EventDetails } from 'scenes/events'
 import React, { useMemo } from 'react'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
-import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge, IconSchedule } from 'lib/components/icons'
+import { UnverifiedEvent, IconTerminal, IconInfo, IconGauge, IconSchedule, IconPlayCircle } from 'lib/components/icons'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { Tooltip } from 'antd'
 import { IconWindow } from '../icons'
@@ -154,8 +154,10 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, searchQuery, miniFilters, timestampMode } = useValues(sharedListLogic(logicProps))
-    const { setWindowIdFilter, setTab, setSearchQuery, setTimestampMode, setMiniFilter } = useActions(
+    const { windowIdFilter, tab, searchQuery, miniFilters, timestampMode, syncScroll } = useValues(
+        sharedListLogic(logicProps)
+    )
+    const { setWindowIdFilter, setTab, setSearchQuery, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(
         sharedListLogic(logicProps)
     )
     const { showOnlyMatching } = useValues(playerSettingsLogic)
@@ -303,7 +305,7 @@ export function PlayerInspectorControls({
                             ))}
                         </div>
 
-                        <div className="flex">
+                        <div className="flex items-center gap-1">
                             <LemonButton
                                 size="small"
                                 noPadding
@@ -316,8 +318,22 @@ export function PlayerInspectorControls({
                                         : 'Showing timestamps relative to the start of the recording'
                                 }
                             >
-                                <span className="p-1 text-xs">{capitalizeFirstLetter(timestampMode)}</span>{' '}
-                                <IconSchedule className="text-lg" />
+                                <span className="p-1 flex items-center gap-1">
+                                    <span className=" text-xs">{capitalizeFirstLetter(timestampMode)}</span>{' '}
+                                    <IconSchedule className="text-lg" />
+                                </span>
+                            </LemonButton>
+
+                            <LemonButton
+                                size="small"
+                                noPadding
+                                status="primary-alt"
+                                type={syncScroll ? 'primary' : 'tertiary'}
+                                onClick={() => setSyncScroll(!syncScroll)}
+                                tooltipPlacement="left"
+                                tooltip={'Scroll the list in sync with the recording playback'}
+                            >
+                                <IconPlayCircle className="text-lg m-1" />
                             </LemonButton>
                         </div>
                     </div>
