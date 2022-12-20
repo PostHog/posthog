@@ -73,10 +73,13 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
-        return () => {
-            abortAnyRunningQuery()
-        }
     }, [insightId])
+
+    useEffect(() => {
+        // requests cancellation of any running query for the current insight logic whenever the insight changes
+        // this means any changes to filters will cancel the current running query
+        return abortAnyRunningQuery
+    }, [insight])
 
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
