@@ -3,7 +3,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.permissions import IsStaffUser
-from posthog.queries.query_metrics.sessions import SessionEventsQuerySerializer, get_session_events, get_sessions
+from posthog.queries.time_to_see_data.sessions import SessionEventsQuerySerializer, get_session_events, get_sessions
 
 
 class TimeToSeeDataViewSet(viewsets.ViewSet):
