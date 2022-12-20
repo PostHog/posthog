@@ -234,6 +234,12 @@ class InsightSerializer(InsightBasicSerializer):
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
+                if (
+                    dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                    == Dashboard.PrivilegeLevel.CAN_VIEW
+                ):
+                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
+
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
                 insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
