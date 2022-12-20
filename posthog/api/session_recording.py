@@ -1,3 +1,4 @@
+import base64
 import json
 from typing import Any, Optional
 
@@ -5,6 +6,7 @@ from dateutil import parser
 from rest_framework import exceptions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
 
 from posthog.api.person import PersonSerializer
@@ -159,6 +161,21 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             if session_recording_snapshot_data["has_next"]
             else None
         )
+
+        # NOTE: This is debug code to try and see what is going on for very specific failures due to unicode errors
+        try:
+            JSONRenderer().render(data=session_recording_snapshot_data["snapshot_data_by_window_id"])
+        except Exception as e:
+            return response.Response(
+                {
+                    "error": "Unicode error when decoding snapshot data",
+                    "detail": str(e),
+                    "base64_content": base64.b64encode(
+                        json.dumps(session_recording_snapshot_data["snapshot_data_by_window_id"]).encode("utf-8")
+                    ),
+                },
+                status=400,
+            )
 
         return response.Response(
             {
