@@ -347,6 +347,7 @@ def check_definition_ids_inclusion_field_sql(
 
 SURROGATE_REGEX = re.compile("([\ud800-\udfff])")
 
+
 # keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
 def safe_clickhouse_string(s: str) -> str:
     matches = SURROGATE_REGEX.findall(s or "")
@@ -362,7 +363,6 @@ def create_event_definitions_sql(
     order: str = "",
     direction: Literal["ASC", "DESC"] = "DESC",
 ) -> str:
-    # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     if is_enterprise:
         from ee.models import EnterpriseEventDefinition
 
@@ -377,20 +377,12 @@ def create_event_definitions_sql(
     }
     shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
 
-    def select_ee_event_definitions(fields: str):
-        return f"""
-            SELECT {fields}
-            FROM ee_enterpriseeventdefinition
-            FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-        """
+    enterprise_join = (
+        "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
+        if is_enterprise
+        else ""
+    )
 
-    def select_event_definitions(fields: str):
-        return f"""
-            SELECT {fields} FROM posthog_eventdefinition
-        """
-
-    # Only return event definitions
-    raw_event_definition_fields = ",".join(event_definition_fields)
     additional_ordering = f"{order} {direction} {'NULLS FIRST' if direction == 'ASC' else 'NULLS LAST'}, "
     ordering = f"ORDER BY {additional_ordering} name ASC"
 
@@ -399,19 +391,13 @@ def create_event_definitions_sql(
     if event_type == EventDefinitionType.EVENT_POSTHOG:
         shared_conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
 
-    return (
-        f"""
-            {select_ee_event_definitions(raw_event_definition_fields)}
+    return f"""
+            SELECT {",".join(event_definition_fields)}
+            FROM posthog_eventdefinition
+            {enterprise_join}
             {shared_conditions}
             {ordering}
         """
-        if is_enterprise
-        else f"""
-            {select_event_definitions(raw_event_definition_fields)}
-            {shared_conditions}
-            {ordering}
-        """
-    )
 
 
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:
