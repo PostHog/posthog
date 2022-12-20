@@ -1010,7 +1010,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             })
         },
         reportExperimentReset: ({ experiment }) => {
-            posthog.capture('experiment restarted', {
+            posthog.capture('experiment reset', {
                 name: experiment.name,
                 id: experiment.id,
                 filters: sanitizeFilterParams(experiment.filters),
