@@ -114,8 +114,8 @@ function ExportWithConfirmation({ query, placement, onConfirm, children }: Expor
                 <>
                     Exporting by csv is limited to {limit} {actor}.
                     <br />
-                    To return more, please use <a href={`https://posthog.com/docs/api/{actor}`}>the API</a>. Do you want
-                    to export by CSV?
+                    To return more, please use <a href={`https://posthog.com/docs/api/${actor}`}>the API</a>. Do you
+                    want to export by CSV?
                 </>
             }
             onConfirm={onConfirm}

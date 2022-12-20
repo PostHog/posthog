@@ -92,8 +92,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
     if is_cloud() or settings.DEMO:
-        # Reset master project data every day at 5 AM UTC
-        sender.add_periodic_task(crontab(hour=5, minute=0), demo_reset_master_team.s())
+        # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
+        # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
+        sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -292,10 +293,7 @@ def pg_plugin_server_query_timing():
             pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "person_distinct_id2", "session_recording_events"]
-
-if settings.CLICKHOUSE_REPLICATION:
-    CLICKHOUSE_TABLES.extend(["sharded_events", "sharded_session_recording_events"])
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
 
 
 @app.task(ignore_result=True)

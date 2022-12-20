@@ -4,7 +4,6 @@
 # - `pip-compile --rebuild requirements.in`
 # - `pip-compile --rebuild requirements-dev.in`
 #
-django-rest-hooks@ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
 amqp==2.6.0
 boto3==1.21.29
 celery==4.4.7
