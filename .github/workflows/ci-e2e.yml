@@ -247,6 +247,24 @@ jobs:
               with:
                   node-version: 18
 
+            - name: Get pnpm cache directory path
+              id: pnpm-cache-dir-path
+              run: echo "::set-output name=dir::$(pnpm store path --silent)"
+
+            - name: Get cypress cache directory path
+              id: cypress-cache-dir-path
+              run: echo "::set-output name=dir::$(npx cypress cache path)"
+
+            - uses: actions/cache@v3
+              id: pnpm-cache
+              with:
+                path: |
+                  ${{ steps.pnpm-cache-dir-path.dir }}
+                  ${{ steps.cypress-cache-dir-path.outputs.dir }}
+                key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                restore-keys: |
+                  ${{ runner.os }}-pnpm-cypress-
+
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
 
