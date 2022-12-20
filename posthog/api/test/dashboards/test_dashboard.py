@@ -21,6 +21,13 @@ from posthog.utils import generate_cache_key
 class TestDashboard(APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
+
+        self.organization.available_features = [
+            AvailableFeature.DASHBOARD_COLLABORATION,
+            AvailableFeature.DASHBOARD_PERMISSIONING,
+        ]
+        self.organization.save()
+
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     @snapshot_postgres_queries
@@ -543,6 +550,23 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         _, response = self.dashboard_api.create_dashboard({"name": "another", "use_template": "DEFAULT_APP"})
         self.assertGreater(Insight.objects.count(), 1)
         self.assertEqual(response["creation_mode"], "template")
+
+    def test_cannot_duplicate_dashboard_with_no_permissions_to_edit_it(self):
+        existing_dashboard = Dashboard.objects.create(
+            team=self.team,
+            name="existing dashboard",
+            created_by=self.user,
+            restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+
+        user_without_permissions = User.objects.create_and_join(
+            organization=self.organization, email="no_access_user@posthog.com", password=None
+        )
+        self.client.force_login(user_without_permissions)
+        self.dashboard_api.create_dashboard(
+            {"name": "another", "use_dashboard": existing_dashboard.id},
+            expected_status=status.HTTP_403_FORBIDDEN,
+        )
 
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)

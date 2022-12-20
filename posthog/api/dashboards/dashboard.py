@@ -130,6 +130,20 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         validated_data.pop("delete_insights", None)  # not used during creation
         validated_data = self._update_creation_mode(validated_data, use_template, use_dashboard)
         tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+
+        if use_dashboard is not None:
+            # check permissions before creating dashboard
+            try:
+                existing_dashboard: Dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
+            except Dashboard.DoesNotExist:
+                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+
+            if (
+                existing_dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                == Dashboard.PrivilegeLevel.CAN_VIEW
+            ):
+                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {use_dashboard}")
+
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
         if use_template:
@@ -147,7 +161,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         elif use_dashboard:
             try:
-                existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
                 existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
                 for existing_tile in existing_tiles:
                     if self.initial_data.get("duplicate_tiles", False):
@@ -210,7 +223,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             text_serializer.save()
             text = cast(Text, text_serializer.instance)
             DashboardTile.objects.create(
-                dashboard=dashboard, text=text, layouts=existing_tile.layouts, color=existing_tile.color
+                dashboard=dashboard,
+                text=text,
+                layouts=existing_tile.layouts,
+                color=existing_tile.color,
             )
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -267,13 +283,15 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 },
             )
             DashboardTile.objects.update_or_create(
-                id=tile_data.get("id", None), defaults={**tile_data, "text": text, "dashboard": instance}
+                id=tile_data.get("id", None),
+                defaults={**tile_data, "text": text, "dashboard": instance},
             )
         elif "deleted" in tile_data or "color" in tile_data or "layouts" in tile_data:
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
             DashboardTile.objects.update_or_create(
-                id=tile_data.get("id", None), defaults={**tile_data, "dashboard": instance}
+                id=tile_data.get("id", None),
+                defaults={**tile_data, "dashboard": instance},
             )
 
     @staticmethod
@@ -368,7 +386,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         return {**validated_data, "creation_mode": "default"}
 
 
-class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class DashboardsViewSet(
+    TaggedItemViewSetMixin,
+    StructuredViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
     queryset = Dashboard.objects.order_by("name")
     serializer_class = DashboardSerializer
     permission_classes = [
@@ -441,7 +464,8 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
         tile.save(update_fields=["dashboard_id"])
 
         serializer = DashboardSerializer(
-            Dashboard.objects.get(id=from_dashboard), context={"view": self, "request": request}
+            Dashboard.objects.get(id=from_dashboard),
+            context={"view": self, "request": request},
         )
         return Response(serializer.data)
 

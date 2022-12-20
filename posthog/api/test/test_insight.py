@@ -14,6 +14,7 @@ from ee.models import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.caching.fetch_from_cache import synchronously_update_cache
+from posthog.constants import AvailableFeature
 from posthog.models import (
     Cohort,
     Dashboard,
@@ -36,6 +37,13 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     def setUp(self) -> None:
         super().setUp()
+
+        self.organization.available_features = [
+            AvailableFeature.DASHBOARD_COLLABORATION,
+            AvailableFeature.DASHBOARD_PERMISSIONING,
+        ]
+        self.organization.save()
+
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
 
     def test_get_insight_items(self) -> None:
