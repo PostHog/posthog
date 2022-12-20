@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
@@ -86,7 +87,10 @@ SETTINGS index_granularity=512
     table_name=SESSION_RECORDING_EVENTS_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     materialized_columns=SESSION_RECORDING_EVENTS_MATERIALIZED_COLUMNS,
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=f"""
+    {KAFKA_COLUMNS}
+    , {index_by_kafka_timestamp(SESSION_RECORDING_EVENTS_DATA_TABLE())}
+    """,
     engine=SESSION_RECORDING_EVENTS_DATA_TABLE_ENGINE(),
     ttl_period=ttl_period(),
 )

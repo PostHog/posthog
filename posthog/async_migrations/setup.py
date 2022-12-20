@@ -45,21 +45,8 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
     applied_migrations = set(instance.name for instance in get_all_completed_async_migrations())
     unapplied_migrations = set(ALL_ASYNC_MIGRATIONS.keys()) - applied_migrations
 
-    first_migration = None
     for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
         setup_model(migration_name, migration)
-
-        dependency = migration.depends_on
-
-        if not dependency:
-            if first_migration:
-                raise ImproperlyConfigured(
-                    "Two or more async migrations have no dependency. Make sure only the first migration has no dependency."
-                )
-
-            first_migration = migration_name
-
-        ASYNC_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
 
         if (
             (not ignore_posthog_version)
@@ -68,10 +55,9 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
         ):
             raise ImproperlyConfigured(f"Migration {migration_name} is required for PostHog versions above {VERSION}.")
 
-    for key, val in ASYNC_MIGRATION_TO_DEPENDENCY.items():
-        DEPENDENCY_TO_ASYNC_MIGRATION[val] = key
+    first_migration = _set_up_dependency_constants()
 
-    if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS") and first_migration:
+    if get_instance_setting("AUTO_START_ASYNC_MIGRATIONS") and first_migration is not None:
         kickstart_migration_if_possible(first_migration, applied_migrations)
 
 
@@ -118,4 +104,28 @@ def get_async_migration_dependency(migration_name: str) -> Optional[str]:
     if TEST:
         return None
 
+    if len(ASYNC_MIGRATION_TO_DEPENDENCY) == 0:
+        _set_up_dependency_constants()
+
     return ASYNC_MIGRATION_TO_DEPENDENCY[migration_name]
+
+
+def _set_up_dependency_constants():
+    first_migration = None
+    for migration_name, migration in ALL_ASYNC_MIGRATIONS.items():
+        dependency = migration.depends_on
+
+        if not dependency:
+            if first_migration:
+                raise ImproperlyConfigured(
+                    "Two or more async migrations have no dependency. Make sure only the first migration has no dependency."
+                )
+
+            first_migration = migration_name
+
+        ASYNC_MIGRATION_TO_DEPENDENCY[migration_name] = dependency
+
+    for key, val in ASYNC_MIGRATION_TO_DEPENDENCY.items():
+        DEPENDENCY_TO_ASYNC_MIGRATION[val] = key
+
+    return first_migration

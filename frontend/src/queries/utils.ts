@@ -13,14 +13,19 @@ import {
     NodeKind,
     InsightQueryNode,
     PersonsNode,
+    EventsQuery,
 } from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsNode | ActionsNode | PersonsNode {
-    return isEventsNode(node) || isActionsNode(node) || isPersonsNode(node)
+    return isEventsNode(node) || isEventsQuery(node) || isActionsNode(node) || isPersonsNode(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
+}
+
+export function isEventsQuery(node?: Node): node is EventsQuery {
+    return node?.kind === NodeKind.EventsQuery
 }
 
 export function isActionsNode(node?: Node): node is ActionsNode {

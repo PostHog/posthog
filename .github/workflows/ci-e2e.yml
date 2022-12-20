@@ -248,6 +248,12 @@ jobs:
                   node-version: 18
                   cache: pnpm
 
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm install
+                  npx cypress cache clear
+                  npx cypress install
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
@@ -298,15 +304,13 @@ jobs:
                   $DOCKER_RUN ./bin/docker-worker &> /tmp/logs/worker.txt &
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
-            - name: Make sure Cypress is available
-              run: npx cypress@10.11.0 install
-
             - name: Cypress run
               uses: cypress-io/github-action@v5
               with:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.specs }}
+                  install: true
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3

@@ -7,25 +7,44 @@ import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { DataTableNode, QueryContext } from '~/queries/schema'
-import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButton'
+import ReactJson from 'react-json-view'
 
 export function renderColumn(
     key: string,
-    record: EventType | PersonType,
+    value: any,
+    record: EventType | PersonType | any[],
     query: DataTableNode,
     setQuery?: (node: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
     if (key === 'event' && isEventsNode(query.source)) {
         const eventRecord = record as EventType
-        if (eventRecord.event === '$autocapture') {
+        if (value === '$autocapture') {
             return autoCaptureEventToDescription(eventRecord)
         } else {
-            const content = <PropertyKeyInfo value={eventRecord.event} type="event" />
-            const { $sentry_url } = eventRecord.properties
+            const content = <PropertyKeyInfo value={value} type="event" />
+            const $sentry_url = eventRecord?.properties?.$sentry_url
+            return $sentry_url ? (
+                <Link to={$sentry_url} target="_blank">
+                    {content}
+                </Link>
+            ) : (
+                content
+            )
+        }
+    } else if (key === 'event' && isEventsQuery(query.source)) {
+        const resultRow = record as any[]
+        const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null
+
+        if (value === '$autocapture' && eventRecord) {
+            return autoCaptureEventToDescription(eventRecord)
+        } else {
+            const content = <PropertyKeyInfo value={value} type="event" />
+            const $sentry_url = eventRecord?.properties?.$sentry_url
             return $sentry_url ? (
                 <Link to={$sentry_url} target="_blank">
                     {content}
@@ -35,11 +54,15 @@ export function renderColumn(
             )
         }
     } else if (key === 'timestamp' || key === 'created_at') {
-        return <TZLabel time={record[key]} showSeconds />
-    } else if (key.startsWith('properties.') || key === 'url') {
+        return <TZLabel time={value} showSeconds />
+    } else if (!Array.isArray(record) && (key.startsWith('properties.') || key === 'url')) {
         const propertyKey =
             key === 'url' ? (record.properties['$screen_name'] ? '$screen_name' : '$current_url') : key.substring(11)
-        if (setQuery && (isEventsNode(query.source) || isPersonsNode(query.source)) && query.showPropertyFilter) {
+        if (
+            setQuery &&
+            (isEventsNode(query.source) || isEventsQuery(query.source) || isPersonsNode(query.source)) &&
+            query.showPropertyFilter
+        ) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
                 value: record.properties[propertyKey],
@@ -85,7 +108,7 @@ export function renderColumn(
     } else if (key.startsWith('person.properties.')) {
         const eventRecord = record as EventType
         const propertyKey = key.substring(18)
-        if (setQuery && isEventsNode(query.source)) {
+        if (setQuery && (isEventsNode(query.source) || isEventsQuery(query.source))) {
             const newProperty: AnyPropertyFilter = {
                 key: propertyKey,
                 value: eventRecord.person?.properties[propertyKey],
@@ -135,6 +158,14 @@ export function renderColumn(
                 <PersonHeader noLink withIcon person={eventRecord.person} />
             </Link>
         )
+    } else if (key === 'person' && isEventsQuery(query.source)) {
+        const personRecord = value as PersonType
+        return (
+            <Link to={urls.person(personRecord.distinct_ids[0])}>
+                <PersonHeader noLink withIcon person={personRecord} />
+            </Link>
+        )
+        return <PersonHeader noLink withIcon person={value} />
     } else if (key === 'person' && isPersonsNode(query.source)) {
         const personRecord = record as PersonType
         return (
@@ -151,14 +182,17 @@ export function renderColumn(
     } else if (key === 'id' && isPersonsNode(query.source)) {
         return (
             <CopyToClipboardInline
-                explicitValue={String(record[key])}
+                explicitValue={String(value)}
                 iconStyle={{ color: 'var(--primary)' }}
                 description="person distinct ID"
             >
-                {String(record[key])}
+                {String(value)}
             </CopyToClipboardInline>
         )
     } else {
-        return String(record[key])
+        if (typeof value === 'object') {
+            return <ReactJson src={value} name={key} collapsed={1} />
+        }
+        return String(value)
     }
 }

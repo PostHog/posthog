@@ -1,4 +1,4 @@
-import { Card, Col, Collapse, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Collapse, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -85,6 +85,7 @@ export function Experiment(): JSX.Element {
         removeExperimentGroup,
         createNewExperimentInsight,
         archiveExperiment,
+        resetRunningExperiment,
         loadExperiment,
         setExposureAndSampleSize,
         setExperimentValue,
@@ -678,9 +679,27 @@ export function Experiment(): JSX.Element {
                                 </div>
                             )}
                             {experiment && experiment.start_date && !experiment.end_date && (
-                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                    Stop
-                                </LemonButton>
+                                <div className="flex flex-row gap-2">
+                                    <Popconfirm
+                                        placement="topLeft"
+                                        title={
+                                            <div>
+                                                Reset this experiment and go back to draft mode?
+                                                <div className="text-sm text-muted">
+                                                    All collected data so far will be discarded.
+                                                </div>
+                                            </div>
+                                        }
+                                        onConfirm={() => resetRunningExperiment()}
+                                    >
+                                        <LemonButton type="secondary" status="primary">
+                                            Reset
+                                        </LemonButton>
+                                    </Popconfirm>
+                                    <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                        Stop
+                                    </LemonButton>
+                                </div>
                             )}
                             {experiment?.end_date &&
                                 dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&

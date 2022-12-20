@@ -579,7 +579,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-    def _get_person_activity(self, person_id: Optional[str] = None, expected_status: int = status.HTTP_200_OK):
+    def _get_person_activity(self, person_id: Optional[str] = None, *, expected_status: int = status.HTTP_200_OK):
         if person_id:
             url = f"/api/person/{person_id}/activity"
         else:

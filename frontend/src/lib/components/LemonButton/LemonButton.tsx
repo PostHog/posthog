@@ -14,7 +14,7 @@ export interface LemonButtonPropsBase
     // NOTE: We explicitly pick rather than omit to ensure these components aren't used incorrectly
     extends Pick<
         React.ButtonHTMLAttributes<HTMLElement>,
-        'title' | 'onClick' | 'id' | 'tabIndex' | 'form' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave'
+        'title' | 'onClick' | 'id' | 'tabIndex' | 'form' | 'onMouseDown' | 'onMouseEnter' | 'onMouseLeave' | 'onKeyDown'
     > {
     children?: React.ReactNode
     type?: 'primary' | 'secondary' | 'tertiary'

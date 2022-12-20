@@ -10,6 +10,7 @@ from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.db.models.signals import pre_delete
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from sentry_sdk.api import capture_exception
 
 from posthog.client import sync_execute
@@ -696,12 +697,43 @@ def set_feature_flag_hash_key_overrides(
         FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
 
 
-def get_user_blast_radius(feature_flag_condition: dict, team: Team):
+def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_index: Optional[GroupTypeIndex] = None):
 
     from posthog.queries.person_query import PersonQuery
 
+    # No rollout % calculations here, since it makes more sense to compute that on the frontend
     properties = feature_flag_condition.get("properties") or []
-    # Removed rollout % from here, since it makes more sense to compute that on the frontend
+
+    if group_type_index is not None:
+
+        try:
+            from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+        except Exception:
+            return 0, 0
+
+        if len(properties) > 0:
+            filter = Filter(data=feature_flag_condition, team=team)
+
+            for property in filter.property_groups.flat:
+                if property.group_type_index is None or (property.group_type_index != group_type_index):
+                    raise ValidationError("Invalid group type index for feature flag condition.")
+
+            groups_query, groups_query_params = GroupsJoinQuery(filter, team.id).get_filter_query(
+                group_type_index=group_type_index
+            )
+
+            total_affected_count = sync_execute(
+                f"""
+                SELECT count(1) FROM (
+                    {groups_query}
+                )
+            """,
+                groups_query_params,
+            )[0][0]
+        else:
+            total_affected_count = team.groups_seen_so_far(group_type_index)
+
+        return total_affected_count, team.groups_seen_so_far(group_type_index)
 
     if len(properties) > 0:
         filter = Filter(data=feature_flag_condition, team=team)
@@ -764,6 +796,8 @@ def can_user_edit_feature_flag(request, feature_flag):
             feature_flag_resource_access = OrganizationResourceAccess.objects.get(
                 organization=request.user.organization, resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
             )
+            if feature_flag_resource_access.access_level >= OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT:
+                return True
             org_level = feature_flag_resource_access.access_level
         except OrganizationResourceAccess.DoesNotExist:
             org_level = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT

@@ -324,10 +324,10 @@ export interface ElementType {
     attr_class?: string[]
     attr_id?: string
     attributes: Record<string, string>
-    href: string
-    nth_child: number
-    nth_of_type: number
-    order: number
+    href?: string
+    nth_child?: number
+    nth_of_type?: number
+    order?: number
     tag_name: string
     text?: string
 }
@@ -599,7 +599,6 @@ export interface RecordingFilters {
     properties?: AnyPropertyFilter[]
     offset?: number
     session_recording_duration?: RecordingDurationFilter
-    static_recordings?: SessionRecordingPlaylistType['playlist_items']
 }
 
 export interface LocalRecordingFilters extends RecordingFilters {
@@ -850,8 +849,6 @@ export interface SessionRecordingPlaylistType {
     last_modified_at: string
     last_modified_by: UserBasicType | null
     filters?: RecordingFilters
-    playlist_items?: Pick<SessionRecordingType, 'id'>[] // only id is exposed by api to minimize data passed through components
-    is_static?: boolean
 }
 
 export interface SessionRecordingType {
@@ -1930,8 +1927,8 @@ export interface Experiment {
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
     }
-    start_date?: string
-    end_date?: string
+    start_date?: string | null
+    end_date?: string | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string

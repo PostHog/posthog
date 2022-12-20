@@ -127,10 +127,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     })),
     listeners(({ props, actions, values }) => ({
         openModalToEditSecondaryMetric: ({ metric: { name, filters }, metricId }) => {
-            actions.setSecondaryMetricModalValues({
-                name,
-                filters,
-            })
+            actions.setSecondaryMetricModalValue('name', name)
             actions.createPreviewInsight(filters)
             actions.setMetricId(metricId)
         },
