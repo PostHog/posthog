@@ -668,8 +668,15 @@ export function Experiment(): JSX.Element {
                             {experiment && experiment.start_date && !experiment.end_date && (
                                 <div className="flex flex-row gap-2">
                                     <Popconfirm
-                                        placement="top"
-                                        title="Reset this experiment and go back to draft mode? All collected data so far will be discarded."
+                                        placement="topLeft"
+                                        title={
+                                            <div>
+                                                Reset this experiment and go back to draft mode?
+                                                <div className="text-sm text-muted">
+                                                    All collected data so far will be discarded.
+                                                </div>
+                                            </div>
+                                        }
                                         onConfirm={() => resetRunningExperiment()}
                                     >
                                         <LemonButton type="secondary" status="primary">
