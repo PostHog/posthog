@@ -40,7 +40,7 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
                 # if we're not requesting to make a demo project
                 # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
                 # and the org isn't allowed to make multiple projects
-                "is_demo" not in request.data
+                ("is_demo" not in request.data or not request.data["is_demo"])
                 and user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
             )
