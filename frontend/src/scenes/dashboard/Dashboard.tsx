@@ -57,6 +57,7 @@ function DashboardScene(): JSX.Element {
     useEffect(() => {
         reportDashboardViewed()
         return () => {
+            // request cancellation of any running queries when this component is no longer in the dom
             abortAnyRunningQuery()
         }
     }, [])
