@@ -296,11 +296,14 @@ export const insightLogic = kea<insightLogicType>([
                     // fetch this now, as it might be different when we report below
                     const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
 
-                    // If a query is in progress, kill that query
                     if (cache.abortController) {
                         cache.abortController.abort()
+                        cache.abortController = null
                     }
                     cache.abortController = new AbortController()
+                    const methodOptions: ApiMethodOptions = {
+                        signal: cache.abortController.signal,
+                    }
 
                     const { filters } = values
 
@@ -317,9 +320,6 @@ export const insightLogic = kea<insightLogicType>([
                     let apiUrl: string = ''
                     const { currentTeamId } = values
 
-                    const methodOptions: ApiMethodOptions = {
-                        signal: cache.abortController.signal,
-                    }
                     if (!currentTeamId) {
                         throw new Error("Can't load insight before current project is determined.")
                     }
@@ -866,8 +866,8 @@ export const insightLogic = kea<insightLogicType>([
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
+                cache.abortController = null
             }
-            cache.abortController = null
         },
         abortQuery: async ({ queryId }) => {
             const { currentTeamId } = values
@@ -1062,7 +1062,7 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
     })),
-    events(({ props, cache, values, actions }) => ({
+    events(({ props, values, actions }) => ({
         afterMount: () => {
             if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
                 if (
@@ -1095,7 +1095,6 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
         beforeUnmount: () => {
-            cache.abortController?.abort()
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }

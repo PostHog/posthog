@@ -229,8 +229,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                     if (cache.abortController) {
                         cache.abortController.abort()
+                        cache.abortController = null
                     }
-                    cache.abortController = null
 
                     try {
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
@@ -866,7 +866,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
-            cache.abortController?.abort()
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
@@ -1014,10 +1013,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 true
             )
 
-            // If a query is in progress, kill that query
             // we will use one abort controller for all insight queries for this dashboard
             if (cache.abortController) {
                 cache.abortController.abort()
+                cache.abortController = null
             }
             cache.abortController = new AbortController()
             const methodOptions: ApiMethodOptions = {
@@ -1253,8 +1252,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortAnyRunningQuery: () => {
             if (cache.abortController) {
                 cache.abortController.abort()
+                cache.abortController = null
             }
-            cache.abortController = null
         },
         abortQuery: async ({ dashboardQueryId, queryId, queryStartTime }) => {
             const { currentTeamId } = values
