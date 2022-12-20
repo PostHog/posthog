@@ -26,7 +26,7 @@ import { TZLabel } from '../../TZLabel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import React from 'react'
-import { isFunnelsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import {
     isAnyPropertyfilter,
     isCohortPropertyFilter,
@@ -230,30 +230,31 @@ export function QuerySummary({ filters }: { filters: Partial<FilterType> }): JSX
                         <LemonDivider />
                     </>
                 )}
-                <div className="InsightDetails__series">
-                    {filters.insight === InsightType.PATHS ? (
-                        <PathsSummary filters={filters} />
-                    ) : (
-                        <>
-                            {localFilters.length > 0 && (
-                                <>
-                                    <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
-                                    {localFilters.slice(1).map((filter, index) => (
-                                        <>
-                                            <LemonDivider />
-                                            <SeriesDisplay
-                                                key={index}
-                                                filter={filter}
-                                                insightType={filters.insight}
-                                                index={index + 1}
-                                            />
-                                        </>
-                                    ))}
-                                </>
-                            )}
-                        </>
-                    )}
-                </div>
+                {isPathsFilter(filters) || localFilters.length > 0 ? (
+                    <div className="InsightDetails__series">
+                        {isPathsFilter(filters) ? (
+                            <PathsSummary filters={filters} />
+                        ) : (
+                            <>
+                                <SeriesDisplay filter={localFilters[0]} insightType={filters.insight} index={0} />
+                                {localFilters.slice(1).map((filter, index) => (
+                                    <>
+                                        <LemonDivider />
+                                        <SeriesDisplay
+                                            key={index}
+                                            filter={filter}
+                                            insightType={filters.insight}
+                                            index={index + 1}
+                                        />
+                                    </>
+                                ))}
+                            </>
+                        )}
+                    </div>
+                ) : (
+                    /* TODO: Add support for Retention to InsightDetails */
+                    <i>Unavailable for this insight type.</i>
+                )}
             </section>
         </>
     )
