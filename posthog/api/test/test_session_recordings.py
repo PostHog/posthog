@@ -45,7 +45,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         }
 
         if snapshot_data:
-            snapshot_data.update(snapshot)
+            snapshot.update(snapshot_data)
 
         create_session_recording_events(
             team_id=team_id,
@@ -53,7 +53,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             timestamp=timestamp,
             session_id=session_id,
             window_id=window_id,
-            snapshots=[snapshot_data],
+            snapshots=[snapshot],
         )
 
     def create_chunked_snapshots(
