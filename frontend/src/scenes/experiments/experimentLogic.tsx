@@ -20,7 +20,7 @@ import {
     SecondaryExperimentMetric,
     AvailableFeature,
     SignificanceCode,
-    SecondaryMetricResult,
+    SecondaryMetricAPIResult,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
@@ -528,7 +528,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            null as SecondaryMetricResult[] | null,
+            null as SecondaryMetricAPIResult[] | null,
             {
                 loadSecondaryMetricResults: async () => {
                     return await Promise.all(
