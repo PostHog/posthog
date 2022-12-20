@@ -155,7 +155,15 @@ export const sharedListLogic = kea<sharedListLogicType>([
             playerSettingsLogic,
             ['showOnlyMatching'],
             sessionRecordingDataLogic(props),
-            ['peformanceEvents', 'consoleLogs', 'sessionPlayerMetaData', 'sessionEventsData'],
+            [
+                'performanceEvents',
+                'performanceEventsLoading',
+                'consoleLogs',
+                'sessionPlayerMetaData',
+                'sessionPlayerMetaDataLoading',
+                'sessionEventsData',
+                'sessionEventsDataLoading',
+            ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
             featureFlagLogic,
@@ -199,8 +207,8 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     return expanded ? [...items, index] : items.filter((item) => item !== index)
                 },
 
-                setTab: (_, {}) => [],
-                setMiniFilter: (_, {}) => [],
+                setTab: () => [],
+                setMiniFilter: () => [],
             },
         ],
         timestampMode: [
@@ -261,6 +269,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 setTab: () => true,
                 setMiniFilter: () => true,
                 setSyncScroll: (_, { syncScroll }) => syncScroll,
+                setItemExpanded: () => false,
             },
         ],
     })),
@@ -277,6 +286,19 @@ export const sharedListLogic = kea<sharedListLogicType>([
     })),
 
     selectors(({}) => ({
+        loading: [
+            (s) => [s.sessionEventsDataLoading, s.performanceEventsLoading, s.sessionPlayerMetaDataLoading],
+            (sessionEventsDataLoading, performanceEventsLoading, sessionPlayerMetaDataLoading) => {
+                return {
+                    [SessionRecordingPlayerTab.ALL]: false,
+                    // sessionEventsDataLoading || performanceEventsLoading || (sessionPlayerMetaDataLoading),
+                    [SessionRecordingPlayerTab.EVENTS]: sessionEventsDataLoading,
+                    [SessionRecordingPlayerTab.CONSOLE]: sessionPlayerMetaDataLoading,
+                    [SessionRecordingPlayerTab.PERFORMANCE]: performanceEventsLoading,
+                }
+            },
+        ],
+
         miniFilters: [
             (s) => [s.tab, s.selectedMiniFilters],
             (tab, selectedMiniFilters): SharedListMiniFilter[] => {
@@ -319,7 +341,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             (s) => [
                 s.tab,
                 s.recordingTimeInfo,
-                s.peformanceEvents,
+                s.performanceEvents,
                 s.consoleLogs,
                 s.sessionEventsData,
                 s.featureFlags,
@@ -330,7 +352,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             (
                 tab,
                 recordingTimeInfo,
-                peformanceEvents,
+                performanceEvents,
                 consoleLogs,
                 eventsData,
                 featureFlags,
@@ -344,7 +366,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
                     (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
                 ) {
-                    for (const event of peformanceEvents || []) {
+                    for (const event of performanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
 
                         let include = false

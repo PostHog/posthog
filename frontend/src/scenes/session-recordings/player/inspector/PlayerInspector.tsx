@@ -154,7 +154,7 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, searchQuery, miniFilters, timestampMode, syncScroll } = useValues(
+    const { windowIdFilter, tab, searchQuery, miniFilters, timestampMode, syncScroll, loading } = useValues(
         sharedListLogic(logicProps)
     )
     const { setWindowIdFilter, setTab, setSearchQuery, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(
@@ -196,6 +196,7 @@ export function PlayerInspectorControls({
                             status={tab === tabId ? 'primary' : 'primary-alt'}
                             active={tab === tabId}
                             onClick={() => setTab(tabId)}
+                            loading={loading[tabId]}
                         >
                             {capitalizeFirstLetter(tabId)}
                         </LemonButton>
