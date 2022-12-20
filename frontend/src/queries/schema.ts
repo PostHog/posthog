@@ -37,6 +37,9 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
+
+    // Misc
+    TimeToSeeDataQuery = 'TimeToSeeDataQuery',
 }
 
 export type QuerySchema =
@@ -57,6 +60,9 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+    // Misc
+    | TimeToSeeDataQuery
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -227,6 +233,16 @@ export interface LifecycleQuery extends InsightsQueryBase {
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+}
+
+export interface TimeToSeeDataQuery extends DataNode {
+    kind: NodeKind.TimeToSeeDataQuery
+
+    /** Date range for the query */
+    dateRange?: DateRange
+
+    /** Project to filter on. Defaults to current project */
+    projectId?: number
 }
 
 export type InsightQueryNode =

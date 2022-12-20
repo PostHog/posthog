@@ -1,5 +1,5 @@
 import { DataNode, EventsNode, EventsQuery, PersonsNode } from './schema'
-import { isEventsNode, isEventsQuery, isLegacyQuery, isPersonsNode } from './utils'
+import { isEventsNode, isEventsQuery, isLegacyQuery, isPersonsNode, isTimeToSeeDataQuery } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { AnyPartialFilterType } from '~/types'
@@ -43,6 +43,8 @@ export async function query<N extends DataNode = DataNode>(
             methodOptions,
         })
         return await response.json()
+    } else if (isTimeToSeeDataQuery(query)) {
+        return await api.create('/api/time_to_see_data/sessions', query)
     }
     throw new Error(`Unsupported query: ${query.kind}`)
 }
