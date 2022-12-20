@@ -140,7 +140,7 @@ METRICS_QUERY_LOG_TABLE_ENGINE = lambda: MergeTreeEngine("metrics_query_log", fo
 
 CREATE_METRICS_QUERY_LOG = (
     lambda: f"""
-CREATE TABLE posthog.metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE TABLE metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 (
     `host` String,
     `timestamp` DateTime,
