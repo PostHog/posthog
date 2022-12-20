@@ -37,10 +37,10 @@ DROP_TEAM_EVENTS_LAST_MONTH_DICTIONARY = lambda: (
     f"DROP DICTIONARY team_events_last_month_dictionary ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
 )
 
-METRICS_TIME_TO_SEE_ENGINE = lambda: MergeTreeEngine("sharded_ingestion_warnings", force_unique_zk_path=True)
+METRICS_TIME_TO_SEE_ENGINE = lambda: MergeTreeEngine("metrics_time_to_see_data", force_unique_zk_path=True)
 CREATE_METRICS_TIME_TO_SEE = (
     lambda: f"""
-CREATE TABLE metrics_time_to_see_data ON CLUSTER 'posthog' (
+CREATE TABLE metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
     `team_events_last_month` UInt64,
     `query_id` String,
     `team_id` UInt64,
@@ -49,6 +49,7 @@ CREATE TABLE metrics_time_to_see_data ON CLUSTER 'posthog' (
     `timestamp` DateTime64,
     `type` LowCardinality(String),
     `context` LowCardinality(String),
+    `is_primary_interaction` UInt8,
     `time_to_see_data_ms` UInt64,
     `status` LowCardinality(String),
     `api_response_bytes` UInt64,
@@ -81,6 +82,7 @@ CREATE TABLE kafka_metrics_time_to_see_data ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
     `timestamp` DateTime64,
     `type` LowCardinality(String),
     `context` LowCardinality(String),
+    `is_primary_interaction` UInt8,
     `time_to_see_data_ms` UInt64,
     `status` LowCardinality(String),
     `api_response_bytes` UInt64,
@@ -114,6 +116,7 @@ session_id,
 timestamp,
 type,
 context,
+is_primary_interaction,
 time_to_see_data_ms,
 status,
 api_response_bytes,
@@ -137,11 +140,49 @@ METRICS_QUERY_LOG_TABLE_ENGINE = lambda: MergeTreeEngine("metrics_query_log", fo
 
 CREATE_METRICS_QUERY_LOG = (
     lambda: f"""
-CREATE MATERIALIZED VIEW metrics_query_log
-ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+CREATE TABLE posthog.metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+(
+    `host` String,
+    `timestamp` DateTime,
+    `query_duration_ms` UInt64,
+    `read_rows` UInt64,
+    `read_bytes` UInt64,
+    `result_rows` UInt64,
+    `result_bytes` UInt64,
+    `memory_usage` UInt64,
+    `is_initial_query` UInt8,
+    `exception_code` Int32,
+    `team_id` Int64,
+    `team_events_last_month` UInt64,
+    `user_id` Int64,
+    `kind` String,
+    `query_type` String,
+    `client_query_id` String,
+    `endpoint` String,
+    `route_id` String,
+    `query_time_range_days` Int64,
+    `has_joins` UInt8,
+    `has_json_operations` UInt8,
+    `filter_by_type` Array(String),
+    `breakdown_by` Array(String),
+    `entity_math` Array(String),
+    `filter` String,
+    `tables` Array(LowCardinality(String)),
+    `columns` Array(LowCardinality(String)),
+    `query` String,
+    `log_comment` String
+)
 ENGINE = {METRICS_QUERY_LOG_TABLE_ENGINE()}
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (toDate(timestamp), team_id, query_type)
+SETTINGS index_granularity = 8192
+"""
+)
+
+CREATE_METRICS_QUERY_LOG_MV = (
+    lambda: f"""
+CREATE MATERIALIZED VIEW metrics_query_log_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+TO metrics_query_log
 AS
 SELECT
     getMacro('replica') AS host,
@@ -153,6 +194,7 @@ SELECT
     result_bytes,
     memory_usage,
     is_initial_query,
+    exception_code > 0 AS is_exception,
     exception_code,
     JSONExtractInt(log_comment, 'team_id') AS team_id,
     dictGet('team_events_last_month_dictionary', 'event_count', team_id) AS team_events_last_month,
@@ -160,7 +202,7 @@ SELECT
     JSONExtractString(log_comment, 'kind') AS kind,
     JSONExtractString(log_comment, 'query_type') AS query_type,
     JSONExtractString(log_comment, 'client_query_id') AS client_query_id,
-    JSONExtractString(log_comment, 'id') AS endpoint,
+    JSONExtractString(log_comment, 'id') AS id,
     JSONExtractString(log_comment, 'route_id') AS route_id,
     JSONExtractInt(log_comment, 'query_time_range_days') AS query_time_range_days,
     JSONExtractBool(log_comment, 'has_joins') AS has_joins,
@@ -176,11 +218,12 @@ SELECT
 FROM system.query_log
 WHERE JSONHas(log_comment, 'team_id')
   AND JSONHas(log_comment, 'query_type')
-  AND type = 'QueryFinish'
+  AND type != 'QueryStart'
 """
 )
 
 DROP_METRICS_QUERY_LOG = lambda: f"DROP TABLE metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
+DROP_METRICS_QUERY_LOG_MV = lambda: f"DROP TABLE metrics_query_log_mv ON CLUSTER '{CLICKHOUSE_CLUSTER}' SYNC"
 
 # :KLUDGE: Temporary tooling to make (re)creating this schema easier
 # Invoke via `python manage.py shell <  posthog/models/query_metrics/sql.py`
@@ -194,6 +237,7 @@ if __name__ == "django.core.management.commands.shell":
             DROP_KAFKA_METRICS_TIME_TO_SEE,
             DROP_METRICS_TIME_TO_SEE_MV,
             DROP_METRICS_QUERY_LOG,
+            DROP_METRICS_QUERY_LOG_MV,
         ]
     ):
         print(drop_query())  # noqa: T201
@@ -207,6 +251,7 @@ if __name__ == "django.core.management.commands.shell":
         CREATE_KAFKA_METRICS_TIME_TO_SEE,
         CREATE_METRICS_TIME_TO_SEE_MV,
         CREATE_METRICS_QUERY_LOG,
+        CREATE_METRICS_QUERY_LOG_MV,
     ]:
         print(create_query())  # noqa: T201
         print()  # noqa: T201
