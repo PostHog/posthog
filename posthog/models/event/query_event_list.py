@@ -7,7 +7,6 @@ from dateutil.parser import isoparse
 from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
-from posthog.client import query_with_columns, sync_execute
 from posthog.hogql.expr_parser import SELECT_STAR_FROM_EVENTS_FIELDS, ExprParserContext, translate_hql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
@@ -19,6 +18,7 @@ from posthog.models.event.sql import (
 )
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.queries.insight import insight_query_with_columns, insight_sync_execute
 
 
 # sync with "schema.ts"
@@ -101,16 +101,18 @@ def query_events_list(
         if where:
             raise ValueError("Cannot use 'where' without 'select'")
         if prop_filters != "":
-            return query_with_columns(
+            return insight_query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                     conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
+                query_type="events_list",
             )
         else:
-            return query_with_columns(
+            return insight_query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
                 {"team_id": team.pk, "limit": limit, **condition_params},
+                query_type="events_list",
             )
 
     # events list v2 - hogql
@@ -157,7 +159,7 @@ def query_events_list(
     if select_columns == group_by_columns:
         group_by_columns = []
 
-    results, types = sync_execute(
+    results, types = insight_sync_execute(
         SELECT_EVENT_FIELDS_BY_TEAM_AND_CONDITIONS_FILTERS_PART.format(
             columns=", ".join(select_columns),
             conditions=conditions,
@@ -170,6 +172,7 @@ def query_events_list(
         ),
         {"team_id": team.pk, **condition_params, **prop_filter_params, **collected_hogql_values},
         with_column_types=True,
+        query_type="events_list",
     )
 
     # Convert star field from tuple to dict in each result
