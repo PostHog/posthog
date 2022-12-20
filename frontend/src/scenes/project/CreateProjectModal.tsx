@@ -41,8 +41,8 @@ export function CreateProjectModal({
             description={
                 <>
                     <p>
-                        Use Projects to organize your data into separate collections. A project usually means
-                        a completely distinct product, or an environment (production, staging, development).
+                        Use Projects to organize your data into separate collections. A project can for example mean
+                        an environment, such as production/staging/development.
                     </p>
                     <p>
                         <strong>Tip:</strong> We recommend using the same project for both your website and app to track
