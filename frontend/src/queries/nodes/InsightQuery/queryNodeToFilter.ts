@@ -8,7 +8,9 @@ import {
     isPathsQuery,
     isStickinessQuery,
     isUnimplementedQuery,
+    isLifecycleQuery,
 } from '~/queries/utils'
+import { isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
 
@@ -75,6 +77,14 @@ const insightMap: Record<SupportedNodeKind, InsightType> = {
     [NodeKind.StickinessQuery]: InsightType.STICKINESS,
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
 }
+const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
+    [InsightType.TRENDS]: NodeKind.TrendsQuery,
+    [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
+    [InsightType.RETENTION]: NodeKind.RetentionQuery,
+    [InsightType.PATHS]: NodeKind.PathsQuery,
+    [InsightType.STICKINESS]: NodeKind.StickinessQuery,
+    [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
+}
 
 const filterMap: Record<SupportedNodeKind, string> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
@@ -115,4 +125,43 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     Object.assign(filters, query[filterMap[query.kind]])
 
     return filters
+}
+
+export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
+    if (!filters.insight) {
+        throw new Error('filtersToQueryNode expects "insight"')
+    }
+
+    const { events, actions } = filters
+    const series = actionsAndEventsToSeries({ actions, events } as any)
+    const query: InsightQueryNode = {
+        kind: reverseInsightMap[filters.insight],
+        properties: filters.properties,
+        filterTestAccounts: filters.filter_test_accounts,
+        dateRange: {
+            date_to: filters.date_to,
+            date_from: filters.date_from,
+        },
+        breakdown: {
+            breakdown_type: filters.breakdown_type,
+            breakdown: filters.breakdown,
+            breakdown_normalize_url: filters.breakdown_normalize_url,
+            breakdowns: filters.breakdowns,
+            breakdown_value: filters.breakdown_value,
+            breakdown_group_type_index: filters.breakdown_group_type_index,
+            aggregation_group_type_index: filters.aggregation_group_type_index,
+        },
+        interval: filters.interval,
+        series,
+    }
+
+    if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
+        query.lifecycleFilter = {
+            shown_as: filters.shown_as,
+        }
+    }
+
+    query[filterMap[query.kind]]
+
+    return query
 }

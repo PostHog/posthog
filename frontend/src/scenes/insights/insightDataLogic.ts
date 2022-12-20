@@ -1,5 +1,5 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
-import { InsightLogicProps, InsightType } from '~/types'
+import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
 import { BaseMathType } from '~/types'
@@ -7,12 +7,21 @@ import { ShownAsValue } from 'lib/constants'
 
 import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
-import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/queryNodeToFilter'
+import { queryNodeToFilter, filtersToQueryNode } from '~/queries/nodes/InsightQuery/queryNodeToFilter'
 import { isLifecycleQuery } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
-const getDefaultQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery): InsightVizNode => {
+const getQueryFromFilters = (filters: Partial<FilterType>): InsightVizNode => {
+    return {
+        kind: NodeKind.InsightVizNode,
+        source: filtersToQueryNode(filters),
+    }
+}
+
+// should take the existing values.query and set params from previous view similar to
+// cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
+const getCleanedQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery): InsightVizNode => {
     if (kind == NodeKind.LifecycleQuery) {
         return {
             kind: NodeKind.InsightVizNode,
@@ -39,13 +48,21 @@ const getDefaultQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQ
     }
 }
 
+const INIT_QUERY: InsightVizNode = {
+    kind: NodeKind.InsightVizNode,
+    source: { kind: NodeKind.TrendsQuery, series: [] },
+}
+
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
 
     connect({
-        actions: [insightLogic, ['setFilters', 'setActiveView']],
+        actions: [
+            insightLogic,
+            ['setFilters', 'setActiveView', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
+        ],
         values: [featureFlagLogic, ['featureFlags']],
     }),
 
@@ -54,16 +71,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuerySourceMerge: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         query: [
-            // TODO load from cachedInsight?.filters
-            // () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
-            getDefaultQuery(NodeKind.UnimplementedQuery) as InsightVizNode,
+            props.cachedInsight?.filters ? getQueryFromFilters(props.cachedInsight.filters) : INIT_QUERY,
             {
                 setQuery: (_, { query }) => query,
             },
         ],
-    }),
+    })),
 
     selectors({
         querySource: [(s) => [s.query], (query) => query.source],
@@ -85,13 +100,17 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         setActiveView: ({ type }) => {
-            // TODO: make a getCleanedQuery function that takes the existing values.query and
-            // sets parameters from previous view similar to
-            // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
             if (type === InsightType.LIFECYCLE) {
-                actions.setQuery(getDefaultQuery(NodeKind.LifecycleQuery))
+                actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
             } else {
-                actions.setQuery(getDefaultQuery(NodeKind.UnimplementedQuery))
+                actions.setQuery(getCleanedQuery(NodeKind.UnimplementedQuery))
+            }
+        },
+        loadInsightSuccess: ({ insight }) => {
+            // TODO: missing <Object.keys(state).length === 0> check - do we really need it? why?
+            if (insight.filters) {
+                const query = getQueryFromFilters(insight.filters)
+                actions.setQuery(query)
             }
         },
     })),
