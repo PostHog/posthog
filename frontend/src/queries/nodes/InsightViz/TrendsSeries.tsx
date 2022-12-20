@@ -14,7 +14,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 // import { IconCalculate } from 'lib/components/icons'
 // import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { TrendsQuery, FunnelsQuery, LifecycleQuery } from '~/queries/schema'
-import { isLifecycleQuery } from '~/queries/utils'
+import { isLifecycleQuery, isUnimplementedQuery } from '~/queries/utils'
 import { actionsAndEventsToSeries, queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -23,7 +23,7 @@ type TrendsSeriesProps = {
     insightProps: InsightLogicProps
 }
 
-export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element {
+export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element | null {
     const dataLogic = insightDataLogic(insightProps)
     const { querySource } = useValues(dataLogic)
     const { setQuerySourceMerge } = useActions(dataLogic)
@@ -40,6 +40,10 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element {
         TaxonomicFilterGroupType.Elements,
         // ...(isTrendsFilter(filters) ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
+
+    if (isUnimplementedQuery(querySource)) {
+        return null
+    }
 
     const filters = queryNodeToFilter(querySource)
     return (

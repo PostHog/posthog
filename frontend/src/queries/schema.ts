@@ -39,6 +39,8 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
+    /** Used for insights that haven't been converted to the new query format yet */
+    UnimplementedQuery = 'UnimplementedQuery',
 }
 
 export type QuerySchema =
@@ -243,6 +245,9 @@ export interface LifecycleQuery extends InsightsQueryBase {
         toggledLifecycles?: LifecycleToggle[]
     } // using everything except what it inherits from FilterType
 }
+export interface UnimplementedQuery extends InsightsQueryBase {
+    kind: NodeKind.UnimplementedQuery
+}
 
 export type InsightQueryNode =
     | TrendsQuery
@@ -251,6 +256,7 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | UnimplementedQuery
 export type InsightNodeKind = InsightQueryNode['kind']
 
 export type DataTableColumn = string

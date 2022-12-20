@@ -1,32 +1,50 @@
-import { kea, props, key, path, actions, reducers, selectors } from 'kea'
-import { InsightLogicProps } from '~/types'
+import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
+import { InsightLogicProps, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema'
 import { BaseMathType } from '~/types'
 import { ShownAsValue } from 'lib/constants'
 
 import type { insightDataLogicType } from './insightDataLogicType'
+import { insightLogic } from './insightLogic'
+import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/queryNodeToFilter'
+import { isLifecycleQuery } from '~/queries/utils'
 
-const getDefaultQuery = (): InsightVizNode => ({
-    kind: NodeKind.InsightVizNode,
-    source: {
-        kind: NodeKind.LifecycleQuery,
-        series: [
-            {
-                kind: NodeKind.EventsNode,
-                name: '$pageview',
-                event: '$pageview',
-                math: BaseMathType.TotalCount,
+const getDefaultQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery): InsightVizNode => {
+    if (kind == NodeKind.LifecycleQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.LifecycleQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                        math: BaseMathType.TotalCount,
+                    },
+                ],
+                lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
             },
-        ],
-        lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
-    },
-})
+        }
+    } else {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.UnimplementedQuery,
+            },
+        }
+    }
+}
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
+
+    connect({
+        actions: [insightLogic, ['setFilters', 'setActiveView']],
+    }),
 
     actions({
         setQuery: (query: InsightVizNode) => ({ query }),
@@ -35,13 +53,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     reducers({
         query: [
-            getDefaultQuery() as InsightVizNode,
+            // TODO load from cachedInsight?.filters
+            // () => props.cachedInsight?.filters || ({} as Partial<FilterType>),
+            getDefaultQuery(NodeKind.UnimplementedQuery) as InsightVizNode,
             {
                 setQuery: (_, { query }) => query,
-                setQuerySourceMerge: (query, { query: querySource }) => ({
-                    ...query,
-                    source: { ...query.source, ...querySource },
-                }),
             },
         ],
     }),
@@ -49,4 +65,28 @@ export const insightDataLogic = kea<insightDataLogicType>([
     selectors({
         querySource: [(s) => [s.query], (query) => query.source],
     }),
+
+    listeners(({ actions, values }) => ({
+        setQuerySourceMerge: ({ query }) => {
+            actions.setQuery({ ...values.query, source: { ...values.query.source, ...query } })
+        },
+        setQuery: ({ query }) => {
+            // TODO: check for feature flag here to make sure we never do this accidentally for non-feature-flagged users
+
+            if (isLifecycleQuery(query.source)) {
+                const filters = queryNodeToFilter(query.source)
+                actions.setFilters(filters)
+            }
+        },
+        setActiveView: ({ type }) => {
+            // TODO: make a getCleanedQuery function that takes the existing values.query and
+            // sets parameters from previous view similar to
+            // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
+            if (type === InsightType.LIFECYCLE) {
+                actions.setQuery(getDefaultQuery(NodeKind.LifecycleQuery))
+            } else {
+                actions.setQuery(getDefaultQuery(NodeKind.UnimplementedQuery))
+            }
+        },
+    })),
 ])

@@ -7,6 +7,7 @@ import {
     isRetentionQuery,
     isPathsQuery,
     isStickinessQuery,
+    isUnimplementedQuery,
 } from '~/queries/utils'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
@@ -64,7 +65,9 @@ export const actionsAndEventsToSeries = ({
     return series
 }
 
-const insightMap: Record<InsightNodeKind, InsightType> = {
+type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
+
+const insightMap: Record<SupportedNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
     [NodeKind.RetentionQuery]: InsightType.RETENTION,
@@ -73,7 +76,7 @@ const insightMap: Record<InsightNodeKind, InsightType> = {
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
 }
 
-const filterMap: Record<InsightNodeKind, string> = {
+const filterMap: Record<SupportedNodeKind, string> = {
     [NodeKind.TrendsQuery]: 'trendsFilter',
     [NodeKind.FunnelsQuery]: 'funnelsFilter',
     [NodeKind.RetentionQuery]: 'retentionFilter',
@@ -92,7 +95,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_from: query.dateRange?.date_from,
     }
 
-    if (!isRetentionQuery(query) && !isPathsQuery(query)) {
+    if (!isRetentionQuery(query) && !isPathsQuery(query) && !isUnimplementedQuery(query)) {
         const { actions, events } = seriesToActionsAndEvents(query.series)
         // TODO: math is not supported by funnel and lifecycle queries
         filters.actions = actions

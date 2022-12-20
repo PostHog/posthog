@@ -9,6 +9,7 @@ import {
     PathsQuery,
     StickinessQuery,
     LifecycleQuery,
+    UnimplementedQuery,
     Node,
     NodeKind,
     InsightQueryNode,
@@ -77,6 +78,10 @@ export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
+export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {
+    return node?.kind === NodeKind.UnimplementedQuery
+}
+
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
@@ -84,6 +89,7 @@ export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node)
+        isLifecycleQuery(node) ||
+        isUnimplementedQuery(node)
     )
 }
