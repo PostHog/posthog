@@ -1,16 +1,12 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
 from django.core.cache import cache
-from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from sentry_sdk import capture_exception
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.demo.matrix.manager import MatrixManager
-from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.mixins import AnalyticsDestroyModelMixin
 from posthog.models import InsightCachingState, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -28,6 +24,7 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
+from posthog.tasks.demo_create_data import create_data_for_demo_team
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -142,19 +139,14 @@ class TeamSerializer(serializers.ModelSerializer):
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
-        try:
-            serializers.raise_errors_on_nested_writes("create", self, validated_data)
-            request = self.context["request"]
-            organization = self.context["view"].organization  # Use the org we used to validate permissions
-            with transaction.atomic():
-                team = Team.objects.create_with_data(**validated_data, organization=organization)
-                request.user.current_team = team
-                request.user.save()
-                if validated_data.get("is_demo", False):
-                    MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
-        except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
-            capture_exception()
-            raise e
+        serializers.raise_errors_on_nested_writes("create", self, validated_data)
+        request = self.context["request"]
+        organization = self.context["view"].organization  # Use the org we used to validate permissions
+        team = Team.objects.create_with_data(**validated_data, organization=organization)
+        request.user.current_team = team
+        request.user.save()
+        if validated_data.get("is_demo", False):
+            create_data_for_demo_team.delay(team.pk, request.user.pk)
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:

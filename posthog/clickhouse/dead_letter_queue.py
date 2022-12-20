@@ -1,3 +1,4 @@
+from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, kafka_engine, ttl_period
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
@@ -43,7 +44,7 @@ SETTINGS index_granularity=512
     cluster=CLICKHOUSE_CLUSTER,
     extra_fields=f"""
     {KAFKA_COLUMNS}
-    , INDEX kafka_timestamp_minmax_dlq _timestamp TYPE minmax GRANULARITY 3
+    , {index_by_kafka_timestamp(DEAD_LETTER_QUEUE_TABLE)}
     """,
     engine=DEAD_LETTER_QUEUE_TABLE_ENGINE(),
     ttl_period=ttl_period("_timestamp", 4),  # 4 weeks
