@@ -32,9 +32,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         source=0,
         has_full_snapshot=True,
         type=2,
+        snapshot_data=None,
     ):
         if team_id is None:
             team_id = self.team.pk
+
+        snapshot = {
+            "timestamp": timestamp.timestamp() * 1000,
+            "has_full_snapshot": has_full_snapshot,
+            "type": type,
+            "data": {"source": source},
+        }
+
+        if snapshot_data:
+            snapshot_data.update(snapshot)
 
         create_session_recording_events(
             team_id=team_id,
@@ -42,14 +53,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             timestamp=timestamp,
             session_id=session_id,
             window_id=window_id,
-            snapshots=[
-                {
-                    "timestamp": timestamp.timestamp() * 1000,
-                    "has_full_snapshot": has_full_snapshot,
-                    "type": type,
-                    "data": {"source": source},
-                }
-            ],
+            snapshots=[snapshot_data],
         )
 
     def create_chunked_snapshots(
@@ -420,3 +424,23 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             response_data = response.json()
 
             self.assertEqual(len(response_data["results"]), 0)
+
+    def test_regression_encoded_emojis_dont_crash(self):
+
+        Person.objects.create(
+            team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+        )
+        self.create_snapshot(
+            "user", "1", now() - relativedelta(days=1), snapshot_data={"texts": ["\\ud83d\udc83\\ud83c\\udffb"]}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        response_data = response.json()
+
+        assert "base64_content" in response_data
+        assert response_data["error"] == "Unicode error when decoding snapshot data"
+        assert (
+            response_data["detail"]
+            == "'utf-8' codec can't encode character '\\udc83' in position 23: surrogates not allowed"
+        )
