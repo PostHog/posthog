@@ -223,25 +223,27 @@ class InsightSerializer(InsightBasicSerializer):
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
         created_by = validated_data.pop("created_by", request.user)
-        dashboards = validated_data.pop("dashboards", None)
+        dashboards = validated_data.pop("dashboards", [])
+
+        dashboards_to_add = Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all()
+        # check permissions before creating the insight
+        for dashboard in dashboards_to_add:
+            if dashboard.team != team:
+                raise serializers.ValidationError("Dashboard not found")
+
+            if (
+                dashboard.get_effective_privilege_level(self.context["request"].user.id)
+                == Dashboard.PrivilegeLevel.CAN_VIEW
+            ):
+                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
 
         insight = Insight.objects.create(
             team=team, created_by=created_by, last_modified_by=request.user, **validated_data
         )
 
-        if dashboards is not None:
-            for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
-                if dashboard.team != insight.team:
-                    raise serializers.ValidationError("Dashboard not found")
-
-                if (
-                    dashboard.get_effective_privilege_level(self.context["request"].user.id)
-                    == Dashboard.PrivilegeLevel.CAN_VIEW
-                ):
-                    raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
-
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
-                insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
+        for dashboard in dashboards_to_add:
+            DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
+            insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)

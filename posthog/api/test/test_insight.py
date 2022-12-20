@@ -1623,10 +1623,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                     "properties": [{"key": "$browser", "value": "Mac OS X"}],
                     "date_from": "-90d",
                 },
+                "name": "should not be created",
                 "dashboards": [dashboard_restricted_id],
             },
             expected_status=status.HTTP_403_FORBIDDEN,
         )
+        assert Insight.objects.count() == 0
 
     def test_non_admin_user_cannot_add_an_insight_to_a_restricted_dashboard(self) -> None:
         # create insight and dashboard separately with default user
