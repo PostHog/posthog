@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from dateutil.parser import isoparse
 from django.utils.timezone import now
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.hogql.expr_parser import SELECT_STAR_FROM_EVENTS_FIELDS, ExprParserContext, translate_hql
@@ -29,20 +30,32 @@ class EventsQueryResponse:
     results: List[List[Any]] = dataclasses.field(default_factory=list)
 
 
-def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
+def determine_event_conditions(
+    conditions: Dict[str, Union[None, str, List[str]]], unbounded_date_from: bool, validate_date_range: bool
+) -> Tuple[str, Dict]:
     result = ""
     params: Dict[str, Union[str, List[str]]] = {}
+
+    after_date = conditions.get("after")
+    before_date = conditions.get("before")
+    default_after = None if unbounded_date_from else now() - timedelta(days=1)
+    after = isoparse(after_date) if isinstance(after_date, str) else default_after
+    default_before = after + timedelta(days=1, seconds=5) if after is not None else now() + timedelta(seconds=5)
+    before = isoparse(before_date) if isinstance(before_date, str) else default_before
+
+    if validate_date_range and (after is None or before - after >= timedelta(days=3)):
+        raise ValidationError("Cannot query time range larger than 3 days using personal API key.")
+
+    if after is not None:
+        result += "AND timestamp > %(after)s "
+        params.update({"after": after.strftime("%Y-%m-%d %H:%M:%S.%f")})
+
+    result += "AND timestamp < %(before)s "
+    params.update({"before": before.strftime("%Y-%m-%d %H:%M:%S.%f")})
+
     for (k, v) in conditions.items():
         if not isinstance(v, str):
             continue
-        if k == "after":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp > %(after)s "
-            params.update({"after": timestamp})
-        elif k == "before":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
-            result += "AND timestamp < %(before)s "
-            params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s) """
             person = get_pk_or_uuid(Person.objects.all(), v).first()
@@ -66,17 +79,14 @@ def query_events_list(
     select: Optional[List[str]],
     where: Optional[List[str]],
     unbounded_date_from: bool = False,
+    validate_date_range=False,
     limit: int = 100,
 ) -> Union[List, EventsQueryResponse]:
     limit += 1
     limit_sql = "LIMIT %(limit)s"
 
     conditions, condition_params = determine_event_conditions(
-        {
-            "after": None if unbounded_date_from else (now() - timedelta(days=1)).isoformat(),
-            "before": (now() + timedelta(seconds=5)).isoformat(),
-            **request_get_query_dict,
-        }
+        request_get_query_dict, unbounded_date_from, validate_date_range
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False

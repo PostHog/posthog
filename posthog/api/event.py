@@ -18,6 +18,7 @@ from sentry_sdk import capture_exception
 from posthog.api.documentation import PropertiesSerializer, extend_schema
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import query_with_columns, sync_execute
+from posthog.cloud_utils import is_cloud
 from posthog.models import Element, Filter, Person
 from posthog.models.event.query_event_list import EventsQueryResponse, query_events_list
 from posthog.models.event.sql import GET_CUSTOM_EVENTS, SELECT_ONE_EVENT_SQL
@@ -137,6 +138,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 action_id=request.GET.get("action_id"),
                 select=select,
                 where=where,
+                validate_date_range=getattr(request, "using_personal_api_key", False) and is_cloud(),
             )
 
             result_count = (

@@ -12,6 +12,8 @@ from rest_framework import status
 
 from posthog.models import Action, ActionStep, Element, Organization, Person, User
 from posthog.models.cohort import Cohort
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -640,6 +642,49 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
+
+    @freeze_time("2012-01-15T04:01:34.000Z")
+    def test_large_time_ranges_not_allowed_with_personal_api_keys(self):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="X", user=self.user, secure_value=hash_key_value(key_value))
+
+        get_events = lambda params: self.client.get(f"/api/projects/{self.team.id}/events?{urlencode(params)}")
+        self.assertEqual(get_events({}).status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            get_events(
+                {
+                    "after": "2012-01-14",
+                    "before": "2012-01-15",
+                }
+            ).status_code,
+            status.HTTP_200_OK,
+        )
+        self.assertEqual(
+            get_events(
+                {
+                    "after": "2012-01-10",
+                    "before": "2012-01-15",
+                }
+            ).status_code,
+            status.HTTP_200_OK,
+        )
+
+        with self.is_cloud(False):
+            self.assertEqual(
+                get_events({"after": "2012-01-10", "before": "2012-01-15", "personal_api_key": key_value}).status_code,
+                status.HTTP_200_OK,
+            )
+
+        with self.is_cloud(True):
+            self.assertEqual(get_events({"personal_api_key": key_value}).status_code, status.HTTP_200_OK)
+            self.assertEqual(
+                get_events({"after": "2012-01-14", "before": "2012-01-15", "personal_api_key": key_value}).status_code,
+                status.HTTP_200_OK,
+            )
+            self.assertEqual(
+                get_events({"after": "2012-01-10", "before": "2012-01-15", "personal_api_key": key_value}).status_code,
+                status.HTTP_400_BAD_REQUEST,
+            )
 
     def test_filter_events_with_date_format(self):
         journeys_for(
