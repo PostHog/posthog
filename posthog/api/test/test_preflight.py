@@ -7,18 +7,18 @@ from rest_framework import status
 
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.organization import Organization, OrganizationInvite
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 from posthog.version import VERSION
 
 
-class TestPreflight(APIBaseTest):
+class TestPreflight(APIBaseTest, QueryMatchingTest):
     maxDiff = 2000
 
     def instance_preferences(self, **kwargs):
         return {"debug_queries": False, "disable_paid_fs": False, **kwargs}
 
     def preflight_dict(self, options={}):
-        preflight = {
+        return {
             "django": True,
             "redis": True,
             "plugins": True,
@@ -36,11 +36,8 @@ class TestPreflight(APIBaseTest):
             "email_service_available": False,
             "slack_service": {"available": False, "client_id": None},
             "object_storage": False,
+            **options,
         }
-
-        preflight.update(options)
-
-        return preflight
 
     def preflight_authenticated_dict(self, options={}):
         preflight = {
@@ -54,9 +51,8 @@ class TestPreflight(APIBaseTest):
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
+            **options,
         }
-
-        preflight.update(options)
 
         return self.preflight_dict(preflight)
 
@@ -125,6 +121,7 @@ class TestPreflight(APIBaseTest):
                             "cloud": True,
                             "realm": "cloud",
                             "region": "US",
+                            "object_storage": True,
                         }
                     ),
                 )
@@ -148,10 +145,21 @@ class TestPreflight(APIBaseTest):
                             "region": "US",
                             "instance_preferences": {"debug_queries": False, "disable_paid_fs": False},
                             "site_url": "https://app.posthog.com",
+                            "email_service_available": True,
+                            "object_storage": True,
                         }
                     ),
                 )
                 self.assertDictContainsSubset({"Europe/Moscow": 3, "UTC": 0}, available_timezones)
+
+    @pytest.mark.ee
+    @snapshot_postgres_queries
+    def test_cloud_preflight_limited_db_queries(self):
+        with self.is_cloud(True):
+            # :IMPORTANT: This code is hit _every_ web request on cloud so avoid ever increasing db load.
+            with self.assertNumQueries(3):  # session, team and slack instance setting.
+                response = self.client.get("/_preflight/")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     @pytest.mark.ee
     def test_cloud_preflight_request_with_social_auth_providers(self):
@@ -185,6 +193,7 @@ class TestPreflight(APIBaseTest):
                                 "gitlab": False,
                             },
                             "email_service_available": True,
+                            "object_storage": True,
                         }
                     ),
                 )

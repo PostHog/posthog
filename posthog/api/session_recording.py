@@ -1,11 +1,15 @@
 import json
 from typing import Any, Optional
 
+import structlog
 from dateutil import parser
-from rest_framework import exceptions, request, response, serializers, viewsets
+from django.http import JsonResponse
+from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
@@ -22,6 +26,8 @@ from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThrou
 from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
+
+logger = structlog.get_logger(__name__)
 
 
 class SessionRecordingMetadataSerializer(serializers.Serializer):
@@ -80,7 +86,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return Response(list_recordings(filter, request, self.team))
 
     # Returns meta data about the recording
-    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         session_recording_id = kwargs["pk"]
         recording_start_time_string = request.GET.get("recording_start_time")
         recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
@@ -125,7 +131,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 team=self.team, user=request.user, session_id=session_recording_id
             )
 
-        return response.Response(
+        return Response(
             {
                 "result": {
                     "session_recording": session_recording_serializer.data,
@@ -160,14 +166,24 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             else None
         )
 
-        return response.Response(
-            {
-                "result": {
-                    "next": next_url,
-                    "snapshot_data_by_window_id": session_recording_snapshot_data["snapshot_data_by_window_id"],
-                }
+        res = {
+            "result": {
+                "next": next_url,
+                "snapshot_data_by_window_id": session_recording_snapshot_data["snapshot_data_by_window_id"],
             }
-        )
+        }
+
+        # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
+        # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
+        try:
+            JSONRenderer().render(data=res)
+        except Exception:
+            capture_exception(
+                Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": res}
+            )
+            return JsonResponse(res)
+
+        return Response(res)
 
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)

@@ -14,7 +14,7 @@ import time
 import uuid
 import zlib
 from enum import Enum
-from functools import wraps
+from functools import lru_cache, wraps
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -835,12 +835,13 @@ def get_instance_available_sso_providers() -> Dict[str, bool]:
     # Get license information
     bypass_license: bool = is_cloud() or settings.DEMO
     license = None
-    try:
-        from ee.models.license import License
-    except ImportError:
-        pass
-    else:
-        license = License.objects.first_valid()
+    if not bypass_license:
+        try:
+            from ee.models.license import License
+        except ImportError:
+            pass
+        else:
+            license = License.objects.first_valid()
 
     if getattr(settings, "SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", None) and getattr(
         settings,
@@ -947,6 +948,7 @@ class GenericEmails:
         return self.emails.get(email[(at_location + 1) :], False)
 
 
+@lru_cache(maxsize=1)
 def get_available_timezones_with_offsets() -> Dict[str, float]:
     now = dt.datetime.now()
     result = {}
