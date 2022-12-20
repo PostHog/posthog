@@ -233,26 +233,28 @@ export function DashboardHeader(): JSX.Element | null {
                                                 ))}
                                             <SubscribeButton dashboardId={dashboard.id} />
                                             <ExportButton fullWidth status="stealth" items={exportOptions} />
-                                            <LemonDivider />
-                                            <LemonButton
-                                                onClick={() => {
-                                                    showDuplicateDashboardModal(dashboard.id, dashboard.name)
-                                                }}
-                                                status="stealth"
-                                                fullWidth
-                                            >
-                                                Duplicate dashboard
-                                            </LemonButton>
                                             {canEditDashboard && (
-                                                <LemonButton
-                                                    onClick={() => {
-                                                        showDeleteDashboardModal(dashboard.id)
-                                                    }}
-                                                    status="danger"
-                                                    fullWidth
-                                                >
-                                                    Delete dashboard
-                                                </LemonButton>
+                                                <>
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            showDuplicateDashboardModal(dashboard.id, dashboard.name)
+                                                        }}
+                                                        status="stealth"
+                                                        fullWidth
+                                                    >
+                                                        Duplicate dashboard
+                                                    </LemonButton>
+                                                    <LemonDivider />
+                                                    <LemonButton
+                                                        onClick={() => {
+                                                            showDeleteDashboardModal(dashboard.id)
+                                                        }}
+                                                        status="danger"
+                                                        fullWidth
+                                                    >
+                                                        Delete dashboard
+                                                    </LemonButton>
+                                                </>
                                             )}
                                         </>
                                     ) : undefined
