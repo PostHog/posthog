@@ -12,14 +12,13 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { useAnchor } from 'lib/hooks/useAnchor'
 import { VerifiedDomains } from './VerifiedDomains/VerifiedDomains'
 import { LemonButton, LemonDivider, LemonInput, LemonSwitch } from '@posthog/lemon-ui'
-import { Roles } from './Roles/Roles'
-import { Permissions } from './Permissions/Permissions'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AvailableFeature } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'
 import type { organizationSettingsTabsLogicType } from './indexType'
+import { PermissionsGrid } from './Permissions/PermissionsGrid'
 
 export const scene: SceneExport = {
     component: OrganizationSettings,
@@ -28,7 +27,7 @@ export const scene: SceneExport = {
 
 export enum OrganizationSettingsTabs {
     GENERAL = 'general',
-    ROLE_ACCESS = 'role_access',
+    ROLE_BASED_ACCESS = 'role_based_access',
 }
 
 function DisplayName({ isRestricted }: RestrictedComponentProps): JSX.Element {
@@ -147,15 +146,12 @@ export function OrganizationSettings(): JSX.Element {
                     </div>
                 </Tabs.TabPane>
                 {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
-                    <Tabs.TabPane tab="Role access" key="role_access">
+                    <Tabs.TabPane tab="Role-based access" key="role_based_access">
                         <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                             <RestrictedArea
-                                Component={Permissions}
+                                Component={PermissionsGrid}
                                 minimumAccessLevel={OrganizationMembershipLevel.Admin}
                             />
-                            <LemonDivider className="my-6" />
-                            <RestrictedArea Component={Roles} minimumAccessLevel={OrganizationMembershipLevel.Admin} />
-                            <LemonDivider className="my-6" />
                         </PayGateMini>
                     </Tabs.TabPane>
                 )}

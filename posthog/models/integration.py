@@ -1,12 +1,14 @@
 import hashlib
 import hmac
 import time
+from datetime import timedelta
 from typing import Dict, List, Literal
 
 from django.db import models
 from rest_framework.request import Request
 from slack_sdk import WebClient
 
+from posthog.cache_utils import cache_for
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.user import User
 
@@ -143,6 +145,7 @@ class SlackIntegration:
             raise SlackIntegrationError("Invalid")
 
     @classmethod
+    @cache_for(timedelta(minutes=5))
     def slack_config(cls):
         config = get_instance_settings(["SLACK_APP_CLIENT_ID", "SLACK_APP_CLIENT_SECRET", "SLACK_APP_SIGNING_SECRET"])
 

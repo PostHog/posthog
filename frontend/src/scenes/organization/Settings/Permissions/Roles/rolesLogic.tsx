@@ -15,7 +15,6 @@ export const rolesLogic = kea<rolesLogicType>([
         setRoleMembersToAdd: (uuids: string[]) => ({ uuids }),
         openCreateRoleModal: true,
         setPermission: (resource: Resource, access: AccessLevel) => ({ resource, access }),
-        setPermissionInPlace: (resource: Resource, access: AccessLevel) => ({ resource, access }),
         clearPermission: true,
         updateRole: (role: RoleType) => ({ role }),
     }),
@@ -44,13 +43,6 @@ export const rolesLogic = kea<rolesLogicType>([
                 setRoleMembersToAdd: (_, { uuids }) => uuids,
             },
         ],
-        permissionsToSet: [
-            {} as Record<Resource, AccessLevel> | Record<string, any>,
-            {
-                setPermission: (state, { resource, access }) => ({ ...state, [`${resource}`]: access }),
-                clearPermission: () => ({}),
-            },
-        ],
         roles: [
             [] as RoleType[],
             {
@@ -67,8 +59,8 @@ export const rolesLogic = kea<rolesLogicType>([
                 return response?.results || []
             },
             createRole: async (roleName: string) => {
-                const { roles, roleMembersToAdd, permissionsToSet } = values
-                const newRole = await api.roles.create(roleName, permissionsToSet[Resource.FEATURE_FLAGS])
+                const { roles, roleMembersToAdd } = values
+                const newRole = await api.roles.create(roleName)
                 await actions.addRoleMembers({ role: newRole, membersToAdd: roleMembersToAdd })
                 actions.setRoleMembersInFocus([])
                 actions.setRoleMembersToAdd([])
@@ -119,13 +111,8 @@ export const rolesLogic = kea<rolesLogicType>([
                 actions.setPermission(Resource.FEATURE_FLAGS, AccessLevel.WRITE)
             }
         },
-        setPermissionInPlace: async ({ access }) => {
-            if (values.roleInFocus) {
-                access && (await api.roles.update(values.roleInFocus.id, { feature_flags_access_level: access }))
-                const newRole = Object.assign({}, values.roleInFocus)
-                newRole.feature_flags_access_level = access
-                actions.updateRole(newRole)
-            }
+        deleteRoleSuccess: () => {
+            actions.setCreateRoleModalShown(false)
         },
     })),
     selectors({
