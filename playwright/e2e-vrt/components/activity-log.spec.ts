@@ -12,9 +12,4 @@ test.describe('Activity Log', () => {
         await storyPage.goto(toId('Components/ActivityLog', 'Insight Activity'))
         await storyPage.expectComponentScreenshot()
     })
-
-    test('displays persons activity', async ({ storyPage }) => {
-        await storyPage.goto(toId('Components/ActivityLog', 'Persons Activity'))
-        await storyPage.expectComponentScreenshot()
-    })
 })
