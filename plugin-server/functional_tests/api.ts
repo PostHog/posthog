@@ -148,6 +148,7 @@ export const createOrganization = async (pgClient: Pool) => {
         domain_whitelist: [],
         is_member_join_email_enabled: false,
         slug: Math.round(Math.random() * 20000),
+        usage: null,
     })
     return organizationId
 }

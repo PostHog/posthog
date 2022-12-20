@@ -236,7 +236,6 @@ export enum JobName {
 export type PluginId = Plugin['id']
 export type PluginConfigId = PluginConfig['id']
 export type TeamId = Team['id']
-export type OrgId = Team['organization_id']
 
 export enum MetricMathOperations {
     Increment = 'increment',
@@ -464,6 +463,13 @@ export interface RawOrganization {
     available_features: string[]
 }
 
+export interface BillingUsageItem {
+    usage: number
+    limit: number | null
+}
+
+export type BillingUsage = Record<string, BillingUsageItem>
+
 /** Usable Team model. */
 export interface Team {
     id: number
@@ -475,14 +481,8 @@ export interface Team {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     ingested_event: boolean
+    usage: BillingUsage | null
 }
-
-export interface BillingUsageItem {
-    usage: number
-    limit: number | null
-}
-
-export type BillingUsage = Record<string, BillingUsageItem>
 
 /** Properties shared by RawEventMessage and EventMessage. */
 export interface BaseEventMessage {

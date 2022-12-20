@@ -75,7 +75,10 @@ export class EventsProcessor {
             }
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
-                    if (await this.teamManager.isAboveUsageLimit(team.organization_id, 'recordings')) {
+                    if (this.teamManager.isAboveUsageLimit(team, 'recordings')) {
+                        this.pluginsServer.statsd?.increment('kafka_queue.single_save.snapshot.above_limit', {
+                            team_id: teamId.toString(),
+                        })
                         return null
                     }
                     const timeout2 = timeoutGuard(
@@ -100,7 +103,10 @@ export class EventsProcessor {
                     }
                 }
             } else {
-                if (await this.teamManager.isAboveUsageLimit(team.organization_id, 'events')) {
+                if (this.teamManager.isAboveUsageLimit(team, 'events')) {
+                    this.pluginsServer.statsd?.increment('kafka_queue.single_save.standard.above_limit', {
+                        team_id: teamId.toString(),
+                    })
                     return null
                 }
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
