@@ -528,7 +528,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.models.event.query_event_list.query_with_columns")
+    @patch("posthog.models.event.query_event_list.insight_query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
