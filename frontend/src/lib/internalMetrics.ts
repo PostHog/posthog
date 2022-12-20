@@ -16,6 +16,8 @@ export interface TimeToSeeDataPayload {
     insights_fetched_cached: number
     min_last_refresh?: string | null
     max_last_refresh?: string | null
+    // Signifies whether the action was user-initiated or a secondary effect
+    is_primary_interaction?: boolean
 }
 
 export async function captureTimeToSeeData(teamId: number | null, payload: TimeToSeeDataPayload): Promise<void> {

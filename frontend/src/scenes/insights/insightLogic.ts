@@ -913,6 +913,7 @@ export const insightLogic = kea<insightLogicType>([
                     api_response_bytes: response?.apiResponseBytes,
                     api_url: response?.apiUrl,
                     insight: values.activeView,
+                    is_primary_interaction: true,
                 })
                 if (values.maybeShowErrorMessage) {
                     posthog.capture('insight error message shown', { ...tags, duration })
