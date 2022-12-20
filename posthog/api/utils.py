@@ -6,6 +6,7 @@ from typing import Any, List, Optional, Tuple, Union, cast
 from uuid import UUID
 
 import structlog
+from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
 from rest_framework import request, status
 from rest_framework.exceptions import ValidationError
@@ -159,6 +160,21 @@ def get_data(request):
             cors_response(
                 request,
                 generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
+            ),
+        )
+
+    except RequestDataTooBig:
+        return (
+            None,
+            cors_response(
+                request,
+                generate_exception_response(
+                    endpoint="capture",
+                    detail="Request too large.",
+                    type="client_error",
+                    code="request_too_large",
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                ),
             ),
         )
 

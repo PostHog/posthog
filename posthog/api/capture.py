@@ -8,7 +8,6 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 import structlog
 from dateutil import parser
 from django.conf import settings
-from django.core.exceptions import RequestDataTooBig
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -196,19 +195,7 @@ def get_event(request):
 
     now = timezone.now()
 
-    try:
-        data, error_response = get_data(request)
-    except RequestDataTooBig:
-        return cors_response(
-            request,
-            generate_exception_response(
-                endpoint="capture",
-                detail="Request too large.",
-                type="client_error",
-                code="request_too_large",
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            ),
-        )
+    data, error_response = get_data(request)
 
     if error_response:
         return error_response
