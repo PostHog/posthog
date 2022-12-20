@@ -302,7 +302,7 @@ export function ExperimentPreview({
                             {experiment?.start_date && (
                                 <div className="mb-2 mt-4">
                                     <LemonButton type="secondary" onClick={openExperimentGoalModal}>
-                                        Change Experiment Goal
+                                        Change experiment goal
                                     </LemonButton>
                                 </div>
                             )}
