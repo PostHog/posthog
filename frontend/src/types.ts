@@ -1990,8 +1990,8 @@ export interface Experiment {
         recommended_sample_size?: number
         feature_flag_variants: MultivariateFlagVariant[]
     }
-    start_date?: string
-    end_date?: string
+    start_date?: string | null
+    end_date?: string | null
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string
