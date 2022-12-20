@@ -76,7 +76,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             const renderedDescription = render(<>{actual[0].description}</>).container
-            expect(renderedDescription).toHaveTextContent('peter changed details on test insight')
+            expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
         })
 
         it('can handle change of filters on a retention graph', async () => {
@@ -106,7 +106,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             const renderedDescription = render(<>{actual[0].description}</>).container
-            expect(renderedDescription).toHaveTextContent('peter changed details on test insight')
+            expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
         })
 
         it('can handle soft delete', async () => {

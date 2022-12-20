@@ -13,7 +13,6 @@ import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } fro
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { UPGRADE_LINK } from 'lib/constants'
 import { appContextLogic } from './appContextLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
@@ -73,7 +72,6 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
         hideUpgradeModal: true,
-        takeToPricing: true,
         reloadBrowserDueToImportError: true,
     },
     reducers: {
@@ -111,7 +109,6 @@ export const sceneLogic = kea<sceneLogicType>({
             {
                 showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
                 hideUpgradeModal: () => null,
-                takeToPricing: () => null,
             },
         ],
         lastReloadAt: [
@@ -209,15 +206,6 @@ export const sceneLogic = kea<sceneLogicType>({
                 featureAvailableCallback?.()
             } else {
                 actions.showUpgradeModal(featureName, featureCaption)
-            }
-        },
-        takeToPricing: () => {
-            posthog.capture('upgrade modal pricing interaction')
-            const link = UPGRADE_LINK(preflightLogic.values.preflight?.cloud)
-            if (link.target) {
-                window.open(link.url, link.target)
-            } else {
-                router.actions.push(link.url)
             }
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {

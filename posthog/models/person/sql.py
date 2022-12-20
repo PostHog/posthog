@@ -1,4 +1,5 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
@@ -39,7 +40,10 @@ PERSONS_TABLE_SQL = lambda: (
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=PERSONS_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=f"""
+    {KAFKA_COLUMNS}
+    , {index_by_kafka_timestamp(PERSONS_TABLE)}
+    """,
     storage_policy=STORAGE_POLICY(),
 )
 
@@ -182,7 +186,11 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     table_name=PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
+    extra_fields=f"""
+    {KAFKA_COLUMNS}
+    , _partition UInt64
+    , {index_by_kafka_timestamp(PERSON_DISTINCT_ID2_TABLE)}
+    """,
 )
 
 KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
