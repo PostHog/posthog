@@ -58,10 +58,17 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         tagLoading,
         insightSaving,
         exporterResourceParams,
+        showErrorMessage,
     } = useValues(logic)
     useMountedLogic(insightCommandLogic(insightProps))
-    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights, abortAnyRunningQuery } =
-        useActions(logic)
+    const {
+        saveInsight,
+        setInsightMetadata,
+        saveAs,
+        reportInsightViewedForRecentInsights,
+        abortAnyRunningQuery,
+        loadResults,
+    } = useActions(logic)
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
     const { hasAvailableFeature } = useValues(userLogic)
@@ -76,8 +83,14 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }, [insightId])
 
     useEffect(() => {
+        if (showErrorMessage) {
+            // if mounting and logic is already in error state, then
+            // this insight was probably cancelled on navigation and
+            // it is safe to reload
+            loadResults()
+        }
         return () => {
-            // request cancellation of any running queries if this component is no longer in the dom
+            // request cancellation of any running queries when this component is no longer in the dom
             abortAnyRunningQuery()
         }
     }, [])
