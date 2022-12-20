@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { UnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
-import { colonDelimitedDuration } from 'lib/utils'
-import { useEffect, useMemo } from 'react'
+import { colonDelimitedDuration, disableHourFor } from 'lib/utils'
+import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { SessionRecordingPlayerTab } from '~/types'
@@ -16,6 +16,7 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useDebouncedCallback } from 'use-debounce'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
+import './PlayerInspectorList.scss'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -36,7 +37,7 @@ function PlayerInspectorListItem({
     logicProps: SessionRecordingPlayerLogicProps
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
-    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, timestampMode } = useValues(
+    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, timestampMode, playerPosition } = useValues(
         sharedListLogic(logicProps)
     )
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
@@ -56,6 +57,8 @@ function PlayerInspectorListItem({
 
     const totalHeight = height && index > 0 ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN_TOP : height
 
+    console.log('RENDER', index, playerPosition)
+
     // Height changes should layout immediately but width ones (browser resize can be much slower)
     useEffect(() => {
         if (!width || !totalHeight) {
@@ -73,7 +76,7 @@ function PlayerInspectorListItem({
     return (
         <div
             ref={ref}
-            className={clsx('flex flex-1 overflow-hidden gap-2')}
+            className={clsx('flex flex-1 overflow-hidden gap-2 relative')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
                 marginTop: index > 0 ? PLAYER_INSPECTOR_LIST_ITEM_MARGIN_TOP : undefined, // Style as we need it for the layout optimisation
@@ -83,6 +86,10 @@ function PlayerInspectorListItem({
                 <span className="shrink-0 text-lg text-muted-alt h-8 w-5 text-center flex items-center justify-center">
                     {TabToIcon[item.type]}
                 </span>
+            ) : null}
+
+            {playerPosition.markerPosition === index ? (
+                <span className="absolute right-0 top-0 bg-primary-light rounded p-2">HERE!</span>
             ) : null}
 
             <span
@@ -136,7 +143,7 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items } = useValues(sharedListLogic(props))
+    const { items, playerPosition } = useValues(sharedListLogic(props))
 
     const cellMeasurerCache = useMemo(
         () =>
@@ -147,6 +154,30 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
             }),
         []
     )
+
+    const listRef = useRef<List | null>()
+
+    // TRICKY: this is hacky but there is no other way to add a timestamp marker to the <List> component children
+    // We want this as otherwise we would have a tonne of unecessary re-rendering going on or poor scroll matching
+    useEffect(() => {
+        if (listRef.current) {
+            const listElement = document.getElementById('PlayerInspectorList')
+            const positionMarkerEl = document.createElement('div')
+            positionMarkerEl.id = 'PlayerInspectorListMarker'
+            listElement?.appendChild(positionMarkerEl)
+        }
+    }, [listRef.current])
+
+    useEffect(() => {
+        if (listRef.current) {
+            const markerTopPos = listRef.current?.getOffsetForRow({
+                alignment: 'start',
+                index: playerPosition.markerPosition,
+            })
+            console.log({ markerTopPos })
+            document.getElementById('PlayerInspectorListMarker')?.setAttribute('style', `top: ${markerTopPos}px`)
+        }
+    }, [playerPosition.markerPosition])
 
     const renderRow: ListRowRenderer = ({ index, key, parent, style }) => {
         return (
@@ -188,6 +219,8 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                 rowCount={items.length}
                                 rowHeight={cellMeasurerCache.rowHeight}
                                 rowRenderer={renderRow}
+                                ref={listRef}
+                                id="PlayerInspectorList"
                             />
                         )}
                     </AutoSizer>

@@ -12,7 +12,7 @@ import type { sharedListLogicType } from './sharedListLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { consoleLogsListLogic } from 'scenes/session-recordings/player/inspector/consoleLogsListLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
 import Fuse from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
@@ -156,6 +156,8 @@ export const sharedListLogic = kea<sharedListLogicType>([
             ['showOnlyMatching'],
             sessionRecordingDataLogic(props),
             ['peformanceEvents', 'consoleLogs', 'sessionPlayerMetaData', 'sessionEventsData'],
+            sessionRecordingPlayerLogic(props),
+            ['currentPlayerTime'],
             featureFlagLogic,
             ['featureFlags'],
         ],
@@ -264,7 +266,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
         },
     })),
 
-    selectors(({}) => ({
+    selectors(({ values }) => ({
         miniFilters: [
             (s) => [s.tab, s.selectedMiniFilters],
             (tab, selectedMiniFilters): SharedListMiniFilter[] => {
@@ -510,6 +512,22 @@ export const sharedListLogic = kea<sharedListLogicType>([
 
                 return items
             },
+        ],
+
+        playerPosition: [
+            (s) => [s.currentPlayerTime, s.allItems],
+            (playerTime, allItems): { markerPosition: number; items: number[] } => {
+                // Return the indexes of all the events
+                if (!playerTime) {
+                    return { markerPosition: 0, items: [] }
+                }
+
+                const timeSeconds = Math.floor(playerTime / 1000)
+                const startIndex = allItems.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
+
+                return { markerPosition: startIndex, items: [] }
+            },
+            { resultEqualityCheck: (a, b) => a.markerPosition === b.markerPosition },
         ],
 
         lastItemTimestamp: [

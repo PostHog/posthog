@@ -1,0 +1,13 @@
+#PlayerInspectorListMarker {
+    position: absolute;
+    top: 0;
+    right: 0;
+    pointer-events: none;
+    z-index: 1;
+    width: 100px;
+    height: 20px;
+    background-color: var(--primary-highlight);
+    border: 1px solid var(--primary);
+    border-radius: var(--radius);
+    transition: top 100ms linear;
+}
