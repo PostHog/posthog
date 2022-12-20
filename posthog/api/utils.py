@@ -41,12 +41,22 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         return possible_entity
 
     possible_entity = retrieve_entity_from(
-        filter.target_entity_id, filter.target_entity_type, entity_math, filter.events, filter.actions
+        filter.target_entity_id,
+        filter.target_entity_type,
+        entity_math,
+        filter.events,
+        filter.actions,
     )
     if possible_entity:
         return possible_entity
     elif filter.target_entity_type:
-        return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
+        return Entity(
+            {
+                "id": filter.target_entity_id,
+                "type": filter.target_entity_type,
+                "math": entity_math,
+            }
+        )
     else:
         raise ValidationError("An entity must be provided for target entity to be determined")
 
@@ -62,7 +72,11 @@ def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[
 
 
 def retrieve_entity_from(
-    entity_id: str, entity_type: Optional[str], entity_math: MathType, events: List[Entity], actions: List[Entity]
+    entity_id: str,
+    entity_type: Optional[str],
+    entity_math: MathType,
+    events: List[Entity],
+    actions: List[Entity],
 ) -> Optional[Entity]:
     """
     Retrieves the entity from the events and actions.
@@ -158,7 +172,11 @@ def get_data(request):
             None,
             cors_response(
                 request,
-                generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
+                generate_exception_response(
+                    "capture",
+                    f"Malformed request data: {error}",
+                    code="invalid_payload",
+                ),
             ),
         )
 
@@ -222,7 +240,10 @@ def get_event_ingestion_context(
             error_response = cors_response(
                 request,
                 generate_exception_response(
-                    "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
+                    "capture",
+                    "Invalid Project ID.",
+                    code="invalid_project",
+                    attr="project_id",
                 ),
             )
             return None, db_error, error_response
@@ -272,7 +293,9 @@ def get_event_ingestion_context(
     return ingestion_context, db_error, error_response
 
 
-def get_event_ingestion_context_for_token(token: str) -> Optional[EventIngestionContext]:
+def get_event_ingestion_context_for_token(
+    token: str,
+) -> Optional[EventIngestionContext]:
     """
     Based on a token associated with a Team, retrieve the context that is
     required to ingest events.
@@ -333,7 +356,11 @@ def safe_clickhouse_string(s: str) -> str:
 
 
 def create_event_definitions_sql(
-    event_type: EventDefinitionType, is_enterprise: bool = False, conditions: str = ""
+    event_type: EventDefinitionType,
+    is_enterprise: bool = False,
+    conditions: str = "",
+    order_UNSAFE: str = "",
+    order_direction: str = "DESC",
 ) -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     if is_enterprise:
@@ -364,11 +391,10 @@ def create_event_definitions_sql(
 
     # Only return event definitions
     raw_event_definition_fields = ",".join(event_definition_fields)
-    ordering = (
-        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
-        if is_enterprise
-        else "ORDER BY name ASC"
+    provided_ordering = (
+        f"{order_UNSAFE} {order_direction} {'NULLS FIRST' if order_direction == 'ASC' else 'NULLS LAST'}"
     )
+    ordering = f"ORDER BY {provided_ordering}, name ASC"
 
     if event_type == EventDefinitionType.EVENT_CUSTOM:
         shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
