@@ -431,7 +431,10 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
         self.create_snapshot(
-            "user", "1", now() - relativedelta(days=1), snapshot_data={"texts": ["\\ud83d\udc83\\ud83c\\udffb"]}
+            "user",
+            "1",
+            now() - relativedelta(days=1),
+            snapshot_data={"texts": ["\\ud83d\udc83\\ud83c\\udffb"]},  # This is an invalid encoded emoji
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
