@@ -45,7 +45,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         }
 
         if snapshot_data:
-            snapshot_data.update(snapshot)
+            snapshot.update(snapshot_data)
 
         create_session_recording_events(
             team_id=team_id,
@@ -53,7 +53,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             timestamp=timestamp,
             session_id=session_id,
             window_id=window_id,
-            snapshots=[snapshot_data],
+            snapshots=[snapshot],
         )
 
     def create_chunked_snapshots(
@@ -430,20 +430,32 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         Person.objects.create(
             team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
         )
-        self.create_snapshot(
-            "user",
-            "1",
-            now() - relativedelta(days=1),
-            snapshot_data={"texts": ["\\ud83d\udc83\\ud83c\\udffb"]},  # This is an invalid encoded emoji
-        )
+        with freeze_time("2022-01-01T12:00:00.000Z"):
+
+            self.create_snapshot(
+                "user",
+                "1",
+                now() - relativedelta(days=1),
+                snapshot_data={"texts": ["\\ud83d\udc83\\ud83c\\udffb"]},  # This is an invalid encoded emoji
+            )
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        assert "base64_content" in response_data
-        assert response_data["error"] == "Unicode error when decoding snapshot data"
-        assert (
-            response_data["detail"]
-            == "'utf-8' codec can't encode character '\\udc83' in position 23: surrogates not allowed"
-        )
+        assert response_data == {
+            "result": {
+                "next": None,
+                "snapshot_data_by_window_id": {
+                    "": [
+                        {
+                            "texts": ["\\ud83d\udc83\\ud83c\\udffb"],
+                            "timestamp": 1640952000000.0,
+                            "has_full_snapshot": True,
+                            "type": 2,
+                            "data": {"source": 0},
+                        }
+                    ]
+                },
+            }
+        }
