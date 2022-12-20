@@ -18,6 +18,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PlayerInspectorList.scss'
 import { range } from 'd3'
+import { teamLogic } from 'scenes/teamLogic'
+import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -139,8 +141,9 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, syncScroll } = useValues(sharedListLogic(props))
+    const { items, playbackIndicatorIndex, syncScroll, tab } = useValues(sharedListLogic(props))
     const { setSyncScroll } = useActions(sharedListLogic(props))
+    const { currentTeam } = useValues(teamLogic)
 
     const cellMeasurerCache = useMemo(
         () =>
@@ -235,7 +238,45 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                     </AutoSizer>
                 </div>
             ) : (
-                <div className="flex-1 flex items-center justify-center text-muted-alt">No results</div>
+                <div className="flex-1 flex items-center justify-center text-muted-alt">
+                    {tab === SessionRecordingPlayerTab.CONSOLE && !currentTeam?.capture_console_log_opt_in ? (
+                        <>
+                            <div className="flex flex-col items-center h-full w-full p-16">
+                                <h4 className="text-xl font-medium">Console logs</h4>
+                                <p className="text-muted text-center">
+                                    Capture all console logs during the browser recording to get technical information
+                                    on what was occuring.
+                                </p>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => openSessionRecordingSettingsDialog()}
+                                    targetBlank
+                                >
+                                    Configure in settings
+                                </LemonButton>
+                            </div>
+                        </>
+                    ) : tab === SessionRecordingPlayerTab.PERFORMANCE && !currentTeam?.capture_console_log_opt_in ? (
+                        <>
+                            <div className="flex flex-col items-center h-full w-full p-16">
+                                <h4 className="text-xl font-medium">Performance events</h4>
+                                <p className="text-muted text-center">
+                                    Capture performance events like network requests during the browser recording to
+                                    understand things like response times, page load times, and more.
+                                </p>
+                                <LemonButton
+                                    type="primary"
+                                    onClick={() => openSessionRecordingSettingsDialog()}
+                                    targetBlank
+                                >
+                                    Configure in settings
+                                </LemonButton>
+                            </div>
+                        </>
+                    ) : (
+                        'No results'
+                    )}
+                </div>
             )}
         </div>
     )
