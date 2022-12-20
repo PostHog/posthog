@@ -85,7 +85,7 @@ export function Experiment(): JSX.Element {
         removeExperimentGroup,
         setExperimentInsightType,
         archiveExperiment,
-        restartExperiment,
+        resetRunningExperiment,
         loadExperiment,
         setExposureAndSampleSize,
         setExperimentValue,
@@ -669,8 +669,8 @@ export function Experiment(): JSX.Element {
                                 <div className="flex flex-row gap-2">
                                     <Popconfirm
                                         placement="top"
-                                        title="Reset this experiment and go back to draft mode? Data collected prior to the new start date will be unused for this experiment."
-                                        onConfirm={() => restartExperiment()}
+                                        title="Reset this experiment and go back to draft mode? All collected data so far will be discarded."
+                                        onConfirm={() => resetRunningExperiment()}
                                     >
                                         <LemonButton type="secondary" status="primary">
                                             Reset
