@@ -15,6 +15,7 @@ import { PaginationManual } from 'lib/components/PaginationControl'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
+import { toast } from 'react-toastify'
 
 export const INSIGHTS_PER_PAGE = 30
 
@@ -249,10 +250,15 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            insight.name = (insight.name || insight.derived_name) + ' (copy)'
-            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
-            actions.loadInsights()
-            redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+            try {
+                insight.name = (insight.name || insight.derived_name) + ' (copy)'
+                const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
+                actions.loadInsights()
+                redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+            } catch (e: any) {
+                const message = e.code && e.detail ? `${e.code}: ${e.detail}` : 'unknown error'
+                toast.error('Could not duplicate insight: ' + message)
+            }
         },
         setDates: () => {
             actions.loadInsights()
