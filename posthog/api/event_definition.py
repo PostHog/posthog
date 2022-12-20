@@ -65,7 +65,9 @@ class EventDefinitionViewSet(
     permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
+
     search_fields = ["name"]
+    ordering_fields = ["volume_30_day", "query_usage_30_day", "name"]
 
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
@@ -76,12 +78,24 @@ class EventDefinitionViewSet(
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
         params = {"team_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
+        if self.request.GET.get("ordering") and self.request.GET["ordering"].replace("-", "") in self.ordering_fields:
+            order = self.request.GET["ordering"].replace("-", "")
+            order_direction = "DESC" if "-" in self.request.GET["ordering"] else "ASC"
+        else:
+            order = "volume_30_day"
+            order_direction = "DESC"
 
         if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
             from ee.models.event_definition import EnterpriseEventDefinition
 
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-            sql = create_event_definitions_sql(event_type, is_enterprise=True, conditions=search_query)
+            sql = create_event_definitions_sql(
+                event_type,
+                is_enterprise=True,
+                conditions=search_query,
+                order_UNSAFE=order,
+                order_direction=order_direction,
+            )
 
             ee_event_definitions = EnterpriseEventDefinition.objects.raw(sql, params=params)
             ee_event_definitions_list = ee_event_definitions.prefetch_related(
@@ -90,7 +104,13 @@ class EventDefinitionViewSet(
 
             return ee_event_definitions_list
 
-        sql = create_event_definitions_sql(event_type, is_enterprise=False, conditions=search_query)
+        sql = create_event_definitions_sql(
+            event_type,
+            is_enterprise=False,
+            conditions=search_query,
+            order_UNSAFE=order,
+            order_direction=order_direction,
+        )
         event_definitions_list = EventDefinition.objects.raw(sql, params=params)
 
         return event_definitions_list
