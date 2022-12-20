@@ -1,0 +1,37 @@
+# name: TestPreflight.test_cloud_preflight_limited_db_queries
+  '
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21 /**/
+  '
+---
+# name: TestPreflight.test_cloud_preflight_limited_db_queries.1
+  '
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" IN ('constance:posthog:SLACK_APP_CLIENT_ID',
+                                            'constance:posthog:SLACK_APP_CLIENT_SECRET',
+                                            'constance:posthog:SLACK_APP_SIGNING_SECRET') /*controller='posthog.views.preflight_check',route='%5E_preflight/%3F%28%3F%3A%5B%3F%23%5D.%2A%29%3F%24'*/
+  '
+---
