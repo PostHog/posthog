@@ -1202,6 +1202,7 @@ describe('DB', () => {
                 session_recording_opt_in: true,
                 slack_incoming_webhook: null,
                 uuid: expect.any(String),
+                usage: null,
             })
         })
 
