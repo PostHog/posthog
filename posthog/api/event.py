@@ -73,6 +73,15 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
+        description="""
+        API for getting most recent events for a team. Returns up to 100 rows at a time.
+
+        Not suited for data exports, use data export apps for that purpose instead.
+
+        On cloud, filtering is limited to a maximum of 3 days.
+        """.strip().replace(
+            "        ", "'"
+        ),
         parameters=[
             OpenApiParameter(
                 "event",
@@ -100,7 +109,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
             ),
             PropertiesSerializer(required=False),
-        ]
+        ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         try:
