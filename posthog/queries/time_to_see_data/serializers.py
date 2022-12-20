@@ -6,6 +6,18 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 
 
+class SessionsQuerySerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(required=False)
+    session_id = serializers.CharField(required=False)
+
+
+class SessionEventsQuerySerializer(serializers.Serializer):
+    session_id = serializers.CharField()
+    team_id = serializers.IntegerField()
+    session_start = serializers.DateTimeField()
+    session_end = serializers.DateTimeField()
+
+
 class SessionResponseSerializer(serializers.Serializer):
     session_id = serializers.CharField()
     user_id = serializers.IntegerField()
@@ -22,16 +34,9 @@ class SessionResponseSerializer(serializers.Serializer):
 
     user = serializers.SerializerMethodField()
 
-    def get_user(self, obj):
-        user = self.context["user_lookup"].get(obj["user_id"])
+    def get_user(self, session):
+        user = self.context.get("user_lookup", UserLookup([session])).get(session["user_id"])
         return UserBasicSerializer(user).data
-
-
-class SessionEventsQuerySerializer(serializers.Serializer):
-    session_id = serializers.CharField()
-    team_id = serializers.IntegerField()
-    session_start = serializers.DateTimeField()
-    session_end = serializers.DateTimeField()
 
 
 class SessionEventSerializer(serializers.Serializer):
@@ -49,6 +54,11 @@ class SessionEventSerializer(serializers.Serializer):
     insights_fetched_cached = serializers.CharField()
 
     is_frustrating = serializers.BooleanField()
+
+
+class SessionEventsResponseSerializer(serializers.Serializer):
+    events = SessionEventSerializer(many=True)
+    session = SessionResponseSerializer()
 
 
 class UserLookup:

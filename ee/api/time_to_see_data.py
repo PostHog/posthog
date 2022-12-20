@@ -3,7 +3,8 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.permissions import IsStaffUser
-from posthog.queries.time_to_see_data.sessions import SessionEventsQuerySerializer, get_session_events, get_sessions
+from posthog.queries.time_to_see_data.serializers import SessionEventsQuerySerializer, SessionsQuerySerializer
+from posthog.queries.time_to_see_data.sessions import get_session_events, get_sessions
 
 
 class TimeToSeeDataViewSet(viewsets.ViewSet):
@@ -11,7 +12,9 @@ class TimeToSeeDataViewSet(viewsets.ViewSet):
 
     @action(methods=["POST"], detail=False)
     def sessions(self, request):
-        return Response(get_sessions().data)
+        query = SessionsQuerySerializer(data=request.data)
+        query.is_valid(raise_exception=True)
+        return Response(get_sessions(query).data)
 
     @action(methods=["POST"], detail=False)
     def session_events(self, request):
