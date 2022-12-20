@@ -200,7 +200,8 @@ class MatrixManager:
                 for record in GroupTypeMapping.objects.filter(team_id=self.MASTER_TEAM_ID).values(
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )
-            )
+            ),
+            ignore_conflicts=True,
         )
 
     @classmethod

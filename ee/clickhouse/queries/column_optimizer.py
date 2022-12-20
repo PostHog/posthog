@@ -6,6 +6,7 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties
 from posthog.models.entity import Entity
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.property import PropertyIdentifier
@@ -43,7 +44,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
         "Returns collection of properties + types that this query would use"
         counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
-        if not isinstance(self.filter, StickinessFilter):
+        if not isinstance(self.filter, (StickinessFilter, PropertiesTimelineFilter)):
             # Some breakdown types read properties
             #
             # See ee/clickhouse/queries/trends/breakdown.py#get_query or
@@ -91,7 +92,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
                 counter += get_action_tables_and_properties(entity.get_action())
 
         if (
-            not isinstance(self.filter, StickinessFilter)
+            not isinstance(self.filter, (StickinessFilter, PropertiesTimelineFilter))
             and self.filter.correlation_type == FunnelCorrelationType.PROPERTIES
             and self.filter.correlation_property_names
         ):
