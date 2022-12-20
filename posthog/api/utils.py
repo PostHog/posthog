@@ -2,7 +2,7 @@ import json
 import re
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, List, Optional, Tuple, Union, cast
+from typing import Any, List, Literal, Optional, Tuple, Union, cast
 from uuid import UUID
 
 import structlog
@@ -359,8 +359,8 @@ def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
-    order_UNSAFE: str = "",
-    order_direction: str = "DESC",
+    order: str = "",
+    direction: Literal["ASC", "DESC"] = "DESC",
 ) -> str:
     # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     if is_enterprise:
@@ -391,10 +391,8 @@ def create_event_definitions_sql(
 
     # Only return event definitions
     raw_event_definition_fields = ",".join(event_definition_fields)
-    provided_ordering = (
-        f"{order_UNSAFE} {order_direction} {'NULLS FIRST' if order_direction == 'ASC' else 'NULLS LAST'}"
-    )
-    ordering = f"ORDER BY {provided_ordering}, name ASC"
+    additional_ordering = f"{order} {direction} {'NULLS FIRST' if direction == 'ASC' else 'NULLS LAST'}, "
+    ordering = f"ORDER BY {additional_ordering} name ASC"
 
     if event_type == EventDefinitionType.EVENT_CUSTOM:
         shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
