@@ -111,7 +111,6 @@ export const insightLogic = kea<insightLogicType>([
 
     actions({
         setActiveView: (type: InsightType) => ({ type }),
-        updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
