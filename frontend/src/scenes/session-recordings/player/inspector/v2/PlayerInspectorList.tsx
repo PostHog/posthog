@@ -159,6 +159,9 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
     // We want this as otherwise we would have a tonne of unecessary re-rendering going on or poor scroll matching
     useEffect(() => {
         if (listRef.current) {
+            if (document.getElementById('PlayerInspectorListMarker')) {
+                return
+            }
             const listElement = document.getElementById('PlayerInspectorList')
             const positionMarkerEl = document.createElement('div')
             positionMarkerEl.id = 'PlayerInspectorListMarker'
