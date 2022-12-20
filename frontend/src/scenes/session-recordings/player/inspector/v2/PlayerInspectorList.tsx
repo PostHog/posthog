@@ -21,7 +21,6 @@ import { range } from 'd3'
 import { teamLogic } from 'scenes/teamLogic'
 import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
-import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 const TabToIcon = {

@@ -30,8 +30,9 @@ import {
 } from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { CONSOLE_LOG_PLUGIN_NAME, parseConsoleLogPayload, parseConsoleLogPayloadV2 } from './inspector/consoleLogsUtils'
+import { CONSOLE_LOG_PLUGIN_NAME, parseConsoleLogPayloadV2 } from './inspector/consoleLogsUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
