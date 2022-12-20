@@ -11,6 +11,7 @@ import { queryNodeToFilter, filtersToQueryNode } from '~/queries/nodes/InsightQu
 import { isLifecycleQuery } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { cleanFilters } from './utils/cleanFilters'
 
 const getQueryFromFilters = (filters: Partial<FilterType>): InsightVizNode => {
     return {
@@ -106,7 +107,19 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setQuery(getCleanedQuery(NodeKind.UnimplementedQuery))
             }
         },
+        setInsight: ({ insight: { filters }, options: { overrideFilter } }) => {
+            if (overrideFilter) {
+                actions.setQuery(getQueryFromFilters(cleanFilters(filters || {})))
+            }
+        },
         loadInsightSuccess: ({ insight }) => {
+            // TODO: missing <Object.keys(state).length === 0> check - do we really need it? why?
+            if (insight.filters) {
+                const query = getQueryFromFilters(insight.filters)
+                actions.setQuery(query)
+            }
+        },
+        loadResultsSuccess: ({ insight }) => {
             // TODO: missing <Object.keys(state).length === 0> check - do we really need it? why?
             if (insight.filters) {
                 const query = getQueryFromFilters(insight.filters)
