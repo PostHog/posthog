@@ -248,20 +248,20 @@ jobs:
                   node-version: 18
 
             - name: Get pnpm cache directory path
-              id: pnpm-cache-dir-path
-              run: echo "::set-output name=dir::$(pnpm store path --silent)"
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
 
             - name: Get cypress cache directory path
-              id: cypress-cache-dir-path
-              run: echo "::set-output name=dir::$(npx cypress cache path)"
+              id: cypress-cache-dir
+              run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
 
             - uses: actions/cache@v3
               id: pnpm-cache
               with:
                   path: |
-                      ${{ steps.pnpm-cache-dir-path.dir }}
-                      ${{ steps.cypress-cache-dir-path.outputs.dir }}
-                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('pnpm-lock.yaml') }}
+                      ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                      ${{ steps.cypress-cache-dir.outputs.CYPRESS_BIN_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('**/pnpm-lock.yaml') }}
                   restore-keys: |
                       ${{ runner.os }}-pnpm-cypress-
 
