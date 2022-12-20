@@ -21,6 +21,8 @@ import { range } from 'd3'
 import { teamLogic } from 'scenes/teamLogic'
 import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
+import { Spinner } from 'lib/components/Spinner/Spinner'
+import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -59,7 +61,7 @@ function PlayerInspectorListItem({
     const onLayoutDebounced = useDebouncedCallback(onLayout, 500)
     const { ref, width, height } = useResizeObserver({})
 
-    const totalHeight = height && index > 0 ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
+    const totalHeight = height ? height + PLAYER_INSPECTOR_LIST_ITEM_MARGIN : height
 
     // Height changes should layout immediately but width ones (browser resize can be much slower)
     useEffect(() => {
@@ -81,8 +83,8 @@ function PlayerInspectorListItem({
             className={clsx('flex flex-1 overflow-hidden gap-2 relative')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                marginTop: index > 0 ? PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2 : undefined, // Style as we need it for the layout optimisation
-                marginBottom: index > 0 ? PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2 : undefined, // Style as we need it for the layout optimisation
+                marginTop: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2, // Style as we need it for the layout optimisation
+                marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2, // Style as we need it for the layout optimisation
             }}
         >
             {!isExpanded && showIcon ? (
@@ -142,7 +144,7 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, syncScroll, tab } = useValues(sharedListLogic(props))
+    const { items, playbackIndicatorIndex, syncScroll, tab, loading } = useValues(sharedListLogic(props))
     const { setSyncScroll } = useActions(sharedListLogic(props))
     const { currentTeam } = useValues(teamLogic)
 
@@ -237,6 +239,10 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                             />
                         )}
                     </AutoSizer>
+                </div>
+            ) : loading[tab] ? (
+                <div className="p-2">
+                    <LemonSkeleton className="my-1 h-8" repeat={20} />
                 </div>
             ) : (
                 <div className="flex-1 flex items-center justify-center text-muted-alt">
