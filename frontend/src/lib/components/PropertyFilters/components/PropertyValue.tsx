@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
-import { AutoComplete, Select } from 'antd'
+import { AutoComplete } from 'antd'
 import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
-import { SelectGradientOverflow } from 'lib/components/SelectGradientOverflow'
 import { PropertyOperator, PropertyType } from '~/types'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import './PropertyValue.scss'
+import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
+import clsx from 'clsx'
 
 type PropValue = {
     id?: number
@@ -142,7 +143,6 @@ export function PropertyValue({
     )
 
     const commonInputProps = {
-        className,
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
@@ -182,47 +182,52 @@ export function PropertyValue({
         },
     }
 
-    return isMultiSelect ? (
-        <SelectGradientOverflow
-            loading={options[propertyKey]?.status === 'loading'}
-            propertyKey={propertyKey}
-            {...commonInputProps}
-            className="property-filters-property-value w-full"
-            autoFocus={autoFocus}
-            value={value === null ? [] : value}
-            mode="multiple"
-            showSearch
-            onChange={(val, payload) => {
-                if (Array.isArray(payload) && payload.length > 0) {
-                    setValue(val)
-                } else if (payload instanceof Option) {
-                    setValue(payload?.value ?? [])
-                } else {
-                    setValue([])
-                }
-            }}
-        >
-            {input && !displayOptions.some(({ name }) => input.toLowerCase() === toString(name).toLowerCase()) && (
-                <Select.Option key="specify-value" value={input} className="ph-no-capture">
-                    Specify: {formatPropertyValueForDisplay(propertyKey, input)}
-                </Select.Option>
-            )}
-            {displayOptions.map(({ name: _name }, index) => {
-                const name = toString(_name)
-                return (
-                    <Select.Option
-                        key={name}
-                        value={name}
-                        data-attr={'prop-val-' + index}
-                        className="ph-no-capture"
-                        title={name}
-                    >
-                        {name === '' ? <i>(empty string)</i> : formatPropertyValueForDisplay(propertyKey, name)}
-                    </Select.Option>
-                )
-            })}
-        </SelectGradientOverflow>
-    ) : isDateTimeProperty ? (
+    if (isMultiSelect) {
+        const formattedValues = (
+            value === null || value === undefined ? [] : Array.isArray(value) ? value : [value]
+        ).map((label) => String(formatPropertyValueForDisplay(propertyKey, label)))
+        return (
+            <LemonSelectMultiple
+                loading={options[propertyKey]?.status === 'loading'}
+                {...commonInputProps}
+                selectClassName={clsx(className, 'property-filters-property-value', 'w-full')}
+                value={formattedValues}
+                mode="multiple-custom"
+                onChange={(nextVal) => {
+                    setValue(nextVal)
+                }}
+                onBlur={commonInputProps.handleBlur}
+                // TODO: When LemonSelectMultiple is free of AntD, add footnote that pressing comma applies the value
+                options={Object.fromEntries([
+                    ...displayOptions.map(({ name: _name }, index) => {
+                        const name = toString(_name)
+                        return [
+                            name,
+                            {
+                                label: name,
+                                labelComponent: (
+                                    <span
+                                        key={name}
+                                        data-attr={'prop-val-' + index}
+                                        className="ph-no-capture"
+                                        title={name}
+                                    >
+                                        {name === '' ? (
+                                            <i>(empty string)</i>
+                                        ) : (
+                                            formatPropertyValueForDisplay(propertyKey, name)
+                                        )}
+                                    </span>
+                                ),
+                            },
+                        ]
+                    }),
+                ])}
+            />
+        )
+    }
+
+    return isDateTimeProperty ? (
         <PropertyFilterDatePicker autoFocus={autoFocus} operator={operator} value={value} setValue={setValue} />
     ) : isDurationProperty ? (
         <DurationPicker autoFocus={autoFocus} initialValue={value as number} onChange={setValue} />

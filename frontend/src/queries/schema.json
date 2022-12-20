@@ -8,6 +8,13 @@
                 "custom_name": {
                     "type": "string"
                 },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
                 "id": {
                     "type": "number"
                 },
@@ -39,6 +46,7 @@
                     "type": "string"
                 },
                 "properties": {
+                    "description": "Properties configurable in the interface",
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
@@ -1247,19 +1255,29 @@
             ],
             "type": "string"
         },
+        "DataTableColumn": {
+            "type": "string"
+        },
         "DataTableNode": {
             "additionalProperties": false,
             "properties": {
                 "columns": {
                     "description": "Columns shown in the table",
                     "items": {
-                        "$ref": "#/definitions/DataTableStringColumn"
+                        "$ref": "#/definitions/DataTableColumn"
                     },
                     "type": "array"
                 },
                 "expandable": {
                     "description": "Can expand row to show raw event data (default: true)",
                     "type": "boolean"
+                },
+                "hiddenColumns": {
+                    "description": "Columns that aren't shown in the table, even if in columns",
+                    "items": {
+                        "$ref": "#/definitions/DataTableColumn"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "DataTableNode",
@@ -1274,11 +1292,11 @@
                     "type": "boolean"
                 },
                 "showColumnConfigurator": {
-                    "description": "Show a button to configure the table's columns",
+                    "description": "Show a button to configure the table's columns if possible",
                     "type": "boolean"
                 },
                 "showEventFilter": {
-                    "description": "Include an event filter above the table (default: true)",
+                    "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
                 "showEventsBufferWarning": {
@@ -1290,23 +1308,34 @@
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
-                    "description": "Include a property filter above the table (default: true)",
+                    "description": "Include a property filter above the table",
                     "type": "boolean"
                 },
                 "showReload": {
                     "description": "Show a reload button",
                     "type": "boolean"
                 },
+                "showSearch": {
+                    "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
                 "source": {
-                    "$ref": "#/definitions/EventsNode",
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/EventsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PersonsNode"
+                        }
+                    ],
                     "description": "Source of the events"
                 }
             },
             "required": ["kind", "source"],
             "type": "object"
-        },
-        "DataTableStringColumn": {
-            "type": "string"
         },
         "DateRange": {
             "additionalProperties": false,
@@ -1421,6 +1450,10 @@
         "EventsNode": {
             "additionalProperties": false,
             "properties": {
+                "actionId": {
+                    "description": "Show events matching a given action",
+                    "type": "number"
+                },
                 "after": {
                     "description": "Only fetch events that happened after this timestamp",
                     "type": "string"
@@ -1434,6 +1467,13 @@
                 },
                 "event": {
                     "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "EventsNode",
@@ -1465,7 +1505,19 @@
                 "name": {
                     "type": "string"
                 },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "personId": {
+                    "description": "Show events for a given person",
+                    "type": "string"
+                },
                 "properties": {
+                    "description": "Properties configurable in the interface",
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"
                     },
@@ -1473,7 +1525,7 @@
                 },
                 "response": {
                     "additionalProperties": false,
-                    "description": "Cached query response",
+                    "description": "Return a limited set of data",
                     "properties": {
                         "next": {
                             "type": "string"
@@ -1490,6 +1542,126 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "EventsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "description": "Show events matching a given action",
+                    "type": "number"
+                },
+                "after": {
+                    "description": "Only fetch events that happened after this timestamp",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch events that happened before this timestamp",
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EventsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "number"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "personId": {
+                    "description": "Show events for a given person",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "results": {
+                            "items": {
+                                "items": {},
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["columns", "types", "results"],
+                    "type": "object"
+                },
+                "select": {
+                    "description": "Return a limited set of data. Required.",
+                    "items": {
+                        "$ref": "#/definitions/DataTableColumn"
+                    },
+                    "type": "array"
+                },
+                "where": {
+                    "description": "Filters to apply before and after data is returned",
+                    "items": {
+                        "$ref": "#/definitions/DataTableColumn"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "select"],
             "type": "object"
         },
         "FilterLogicalOperator": {
@@ -1878,6 +2050,44 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PersonsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "cohort": {
+                    "type": "number"
+                },
+                "distinctId": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "PersonsNode",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "search": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "PropertyFilterValue": {
             "anyOf": [
                 {
@@ -1971,7 +2181,13 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
                     "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/PersonsNode"
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"

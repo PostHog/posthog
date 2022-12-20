@@ -1,6 +1,5 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers } from 'kea'
 import type { columnConfiguratorLogicType } from './columnConfiguratorLogicType'
-import { teamLogic } from 'scenes/teamLogic'
 
 export interface ColumnConfiguratorLogicProps {
     key: string
@@ -19,7 +18,6 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
         unselectColumn: (column: string) => ({ column }),
         setColumns: (columns: string[]) => ({ columns }),
         moveColumn: (oldIndex: number, newIndex: number) => ({ oldIndex, newIndex }),
-        toggleSaveAsDefault: true,
         save: true,
     }),
     reducers(({ props }) => ({
@@ -45,25 +43,15 @@ export const columnConfiguratorLogic = kea<columnConfiguratorLogicType>([
                 },
             },
         ],
-        saveAsDefault: [
-            false,
-            {
-                toggleSaveAsDefault: (state) => !state,
-            },
-        ],
     })),
     propsChanged(({ actions, props }, oldProps) => {
         if (JSON.stringify(props.columns) !== JSON.stringify(oldProps.columns)) {
             actions.setColumns(props.columns)
         }
     }),
-    listeners(({ values, actions, props }) => ({
+    listeners(({ values, props }) => ({
         save: () => {
             props.setColumns(values.columns)
-            if (values.saveAsDefault) {
-                teamLogic.findMounted()?.actions.updateCurrentTeam({ live_events_columns: values.columns })
-                actions.toggleSaveAsDefault()
-            }
         },
     })),
 ])

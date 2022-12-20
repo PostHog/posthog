@@ -10,6 +10,7 @@ class TestInstanceStatus(APIBaseTest):
     @pytest.mark.skip_on_multitenancy
     def test_instance_status_routes(self):
         self.assertEqual(self.client.get("/api/instance_status").status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.get("/api/instance_status/navigation").status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.get("/api/instance_status/queries").status_code, status.HTTP_200_OK)
 
     def test_object_storage_when_disabled(self):
@@ -55,3 +56,62 @@ class TestInstanceStatus(APIBaseTest):
                     {"key": "object_storage", "metric": "Object Storage healthy", "value": True},
                 ],
             )
+
+    @patch("posthog.api.instance_status.is_postgres_alive")
+    @patch("posthog.api.instance_status.is_redis_alive")
+    @patch("posthog.api.instance_status.is_plugin_server_alive")
+    @patch("posthog.api.instance_status.dead_letter_queue_ratio_ok_cached")
+    @patch("posthog.api.instance_status.async_migrations_ok")
+    def test_navigation_ok(self, *mocks):
+        for mock in mocks:
+            mock.return_value = True
+
+        response = self.client.get("/api/instance_status/navigation").json()
+        self.assertEqual(
+            response,
+            {
+                "system_status_ok": True,
+                "async_migrations_ok": True,
+            },
+        )
+
+    @patch("posthog.api.instance_status.is_postgres_alive")
+    @patch("posthog.api.instance_status.is_redis_alive")
+    @patch("posthog.api.instance_status.is_plugin_server_alive")
+    @patch("posthog.api.instance_status.dead_letter_queue_ratio_ok_cached")
+    @patch("posthog.api.instance_status.async_migrations_ok")
+    def test_navigation_not_ok(self, *mocks):
+        for mock in mocks:
+            mock.return_value = False
+
+        response = self.client.get("/api/instance_status/navigation").json()
+
+        self.assertEqual(
+            response,
+            {
+                "system_status_ok": False,
+                "async_migrations_ok": False,
+            },
+        )
+
+    @patch("posthog.api.instance_status.is_postgres_alive")
+    @patch("posthog.api.instance_status.is_redis_alive")
+    @patch("posthog.api.instance_status.is_plugin_server_alive")
+    @patch("posthog.api.instance_status.dead_letter_queue_ratio_ok_cached")
+    def test_navigation_on_cloud(self, *mocks):
+        self.user.is_staff = True
+        self.user.save()
+
+        with self.settings(MULTI_TENANCY=True):
+            response = self.client.get("/api/instance_status/navigation").json()
+
+        self.assertEqual(
+            response,
+            {
+                "system_status_ok": True,
+                "async_migrations_ok": True,
+            },
+        )
+
+        for mock in mocks:
+            self.assertEqual(mock.call_count, 0)

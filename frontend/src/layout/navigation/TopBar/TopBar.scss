@@ -15,6 +15,7 @@
     @include screen($sm) {
         padding: 0.5rem 1rem;
     }
+
     .anticon-caret-down {
         margin-left: 0.25rem;
         color: var(--bg-navy);
@@ -25,12 +26,15 @@
     display: flex;
     align-items: center;
     height: 100%;
+
     &--left {
         flex-grow: 1;
     }
+
     &--left > * + * {
         margin-left: 1rem;
     }
+
     &--right > * + * {
         margin-left: 1rem;
     }
@@ -74,19 +78,24 @@
     height: 3rem;
     padding: 0 1rem 0 0.5rem; // padding is larger on the right to accommodate the close button
     text-align: center;
+
     &--hidden {
         margin-top: -3rem;
     }
+
     @include screen($sm) {
         padding: 0 1rem;
     }
+
     p {
         margin: 0;
     }
+
     a:link {
         color: var(--blue-light);
         text-decoration: underline;
     }
+
     a:visited {
         color: var(--purple-light);
     }
@@ -154,9 +163,11 @@
     width: 100%;
     padding: 0.5rem 0;
     border-bottom: 1px solid var(--border);
+
     &:first-child {
         padding-top: 0;
     }
+
     &:last-child {
         padding-bottom: 0;
         border-bottom: none;
@@ -179,4 +190,58 @@
     font-size: 0.625rem;
     margin-left: 0.5rem;
     text-transform: uppercase;
+}
+
+.CheekyHog {
+    position: absolute;
+    top: -0.2rem;
+    animation-delay: 0s;
+    animation-fill-mode: both;
+    animation-timing-function: ease-out;
+}
+
+.CheekyHog--peek {
+    animation-name: peek;
+    animation-duration: 1s;
+    animation-iteration-count: 1;
+}
+
+.CheekyHog--hide {
+    animation-name: hide;
+    animation-duration: 1s;
+    animation-iteration-count: 1;
+}
+
+@keyframes peek {
+    0% {
+        left: 0;
+        transform: rotate(0);
+    }
+
+    50% {
+        left: -0.5rem;
+        transform: rotate(-20deg);
+    }
+
+    100% {
+        left: -1.45rem;
+        transform: rotate(-45deg);
+    }
+}
+
+@keyframes hide {
+    0% {
+        left: -1.45rem;
+        transform: rotate(-45deg);
+    }
+
+    50% {
+        left: -0.5rem;
+        transform: rotate(-20deg);
+    }
+
+    100% {
+        left: 0;
+        transform: rotate(0);
+    }
 }

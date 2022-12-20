@@ -1,10 +1,11 @@
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from posthog.clickhouse.materialized_columns import ColumnName
 from posthog.constants import PropertyOperatorType
 from posthog.models import Filter
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID, GET_STATIC_COHORTPEOPLE_BY_COHORT_ID
+from posthog.models.cohort.util import format_precalculated_cohort_query, format_static_cohort_query
 from posthog.models.entity import Entity
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -50,6 +51,9 @@ class PersonQuery:
         *,
         entity: Optional[Entity] = None,
         extra_fields: List[ColumnName] = [],
+        # A sub-optimal version of the `cohort` parameter above, the difference being that
+        # this supports multiple cohort filters, but is not as performant as the above.
+        cohort_filters: Optional[List[Property]] = None,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
@@ -57,6 +61,7 @@ class PersonQuery:
         self._cohort = cohort
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
         self._extra_fields = set(extra_fields)
+        self._cohort_filters = cohort_filters
 
         if self.PERSON_PROPERTIES_ALIAS in self._extra_fields:
             self._extra_fields = self._extra_fields - {self.PERSON_PROPERTIES_ALIAS} | {"properties"}
@@ -69,7 +74,9 @@ class PersonQuery:
             properties
         ).inner
 
-    def get_query(self, prepend: str = "", paginate: bool = False) -> Tuple[str, Dict]:
+    def get_query(self, prepend: Optional[Union[str, int]] = None, paginate: bool = False) -> Tuple[str, Dict]:
+        prepend = str(prepend) if prepend is not None else ""
+
         fields = "id" + " ".join(
             f", argMax({column_name}, version) as {alias}" for column_name, alias in self._get_fields()
         )
@@ -78,6 +85,7 @@ class PersonQuery:
             prepend=f"grouped_filters_{prepend}"
         )
         person_filters, person_params = self._get_person_filters(prepend=prepend)
+        cohort_filters, cohort_filter_params = self._get_cohort_filters(prepend=prepend)
         cohort_query, cohort_params = self._get_cohort_query()
         if paginate:
             limit_offset, limit_params = self._get_limit_offset()
@@ -99,6 +107,7 @@ class PersonQuery:
                 WHERE team_id = %(team_id)s
                 {person_filters}
             )
+            {cohort_filters}
             GROUP BY id
             HAVING max(is_deleted) = 0
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
@@ -111,6 +120,7 @@ class PersonQuery:
             FROM person
             {cohort_query}
             WHERE team_id = %(team_id)s
+            {cohort_filters}
             GROUP BY id
             HAVING max(is_deleted) = 0
             {grouped_person_filters} {search_clause} {distinct_id_clause} {email_clause}
@@ -125,6 +135,7 @@ class PersonQuery:
                 **search_params,
                 **distinct_id_params,
                 **email_params,
+                **cohort_filter_params,
                 "team_id": self._team_id,
             },
         )
@@ -140,9 +151,8 @@ class PersonQuery:
         if any(self._uses_person_id(prop) for prop in self._filter.property_groups.flat):
             return True
         for entity in self._filter.entities:
-            if (entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS and entity.math_group_type_index is None) or any(
-                self._uses_person_id(prop) for prop in entity.property_groups.flat
-            ):
+            is_count_per_user = entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS and entity.math_group_type_index is None
+            if is_count_per_user or any(self._uses_person_id(prop) for prop in entity.property_groups.flat):
                 return True
 
         return len(self._column_optimizer.person_columns_to_query) > 0
@@ -199,6 +209,28 @@ class PersonQuery:
             """,
                 {"team_id": self._team_id, "cohort_id": self._cohort.pk},
             )
+        else:
+            return "", {}
+
+    def _get_cohort_filters(self, prepend: str = "") -> Tuple[str, Dict]:
+        if self._cohort_filters:
+            query = []
+            params: Dict[str, Any] = {}
+
+            # TODO: doesn't support non-caclculated cohorts
+            for index, property in enumerate(self._cohort_filters):
+                try:
+                    cohort = Cohort.objects.get(pk=property.value, team_id=self._team_id)
+                    if property.type == "static-cohort":
+                        subquery, subquery_params = format_static_cohort_query(cohort.pk, index, prepend)
+                    else:
+                        subquery, subquery_params = format_precalculated_cohort_query(cohort.pk, index, prepend)
+                    query.append(f"AND id in ({subquery})")
+                    params.update(**subquery_params)
+                except Cohort.DoesNotExist:
+                    continue
+
+            return " ".join(query), params
         else:
             return "", {}
 

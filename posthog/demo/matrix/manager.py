@@ -119,16 +119,18 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
-        source_team = self._prepare_master_team() if self.use_pre_save else team
-        if not self.use_pre_save or not self._is_demo_data_pre_saved():
+        does_clickhouse_data_need_saving = True
+        if self.use_pre_save:
+            does_clickhouse_data_need_saving = not self._is_demo_data_pre_saved()
+            source_team = self._prepare_master_team()
+        else:
+            source_team = team
+        if does_clickhouse_data_need_saving:
             if self.matrix.is_complete is None:
                 self.matrix.simulate()
             self._save_analytics_data(source_team)
         if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
-        else:
-            # If we're not using pre-saved data, we need to wait a bit for data just queued into Kafka to show up in CH
-            self._sleep_until_person_data_in_clickhouse(team.pk)
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
         calculate_event_property_usage_for_team(team.pk, complete_inference=True)
@@ -155,6 +157,8 @@ class MatrixManager:
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
+        # We need to wait a bit for data just queued into Kafka to show up in CH
+        self._sleep_until_person_data_in_clickhouse(data_team.pk)
 
     @classmethod
     def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
@@ -178,14 +182,14 @@ class MatrixManager:
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
         erase_graphile_worker_jobs_for_team(cls.MASTER_TEAM_ID)
 
-    @classmethod
-    def _copy_analytics_data_from_master_team(cls, target_team: Team):
+    def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
-        copy_graphile_worker_jobs_between_teams(cls.MASTER_TEAM_ID, target_team.pk)
-        copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
+        if self.matrix.end > self.matrix.now:
+            copy_graphile_worker_jobs_between_teams(self.MASTER_TEAM_ID, target_team.pk)
+        copy_params = {"source_team_id": self.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
@@ -193,10 +197,11 @@ class MatrixManager:
         GroupTypeMapping.objects.bulk_create(
             (
                 GroupTypeMapping(team=target_team, **record)
-                for record in GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).values(
+                for record in GroupTypeMapping.objects.filter(team_id=self.MASTER_TEAM_ID).values(
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )
-            )
+            ),
+            ignore_conflicts=True,
         )
 
     @classmethod
@@ -256,7 +261,7 @@ class MatrixManager:
                 )
             self._save_past_sim_events(team, subject.past_events)
         # We only want to queue future events if there are any
-        if subject.future_events:
+        if subject.future_events and self.matrix.end > self.matrix.now:
             self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod

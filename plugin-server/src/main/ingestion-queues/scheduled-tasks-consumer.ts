@@ -6,6 +6,7 @@ import { KAFKA_SCHEDULED_TASKS, KAFKA_SCHEDULED_TASKS_DLQ } from '../../config/k
 import { DependencyUnavailableError } from '../../utils/db/error'
 import { status } from '../../utils/status'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
+import { latestOffsetTimestampGauge } from './metrics'
 
 // The valid task types that can be scheduled.
 // TODO: not sure if there is another place that defines these but it would be
@@ -44,12 +45,13 @@ export const startScheduledTasksConsumer = async ({
 
     */
 
-    const consumer = kafka.consumer({ groupId: 'scheduled-tasks-runner' })
+    const groupId = 'scheduled-tasks-runner'
+    const consumer = kafka.consumer({ groupId })
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting scheduled tasks consumer')
 
-    const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
+    const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
 
         const tasks = await getTasksFromBatch(batch, producer)
@@ -127,7 +129,14 @@ export const startScheduledTasksConsumer = async ({
             await heartbeat()
         }
 
-        status.info('✅', 'processed_batch', { batchSize: batch.messages.length, numberOfTasksExecuted: tasks.length })
+        await commitOffsetsIfNecessary()
+
+        const lastBatchMessage = batch.messages[batch.messages.length - 1]
+        latestOffsetTimestampGauge
+            .labels({ partition: batch.partition, topic: batch.topic, groupId })
+            .set(Number.parseInt(lastBatchMessage.timestamp))
+
+        status.debug('✅', 'processed_batch', { batchSize: batch.messages.length, numberOfTasksExecuted: tasks.length })
     }
 
     await consumer.connect()

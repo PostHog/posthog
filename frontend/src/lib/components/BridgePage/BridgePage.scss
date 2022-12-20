@@ -21,7 +21,7 @@
         max-width: 100%;
     }
 
-    .BridgePage__art-wrapper {
+    .BridgePage__left-wrapper {
         margin-right: 60px;
         display: none;
 
@@ -55,9 +55,8 @@
         width: 100%;
     }
 
-    .BridgePage__art {
+    .BridgePage__left {
         position: relative;
-        margin-top: 160px;
         visibility: none;
         display: none;
 
@@ -65,7 +64,11 @@
             height: 300px;
         }
 
-        .BridgePage__art__message {
+        .BridgePage__left__art {
+            margin-top: 100px;
+        }
+
+        .BridgePage__left__message {
             position: absolute;
             right: 200px;
             bottom: 270px;
@@ -90,13 +93,13 @@
             opacity: 0;
             transition-timing-function: cubic-bezier(0.455, 0.03, 0.31, 1.585);
 
-            &.BridgePage__art__message--enter {
+            &.BridgePage__left__message--enter {
                 opacity: 0;
                 transform: translateY(50px) rotate(0deg) scale(0.5);
             }
 
-            &.BridgePage__art__message--enter-active,
-            &.BridgePage__art__message--enter-done {
+            &.BridgePage__left__message--enter-active,
+            &.BridgePage__left__message--enter-done {
                 opacity: 1;
                 transform: translateY(0px) rotate(5deg) scale(1);
                 transition: 200ms opacity, 200ms transform;

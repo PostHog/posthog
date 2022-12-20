@@ -1,11 +1,9 @@
 from datetime import datetime
 from unittest.case import skip
-from unittest.mock import patch
 
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
 
-from posthog.caching.update_cache import update_cache_item
 from posthog.constants import FILTER_TEST_ACCOUNTS, INSIGHT_FUNNELS
 from posthog.models import Action, ActionStep, Element
 from posthog.models.cohort import Cohort
@@ -45,7 +43,6 @@ class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_
 
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
-    @patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
     class TestGetFunnel(ClickhouseTestMixin, APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})

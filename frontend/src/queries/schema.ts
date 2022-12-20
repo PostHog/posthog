@@ -22,7 +22,9 @@ import {
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
+    EventsQuery = 'EventsQuery',
     ActionsNode = 'ActionsNode',
+    PersonsNode = 'PersonsNode',
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
@@ -40,7 +42,9 @@ export enum NodeKind {
 export type QuerySchema =
     // Data nodes (see utils.ts)
     | EventsNode
+    | EventsQuery
     | ActionsNode
+    | PersonsNode
 
     // Interface nodes
     | DataTableNode
@@ -72,20 +76,43 @@ export interface EntityNode extends DataNode {
     math?: BaseMathType | PropertyMathType | CountPerActorMathType
     math_property?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
+    /** Properties configurable in the interface */
     properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyPropertyFilter[]
 }
 
 export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     event?: string
     limit?: number
+    /** Show events matching a given action */
+    actionId?: number
+    /** Show events for a given person */
+    personId?: string
     /** Only fetch events that happened before this timestamp */
     before?: string
     /** Only fetch events that happened after this timestamp */
     after?: string
+    /** Columns to order by */
+    orderBy?: string[]
+    /** Return a limited set of data */
     response?: {
         results: EventType[]
         next?: string
+    }
+}
+
+export interface EventsQuery extends Omit<EventsNode, 'kind' | 'response'> {
+    kind: NodeKind.EventsQuery
+    /** Return a limited set of data. Required. */
+    select: DataTableColumn[]
+    /** Filters to apply before and after data is returned */
+    where?: DataTableColumn[]
+    response?: {
+        columns: string[]
+        types: string[]
+        results: any[][]
     }
 }
 
@@ -94,17 +121,32 @@ export interface ActionsNode extends EntityNode {
     id: number
 }
 
+export interface PersonsNode extends DataNode {
+    kind: NodeKind.PersonsNode
+    search?: string
+    cohort?: number
+    distinctId?: string
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyPropertyFilter[]
+}
+
 // Data table node
 
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode
+    source: EventsNode | EventsQuery | PersonsNode
     /** Columns shown in the table  */
-    columns?: DataTableStringColumn[]
-    /** Include an event filter above the table (default: true) */
+    columns?: DataTableColumn[]
+    /** Columns that aren't shown in the table, even if in columns */
+    hiddenColumns?: DataTableColumn[]
+    /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
-    /** Include a property filter above the table (default: true) */
+    /** Include a free text search field (PersonsNode only) */
+    showSearch?: boolean
+    /** Include a property filter above the table */
     showPropertyFilter?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
@@ -112,7 +154,7 @@ export interface DataTableNode extends Node {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
-    /** Show a button to configure the table's columns */
+    /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */
     expandable?: boolean
@@ -120,6 +162,8 @@ export interface DataTableNode extends Node {
     propertiesViaUrl?: boolean
     /** Show warning about live events being buffered max 60 sec (default: false) */
     showEventsBufferWarning?: boolean
+    /** Can the user click on column headers to sort the table? (default: true) */
+    allowSorting?: boolean
 }
 
 // Base class should not be used directly
@@ -194,7 +238,7 @@ export type InsightQueryNode =
     | LifecycleQuery
 export type InsightNodeKind = InsightQueryNode['kind']
 
-export type DataTableStringColumn = string
+export type DataTableColumn = string
 
 // Legacy queries
 
@@ -219,4 +263,15 @@ export interface BreakdownFilter {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number | undefined // Groups aggregation
+}
+
+/** Pass custom metadata to queries. Used for e.g. custom columns in the DataTable. */
+export interface QueryContext {
+    /** Column templates for the DataTable */
+    columns: Record<string, QueryContextColumn>
+}
+
+interface QueryContextColumn {
+    title?: string
+    render?: (props: { record: any }) => JSX.Element
 }

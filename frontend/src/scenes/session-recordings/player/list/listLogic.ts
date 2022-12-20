@@ -103,7 +103,11 @@ export const listLogic = kea<listLogicType>([
         },
         handleRowClick: ({ playerPosition }) => {
             if (playerPosition) {
-                actions.seek(playerPosition)
+                // NOTE: Seek to 1 second before the event to make sure the event is visible
+                actions.seek({
+                    ...playerPosition,
+                    time: Math.max(0, playerPosition.time - 1000),
+                })
             }
         },
     })),

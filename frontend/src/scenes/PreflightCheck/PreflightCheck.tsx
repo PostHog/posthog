@@ -70,7 +70,6 @@ export function PreflightCheck(): JSX.Element {
     return (
         <BridgePage
             view="preflight-check"
-            noHedgehog
             footer={
                 <p className="text-center mt-4 mb-0">
                     Need help? Take a look at our{' '}

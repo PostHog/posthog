@@ -6,6 +6,7 @@ import { EnqueuedPluginJob, JobName } from '../../types'
 import { status } from '../../utils/status'
 import { GraphileWorker } from '../graphile-worker/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
+import { latestOffsetTimestampGauge } from './metrics'
 
 export const startJobsConsumer = async ({
     kafka,
@@ -23,12 +24,13 @@ export const startJobsConsumer = async ({
         at a later date.
     */
 
-    const consumer = kafka.consumer({ groupId: 'jobs-inserter' })
+    const groupId = 'jobs-inserter'
+    const consumer = kafka.consumer({ groupId })
     setupEventHandlers(consumer)
 
     status.info('🔁', 'Starting jobs consumer')
 
-    const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
+    const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, commitOffsetsIfNecessary }) => {
         status.debug('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
             if (!message.value) {
@@ -63,11 +65,11 @@ export const startJobsConsumer = async ({
 
             try {
                 await graphileWorker.enqueue(JobName.PLUGIN_JOB, job)
-                resolveOffset(message.offset)
-                statsd?.increment('jobs_consumer.enqueued')
+                statsd?.increment('jobs_consumer.enqueued') // TODO: migrate to Prometheus
             } catch (error) {
                 status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
-                statsd?.increment('jobs_consumer.enqueue_error')
+                statsd?.increment('jobs_consumer.enqueue_error') // TODO: migrate to Prometheus
+
                 throw error
             }
 
@@ -78,7 +80,14 @@ export const startJobsConsumer = async ({
             await heartbeat()
         }
 
-        status.info('✅', 'Processed batch', { size: batch.messages.length })
+        await commitOffsetsIfNecessary()
+
+        const lastBatchMessage = batch.messages[batch.messages.length - 1]
+        latestOffsetTimestampGauge
+            .labels({ partition: batch.partition, topic: batch.topic, groupId })
+            .set(Number.parseInt(lastBatchMessage.timestamp))
+
+        status.debug('✅', 'Processed batch', { size: batch.messages.length })
     }
 
     await consumer.connect()

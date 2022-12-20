@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="utf-8">
+    <title>My year in PostHog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
+    {% if not debug %}
+        <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+    {% else %}
+        <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
+    {% endif %}
+    <link rel="preload" href="{% static 'Inter.woff2' %}" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="{% static 'Inter.woff' %}" as="font" type="font/woff" crossorigin>
+    <link rel="preload" href="{% static image_webp %}" as="image">
+    <link rel="preload" href="{% static 'background.png' %}" as="image">
+    <script>
+        !function (t, e) {
+            var o, n, p, r;
+            e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) {
+                function g(t, e) {
+                    var o = e.split(".");
+                    2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () {
+                        t.push([e].concat(Array.prototype.slice.call(arguments, 0)))
+                    }
+                }
+
+                (p = t.createElement("script")).type = "text/javascript", p.async = !0, p.src = s.api_host + "/static/array.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r);
+                var u = e;
+                for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) {
+                    var e = "posthog";
+                    return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e
+                }, u.people.toString = function () {
+                    return u.toString(1) + ".people (stub)"
+                }, o = "capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags".split(" "), n = 0; n < o.length; n++) g(u, o[n]);
+                e._i.push([i, s, a])
+            }, e.__SV = 1)
+        }(document, window.posthog || []);
+        posthog.init('{{api_token}}', {
+            api_host: window.location.origin, loaded: function (posthog) {
+                posthog.capture('year in posthog viewed', {
+                    'yearInPostHog': 2022, 'badge': '{{badge}}',     {% for stat in stats %}
+                        '{{ stat.description }}': {{ stat.count }},
+                    {% endfor %}
+                });
+            }
+        })
+    </script>
+    <style>
+        /* Inter; bold (700); latin */
+        @font-face {
+            font-family: 'Inter';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
+            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+
+        @font-face {
+            font-family: 'Inter';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
+            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+
+        /* Inter; normal (400); latin */
+        @font-face {
+            font-family: 'Inter';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
+            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+
+        html {
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
+        }
+
+        body {
+            background-color: #2D2D2D;
+            color: #fff;
+            height: 100vh;
+            width: 100vw;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            font-weight: 400;
+            font-size: 5vw;
+            line-height: 1.25;
+            align-items: center;
+        }
+
+        body:before {
+            content: ' ';
+            display: block;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.1;
+            background-image: url("{%  static "background.png" %}");
+            background-repeat: no-repeat;
+            background-position: 50% 0;
+            background-size: cover;
+        }
+
+        h1 {
+            margin: 0;
+            text-align: center;
+        }
+
+        .flex {
+            display: flex;
+        }
+
+        .grow {
+            flex-grow: 1;
+        }
+
+        .items-center {
+            align-items: center;
+        }
+
+        @media only screen and (min-width: 650px) {
+            body {
+                font-size: 2.5vw;
+            }
+        }
+
+        main {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 1280px;
+            gap: 2rem;
+        }
+
+        @media only screen and (min-width: 650px) {
+            main {
+                flex-direction: row;
+            }
+        }
+
+        .column {
+            width: 90vw;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .column.left {
+            min-width: 326px;
+            margin-bottom: 2rem;
+        }
+
+        .column.right {
+            align-items: start;
+        }
+
+        @media only screen and (min-width: 650px) {
+            .column.left {
+                width: 45%;
+                margin: 0;
+            }
+
+            .column.right {
+                width: 55%;
+            }
+        }
+
+        .footer {
+            flex-shrink: 0;
+            height: 4rem;
+            background-color: #EEEFE9;
+            color: #000;
+            width: 100vw;
+            display: flex;
+            flex-direction: row;
+            z-index:9999;
+            align-items: center;
+        }
+
+        .highlight {
+            color: {{ highlight_color }};
+        }
+
+        .muted {
+            color: #969696;
+        }
+
+        .text-xl {
+            font-weight: 600;
+            font-size: 1.5rem;
+            line-height: 2rem;
+        }
+
+        .text-2xl {
+            font-weight: 600;
+            font-size: 2rem;
+            line-height: 1;
+        }
+
+        .text-3xl {
+            font-weight: 600;
+            font-size: 3rem;
+            line-height: 1;
+        }
+
+        .my-8 {
+            margin-top: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        @media only screen and (min-width: 650px) {
+            .my-8 {
+                margin-top: 2rem;
+                margin-bottom: 2rem;
+            }
+        }
+
+        .px-1 {
+            padding-left: 0.25rem;
+            padding-right: 0.25rem;
+        }
+
+        .px-4 {
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        .pb-4 {
+            padding-bottom: 1rem;
+        }
+
+        .pt-4 {
+            padding-top: 1rem;
+        }
+
+        .pl-8 {
+            padding-left: 2rem;
+        }
+
+        .badge {
+            width: 326px;
+            height: 326px;
+        }
+
+        .stats {
+            display: flex;
+            flex-direction: row;
+            justify-content: space-between;
+            width: 100%;
+            row-gap: 1rem;
+        }
+
+        .stat {
+            display: flex;
+            flex-direction: column;
+            flex-basis: 100%;
+            font-size: 1.5rem;
+        }
+
+        .sharing {
+            display: flex;
+            flex-direction: row;
+            width: 100%;
+            justify-content: space-around;
+            padding-top: 4rem;
+            align-items: center;
+            white-space: nowrap;
+        }
+
+        .sharing * {
+            display: flex;
+            flex-basis: 100%;
+        }
+
+        .sharing svg {
+            width: 48px;
+            height: 48px;
+        }
+
+        .footer .sharing {
+            display: none;
+        }
+
+        @media only screen and (min-width: 650px) {
+            .right .sharing {
+                display: none;
+            }
+
+            .footer .sharing {
+                display: flex;
+            }
+
+            .footer .sharing > div:first-child {
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+                padding-right: 0.75rem;
+            }
+
+            .sharing {
+                padding-top: 0;
+            }
+
+            .sharing svg {
+                width: 24px;
+                height: 24px;
+                padding-right: 1rem;
+            }
+
+            .sharing path {
+                fill: black;
+            }
+        }
+
+    </style>
+    <meta name="description" content="{{ explanation }}">
+    <meta name="image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+    <meta property="og:url" content="{{ page_url }}">
+    <meta property="og:title" content="My year in PostHog">
+    <meta property="og:description"
+          content="No hedgehogs were harmed in the course of this year on @posthog. {{ explanation }}">
+    <meta property="og:image" content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:creator" content="@PostHog">
+    <meta name="twitter:title" content="My year in PostHog">
+    <meta name="twitter:description"
+          content="{{ explanation }}">
+    <meta name="twitter:image"
+          content="{{ request.scheme }}://{{ request.META.HTTP_HOST }}{% static opengraph_image %}">
+    <meta name="twitter:site" content="@PostHog">
+    {% for stat in stats %}
+        <meta name="twitter:label{{ forloop.counter }}" content="{{ stat.description }}"/>
+        <meta name="twitter:data{{ forloop.counter }}" content="{{ stat.count }}"/>
+    {% endfor %}
+</head>
+<body>
+<main class="px-4 pb-4" role="main">
+    <div class="left column">
+        <div>This year, I'm {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
+
+        <picture class="badge my-8">
+            <source type="image/webp" srcset="{% static image_webp %}" width="326" height="326">
+            <source type="image/png" srcset="{% static image_png %}" width="326" height="326">
+            <img class="badge" src="{% static image_png %}" width="326" height="326"
+                 alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}">
+        </picture>
+
+        <h1 class="highlight text-3xl">{{ human_badge }}</h1>
+    </div>
+    <div class="right column">
+        <div class="muted">You earned this badge because...</div>
+        <div class="highlight text-2xl my-8">{{ explanation }}</div>
+        <div class="stats pt-4">
+            {% for stat in stats %}
+                <div class="stat px-1">
+                    <div class="highlight text-3xl">{{ stat.count }}</div>
+                    <div>{{ stat.description }}</div>
+                </div>
+            {% endfor %}
+        </div>
+        <div class="sharing">{% include "sharing-buttons.html" %}</div>
+    </div>
+</main>
+<footer class="footer" role="contentinfo">
+    <div class="pl-8 text-xl grow items-center flex">
+        <span>My year in&nbsp;&nbsp;</span>
+        {#        copied from <FriendlyLogo/>#}
+        <svg
+                fill="none"
+                width="8.125rem"
+                height="2rem"
+                viewBox="0 0 130 32"
+                xmlns="http://www.w3.org/2000/svg"
+                xmlnsXlink="http://www.w3.org/1999/xlink"
+        >
+            <g>
+                <path
+                        d="m12.3708 17.2868c-.2868.5737-1.1056.5737-1.3925 0l-.6861-1.3722c-.1095-.2192-.1095-.4771 0-.6963l.6861-1.3722c.2869-.5737 1.1057-.5737 1.3925 0l.6861 1.3722c.1096.2192.1096.4771 0 .6963z"
+                        fill="#1d4aff"
+                />
+                <path
+                        d="m12.3708 25.069c-.2868.5737-1.1056.5737-1.3925 0l-.6861-1.3722c-.1095-.2191-.1095-.4771 0-.6963l.6861-1.3721c.2869-.5738 1.1057-.5738 1.3925 0l.6861 1.3721c.1096.2192.1096.4772 0 .6963z"
+                        fill="#1d4aff"
+                />
+                <path
+                        d="m3.89258 22.1149c0-.6935.83849-1.0408 1.32888-.5504l3.56791 3.5679c.49039.4904.14308 1.3289-.55044 1.3289h-3.56791c-.42992 0-.77844-.3486-.77844-.7785zm0-3.7582c0 .2065.08201.4045.228.5505l7.32612 7.3261c.146.1459.344.228.5504.228h4.0239c.6935 0 1.0409-.8385.5505-1.3289l-11.35004-11.35c-.49039-.4904-1.32888-.1431-1.32888.5504zm0-7.7821c0 .2065.08201.4045.228.5505l15.10822 15.1082c.146.1459.344.228.5504.228h4.0239c.6935 0 1.0409-.8385.5505-1.3289l-19.13214-19.13213c-.49039-.49039-1.32888-.14307-1.32888.55044zm7.78212 0c0 .2065.082.4045.228.5505l14.0073 14.0073c.4904.4904 1.3289.143 1.3289-.5505v-4.0239c0-.2064-.082-.4044-.228-.5504l-14.0073-14.00733c-.4904-.49039-1.3289-.14307-1.3289.55044zm9.111-4.57433c-.4904-.49039-1.3289-.14307-1.3289.55044v4.02389c0 .2065.082.4045.228.5505l6.2252 6.2252c.4904.4904 1.3289.1431 1.3289-.5505v-4.0239c0-.2064-.082-.4044-.228-.5504z"
+                        fill="#f9bd2b"
+                />
+                <path
+                        d="m36.9955 22.2104-7.3273-7.3273c-.4904-.4904-1.3288-.1431-1.3288.5504v10.2493c0 .43.3485.7785.7784.7785h11.3502c.4299 0 .7784-.3485.7784-.7785v-.9334c0-.4299-.35-.7732-.7763-.8287-1.3084-.1703-2.5321-.7679-3.4746-1.7103zm-4.9207 1.7606c-.6874 0-1.2452-.5578-1.2452-1.2451s.5578-1.2452 1.2452-1.2452c.6873 0 1.2451.5579 1.2451 1.2452s-.5578 1.2451-1.2451 1.2451z"
+                        fill="#000"
+                />
+                <g fill="#1d4aff">
+                    <path d="m3.89258 25.6831c0 .4299.34852.7784.77844.7784h3.56791c.69352 0 1.04083-.8385.55044-1.3289l-3.56791-3.5679c-.49039-.4904-1.32888-.1431-1.32888.5505z"/>
+                    <path d="m11.6747 12.4535-6.45324-6.45323c-.49039-.49039-1.32888-.14307-1.32888.55044v4.02389c0 .2065.08201.4045.228.5505l7.55412 7.5541z"/>
+                    <path d="m5.22146 13.7825c-.49039-.4904-1.32888-.1431-1.32888.5504v4.0239c0 .2065.08201.4045.228.5505l7.55412 7.5541v-6.2257z"/>
+                </g>
+                <path
+                        d="m19.4569 12.7759c0-.2064-.082-.4044-.228-.5504l-6.2252-6.22523c-.4904-.49039-1.3289-.14307-1.3289.55044v4.02389c0 .2065.082.4045.228.5505l7.5541 7.5541z"
+                        fill="#f54e00"
+                />
+                <path d="m11.6748 26.4615h4.3464c.6935 0 1.0408-.8385.5504-1.3289l-4.8968-4.8968z" fill="#f54e00"/>
+                <path
+                        d="m11.6748 12.4536v5.9032c0 .2065.082.4045.228.5505l7.5541 7.5541v-5.9032c0-.2065-.082-.4045-.228-.5505z"
+                        fill="#f54e00"
+                />
+            </g>
+            <g fill="#000">
+                <path d="m50.3259 23.3537h3.1979v-5.3028h2.6716c2.9347 0 4.817-1.7406 4.817-4.4324 0-2.6919-1.8823-4.43246-4.817-4.43246h-5.8695zm3.1979-8.0351v-3.4002h2.3478c1.2143 0 1.943.6476 1.943 1.7001 0 1.0524-.7287 1.7001-1.943 1.7001z"/>
+                <path d="m66.7977 23.5156c3.1169 0 5.3837-2.2263 5.3837-5.2623 0-3.0359-2.2668-5.2622-5.3837-5.2622-3.1573 0-5.3837 2.2263-5.3837 5.2622 0 3.036 2.2264 5.2623 5.3837 5.2623zm-2.4287-5.2623c0-1.6191.9715-2.7323 2.4287-2.7323 1.437 0 2.4085 1.1132 2.4085 2.7323 0 1.6192-.9715 2.7324-2.4085 2.7324-1.4572 0-2.4287-1.1132-2.4287-2.7324z"/>
+                <path d="m77.2989 23.5156c2.3882 0 4.0074-1.4977 4.0074-3.2585 0-4.1289-5.4849-2.7931-5.4849-4.4123 0-.4452.4655-.7286 1.1334-.7286.6882 0 1.518.425 1.7811 1.3561l2.3883-.9918c-.4656-1.4775-2.1859-2.4894-4.2706-2.4894-2.2466 0-3.6431 1.3358-3.6431 2.9347 0 3.8657 5.404 2.7931 5.404 4.392 0 .5667-.5263.9512-1.3156.9512-1.1334 0-1.9228-.7893-2.1656-1.7406l-2.3883.931c.5262 1.5383 2.0644 3.0562 4.5539 3.0562z"/>
+                <path d="m88.9994 23.2525-.2024-2.5704c-.3441.1821-.7894.2429-1.1537.2429-.7286 0-1.2143-.5263-1.2143-1.437v-3.8658h2.4692v-2.4692h-2.4692v-2.955h-2.9752v2.955h-1.6192v2.4692h1.6192v4.2503c0 2.4692 1.6798 3.6431 3.8859 3.6431.6072 0 1.1739-.1012 1.6597-.2631z"/>
+                <path d="m99.3728 9.18604v5.50516h-5.6266v-5.50516h-3.1979v14.16766h3.1979v-5.9302h5.6266v5.9302h3.2182v-14.16766z"/>
+                <path d="m109.689 23.5156c3.117 0 5.384-2.2263 5.384-5.2623 0-3.0359-2.267-5.2622-5.384-5.2622-3.157 0-5.384 2.2263-5.384 5.2622 0 3.036 2.227 5.2623 5.384 5.2623zm-2.429-5.2623c0-1.6191.972-2.7323 2.429-2.7323 1.437 0 2.408 1.1132 2.408 2.7323 0 1.6192-.971 2.7324-2.408 2.7324-1.457 0-2.429-1.1132-2.429-2.7324z"/>
+                <path d="m120.815 23.0299c1.113 0 2.105-.3846 2.631-1.0525v.9715c0 1.1334-.911 1.9228-2.307 1.9228-.992 0-1.862-.4858-2.004-1.3156l-2.712.425c.364 1.9228 2.328 3.2181 4.716 3.2181 3.137 0 5.222-1.8418 5.222-4.5741v-9.4721h-2.935v.8703c-.546-.6274-1.477-1.0322-2.672-1.0322-2.833 0-4.614 1.943-4.614 5.0194s1.781 5.0194 4.675 5.0194zm-1.781-5.0194c0-1.518.891-2.4895 2.267-2.4895 1.396 0 2.287.9715 2.287 2.4895 0 1.5179-.891 2.4894-2.287 2.4894-1.376 0-2.267-.9715-2.267-2.4894z"/>
+            </g>
+        </svg>
+    </div>
+    <div>
+        <div class="sharing">{% include "sharing-buttons.html" %}</div>
+    </div>
+</footer>
+</body>
+</html>

@@ -3,9 +3,10 @@ import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { DataNode, EventsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isEventsNode } from '~/queries/utils'
+import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
+import clsx from 'clsx'
 
 export interface DataNodeLogicProps {
     key: string
@@ -87,7 +88,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         autoLoadToggled: [
             false,
             // store the autoload toggle's state in localstorage, separately for each data node kind
-            { persist: true, storageKey: `queries.nodes.dataNodeLogic.autoLoadToggled.${props.query.kind}` },
+            {
+                persist: true,
+                storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query.kind, {
+                    action: (isEventsNode(props.query) || isEventsQuery(props.query)) && props.query.actionId,
+                    person: (isEventsNode(props.query) || isEventsQuery(props.query)) && props.query.personId,
+                }),
+            },
             { toggleAutoLoad: (state) => !state },
         ],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
@@ -109,15 +116,13 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         query: [() => [(_, props) => props.query], (query) => query],
         canLoadNewData: [
             (s) => [s.query],
-            (query) => {
-                return isEventsNode(query)
-            },
+            (query) => isEventsNode(query) || (isEventsQuery(query) && query.orderBy?.[0] === '-timestamp'),
         ],
         canLoadNextData: [
             (s) => [s.query, s.response],
             (query, response) => {
                 return (
-                    isEventsNode(query) &&
+                    (isEventsNode(query) || isEventsQuery(query) || isPersonsNode(query)) &&
                     (response as EventsNode['response'])?.next &&
                     ((response as EventsNode['response'])?.results?.length ?? 0) > 0
                 )

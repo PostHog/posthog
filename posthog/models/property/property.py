@@ -257,6 +257,17 @@ class Property:
             return False
         if isinstance(value, int):
             return value
+
+        # `json.loads()` converts strings to numbers if possible
+        # and we don't want this behavior, as if we wanted a number
+        # we would have passed it as a number
+        try:
+            # tests if string is a number & returns string if it is a number
+            float(value)
+            return value
+        except (ValueError, TypeError):
+            pass
+
         try:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):

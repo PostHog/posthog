@@ -125,7 +125,7 @@ def get_dlq_last_error_timestamp() -> int:
 
 def get_dead_letter_queue_events_last_24h() -> int:
     return sync_execute(
-        "SELECT count(*) FROM events_dead_letter_queue WHERE error_timestamp >= (NOW() - INTERVAL 1 DAY)"
+        "SELECT count() FROM events_dead_letter_queue WHERE error_timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
 
 

@@ -13,7 +13,7 @@ function RubySetupSnippet(): JSX.Element {
         <CodeSnippet language={Language.Ruby}>
             {`posthog = PostHog::Client.new({
     api_key: "${currentTeam?.api_token}",
-    api_host: "${window.location.origin}",
+    host: "${window.location.origin}",
     on_error: Proc.new { |status, msg| print msg }
 })`}
         </CodeSnippet>

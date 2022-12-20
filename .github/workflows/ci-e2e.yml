@@ -87,11 +87,13 @@ jobs:
                   echo "image_size=$image_size_bytes" >> $GITHUB_ENV
                   echo "image_name=$image_name" >> $GITHUB_ENV
             - name: Report image size to PostHog
+              if: github.repository == 'PostHog/posthog'
               uses: PostHog/posthog-github-action@v0.1
               with:
                   posthog-token: ${{secrets.POSTHOG_API_TOKEN}}
                   event: 'posthog-ci-docker-image-built'
                   properties: '{"imageSize": "${{ env.image_size }}", "imageName": "${{ env.image_name }}"}'
+
     posthog_cloud:
         name: PostHog Cloud image build
         # Only run on non-external PRs. We could make this work on external PR's
@@ -235,6 +237,23 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v3
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
+            - name: Install package.json dependencies with pnpm
+              run: |
+                  pnpm install
+                  npx cypress cache clear
+                  npx cypress install
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
@@ -286,11 +305,12 @@ jobs:
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Cypress run
-              uses: cypress-io/github-action@v2
+              uses: cypress-io/github-action@v5
               with:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.specs }}
+                  install: true
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3

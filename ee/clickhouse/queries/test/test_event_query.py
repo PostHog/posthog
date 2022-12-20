@@ -47,7 +47,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             filter=filter,
             entity=entity,
             team=self.team,
-            using_person_on_events=self.team.actor_on_events_querying_enabled,
+            using_person_on_events=self.team.person_on_events_querying_enabled,
         ).get_query()
 
         result = sync_execute(query, params)

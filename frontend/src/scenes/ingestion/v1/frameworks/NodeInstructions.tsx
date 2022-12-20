@@ -7,7 +7,9 @@ function NodeInstallSnippet(): JSX.Element {
         <CodeSnippet language={Language.Bash}>
             {`npm install posthog-node
 # OR
-yarn add posthog-node`}
+yarn add posthog-node
+# OR
+pnpm add posthog-node`}
         </CodeSnippet>
     )
 }

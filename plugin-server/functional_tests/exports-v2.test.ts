@@ -13,7 +13,9 @@ import {
     createPlugin,
     createTeam,
     fetchPluginLogEntries,
+    getMetric,
 } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -145,4 +147,36 @@ test.concurrent(`exports: historical exports v2`, async () => {
             },
         }),
     ])
+})
+
+test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+    // NOTE: it may be another event other than the one we emit here that causes
+    // the gauge to increase, but pushing this event through should at least
+    // ensure that the gauge is updated.
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    const metricBefore = await getMetric({
+        name: 'latest_processed_timestamp_ms',
+        type: 'GAUGE',
+        labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
+    })
+
+    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    })
+
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+        expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
+        expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
+    })
 })

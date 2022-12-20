@@ -28,12 +28,14 @@ from posthog.api import (
     user,
 )
 from posthog.api.decide import hostname_in_allowed_url_list
+from posthog.api.prompt import prompt_webhook
 from posthog.cloud_utils import is_cloud
 from posthog.demo.legacy import demo_route
 from posthog.models import User
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
+from .year_in_posthog import year_in_posthog
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -130,6 +132,7 @@ urlpatterns = [
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
+    opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -147,6 +150,7 @@ urlpatterns = [
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
+    # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),
     opt_slash_path("engage", capture.get_event),
@@ -163,6 +167,8 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
+    path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
+    path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
 ]
 
 if settings.DEBUG:

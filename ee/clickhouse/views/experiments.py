@@ -94,7 +94,7 @@ class ExperimentSerializer(serializers.ModelSerializer):
             "multivariate": {"variants": variants or default_variants},
         }
 
-        if validated_data["filters"].get("aggregation_group_type_index"):
+        if validated_data["filters"].get("aggregation_group_type_index") is not None:
             filters["aggregation_group_type_index"] = validated_data["filters"]["aggregation_group_type_index"]
 
         feature_flag_serializer = FeatureFlagSerializer(
@@ -177,9 +177,6 @@ class ExperimentSerializer(serializers.ModelSerializer):
             feature_flag.active = True
             feature_flag.save()
             return super().update(instance, validated_data)
-
-        elif has_start_date:
-            raise ValidationError("Can't change experiment start date after experiment has begun")
         else:
             # Not a draft, doesn't have start date
             # Or draft without start date

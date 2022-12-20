@@ -14,7 +14,10 @@ class OrganizationResourceAccessSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by", "organization"]
 
     def validate_resource(self, resource):
-        if OrganizationResourceAccess.objects.filter(resource=resource).exists():
+        if OrganizationResourceAccess.objects.filter(
+            organization=self.context["request"].user.organization,
+            resource=resource,
+        ).exists():
             raise serializers.ValidationError("This resource access already exists.", code="unique")
         return resource
 

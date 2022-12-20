@@ -266,7 +266,7 @@ export function ActorRow({ actor, onOpenRecording }: ActorRowProps): JSX.Element
             </div>
 
             {expanded ? (
-                <div className="bg-side border-t">
+                <div className="bg-side border-t rounded-b">
                     <Tabs defaultActiveKey={tab} onChange={setTab} tabBarStyle={{ paddingLeft: 20, marginBottom: 0 }}>
                         <Tabs.TabPane tab="Properties" key="properties">
                             {Object.keys(actor.properties).length ? (

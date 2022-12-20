@@ -46,7 +46,7 @@ describe('Invite Signup', () => {
             cy.visit('/signup/' + response.body.id)
         })
         cy.get('.error-view-container').should('not.exist')
-        cy.get('.InviteSignupSummary span').should('contain', "You've been invited to join")
+        cy.get('.BridgePage__left').should('contain', "You've been invited to join")
         cy.get('input[type="email"]').should('have.value', target_email)
         cy.get('[data-attr="password"]').type('12345678')
         cy.get('.ant-progress-bg').should('not.have.css', 'width', '0px') // Password strength indicator is working

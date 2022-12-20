@@ -841,7 +841,8 @@
              AND event = '$pageview'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND (NOT has([''], "$group_0")) )
+             AND (NOT has([''], "$group_0"))
+             AND "$group_0" != '' )
         GROUP BY date)
      group by day_start
      order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -861,7 +862,8 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0")
-            AND NOT has([''], "$group_0")) )
+            AND NOT has([''], "$group_0"))
+       AND "$group_0" != '' )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC

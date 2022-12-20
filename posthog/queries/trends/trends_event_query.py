@@ -95,10 +95,6 @@ class TrendsEventQuery(EventQuery):
         session_query, session_params = self._get_sessions_query()
         self.params.update(session_params)
 
-        null_person_filter = (
-            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
-        )
-
         query = f"""
             SELECT {_fields} FROM events {self.EVENT_TABLE_ALIAS}
             {self._get_distinct_id_query()}
@@ -109,7 +105,7 @@ class TrendsEventQuery(EventQuery):
             {entity_query}
             {date_query}
             {prop_query}
-            {null_person_filter}
+            {self._get_not_null_actor_condition()}
         """
 
         return query, self.params
@@ -150,6 +146,14 @@ class TrendsEventQuery(EventQuery):
         ) or self._column_optimizer.is_using_cohort_propertes:
             self._should_join_distinct_ids = True
 
+    def _get_not_null_actor_condition(self) -> str:
+        if self._entity.math_group_type_index is None:
+            # If aggregating by person, exclude events with null/zero person IDs
+            return f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+        else:
+            # If aggregating by group, exclude events that aren't associated with a group
+            return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""
+
     def _get_date_filter(self) -> Tuple[str, Dict]:
         date_filter = ""
         query_params: Dict[str, Any] = {}
@@ -182,7 +186,7 @@ class TrendsEventQuery(EventQuery):
 
     def _get_entity_query(self) -> Tuple[str, Dict]:
         entity_params, entity_format_params = get_entity_filtering_params(
-            entity=self._entity,
+            allowed_entities=[self._entity],
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
