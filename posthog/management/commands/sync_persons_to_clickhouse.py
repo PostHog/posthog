@@ -61,16 +61,16 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
     persons = Person.objects.filter(team_id=team_id)
     rows = sync_execute(
         """
-            SELECT id, max(version) FROM person WHERE team_id = %(team_id)s GROUP BY id HAVING max(is_deleted) = 0
+            SELECT id, max(version), is_deleted FROM person WHERE team_id = %(team_id)s GROUP BY id
         """,
         {
             "team_id": team_id,
         },
     )
-    ch_persons_to_version = {row[0]: row[1] for row in rows}
+    ch_persons_to_version = {row[0]: (row[1], row[2]) for row in rows}
 
     for person in persons:
-        ch_version = ch_persons_to_version.get(person.uuid, None)
+        ch_version = ch_persons_to_version.get(person.uuid, None)[0]
         pg_version = person.version or 0
         if ch_version is None or ch_version < pg_version:
             logger.info(f"Updating {person.uuid} to version {pg_version}")
@@ -93,7 +93,9 @@ def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
     if deletes:
         logger.info("Processing person deletions")
         postgres_uuids = {person.uuid for person in persons}
-        for uuid, version in ch_persons_to_version.items():
+        for uuid, (version, is_deleted) in ch_persons_to_version.items():
+            if is_deleted:
+                continue
             if uuid not in postgres_uuids:
                 logger.info(f"Deleting person with uuid={uuid}")
                 if live_run:
@@ -114,16 +116,16 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
     person_distinct_ids = PersonDistinctId.objects.filter(team_id=team_id)
     rows = sync_execute(
         """
-            SELECT distinct_id, max(version) FROM person_distinct_id2 WHERE team_id = %(team_id)s GROUP BY distinct_id HAVING max(is_deleted) = 0
+            SELECT distinct_id, max(version), is_deleted FROM person_distinct_id2 WHERE team_id = %(team_id)s GROUP BY distinct_id
         """,
         {
             "team_id": team_id,
         },
     )
-    ch_distinct_id_to_version = {row[0]: row[1] for row in rows}
+    ch_distinct_id_to_version = {row[0]: (row[1], row[2]) for row in rows}
 
     for person_distinct_id in person_distinct_ids:
-        ch_version = ch_distinct_id_to_version.get(person_distinct_id.distinct_id, None)
+        ch_version = ch_distinct_id_to_version.get(person_distinct_id.distinct_id, None)[0]
         pg_version = person_distinct_id.version or 0
         if ch_version is None or ch_version < pg_version:
             logger.info(f"Updating {person_distinct_id.distinct_id} to version {pg_version}")
@@ -148,7 +150,9 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
     if deletes:
         logger.info("Processing distinct id deletions")
         postgres_distinct_ids = {person_distinct_id.distinct_id for person_distinct_id in person_distinct_ids}
-        for distinct_id, version in ch_distinct_id_to_version.items():
+        for distinct_id, (version, is_deleted) in ch_distinct_id_to_version.items():
+            if is_deleted:
+                continue
             if distinct_id not in postgres_distinct_ids:
                 logger.info(f"Deleting distinct ID {distinct_id}")
                 if live_run:
