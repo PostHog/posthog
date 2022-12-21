@@ -31,7 +31,7 @@ export function TimelineSeekbar({
     return (
         <div className={clsx('TimelineSeekbar', className)}>
             <div className="TimelineSeekbar__meta">
-                <div className="TimelineSeekbar__note">Relevant properties over time</div>
+                <div className="TimelineSeekbar__note">Relevant properties over time</div>
                 <div className="TimelineSeekbar__current">
                     As of{' '}
                     {selectedPointIndex !== null

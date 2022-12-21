@@ -245,6 +245,7 @@ export function ActorRow({ actor, onOpenRecording, propertiesTimelineFilter }: A
                     onClick={() => setExpanded(!expanded)}
                     icon={expanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
                     title={expanded ? 'Show less' : 'Show more'}
+                    data-attr={`persons-modal-expand-${actor.id}`}
                 />
 
                 <ProfilePicture name={name} size="md" />
