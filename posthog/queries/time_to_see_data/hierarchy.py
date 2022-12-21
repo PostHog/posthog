@@ -59,7 +59,6 @@ def is_child(parent: Node, child: Node) -> bool:
     if parent.type == child.type:
         return False
 
-    # Everything can go under a session
     if parent.type == NodeType.SESSION:
         return parent.data["session_id"] == child.data["session_id"]
 

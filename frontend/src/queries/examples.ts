@@ -13,7 +13,7 @@ import {
     PersonsNode,
     RetentionQuery,
     StickinessQuery,
-    TimeToSeeDataQuery,
+    TimeToSeeDataSessionsQuery,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -271,8 +271,8 @@ const InsightLifecycleQuery: LifecycleQuery = {
     },
 }
 
-const TimeToSeeData: TimeToSeeDataQuery = {
-    kind: NodeKind.TimeToSeeDataQuery,
+const TimeToSeeData: TimeToSeeDataSessionsQuery = {
+    kind: NodeKind.TimeToSeeDataSessionsQuery,
 }
 
 export const examples: Record<string, Node> = {

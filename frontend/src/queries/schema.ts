@@ -39,7 +39,7 @@ export enum NodeKind {
     LifecycleQuery = 'LifecycleQuery',
 
     // Misc
-    TimeToSeeDataQuery = 'TimeToSeeDataQuery',
+    TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
 }
 
 export type QuerySchema =
@@ -62,7 +62,7 @@ export type QuerySchema =
     | LifecycleQuery
 
     // Misc
-    | TimeToSeeDataQuery
+    | TimeToSeeDataSessionsQuery
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -235,8 +235,8 @@ export interface LifecycleQuery extends InsightsQueryBase {
     lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 }
 
-export interface TimeToSeeDataQuery extends DataNode {
-    kind: NodeKind.TimeToSeeDataQuery
+export interface TimeToSeeDataSessionsQuery extends DataNode {
+    kind: NodeKind.TimeToSeeDataSessionsQuery
 
     /** Date range for the query */
     dateRange?: DateRange
