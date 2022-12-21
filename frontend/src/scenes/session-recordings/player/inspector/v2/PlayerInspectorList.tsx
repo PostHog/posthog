@@ -241,7 +241,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                 </div>
             ) : loading[tab] ? (
                 <div className="p-2">
-                    <LemonSkeleton className="my-1 h-8" repeat={20} />
+                    <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
             ) : (
                 <div className="flex-1 flex items-center justify-center text-muted-alt">
