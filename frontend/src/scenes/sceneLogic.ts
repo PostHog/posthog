@@ -374,8 +374,8 @@ export const sceneLogic = kea<sceneLogicType>({
 
             // Ensure the current team is set in the URL
             // This triggers the AutoProjectMiddleware to ensure the team is correct if possible
-            if (values.currentTeam?.id && searchParams.tid !== values.currentTeam?.id) {
-                searchParams.tid = values.currentTeam.id
+            if (values.currentTeam?.id && searchParams.pid !== values.currentTeam?.id) {
+                searchParams.pid = values.currentTeam.id
                 router.actions.replace(pathname, searchParams, hash)
             }
 
