@@ -142,7 +142,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                 existing_dashboard.get_effective_privilege_level(self.context["request"].user.id)
                 < Dashboard.PrivilegeLevel.CAN_EDIT
             ):
-                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {use_dashboard}")
+                raise PermissionDenied(f"You don't have permission to add insights to dashboard: {existing_dashboard.name}")
 
         dashboard = Dashboard.objects.create(team=team, **validated_data)
 
