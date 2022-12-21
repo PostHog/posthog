@@ -58,7 +58,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     onChange={(checked) => {
                         updateCurrentTeam({ capture_console_log_opt_in: checked })
                     }}
-                    label="Capture console logs within recordings"
+                    label="Capture console logs"
                     labelClassName={inModal ? 'text-base font-semibold' : ''}
                     bordered={!inModal}
                     fullWidth={inModal}
@@ -78,7 +78,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         onChange={(checked) => {
                             updateCurrentTeam({ capture_performance_opt_in: checked })
                         }}
-                        label="Capture network requests and performance information within recordings"
+                        label="Capture network performance"
                         labelClassName={inModal ? 'text-base font-semibold' : ''}
                         bordered={!inModal}
                         fullWidth={inModal}
