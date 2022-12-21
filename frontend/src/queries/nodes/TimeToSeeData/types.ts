@@ -38,6 +38,7 @@ interface InteractionData {
     status: string
 
     type: string
+    context: string
     is_primary_interaction: boolean
     api_response_bytes: number
     time_to_see_data_ms: number
