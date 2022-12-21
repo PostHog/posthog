@@ -9,7 +9,7 @@ import { ItemMode } from '~/types'
 import { isFunnelsQuery } from '~/queries/utils'
 
 import { dataNodeLogic, DataNodeLogicProps } from '../DataNode/dataNodeLogic'
-import { queryNodeToFilter } from '../InsightQuery/queryNodeToFilter'
+import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { InsightQueryNode, InsightVizNode } from '../../schema'
 
 import { InsightContainer } from './InsightContainer'

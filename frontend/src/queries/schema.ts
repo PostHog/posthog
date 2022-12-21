@@ -260,6 +260,7 @@ export type InsightQueryNode =
     | LifecycleQuery
     | UnimplementedQuery
 export type InsightNodeKind = InsightQueryNode['kind']
+export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
 
 export type DataTableColumn = string
 

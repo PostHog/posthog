@@ -13,7 +13,7 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { toParams } from 'lib/utils'
-import { queryNodeToFilter } from './nodes/InsightQuery/queryNodeToFilter'
+import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { now } from 'lib/dayjs'
 
 const EVENTS_DAYS_FIRST_FETCH = 5

@@ -1,4 +1,11 @@
-import { InsightQueryNode, EventsNode, ActionsNode, InsightNodeKind, NodeKind, BreakdownFilter } from '~/queries/schema'
+import {
+    InsightQueryNode,
+    EventsNode,
+    ActionsNode,
+    SupportedNodeKind,
+    NodeKind,
+    BreakdownFilter,
+} from '~/queries/schema'
 import { FilterType, InsightType, ActionFilter, EntityTypes } from '~/types'
 import {
     isEventsNode,
@@ -10,7 +17,7 @@ import {
     isUnimplementedQuery,
     isLifecycleQuery,
 } from '~/queries/utils'
-import { isLifecycleFilter } from 'scenes/insights/sharedUtils'
+import { filterUndefined } from './filterUndefined'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
 
@@ -44,36 +51,6 @@ const seriesToActionsAndEvents = (series: (EventsNode | ActionsNode)[]): Require
     return { actions, events }
 }
 
-export const actionsAndEventsToSeries = ({
-    actions,
-    events,
-}: FilterTypeActionsAndEvents): (EventsNode | ActionsNode)[] => {
-    const series: any = [...(actions || []), ...(events || [])]
-        .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
-        // TODO: handle new_entity type
-        .map((f) =>
-            f.type === 'actions'
-                ? {
-                      kind: NodeKind.ActionsNode,
-                      id: f.id,
-                      name: f.name || undefined,
-                      custom_name: f.custom_name,
-                      properties: f.properties,
-                  }
-                : {
-                      kind: NodeKind.EventsNode,
-                      event: f.id,
-                      name: f.name || undefined,
-                      custom_name: f.custom_name,
-                      properties: f.properties,
-                  }
-        )
-
-    return series
-}
-
-type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
-
 const insightMap: Record<SupportedNodeKind, InsightType> = {
     [NodeKind.TrendsQuery]: InsightType.TRENDS,
     [NodeKind.FunnelsQuery]: InsightType.FUNNELS,
@@ -81,14 +58,6 @@ const insightMap: Record<SupportedNodeKind, InsightType> = {
     [NodeKind.PathsQuery]: InsightType.PATHS,
     [NodeKind.StickinessQuery]: InsightType.STICKINESS,
     [NodeKind.LifecycleQuery]: InsightType.LIFECYCLE,
-}
-const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
-    [InsightType.TRENDS]: NodeKind.TrendsQuery,
-    [InsightType.FUNNELS]: NodeKind.FunnelsQuery,
-    [InsightType.RETENTION]: NodeKind.RetentionQuery,
-    [InsightType.PATHS]: NodeKind.PathsQuery,
-    [InsightType.STICKINESS]: NodeKind.StickinessQuery,
-    [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
 }
 
 const filterMap: Record<SupportedNodeKind, string> = {
@@ -108,6 +77,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
         date_to: query.dateRange?.date_to,
         // TODO: not used by retention queries
         date_from: query.dateRange?.date_from,
+        entity_type: 'events',
     })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query) && !isUnimplementedQuery(query)) {
@@ -133,51 +103,4 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
     Object.assign(filters, query[filterMap[query.kind]])
 
     return filters
-}
-
-export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNode => {
-    if (!filters.insight) {
-        throw new Error('filtersToQueryNode expects "insight"')
-    }
-
-    const { events, actions } = filters
-    const series = actionsAndEventsToSeries({ actions, events } as any)
-    const query: InsightQueryNode = filterUndefined({
-        kind: reverseInsightMap[filters.insight],
-        properties: filters.properties,
-        filterTestAccounts: filters.filter_test_accounts,
-        dateRange: filterUndefined({
-            date_to: filters.date_to,
-            date_from: filters.date_from,
-        }),
-        breakdown: filterUndefined({
-            breakdown_type: filters.breakdown_type,
-            breakdown: filters.breakdown,
-            breakdown_normalize_url: filters.breakdown_normalize_url,
-            breakdowns: filters.breakdowns,
-            breakdown_value: filters.breakdown_value,
-            breakdown_group_type_index: filters.breakdown_group_type_index,
-            aggregation_group_type_index: filters.aggregation_group_type_index,
-        }),
-        interval: filters.interval,
-        series,
-    })
-
-    if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
-        query.lifecycleFilter = filterUndefined({
-            shown_as: filters.shown_as,
-        })
-    }
-
-    return query
-}
-
-function filterUndefined<T extends Record<string | number | symbol, unknown>>(object: T): T {
-    const newObject = { ...object }
-    Object.keys(newObject).forEach((k) => {
-        if (newObject[k] === undefined) {
-            delete newObject[k]
-        }
-    })
-    return newObject
 }

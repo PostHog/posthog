@@ -4,7 +4,7 @@ import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { AdHocInsight } from 'lib/components/AdHocInsight/AdHocInsight'
 
-import { queryNodeToFilter } from './queryNodeToFilter'
+import { queryNodeToFilter } from './utils/queryNodeToFilter'
 
 /** Use new insight queries and transform them into old insight props to display the respective visualization. */
 export function InsightQuery({ query }: { query: InsightQueryNode }): JSX.Element {
