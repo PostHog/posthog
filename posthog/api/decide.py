@@ -156,16 +156,15 @@ def get_decide(request: HttpRequest):
                 group_property_value_overrides=(data.get("group_properties") or {}),
             )
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
+            response["capturePerformance"] = True if team.capture_performance_opt_in else False
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
-                capture_performance = True if team.capture_performance_opt_in else False
                 response["sessionRecording"] = {
                     "endpoint": "/s/",
                     "consoleLogRecordingEnabled": capture_console_logs,
-                    "capturePerformance": capture_performance,
                 }
 
             response["siteApps"] = get_decide_site_apps(team) if team.inject_web_apps else []

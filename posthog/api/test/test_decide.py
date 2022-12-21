@@ -86,7 +86,7 @@ class TestDecide(BaseTest):
         response = self._post_decide().json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False, "capturePerformance": False},
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
@@ -102,23 +102,19 @@ class TestDecide(BaseTest):
         response = self._post_decide().json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": True, "capturePerformance": False},
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": True},
         )
 
     def test_user_performance_opt_in(self):
         # :TRICKY: Test for regression around caching
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], False)
+        self.assertEqual(response["capturePerformance"], False)
 
-        self.team.session_recording_opt_in = True
         self.team.capture_performance_opt_in = True
         self.team.save()
 
         response = self._post_decide().json()
-        self.assertEqual(
-            response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False, "capturePerformance": True},
-        )
+        self.assertEqual(response["capturePerformance"], True)
 
     def test_user_session_recording_opt_in_wildcard_domain(self):
         # :TRICKY: Test for regression around caching
@@ -132,7 +128,7 @@ class TestDecide(BaseTest):
         response = self._post_decide(origin="https://random.example.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False, "capturePerformance": False},
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
         )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
@@ -151,7 +147,7 @@ class TestDecide(BaseTest):
         response = self._post_decide(origin="https://example.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False, "capturePerformance": False},
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
         )
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self):
@@ -162,7 +158,7 @@ class TestDecide(BaseTest):
         response = self._post_decide(origin="any.site.com").json()
         self.assertEqual(
             response["sessionRecording"],
-            {"endpoint": "/s/", "consoleLogRecordingEnabled": False, "capturePerformance": False},
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
         )
 
     def test_web_app_queries(self):
