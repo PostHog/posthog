@@ -94,7 +94,12 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         assert personal_api_key_object.user is not None
 
         # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
-        tag_queries(user_id=personal_api_key_object.user.pk, team_id=personal_api_key_object.user.current_team_id)
+        tag_queries(
+            user_id=personal_api_key_object.user.pk,
+            team_id=personal_api_key_object.user.current_team_id,
+            access_method="personal_api_key",
+        )
+        request.using_personal_api_key = True  # type: ignore
         return personal_api_key_object.user, None
 
     @classmethod
