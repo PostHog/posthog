@@ -83,7 +83,7 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperiment,
         removeExperimentGroup,
-        setExperimentInsightType,
+        createNewExperimentInsight,
         archiveExperiment,
         resetRunningExperiment,
         loadExperiment,
@@ -289,19 +289,22 @@ export function Experiment(): JSX.Element {
                                                             </Field>
 
                                                             <div className="float-right">
-                                                                {!(index === 0 || index === 1) && (
-                                                                    <Tooltip
-                                                                        title="Delete this variant"
-                                                                        placement="bottomLeft"
-                                                                    >
-                                                                        <LemonButton
-                                                                            status="primary-alt"
-                                                                            size="small"
-                                                                            icon={<IconDelete />}
-                                                                            onClick={() => removeExperimentGroup(index)}
-                                                                        />
-                                                                    </Tooltip>
-                                                                )}
+                                                                {experimentId === 'new' &&
+                                                                    !(index === 0 || index === 1) && (
+                                                                        <Tooltip
+                                                                            title="Delete this variant"
+                                                                            placement="bottomLeft"
+                                                                        >
+                                                                            <LemonButton
+                                                                                status="primary-alt"
+                                                                                size="small"
+                                                                                icon={<IconDelete />}
+                                                                                onClick={() =>
+                                                                                    removeExperimentGroup(index)
+                                                                                }
+                                                                            />
+                                                                        </Tooltip>
+                                                                    )}
                                                             </div>
                                                         </Row>
                                                     </Group>
@@ -441,9 +444,11 @@ export function Experiment(): JSX.Element {
                                         <LemonSelect
                                             value={experimentInsightType}
                                             onChange={(val) => {
-                                                if (val) {
-                                                    setExperimentInsightType(val)
-                                                }
+                                                val &&
+                                                    createNewExperimentInsight({
+                                                        insight: val,
+                                                        properties: experiment?.filters?.properties,
+                                                    })
                                             }}
                                             dropdownMatchSelectWidth={false}
                                             options={[
@@ -811,7 +816,11 @@ export function Experiment(): JSX.Element {
                                                         </div>
                                                     )}
                                                     <div>
-                                                        Goal: <b>{experiment?.parameters?.recommended_running_time}</b>{' '}
+                                                        Goal:{' '}
+                                                        <b>
+                                                            {experiment?.parameters?.recommended_running_time ??
+                                                                'Unknown'}
+                                                        </b>{' '}
                                                         days
                                                     </div>
                                                 </Row>
