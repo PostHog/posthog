@@ -116,6 +116,7 @@ export function PlayerInspectorControls({
                                 // "alone" should always be a select-to-true action
                                 setMiniFilter(filter.key, filter.alone || !filter.enabled)
                             }}
+                            tooltip={filter.tooltip}
                         >
                             <span className="p-1 text-xs">{filter.name}</span>
                         </LemonButton>
