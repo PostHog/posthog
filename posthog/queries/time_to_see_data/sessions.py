@@ -39,6 +39,15 @@ WHERE team_id = %(team_id)s
   AND timestamp <= toDateTime(%(session_end)s) + toIntervalHour(2)
 """
 
+GET_SESSION_QUERIES = f"""
+SELECT * EXCEPT (ProfileEvents), query_duration_ms >= 5000 AS is_frustrating
+FROM metrics_query_log
+WHERE team_id = %(team_id)s
+  AND session_id = %(session_id)s
+  AND timestamp >= %(session_start)s
+  AND timestamp <= toDateTime(%(session_end)s) + toIntervalHour(2)
+"""
+
 
 def get_sessions(query: SessionsQuerySerializer) -> SessionResponseSerializer:
     sessions = _fetch_sessions(query)
@@ -50,22 +59,23 @@ def get_sessions(query: SessionsQuerySerializer) -> SessionResponseSerializer:
 
 
 def get_session_events(query: SessionEventsQuerySerializer) -> SessionEventsResponseSerializer:
-    events = query_with_columns(
-        GET_SESSION_EVENTS,
-        {
-            "team_id": query.validated_data["team_id"],
-            "session_id": query.validated_data["session_id"],
-            "session_start": query.validated_data["session_start"].strftime("%Y-%m-%d %H:%M:%S"),
-            "session_end": query.validated_data["session_end"].strftime("%Y-%m-%d %H:%M:%S"),
-        },
-    )
+    params = {
+        "team_id": query.validated_data["team_id"],
+        "session_id": query.validated_data["session_id"],
+        "session_start": query.validated_data["session_start"].strftime("%Y-%m-%d %H:%M:%S"),
+        "session_end": query.validated_data["session_end"].strftime("%Y-%m-%d %H:%M:%S"),
+    }
+    events = query_with_columns(GET_SESSION_EVENTS, params)
+    queries = query_with_columns(GET_SESSION_QUERIES, params)
     session_query = SessionsQuerySerializer(
         data={"team_id": query.validated_data["team_id"], "session_id": query.validated_data["session_id"]}
     )
     session_query.is_valid(raise_exception=True)
     session = get_sessions(session_query).data[0]
 
-    response_serializer = SessionEventsResponseSerializer(data={"session": session, "events": events})
+    response_serializer = SessionEventsResponseSerializer(
+        data={"session": session, "events": events, "queries": queries}
+    )
     response_serializer.is_valid(raise_exception=True)
     return response_serializer
 

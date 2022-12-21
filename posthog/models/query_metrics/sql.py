@@ -159,7 +159,7 @@ CREATE TABLE metrics_query_log ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     `kind` String,
     `query_type` String,
     `client_query_id` String,
-    `endpoint` String,
+    `id` String,
     `route_id` String,
     `query_time_range_days` Int64,
     `has_joins` UInt8,
@@ -214,7 +214,7 @@ SELECT
     JSONExtract(log_comment, 'breakdown_by', 'Array(String)') as breakdown_by,
     JSONExtract(log_comment, 'entity_math', 'Array(String)') as entity_math,
     JSONExtractString(log_comment, 'filter') AS filter,
-    ProfileEvents
+    ProfileEvents,
     tables,
     columns,
     query,
