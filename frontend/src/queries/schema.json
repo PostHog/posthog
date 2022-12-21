@@ -1261,6 +1261,10 @@
         "DataTableNode": {
             "additionalProperties": false,
             "properties": {
+                "allowSorting": {
+                    "description": "Can the user click on column headers to sort the table? (default: true)",
+                    "type": "boolean"
+                },
                 "columns": {
                     "description": "Columns shown in the table",
                     "items": {
@@ -1386,7 +1390,7 @@
                     "type": "string"
                 }
             },
-            "required": ["attributes", "href", "nth_child", "nth_of_type", "order", "tag_name"],
+            "required": ["attributes", "tag_name"],
             "type": "object"
         },
         "EntityType": {
