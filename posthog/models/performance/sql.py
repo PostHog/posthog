@@ -1,14 +1,8 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
-from posthog.clickhouse.kafka_engine import STORAGE_POLICY, kafka_engine
+from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
-
-KAFKA_COLUMNS_WITH_NULLABLE_DATETIME = """
-, _timestamp Nullable(DateTime)
-, _offset UInt64
-, _partition UInt64
-"""
 
 """
 # expected queries
@@ -123,7 +117,7 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
     table_name=PERFORMANCE_EVENT_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
     storage_policy=STORAGE_POLICY(),
 )
 
@@ -133,7 +127,7 @@ KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL()
     table_name="kafka_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
-    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
 
 
@@ -162,7 +156,7 @@ DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE
         data_table="sharded_performance_events",
         sharding_key="sipHash64(session_id)",
     ),
-    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
 
 WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL().format(
@@ -173,7 +167,7 @@ WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQ
         data_table="sharded_performance_events",
         sharding_key="sipHash64(session_id)",
     ),
-    extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
+    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
 )
 
 PERFORMANCE_EVENTS_TABLE_MV_SQL = lambda: """
@@ -188,5 +182,5 @@ FROM {database}.kafka_performance_events
     target_table="writeable_performance_events" if settings.CLICKHOUSE_REPLICATION else PERFORMANCE_EVENT_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
-    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_NULLABLE_DATETIME),
+    extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_PARTITION),
 )
