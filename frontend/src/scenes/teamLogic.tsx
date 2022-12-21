@@ -171,7 +171,7 @@ export const teamLogic = kea<teamLogicType>([
                                 router.values.location.pathname,
                                 {
                                     ...router.values.searchParams,
-                                    tid: switchedTeam,
+                                    pid: switchedTeam,
                                 },
                                 router.values.hashParams
                             ).url

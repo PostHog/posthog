@@ -128,7 +128,7 @@ def posthog_web_uri(url, team_id: int) -> str:
     """
     Returns an absolutely-formatted URL based on the `SITE_URL` config, with the team_id included as a query parameter.
     """
-    return add_search_params(absolute_uri(url), {"tid": str(team_id)})
+    return add_search_params(absolute_uri(url), {"pid": str(team_id)})
 
 
 def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:

@@ -97,7 +97,7 @@ function OtherProjectButton({ team, onClose }: { team: TeamBasicType } & OnClose
         location.pathname,
         {
             ...searchParams,
-            tid: team.id,
+            pid: team.id,
         },
         hashParams
     ).url

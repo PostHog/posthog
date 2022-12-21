@@ -137,7 +137,7 @@ class AutoProjectMiddleware:
             return None
 
         try:
-            team_id = request.GET.get("tid")
+            team_id = request.GET.get("pid")
             return Team.objects.get(id=int(team_id)) if team_id else None
         except:
             return None
