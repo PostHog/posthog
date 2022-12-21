@@ -52,7 +52,7 @@ export const playerShareLogic = kea<playerShareLogicType>([
                         shareUrl.includeTime && !hasErrors
                             ? reverseColonDelimitedDuration(shareUrl.time) || 0
                             : undefined,
-                    team_id: values.currentTeam?.id,
+                    tid: values.currentTeam?.id,
                 }
                 return `${window.location.origin}${urls.sessionRecording(props.id)}?${toParams(params)}`
             },

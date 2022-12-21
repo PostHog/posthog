@@ -131,7 +131,7 @@ class AutoProjectMiddleware:
 
     def get_requested_team(self, request: HttpRequest) -> Optional[Team]:
         try:
-            team_id = request.GET.get("team_id")
+            team_id = request.GET.get("tid")
             return Team.objects.get(id=int(team_id)) if team_id else None
         except:
             return None

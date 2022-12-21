@@ -42,7 +42,7 @@ export const sceneLogic = kea<sceneLogicType>({
     },
     connect: () => ({
         logic: [router, userLogic, preflightLogic, appContextLogic],
-        values: [featureFlagLogic, ['featureFlags']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeam']],
         actions: [router, ['locationChanged']],
     }),
     path: ['scenes', 'sceneLogic'],
@@ -367,12 +367,21 @@ export const sceneLogic = kea<sceneLogicType>({
             window.location.reload()
         },
         locationChanged: () => {
-            // Remove trailing slash
             const {
-                location: { pathname, search, hash },
+                location: { pathname, hash },
+                searchParams,
             } = router.values
+
+            // Ensure the current team is set in the URL
+            // This triggers the AutoProjectMiddleware to ensure the team is correct if possible
+            if (values.currentTeam?.id && searchParams.tid !== values.currentTeam?.id) {
+                searchParams.tid = values.currentTeam.id
+                router.actions.replace(pathname, searchParams, hash)
+            }
+
+            // Remove trailing slash and add the team id to the url
             if (pathname !== '/' && pathname.endsWith('/')) {
-                router.actions.replace(pathname.replace(/(\/+)$/, ''), search, hash)
+                router.actions.replace(pathname.replace(/(\/+)$/, ''), searchParams, hash)
             }
         },
     }),
