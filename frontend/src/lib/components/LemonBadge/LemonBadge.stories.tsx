@@ -74,7 +74,7 @@ export const Status: ComponentStory<typeof LemonBadge> = () => {
 
 export const Active: ComponentStory<typeof LemonBadge> = () => {
     return (
-        <div className="flex space-x-2 items-center">
+        <div className="flex space-x-2 items-center my-1 mr-1">
             <span>inactive:</span>
             <LemonBadge content={<IconPlusMini />} />
             <span>active:</span>
