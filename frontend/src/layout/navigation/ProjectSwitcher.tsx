@@ -31,7 +31,7 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
 
     return (
-        <div className="project-switcher-container">
+        <div className="project-switcher-container space-y-px">
             <h5>Projects</h5>
             <LemonDivider />
             <CurrentProjectButton />
