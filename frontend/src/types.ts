@@ -630,7 +630,7 @@ export enum EntityTypes {
 export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
-    name: string | null
+    name?: string | null
     custom_name?: string
     index?: number
     order?: number

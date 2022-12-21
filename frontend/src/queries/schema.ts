@@ -237,6 +237,8 @@ export interface StickinessQuery extends InsightsQueryBase {
 }
 export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */

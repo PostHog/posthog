@@ -1,5 +1,5 @@
-import { InsightQueryNode, EventsNode, ActionsNode, InsightNodeKind, NodeKind } from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter } from '~/types'
+import { InsightQueryNode, EventsNode, ActionsNode, InsightNodeKind, NodeKind, BreakdownFilter } from '~/queries/schema'
+import { FilterType, InsightType, ActionFilter, EntityTypes } from '~/types'
 import {
     isEventsNode,
     isTrendsQuery,
@@ -14,21 +14,22 @@ import { isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
 
-const seriesToActionsAndEvents = (series: (EventsNode | ActionsNode)[]): FilterTypeActionsAndEvents => {
+const seriesToActionsAndEvents = (series: (EventsNode | ActionsNode)[]): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
     series.forEach((node, index) => {
-        const entity: ActionFilter = {
-            type: isEventsNode(node) ? 'events' : 'actions',
+        const entity: ActionFilter = filterUndefined({
+            type: isEventsNode(node) ? EntityTypes.EVENTS : EntityTypes.ACTIONS,
             id: (isEventsNode(node) ? node.event : node.id) || null,
             order: index,
-            name: node.name || null,
+            name: node.name,
             custom_name: node.custom_name,
+            // TODO: math is not supported by funnel and lifecycle queries
             math: node.math,
             math_property: node.math_property,
             math_group_type_index: node.math_group_type_index,
             properties: node.properties as any, // TODO,
-        }
+        })
 
         if (isEventsNode(node)) {
             events.push(entity)
@@ -36,6 +37,10 @@ const seriesToActionsAndEvents = (series: (EventsNode | ActionsNode)[]): FilterT
             actions.push(entity)
         }
     })
+    if (actions.length + events.length === 1) {
+        actions.length > 0 ? delete actions[0].order : delete events[0].order
+    }
+
     return { actions, events }
 }
 
@@ -96,28 +101,31 @@ const filterMap: Record<SupportedNodeKind, string> = {
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
-    const filters: Partial<FilterType> = {
+    const filters: Partial<FilterType> = filterUndefined({
         insight: insightMap[query.kind],
         properties: query.properties,
         filter_test_accounts: query.filterTestAccounts,
         date_to: query.dateRange?.date_to,
         // TODO: not used by retention queries
         date_from: query.dateRange?.date_from,
-    }
+    })
 
     if (!isRetentionQuery(query) && !isPathsQuery(query) && !isUnimplementedQuery(query)) {
         const { actions, events } = seriesToActionsAndEvents(query.series)
-        // TODO: math is not supported by funnel and lifecycle queries
-        filters.actions = actions
-        filters.events = events
+        if (actions.length > 0) {
+            filters.actions = actions
+        }
+        if (events.length > 0) {
+            filters.events = events
+        }
     }
 
     // TODO stickiness should probably support breakdowns as well
-    if (isTrendsQuery(query) || isFunnelsQuery(query)) {
-        Object.assign(filters, query.breakdown)
+    if ((isTrendsQuery(query) || isFunnelsQuery(query)) && query.breakdown) {
+        Object.assign(filters, filterUndefined<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
     }
 
-    if (isTrendsQuery(query) || isStickinessQuery(query)) {
+    if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query)) {
         filters.interval = query.interval
     }
 
@@ -164,4 +172,14 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     query[filterMap[query.kind]]
 
     return query
+}
+
+function filterUndefined<T extends Record<string | number | symbol, unknown>>(object: T): T {
+    const newObject = { ...object }
+    Object.keys(newObject).forEach((k) => {
+        if (newObject[k] === undefined) {
+            delete newObject[k]
+        }
+    })
+    return newObject
 }
