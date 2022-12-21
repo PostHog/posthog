@@ -95,6 +95,11 @@ unload_event_start Float64,
 
 PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTree("performance_events", replication_scheme=ReplicationScheme.SHARDED)
 
+
+PERFORMANCE_EVENT_DATA_TABLE = (
+    lambda: "sharded_performance_events" if settings.CLICKHOUSE_REPLICATION else "performance_events"
+)
+
 PERFORMANCE_EVENTS_TABLE_BASE_SQL = (
     lambda: """
 CREATE TABLE IF NOT EXISTS {table_name} ON CLUSTER '{cluster}'
@@ -113,7 +118,7 @@ ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
 """
 ).format(
     columns=PERFORMANCE_EVENT_COLUMNS,
-    table_name="sharded_performance_events",
+    table_name=PERFORMANCE_EVENT_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=PERFORMANCE_EVENT_TABLE_ENGINE(),
     extra_fields=KAFKA_COLUMNS_WITH_NULLABLE_DATETIME,
@@ -178,7 +183,7 @@ AS SELECT
 FROM {database}.kafka_performance_events
 """.format(
     columns=_column_names_from_column_definitions(PERFORMANCE_EVENT_COLUMNS),
-    target_table="writeable_performance_events",
+    target_table="writeable_performance_events" if settings.CLICKHOUSE_REPLICATION else PERFORMANCE_EVENT_DATA_TABLE(),
     cluster=settings.CLICKHOUSE_CLUSTER,
     database=settings.CLICKHOUSE_DATABASE,
     extra_fields=_column_names_from_column_definitions(KAFKA_COLUMNS_WITH_NULLABLE_DATETIME),
