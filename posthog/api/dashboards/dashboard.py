@@ -136,7 +136,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             try:
                 existing_dashboard: Dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
             except Dashboard.DoesNotExist:
-                raise serializers.ValidationError({"use_dashboard": "Invalid value provided"})
+                raise serializers.ValidationError({"use_dashboard": "Invalid value provided."})
 
             if (
                 existing_dashboard.get_effective_privilege_level(self.context["request"].user.id)
