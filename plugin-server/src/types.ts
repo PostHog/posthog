@@ -15,6 +15,7 @@ import { Kafka } from 'kafkajs'
 import { DateTime } from 'luxon'
 import { Job } from 'node-schedule'
 import { Pool } from 'pg'
+import { RateLimiter } from 'utils/rate-limiter'
 import { VM } from 'vm2'
 
 import { ObjectStorage } from './main/services/object_storage'
@@ -198,6 +199,7 @@ export interface Hub extends PluginsServerConfig {
     personManager: PersonManager
     siteUrlManager: SiteUrlManager
     appMetrics: AppMetrics
+    rateLimiter: RateLimiter
     // diagnostics
     lastActivity: number
     lastActivityType: string

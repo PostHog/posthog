@@ -1,6 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
+import { RateLimiter } from 'utils/rate-limiter'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
@@ -34,6 +35,7 @@ export class EventsProcessor {
     clickhouse: ClickHouse
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
+    rateLimiter: RateLimiter
     groupTypeManager: GroupTypeManager
 
     constructor(pluginsServer: Hub) {
@@ -42,6 +44,7 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
+        this.rateLimiter = pluginsServer.rateLimiter
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
     }
 
@@ -75,11 +78,14 @@ export class EventsProcessor {
             }
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
-                    if (this.teamManager.isAboveUsageLimit(team, 'recordings')) {
-                        this.pluginsServer.statsd?.increment('kafka_queue.single_save.snapshot.above_limit', {
+                    if (await this.rateLimiter.checkLimited('recordings', team.organization_id)) {
+                        this.pluginsServer.statsd?.increment('kafka_queue.single_save.snapshot.rate_limited', {
                             team_id: teamId.toString(),
+                            resource: 'recordings',
                         })
-                        return null
+
+                        // LATER: Uncomment below and we will actually start dropping events
+                        // return null
                     }
                     const timeout2 = timeoutGuard(
                         'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
@@ -103,11 +109,13 @@ export class EventsProcessor {
                     }
                 }
             } else {
-                if (this.teamManager.isAboveUsageLimit(team, 'events')) {
-                    this.pluginsServer.statsd?.increment('kafka_queue.single_save.standard.above_limit', {
+                if (await this.rateLimiter.checkLimited('events', team.organization_id)) {
+                    this.pluginsServer.statsd?.increment('kafka_queue.single_save.snapshot.rate_limited', {
                         team_id: teamId.toString(),
+                        resource: 'events',
                     })
-                    return null
+                    // LATER: Uncomment below and we will actually start dropping events
+                    // return null
                 }
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {

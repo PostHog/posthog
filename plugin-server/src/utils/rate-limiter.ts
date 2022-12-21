@@ -11,7 +11,7 @@ const CACHE_TTL_SECONDS = 60
 export class RateLimiter {
     private serverConfig: PluginsServerConfig
     private redis: Redis | null
-    private localCache: { [key: string]: number[] } = {}
+    private localCache: { [key: string]: string[] } = {}
     private localCacheExpiresAt: DateTime | null = null
     private localCacheRefreshingPromise: Promise<void> | null = null
 
@@ -20,7 +20,7 @@ export class RateLimiter {
         this.redis = null
     }
 
-    public async refreshLocalCache(): Promise<{ [key: string]: number[] }> {
+    public async refreshLocalCache(): Promise<{ [key: string]: string[] }> {
         if (!this.localCacheExpiresAt || this.localCacheExpiresAt < DateTime.utc()) {
             if (!this.localCacheRefreshingPromise) {
                 // NOTE: We probably want a timeout here...
@@ -43,12 +43,12 @@ export class RateLimiter {
             this.redis?.zrange(`@posthog-plugin-server/rate-limiter/recordings`, 0, -1),
         ])
         this.localCache = {
-            events: events?.map((x) => parseInt(x)) || [],
-            recordings: recordings?.map((x) => parseInt(x)) || [],
+            events: events || [],
+            recordings: recordings || [],
         }
     }
 
-    public async checkLimited(resouce: RateLimitedResource, organization_id: number): Promise<boolean> {
+    public async checkLimited(resouce: RateLimitedResource, organization_id: string): Promise<boolean> {
         await this.refreshLocalCache()
         return this.localCache[resouce]?.includes(organization_id) || false
     }

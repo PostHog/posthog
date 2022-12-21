@@ -9,6 +9,7 @@ import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
 import { ConnectionOptions } from 'tls'
+import { RateLimiter } from 'utils/rate-limiter'
 
 import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
@@ -217,6 +218,7 @@ export async function createHub(
         serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(db, serverConfig, statsd)
+    const rateLimiter = new RateLimiter(serverConfig)
     const organizationManager = new OrganizationManager(db, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
@@ -280,6 +282,7 @@ export async function createHub(
         pluginSchedule: null,
 
         teamManager,
+        rateLimiter,
         organizationManager,
         pluginsApiKeyManager,
         rootAccessManager,
