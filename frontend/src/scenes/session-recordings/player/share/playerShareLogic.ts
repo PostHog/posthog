@@ -1,6 +1,7 @@
-import { kea, key, path, props, reducers, selectors } from 'kea'
+import { kea, key, path, props, reducers, selectors, connect } from 'kea'
 import { forms } from 'kea-forms'
-import { colonDelimitedDuration, reverseColonDelimitedDuration } from 'lib/utils'
+import { colonDelimitedDuration, reverseColonDelimitedDuration, toParams } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { playerShareLogicType } from './playerShareLogicType'
@@ -14,6 +15,9 @@ export const playerShareLogic = kea<playerShareLogicType>([
     path(() => ['scenes', 'session-recordings', 'player', 'playerShareLogic']),
     props({} as PlayerShareLogicProps),
     key((props: PlayerShareLogicProps) => `${props.id}-${props.seconds}`),
+    connect({
+        values: [teamLogic, ['currentTeam']],
+    }),
 
     reducers({
         loading: [
@@ -39,17 +43,18 @@ export const playerShareLogic = kea<playerShareLogicType>([
         },
     })),
 
-    selectors(({ props }) => ({
+    selectors(({ props, values }) => ({
         url: [
             (s) => [s.shareUrl, s.shareUrlHasErrors],
             (shareUrl, hasErrors) => {
-                const url = `${window.location.origin}${urls.sessionRecording(props.id)}`
-                return (
-                    url +
-                    (shareUrl.includeTime && !hasErrors
-                        ? `?t=${reverseColonDelimitedDuration(shareUrl.time) || 0}`
-                        : '')
-                )
+                const params = {
+                    t:
+                        shareUrl.includeTime && !hasErrors
+                            ? reverseColonDelimitedDuration(shareUrl.time) || 0
+                            : undefined,
+                    team_id: values.currentTeam?.id,
+                }
+                return `${window.location.origin}${urls.sessionRecording(props.id)}?${toParams(params)}`
             },
         ],
     })),

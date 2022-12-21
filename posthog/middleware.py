@@ -109,7 +109,9 @@ class AutoProjectMiddleware:
 
     Sometimes you get sent a link to PostHog that points to an item from a different project than the one you currently
     are in. With this middleware, if you have access to the target project, you are seamlessly switched to it,
-    instead of seeing a 404 eror.
+    instead of seeing a 404 error.
+
+    Also supports checking for the query param `team_id` and switching to that team if not the same.
     """
 
     def __init__(self, get_response):
@@ -117,11 +119,22 @@ class AutoProjectMiddleware:
 
     def __call__(self, request: HttpRequest):
         if request.user.is_authenticated:
-            target_queryset = self.get_target_queryset(request)
-            if target_queryset is not None:
-                self.switch_team_if_needed_and_possible(request, target_queryset)
+            target_team = self.get_requested_team(request)
+            if target_team is not None:
+                self.switch_to_team_if_possible(request, target_team)
+            else:
+                target_queryset = self.get_target_queryset(request)
+                if target_queryset is not None:
+                    self.switch_team_if_needed_and_possible(request, target_queryset)
         response = self.get_response(request)
         return response
+
+    def get_requested_team(self, request: HttpRequest) -> Optional[Team]:
+        try:
+            team_id = request.GET.get("team_id")
+            return Team.objects.get(id=int(team_id)) if team_id else None
+        except:
+            return None
 
     def get_target_queryset(self, request: HttpRequest) -> Optional[QuerySet]:
         path_parts = request.path.strip("/").split("/")
@@ -155,12 +168,22 @@ class AutoProjectMiddleware:
             actual_item = target_queryset.only("team").select_related("team").first()
             if actual_item is not None:
                 actual_item_team: Team = actual_item.team
-                if actual_item_team.get_effective_membership_level(user.id) is not None:
-                    user.current_team = actual_item_team
-                    user.current_organization_id = actual_item_team.organization_id
-                    user.save()
-                    # Information for POSTHOG_APP_CONTEXT
-                    request.switched_team = current_team.id  # type: ignore
+
+                self.switch_to_team_if_possible(request, actual_item_team)
+
+    def switch_to_team_if_possible(self, request: HttpRequest, requested_team: Team):
+        user = cast(User, request.user)
+        current_team = user.team
+
+        if current_team and current_team.id == requested_team.id:
+            return
+
+        if requested_team.get_effective_membership_level(user.id) is not None:
+            user.current_team = requested_team
+            user.current_organization_id = requested_team.organization_id
+            user.save()
+            # Information for POSTHOG_APP_CONTEXT
+            request.switched_team = current_team.id  # type: ignore
 
 
 class CHQueries:
