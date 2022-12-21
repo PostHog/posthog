@@ -191,7 +191,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         abortAnyRunningQuery: true,
     }),
 
-    loaders(({ actions, props, values, cache }) => ({
+    loaders(({ actions, props, values }) => ({
         // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
@@ -227,10 +227,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.allItems
                     }
 
-                    if (cache.abortController) {
-                        cache.abortController.abort()
-                        cache.abortController = null
-                    }
+                    actions.abortAnyRunningQuery()
 
                     try {
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
@@ -1014,10 +1011,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             )
 
             // we will use one abort controller for all insight queries for this dashboard
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
+            actions.abortAnyRunningQuery()
             cache.abortController = new AbortController()
             const methodOptions: ApiMethodOptions = {
                 signal: cache.abortController.signal,
@@ -1084,7 +1078,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 refreshesFinished += 1
                 if (refreshesFinished === insights.length) {
                     breakpoint()
-                    cache.abortController = null
 
                     const payload: TimeToSeeDataPayload = {
                         type: 'dashboard_load',

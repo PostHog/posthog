@@ -296,10 +296,7 @@ export const insightLogic = kea<insightLogicType>([
                     // fetch this now, as it might be different when we report below
                     const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
 
-                    if (cache.abortController) {
-                        cache.abortController.abort()
-                        cache.abortController = null
-                    }
+                    actions.abortAnyRunningQuery()
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
@@ -356,7 +353,6 @@ export const insightLogic = kea<insightLogicType>([
                             })
                         }
                         breakpoint()
-                        cache.abortController = null
                         actions.endQuery({
                             queryId,
                             view: insight,
@@ -381,7 +377,6 @@ export const insightLogic = kea<insightLogicType>([
                     }
 
                     breakpoint()
-                    cache.abortController = null
                     actions.endQuery({
                         queryId,
                         view: (values.filters.insight as InsightType) || InsightType.TRENDS,
