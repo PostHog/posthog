@@ -1,6 +1,6 @@
 import { Meta, Story } from '@storybook/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
-import { RawPropertiesTimelinePoint } from 'lib/components/PropertiesTimeline/PropertiesTimeline'
+import { RawPropertiesTimelinePoint } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
 import { PersonsModal as PersonsModalComponent } from './PersonsModal'
