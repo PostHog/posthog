@@ -15,6 +15,7 @@ import {
     PersonsNode,
     EventsQuery,
     TimeToSeeDataSessionsQuery,
+    TimeToSeeDataQuery,
 } from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsNode | ActionsNode | PersonsNode | TimeToSeeDataSessionsQuery {
@@ -23,7 +24,8 @@ export function isDataNode(node?: Node): node is EventsNode | ActionsNode | Pers
         isEventsQuery(node) ||
         isActionsNode(node) ||
         isPersonsNode(node) ||
-        isTimeToSeeDataSessionsQuery(node)
+        isTimeToSeeDataSessionsQuery(node) ||
+        isTimeToSeeDataQuery(node)
     )
 }
 
@@ -81,6 +83,10 @@ export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
 
 export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {
     return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
+}
+
+export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
+    return node?.kind === NodeKind.TimeToSeeDataQuery
 }
 
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {

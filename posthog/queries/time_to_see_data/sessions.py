@@ -71,9 +71,12 @@ def get_session_events(query: SessionEventsQuerySerializer) -> Dict:
         data={"team_id": query.validated_data["team_id"], "session_id": query.validated_data["session_id"]}
     )
     session_query.is_valid(raise_exception=True)
-    session = get_sessions(session_query).data[0]
+    sessions = get_sessions(session_query).data
 
-    return construct_hierarchy(session, events, queries)
+    if len(sessions) == 0:
+        return {}
+
+    return construct_hierarchy(sessions[0], events, queries)
 
 
 def _fetch_sessions(query: SessionsQuerySerializer) -> List[Dict]:

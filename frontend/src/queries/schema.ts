@@ -38,8 +38,9 @@ export enum NodeKind {
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
 
-    // Misc
+    // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
+    TimeToSeeDataQuery = 'TimeToSeeDataQuery',
 }
 
 export type QuerySchema =
@@ -242,7 +243,21 @@ export interface TimeToSeeDataSessionsQuery extends DataNode {
     dateRange?: DateRange
 
     /** Project to filter on. Defaults to current project */
-    projectId?: number
+    teamId?: number
+}
+
+export interface TimeToSeeDataQuery extends DataNode {
+    kind: NodeKind.TimeToSeeDataQuery
+
+    /** Project to filter on. Defaults to current project */
+    teamId?: number
+
+    /** Project to filter on. Defaults to current session */
+    sessionId?: string
+
+    /** Session start time. Defaults to current time - 2 hours */
+    sessionStart?: string
+    sessionEnd?: string
 }
 
 export type InsightQueryNode =
