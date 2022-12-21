@@ -2,7 +2,7 @@ import json
 import re
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, List, Optional, Tuple, Union, cast
+from typing import Any, List, Literal, Optional, Tuple, Union, cast
 from uuid import UUID
 
 import structlog
@@ -363,6 +363,7 @@ def check_definition_ids_inclusion_field_sql(
 
 SURROGATE_REGEX = re.compile("([\ud800-\udfff])")
 
+
 # keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
 def safe_clickhouse_string(s: str) -> str:
     matches = SURROGATE_REGEX.findall(s or "")
@@ -375,10 +376,9 @@ def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
-    order_UNSAFE: str = "",
-    order_direction: str = "DESC",
+    order_expr: str = "",
+    order_direction: Literal["ASC", "DESC"] = "DESC",
 ) -> str:
-    # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     if is_enterprise:
         from ee.models import EnterpriseEventDefinition
 
@@ -391,45 +391,31 @@ def create_event_definitions_sql(
         for f in ee_model._meta.get_fields()
         if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
     }
-    shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
 
-    def select_ee_event_definitions(fields: str):
-        return f"""
-            SELECT {fields}
-            FROM ee_enterpriseeventdefinition
-            FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-        """
-
-    def select_event_definitions(fields: str):
-        return f"""
-            SELECT {fields} FROM posthog_eventdefinition
-        """
-
-    # Only return event definitions
-    raw_event_definition_fields = ",".join(event_definition_fields)
-    provided_ordering = (
-        f"{order_UNSAFE} {order_direction} {'NULLS FIRST' if order_direction == 'ASC' else 'NULLS LAST'}"
+    enterprise_join = (
+        "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
+        if is_enterprise
+        else ""
     )
-    ordering = f"ORDER BY {provided_ordering}, name ASC"
 
     if event_type == EventDefinitionType.EVENT_CUSTOM:
-        shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
+        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
     if event_type == EventDefinitionType.EVENT_POSTHOG:
-        shared_conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
 
-    return (
-        f"""
-            {select_ee_event_definitions(raw_event_definition_fields)}
-            {shared_conditions}
-            {ordering}
-        """
-        if is_enterprise
-        else f"""
-            {select_event_definitions(raw_event_definition_fields)}
-            {shared_conditions}
-            {ordering}
-        """
+    additional_ordering = (
+        f"{order_expr} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}, "
+        if order_expr
+        else ""
     )
+
+    return f"""
+            SELECT {",".join(event_definition_fields)}
+            FROM posthog_eventdefinition
+            {enterprise_join}
+            WHERE team_id = %(team_id)s {conditions}
+            ORDER BY {additional_ordering}name ASC
+        """
 
 
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:

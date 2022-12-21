@@ -94,6 +94,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "correlation_config",
             "session_recording_opt_in",
             "capture_console_log_opt_in",
+            "capture_performance_opt_in",
             "effective_membership_level",
             "access_control",
             "has_group_types",
