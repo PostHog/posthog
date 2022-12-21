@@ -69,7 +69,7 @@ export function SignupLeftContainer(): JSX.Element {
         },
         {
             benefit: 'Join industry leaders who run their product on PostHog',
-            description: 'Brex, Airbus, Hasura, Y Combinator, and thousands more trust Posthog as their Product OS.',
+            description: 'Airbus, Hasura, Y Combinator, and thousands more trust Posthog as their Product OS.',
         },
     ]
 
