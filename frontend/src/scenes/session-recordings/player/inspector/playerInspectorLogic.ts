@@ -32,6 +32,7 @@ type InspectorListItemBase = {
     timeInRecording: number
     search: string
     highlightColor?: 'danger' | 'warning' | 'primary'
+    windowId?: string
 }
 
 export type InspectorListItemEvent = InspectorListItemBase & {
@@ -303,6 +304,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
                             data: event,
+                            windowId: event.window_id,
                         })
                     }
                 }
@@ -350,6 +352,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             data: event,
                             highlightColor:
                                 event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : undefined,
+                            windowId: event.windowId,
                         })
                     }
                 }
@@ -420,6 +423,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             search: search,
                             data: event,
                             highlightColor: isMatchingEvent ? 'primary' : undefined,
+                            windowId: event.properties?.$window_id,
                         })
                     }
                 }

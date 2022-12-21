@@ -24,6 +24,7 @@ import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
+import { IconWindow } from '../../icons'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -44,7 +45,9 @@ function PlayerInspectorListItem({
     logicProps: SessionRecordingPlayerLogicProps
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
-    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems } = useValues(playerInspectorLogic(logicProps))
+    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, windowIds } = useValues(
+        playerInspectorLogic(logicProps)
+    )
     const { timestampMode } = useValues(playerSettingsLogic)
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
@@ -78,6 +81,9 @@ function PlayerInspectorListItem({
         onLayout({ width, height: totalHeight })
     }, [totalHeight])
 
+    const windowNumber =
+        windowIds.length > 1 && item.windowId ? windowIds.indexOf(item.windowId) + 1 || undefined : undefined
+
     return (
         <div
             ref={ref}
@@ -89,11 +95,12 @@ function PlayerInspectorListItem({
                 marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
             }}
         >
-            {!isExpanded && showIcon ? (
-                <span className="shrink-0 text-lg text-muted-alt h-8 w-5 text-center flex items-center justify-center">
-                    {TabToIcon[item.type]}
-                </span>
-            ) : null}
+            {!isExpanded && (
+                <div className="shrink-0 text-lg text-muted-alt h-8 flex items-center justify-center gap-1">
+                    {showIcon ? TabToIcon[item.type] : null}
+                    {windowNumber ? <IconWindow value={windowNumber} className="shrink-0" /> : null}
+                </div>
+            )}
 
             <span
                 className={clsx(
