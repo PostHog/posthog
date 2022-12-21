@@ -19,12 +19,14 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
     const { featureFlags } = useValues(featureFlagLogic)
+    const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
 
     const visibleTabs = [SessionRecordingsTabs.Recent, SessionRecordingsTabs.Playlists]
 
@@ -32,7 +34,10 @@ export function SessionsRecordings(): JSX.Element {
         visibleTabs.push(SessionRecordingsTabs.FilePlayback)
     }
 
-    const newPlaylistHandler = useAsyncHandler(() => createPlaylist({}, true))
+    const newPlaylistHandler = useAsyncHandler(async () => {
+        await createPlaylist({}, true)
+        reportRecordingPlaylistCreated('new')
+    })
 
     return (
         <div>

@@ -11,6 +11,7 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { createPlaylist, deletePlaylist } from '../playlist/playlistUtils'
 import { lemonToast } from '@posthog/lemon-ui'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export const PLAYLISTS_PER_PAGE = 30
 
@@ -44,6 +45,10 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
     path((key) => ['scenes', 'session-recordings', 'saved-playlists', 'savedSessionRecordingPlaylistsLogic', key]),
     props({} as SavedSessionRecordingPlaylistsLogicProps),
     key((props) => props.tab),
+    connect({
+        actions: [eventUsageLogic, ['reportRecordingPlaylistCreated']],
+    }),
+
     actions(() => ({
         setSavedPlaylistsFilters: (filters: Partial<SavedSessionRecordingPlaylistsFilters>) => ({
             filters,
@@ -122,6 +127,8 @@ export const savedSessionRecordingPlaylistsLogic = kea<savedSessionRecordingPlay
                 partialPlaylist.name = partialPlaylist.name ? partialPlaylist.name + ' (copy)' : ''
 
                 const newPlaylist = await createPlaylist(partialPlaylist)
+                actions.reportRecordingPlaylistCreated('duplicate')
+
                 breakpoint()
                 if (!newPlaylist) {
                     return values.playlists

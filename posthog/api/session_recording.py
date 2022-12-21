@@ -2,11 +2,15 @@ import json
 from datetime import datetime
 from typing import Any, Optional, Tuple
 
+import structlog
 from dateutil import parser
-from rest_framework import exceptions, request, response, serializers, viewsets
+from django.http import JsonResponse
+from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.renderers import JSONRenderer
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
@@ -26,13 +30,14 @@ from posthog.utils import format_query_params_absolute_url
 
 DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 
+logger = structlog.get_logger(__name__)
+
 
 class SessionRecordingMetadataSerializer(serializers.Serializer):
     segments = serializers.ListField(required=False)
     start_and_end_times_by_window_id = serializers.DictField(required=False)
     session_id = serializers.CharField()
     viewed = serializers.BooleanField()
-    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
 
 class SessionRecordingSerializer(serializers.Serializer):
@@ -83,8 +88,8 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         filter = SessionRecordingsFilter(request=request)
         return Response(list_recordings(filter, request, self.team))
 
-    # Returns metadata about the recording
-    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+    # Returns meta data about the recording
+    def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         session_recording_id = kwargs["pk"]
         recording_start_time_string = request.GET.get("recording_start_time")
         recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
@@ -108,7 +113,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 team=self.team, user=request.user, session_id=session_recording_id
             )
 
-        return response.Response(
+        return Response(
             {
                 "result": {
                     "session_recording": session_recording_serializer.data,
@@ -116,26 +121,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 }
             }
         )
-
-    # As of now, you can only "update" a session recording by adding or removing a description. Adding a description
-    # will create a SessionRecording object in PG to store this metadata about a specific recording
-    def patch(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        session_recording_id = kwargs["pk"]
-        description = request.data.get("description", None)
-        recording_start_time_string = request.GET.get("recording_start_time")
-        recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
-
-        session_recording_serializer, _ = self._get_serialized_recording_metadata(
-            request=request, session_id=session_recording_id, start_time=recording_start_time
-        )
-        session_recording_serializer.is_valid(raise_exception=True)
-
-        if description is not None:
-            recording, _ = SessionRecordingModel.objects.get_or_create(
-                session_id=session_recording_id, team=self.team, description=description
-            )
-
-        return response.Response({"result": {"session_recording": session_recording_serializer.data}})
 
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
@@ -163,14 +148,24 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
             else None
         )
 
-        return response.Response(
-            {
-                "result": {
-                    "next": next_url,
-                    "snapshot_data_by_window_id": session_recording_snapshot_data["snapshot_data_by_window_id"],
-                }
+        res = {
+            "result": {
+                "next": next_url,
+                "snapshot_data_by_window_id": session_recording_snapshot_data["snapshot_data_by_window_id"],
             }
-        )
+        }
+
+        # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
+        # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
+        try:
+            JSONRenderer().render(data=res)
+        except Exception:
+            capture_exception(
+                Exception("DRF Json encoding failed, falling back to Django JsonResponse"), {"response_data": res}
+            )
+            return JsonResponse(res)
+
+        return Response(res)
 
     # Returns properties given a list of session recording ids
     @action(methods=["GET"], detail=False)

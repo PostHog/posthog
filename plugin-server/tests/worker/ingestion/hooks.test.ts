@@ -304,6 +304,7 @@ describe('hooks', () => {
                 ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
+                timeout: 10000,
             })
         })
 
@@ -342,6 +343,7 @@ describe('hooks', () => {
                 ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
+                timeout: 10000,
             })
         })
 
@@ -385,6 +387,7 @@ describe('hooks', () => {
                 ),
                 headers: { 'Content-Type': 'application/json' },
                 method: 'POST',
+                timeout: 10000,
             })
         })
     })

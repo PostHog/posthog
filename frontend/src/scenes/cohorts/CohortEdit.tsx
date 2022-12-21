@@ -199,6 +199,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </>
                 )}
 
+                {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
                 {typeof cohort.id === 'number' && (
                     <>
                         <Divider />

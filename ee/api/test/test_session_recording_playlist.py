@@ -189,6 +189,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert result["results"][0]["id"] == "1"
         assert result["results"][1]["id"] == "2"
 
+        # Test get recordings
         result = self.client.get(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings",
         ).json()
