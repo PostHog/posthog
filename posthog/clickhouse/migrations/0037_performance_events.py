@@ -1,7 +1,7 @@
 from infi.clickhouse_orm import migrations
 
 from posthog import settings
-from posthog.performance.sql import (
+from posthog.models.performance.sql import (
     DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL,
     KAFKA_PERFORMANCE_EVENTS_TABLE_SQL,
     PERFORMANCE_EVENTS_TABLE_MV_SQL,

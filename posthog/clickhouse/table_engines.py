@@ -62,11 +62,6 @@ class MergeTreeEngine:
         return self.REPLICATED_ENGINE.format(zk_path=zk_path, replica_key=replica_key, **self.kwargs)
 
 
-class MergeTree(MergeTreeEngine):
-    ENGINE = "MergeTree"
-    REPLICATED_ENGINE = "ReplicatedMergeTree('{zk_path}', '{replica_key}')"
-
-
 class ReplacingMergeTree(MergeTreeEngine):
     ENGINE = "ReplacingMergeTree({ver})"
     REPLICATED_ENGINE = "ReplicatedReplacingMergeTree('{zk_path}', '{replica_key}', {ver})"

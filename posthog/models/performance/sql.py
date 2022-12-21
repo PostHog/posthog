@@ -1,7 +1,7 @@
 """https://developer.mozilla.org/en-US/docs/Web/API/PerformanceEntry"""
 from posthog import settings
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY, kafka_engine
-from posthog.clickhouse.table_engines import Distributed, MergeTree, ReplicationScheme
+from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERFORMANCE_EVENTS
 
 KAFKA_COLUMNS_WITH_NULLABLE_DATETIME = """
@@ -93,7 +93,9 @@ unload_event_start Float64,
     ","
 )
 
-PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTree("performance_events", replication_scheme=ReplicationScheme.SHARDED)
+PERFORMANCE_EVENT_TABLE_ENGINE = lambda: MergeTreeEngine(
+    "performance_events", replication_scheme=ReplicationScheme.SHARDED
+)
 
 
 PERFORMANCE_EVENT_DATA_TABLE = (
@@ -135,18 +137,18 @@ KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL()
 )
 
 
+def _clean_line(line: str) -> str:
+    return line.strip().strip(",").strip()
+
+
 def _column_names_from_column_definitions(column_definitions: str) -> str:
     """
     this avoids manually duplicating column names from a string defining the columns earlier in the file
     when creating the materialized view
     """
-
-    def clean_line(line: str) -> str:
-        return line.strip().strip(",").strip()
-
     column_names = []
     for line in column_definitions.splitlines():
-        column_name = clean_line(line).split(" ")[0]
+        column_name = _clean_line(line).split(" ")[0]
         column_names.append(column_name)
 
     return ", ".join([cl for cl in column_names if cl])

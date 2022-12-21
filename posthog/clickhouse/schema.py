@@ -13,15 +13,15 @@ from posthog.models.ingestion_warnings.sql import (
     INGESTION_WARNINGS_MV_TABLE_SQL,
     KAFKA_INGESTION_WARNINGS_TABLE_SQL,
 )
-from posthog.models.person.sql import *
-from posthog.models.session_recording_event.sql import *
-from posthog.performance.sql import (
+from posthog.models.performance.sql import (
     DISTRIBUTED_PERFORMANCE_EVENTS_TABLE_SQL,
     KAFKA_PERFORMANCE_EVENTS_TABLE_SQL,
     PERFORMANCE_EVENTS_TABLE_MV_SQL,
     PERFORMANCE_EVENTS_TABLE_SQL,
     WRITABLE_PERFORMANCE_EVENTS_TABLE_SQL,
 )
+from posthog.models.person.sql import *
+from posthog.models.session_recording_event.sql import *
 
 CREATE_MERGETREE_TABLE_QUERIES = (
     CREATE_COHORTPEOPLE_TABLE_SQL,
