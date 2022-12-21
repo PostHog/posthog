@@ -13,7 +13,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
-import Fuse from 'fuse.js'
+import FuseClass from 'fuse.js'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -22,6 +22,10 @@ import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
 import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
 import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
+
+// Helping kea-typegen navigate the exported default class for Fuse
+// eslint-disable-next-line @typescript-eslint/no-empty-interface
+export interface Fuse extends FuseClass<InspectorListItem> {}
 
 type InspectorListItemBase = {
     timestamp: Dayjs
@@ -462,8 +466,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         fuse: [
             (s) => [s.allItems],
-            (allItems): Fuse<InspectorListItem> =>
-                new Fuse<InspectorListItem>(allItems, {
+            (allItems): Fuse =>
+                new FuseClass<InspectorListItem>(allItems, {
                     threshold: 0.3,
                     keys: ['search'],
                     findAllMatches: true,
