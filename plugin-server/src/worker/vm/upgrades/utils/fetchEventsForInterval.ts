@@ -44,9 +44,9 @@ export const fetchEventsForInterval = async (
     WHERE team_id = ${teamId}
     AND timestamp >= '${chTimestampLower}'
     AND timestamp < '${chTimestampHigher}'
-    AND ${`(${Object.entries(previousSortKey)
+    AND ${Object.entries(previousSortKey)
         .map(([key, value]) => `${key} > '${value}'`)
-        .join(' AND ')})`}
+        .join(' AND ')}
     ORDER BY ${Object.keys(previousSortKey).join(', ')}
     OFFSET 0 ROWS
     FETCH NEXT ${eventsPerRun} ROWS 
