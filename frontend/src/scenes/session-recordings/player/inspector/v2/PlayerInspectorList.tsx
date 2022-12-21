@@ -5,7 +5,7 @@ import { colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
-import { SessionRecordingPlayerTab } from '~/types'
+import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
 import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './components/ItemConsoleLog'
@@ -22,6 +22,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { userLogic } from 'scenes/userLogic'
+import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -147,6 +149,8 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
     const { items, playbackIndicatorIndex, syncScroll, tab, loading } = useValues(playerInspectorLogic(props))
     const { setSyncScroll } = useActions(playerInspectorLogic(props))
     const { currentTeam } = useValues(teamLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
+    const performanceEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
 
     const cellMeasurerCache = useMemo(
         () =>
@@ -263,23 +267,39 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                 </LemonButton>
                             </div>
                         </>
-                    ) : tab === SessionRecordingPlayerTab.PERFORMANCE && !currentTeam?.capture_console_log_opt_in ? (
-                        <>
-                            <div className="flex flex-col items-center h-full w-full p-16">
-                                <h4 className="text-xl font-medium">Performance events</h4>
-                                <p className="text-muted text-center">
-                                    Capture performance events like network requests during the browser recording to
-                                    understand things like response times, page load times, and more.
-                                </p>
-                                <LemonButton
-                                    type="primary"
-                                    onClick={() => openSessionRecordingSettingsDialog()}
-                                    targetBlank
-                                >
-                                    Configure in settings
-                                </LemonButton>
+                    ) : tab === SessionRecordingPlayerTab.PERFORMANCE ? (
+                        !performanceEnabled ? (
+                            <div className="p-4">
+                                <PayGatePage
+                                    featureKey={AvailableFeature.RECORDINGS_PERFORMANCE}
+                                    featureName="Network Performance"
+                                    header={
+                                        <>
+                                            Go deeper with <span className="highlight">Network Performance</span>!
+                                        </>
+                                    }
+                                    caption="Underszand what is happening with network requests during your recordings to idnetify slow pages, API errors and more."
+                                    docsLink="https://posthog.com/docs/user-guides/session-recordings"
+                                />
                             </div>
-                        </>
+                        ) : (
+                            <>
+                                <div className="flex flex-col items-center h-full w-full p-16">
+                                    <h4 className="text-xl font-medium">Performance events</h4>
+                                    <p className="text-muted text-center">
+                                        Capture performance events like network requests during the browser recording to
+                                        understand things like response times, page load times, and more.
+                                    </p>
+                                    <LemonButton
+                                        type="primary"
+                                        onClick={() => openSessionRecordingSettingsDialog()}
+                                        targetBlank
+                                    >
+                                        Configure in settings
+                                    </LemonButton>
+                                </div>
+                            </>
+                        )
                     ) : (
                         'No results'
                     )}
