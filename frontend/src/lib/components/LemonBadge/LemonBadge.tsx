@@ -8,6 +8,7 @@ interface LemonBadgePropsBase {
     position?: 'none' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
     className?: string
     status?: 'primary' | 'danger' | 'muted'
+    active?: boolean
     style?: React.CSSProperties
     title?: string
 }
@@ -32,6 +33,7 @@ export function LemonBadge({
     position = 'none',
     className,
     status = 'primary',
+    active = false,
     ...spanProps
 }: LemonBadgeProps): JSX.Element {
     return (
@@ -42,6 +44,7 @@ export function LemonBadge({
                     `LemonBadge--${size}`,
                     `LemonBadge--${status}`,
                     `LemonBadge--position-${position}`,
+                    active && 'LemonBadge--active',
                     className
                 )}
                 {...spanProps}
