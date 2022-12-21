@@ -24,6 +24,7 @@ export class RateLimiter {
         if (!this.localCacheExpiresAt || this.localCacheExpiresAt < DateTime.utc()) {
             if (!this.localCacheRefreshingPromise) {
                 // NOTE: We probably want a timeout here...
+                // ALSO: We probably want to only await if the cache is empty, otherwise we can just return the cache and let the promise do its thing in the background
                 this.localCacheRefreshingPromise = this.refreshCaches().then(() => {
                     this.localCacheExpiresAt = DateTime.utc().plus({ seconds: CACHE_TTL_SECONDS })
                     this.localCacheRefreshingPromise = null
@@ -54,6 +55,7 @@ export class RateLimiter {
     }
 
     public async connect(): Promise<void> {
+        // TODO: Ditch this in favour of the RedisPool (didn't look closely enough to see how it works...)
         if (!this.redis) {
             this.redis = await createRedis(this.serverConfig)
         }
