@@ -11,6 +11,7 @@ import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
 import { OrganizationMembershipLevel } from '../lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { combineUrl, router } from 'kea-router'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -165,7 +166,16 @@ export const teamLogic = kea<teamLogicType>([
                 lemonToast.info(<>You've switched to&nbsp;project {contextualTeam?.name}</>, {
                     button: {
                         label: 'Switch back',
-                        action: () => userLogic.actions.updateCurrentTeam(switchedTeam),
+                        action: () => {
+                            window.location.href = combineUrl(
+                                router.values.location.pathname,
+                                {
+                                    ...router.values.searchParams,
+                                    tid: switchedTeam,
+                                },
+                                router.values.hashParams
+                            ).url
+                        },
                     },
                     icon: <IconSwapHoriz />,
                 })

@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
+import { router, combineUrl } from 'kea-router'
 import { IconPlus, IconSettings } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
@@ -8,7 +8,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
 
@@ -89,22 +88,26 @@ function CurrentProjectButton(): JSX.Element | null {
 }
 
 function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
-    const { updateCurrentTeam } = useActions(userLogic)
-    const { hideProjectSwitcher } = useActions(navigationLogic)
+    const { location, searchParams, hashParams } = useValues(router)
+
+    const projectSwitchUrl = combineUrl(
+        location.pathname,
+        {
+            ...searchParams,
+            tid: team.id,
+        },
+        hashParams
+    ).url
 
     return (
         <LemonButtonWithSideAction
-            onClick={() => {
-                hideProjectSwitcher()
-                updateCurrentTeam(team.id, '/')
-            }}
+            to={projectSwitchUrl}
+            disableClientSideRouting
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
-                onClick: () => {
-                    hideProjectSwitcher()
-                    updateCurrentTeam(team.id, '/project/settings')
-                },
+                to: `/project/settings?tid=${team.id}`,
+                disableClientSideRouting: true,
             }}
             title={`Switch to project ${team.name}`}
             status="stealth"

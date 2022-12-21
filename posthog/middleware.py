@@ -130,6 +130,12 @@ class AutoProjectMiddleware:
         return response
 
     def get_requested_team(self, request: HttpRequest) -> Optional[Team]:
+        path_parts = request.path.strip("/").split("/")
+
+        if len(path_parts) and path_parts[0] == "api":
+            # API requests should not change the selected team
+            return None
+
         try:
             team_id = request.GET.get("tid")
             return Team.objects.get(id=int(team_id)) if team_id else None
