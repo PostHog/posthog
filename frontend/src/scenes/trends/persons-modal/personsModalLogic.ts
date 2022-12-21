@@ -1,6 +1,6 @@
 import { kea, connect, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
 import api from 'lib/api'
-import { ActorType } from '~/types'
+import { ActorType, PropertiesTimelineFilterType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -140,6 +140,25 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     return { singular: 'result', plural: 'results' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
+            },
+        ],
+        propertiesTimelineFilterFromUrl: [
+            (_, p) => [p.url],
+            (url): PropertiesTimelineFilterType => {
+                // PersonsModal fully relies on the actors URLs received with insight results, so we need to parse
+                // filters out of that URL
+                const params = new URLSearchParams(url.split('?')[1])
+                const properties: PropertiesTimelineFilterType = {
+                    date_from: params.get('date_from'),
+                    date_to: params.get('date_to'),
+                    events: params.has('events') ? JSON.parse(params.get('events') as string) : undefined,
+                    actions: params.has('actions') ? JSON.parse(params.get('actions') as string) : undefined,
+                    properties: params.has('properties') ? JSON.parse(params.get('properties') as string) : undefined,
+                    aggregation_group_type_index: params.has('aggregation_group_type_index')
+                        ? parseInt(params.get('aggregation_group_type_index') as string)
+                        : undefined,
+                }
+                return properties
             },
         ],
     }),

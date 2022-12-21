@@ -1,0 +1,87 @@
+.TimelineSeekbar {
+    --timeline-seekbar-thickness: 0.125rem;
+    --timeline-seekbar-arrow-width: 0.5rem;
+    --timeline-seekbar-arrow-height: 0.75rem;
+    margin: 0.75rem 0.5rem;
+}
+
+.TimelineSeekbar__meta {
+    display: flex;
+    justify-content: space-between;
+}
+
+.TimelineSeekbar__note {
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+}
+
+.TimelineSeekbar__current {
+    width: fit-content;
+    padding: 0 0.25rem;
+    border-radius: var(--radius);
+    background: var(--primary);
+    color: var(--bg-light);
+    line-height: 1.25rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    &::selection {
+        background: var(--primary-light); // Default selection background is invisible on primary
+    }
+}
+
+.TimelineSeekbar__seekbar {
+    position: relative;
+    height: 1.25rem;
+    margin-top: 0.5rem;
+}
+
+.TimelineSeekbar__points {
+    display: flex;
+    height: 100%;
+    position: relative;
+    left: var(--timeline-seekbar-thickness);
+    width: calc(100% - var(--timeline-seekbar-arrow-width) - var(--timeline-seekbar-thickness) - 1.25rem);
+    .LemonBadge:not(.LemonBadge--active) {
+        // Connect each badge to the line rightward to signal the direction in which the badge is applicable
+        border-right-color: transparent;
+        background-clip: padding-box;
+    }
+}
+
+.TimelineSeekbar__section {
+    position: absolute;
+    cursor: pointer;
+    left: var(--timeline-seekbar-section-progress-current);
+    width: var(--timeline-seekbar-section-progress-next);
+    &:last-child {
+        width: calc(var(--timeline-seekbar-section-progress-next) + 1.25rem);
+    }
+}
+
+.TimelineSeekbar__line {
+    position: absolute;
+    top: calc(50% - var(--timeline-seekbar-thickness) / 2);
+    left: 0;
+    height: var(--timeline-seekbar-thickness);
+    width: calc(100% - var(--timeline-seekbar-arrow-width));
+    background: var(--primary);
+}
+
+.TimelineSeekbar__line-start {
+    position: absolute;
+    top: calc(50% - var(--timeline-seekbar-arrow-height) / 2);
+    left: 0;
+    width: var(--timeline-seekbar-thickness);
+    height: var(--timeline-seekbar-arrow-height);
+    background: var(--primary);
+}
+
+.TimelineSeekbar__line-end {
+    position: absolute;
+    top: calc(50% - var(--timeline-seekbar-arrow-height) / 2);
+    right: calc(var(--timeline-seekbar-arrow-width) * -1);
+    width: var(--timeline-seekbar-arrow-width);
+    height: var(--timeline-seekbar-arrow-height);
+    background: var(--primary);
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+}

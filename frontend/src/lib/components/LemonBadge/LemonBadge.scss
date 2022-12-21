@@ -1,4 +1,5 @@
 .LemonBadge {
+    --lemon-badge-color: var(--primary);
     --lemon-badge-size: 1.5rem;
     --lemon-badge-font-size: 0.75rem;
     --lemon-badge-position-offset: 0.5rem;
@@ -9,6 +10,8 @@
     justify-content: center;
     color: var(--white);
     border: 0.125rem solid var(--bg-light);
+    background: var(--lemon-badge-color);
+    width: fit-content;
     min-width: var(--lemon-badge-size); // This is a minimum to accomodate multiple digits
     height: var(--lemon-badge-size);
     font-size: var(--lemon-badge-font-size);
@@ -29,16 +32,12 @@
         margin: calc(-1 * var(--lemon-badge-size) / 8);
     }
 
-    &.LemonBadge--primary {
-        background: var(--primary);
-    }
-
     &.LemonBadge--danger {
-        background: var(--danger);
+        --lemon-badge-color: var(--danger);
     }
 
     &.LemonBadge--muted {
-        background: var(--muted);
+        --lemon-badge-color: var(--muted);
     }
 
     &.LemonBadge--position-none {
@@ -73,6 +72,10 @@
     &.LemonBadge--large {
         --lemon-badge-size: 1.75rem;
         --lemon-badge-font-size: 0.875rem;
+    }
+
+    &.LemonBadge--active {
+        outline: calc(var(--lemon-badge-font-size) / 5) solid var(--lemon-badge-color);
     }
 
     &.LemonBadge--enter {
