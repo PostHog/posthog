@@ -525,6 +525,7 @@ export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinTy
 
 export type RecordingConsoleLogV2 = {
     timestamp: number
+    windowId: string | undefined
     level: LogLevel
     content: string
     lines: string[]
@@ -1475,10 +1476,6 @@ export interface RecordingEventsFilters {
 
 export interface RecordingConsoleLogsFilters {
     query: string
-}
-
-export enum RecordingWindowFilter {
-    All = 'all',
 }
 
 export type InsightEditorFilterGroup = {

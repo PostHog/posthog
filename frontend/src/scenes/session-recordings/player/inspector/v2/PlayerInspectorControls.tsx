@@ -6,12 +6,12 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
-import { SessionRecordingPlayerTab, RecordingWindowFilter } from '~/types'
+import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
 import { playerMetaLogic } from '../../playerMetaLogic'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
-import { playerInspectorLogic, WindowOption } from '../playerInspectorLogic'
+import { playerInspectorLogic } from '../playerInspectorLogic'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
@@ -79,10 +79,10 @@ export function PlayerInspectorControls({
                             size="small"
                             data-attr="player-window-select"
                             value={windowIdFilter ?? undefined}
-                            onChange={(val) => setWindowIdFilter(val as WindowOption)}
+                            onChange={(val) => setWindowIdFilter(val || null)}
                             options={[
                                 {
-                                    value: RecordingWindowFilter.All,
+                                    value: undefined,
                                     label: 'All windows',
                                     icon: <IconWindow value="A" className="text-muted" />,
                                 },

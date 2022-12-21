@@ -2,11 +2,9 @@ import { actions, kea, reducers, path, listeners, connect, props, key, selectors
 import {
     MatchedRecordingEvent,
     PerformanceEvent,
-    PlayerPosition,
     RecordingConsoleLogV2,
     RecordingEventType,
     RecordingSegment,
-    RecordingWindowFilter,
     RRWebRecordingConsoleLogPayload,
     SessionRecordingPlayerTab,
 } from '~/types'
@@ -21,11 +19,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { eventToDescription } from 'lib/utils'
-import { eventWithTime, pluginEvent } from 'rrweb/typings/types'
+import { eventWithTime } from 'rrweb/typings/types'
 import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
 import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
-
-export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
 type InspectorListItemBase = {
     timestamp: Dayjs
@@ -50,26 +46,6 @@ export type InspectorListItemPerformance = InspectorListItemBase & {
 }
 
 export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsole | InspectorListItemPerformance
-
-export function parseConsoleLogPayloadV2(
-    event: pluginEvent<RRWebRecordingConsoleLogPayload> & {
-        timestamp: number
-        delay?: number | undefined
-    }
-): RecordingConsoleLogV2 {
-    const payload: RRWebRecordingConsoleLogPayload = event.data.payload
-    const { level, payload: consolePayload } = payload
-    const lines = (Array.isArray(consolePayload) ? consolePayload : [consolePayload]).filter(
-        (entry) => !!entry
-    ) as string[]
-
-    return {
-        timestamp: event.timestamp,
-        content: lines.join('\n'),
-        lines,
-        level,
-    }
-}
 
 // Settings local to each recording
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
@@ -99,7 +75,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
     })),
     actions(() => ({
-        setWindowIdFilter: (windowId: WindowOption) => ({ windowId }),
+        setWindowIdFilter: (windowId: string | null) => ({ windowId }),
         setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
         setSyncScroll: (syncScroll: boolean) => ({ syncScroll }),
@@ -112,9 +88,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
         windowIdFilter: [
-            RecordingWindowFilter.All as WindowOption,
+            null as string | null,
             {
-                setWindowIdFilter: (_, { windowId }) => windowId ?? RecordingWindowFilter.All,
+                setWindowIdFilter: (_, { windowId }) => windowId || null,
             },
         ],
         expandedItems: [
@@ -194,8 +170,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             snapshot.type === 6 && // RRWeb plugin event type
                             snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
                         ) {
-                            const parsed = parseConsoleLogPayloadV2(snapshot as any)
-                            logs.push(parsed)
+                            const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
+                            const { level, payload } = data
+                            const lines = (Array.isArray(payload) ? payload : [payload]).filter((x) => !!x) as string[]
+
+                            logs.push({
+                                timestamp: snapshot.timestamp,
+                                windowId: segment.windowId,
+                                content: lines.join('\n'),
+                                lines,
+                                level,
+                            })
                         }
                     })
                 })
@@ -215,6 +200,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.miniFiltersByKey,
                 s.matchingEvents,
                 s.showOnlyMatching,
+                s.windowIdFilter,
             ],
             (
                 tab,
@@ -225,7 +211,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 featureFlags,
                 miniFiltersByKey,
                 matchingEvents,
-                showOnlyMatching
+                showOnlyMatching,
+                windowIdFilter
             ): InspectorListItem[] => {
                 const items: InspectorListItem[] = []
 
@@ -282,6 +269,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
 
+                        if (windowIdFilter && event.window_id !== windowIdFilter) {
+                            include = false
+                        }
+
                         if (!include) {
                             continue
                         }
@@ -321,6 +312,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             event.level === 'error'
                         ) {
                             include = true
+                        }
+
+                        if (windowIdFilter && event.windowId !== windowIdFilter) {
+                            include = false
                         }
 
                         if (!include) {
@@ -383,6 +378,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (showOnlyMatching && tab === SessionRecordingPlayerTab.EVENTS) {
                             // Special case - overrides the others
                             include = include && isMatchingEvent
+                        }
+
+                        if (windowIdFilter && event.properties?.$window_id !== windowIdFilter) {
+                            include = false
                         }
 
                         if (!include) {

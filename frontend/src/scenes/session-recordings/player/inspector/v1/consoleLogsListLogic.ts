@@ -6,7 +6,6 @@ import {
     RecordingConsoleLog,
     RecordingSegment,
     RRWebRecordingConsoleLogPayload,
-    RecordingWindowFilter,
     RecordingConsoleLogsFilters,
 } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
@@ -75,10 +74,9 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
                 const logs: RecordingConsoleLog[] = []
 
                 // Filter only snapshots from specified window
-                const filteredSnapshotsByWindowId =
-                    windowIdFilter === RecordingWindowFilter.All
-                        ? sessionPlayerData.snapshotsByWindowId
-                        : { [windowIdFilter]: sessionPlayerData.snapshotsByWindowId?.[windowIdFilter] }
+                const filteredSnapshotsByWindowId = windowIdFilter
+                    ? { [windowIdFilter]: sessionPlayerData.snapshotsByWindowId?.[windowIdFilter] }
+                    : sessionPlayerData.snapshotsByWindowId
 
                 sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
                     filteredSnapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {

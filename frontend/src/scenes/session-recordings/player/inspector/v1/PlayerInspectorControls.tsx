@@ -3,12 +3,12 @@ import { Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
 import { IconInfo, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { SessionRecordingPlayerTab, RecordingWindowFilter } from '~/types'
+import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
 import { playerMetaLogic } from '../../playerMetaLogic'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
-import { playerInspectorLogic, WindowOption } from '../playerInspectorLogic'
+import { playerInspectorLogic } from '../playerInspectorLogic'
 import { consoleLogsListLogic } from './consoleLogsListLogic'
 import { eventsListLogic } from './eventsListLogic'
 
@@ -100,10 +100,10 @@ export function PlayerInspectorControls({
                             size="small"
                             data-attr="player-window-select"
                             value={windowIdFilter ?? undefined}
-                            onChange={(val) => setWindowIdFilter(val as WindowOption)}
+                            onChange={(val) => setWindowIdFilter(val || null)}
                             options={[
                                 {
-                                    value: RecordingWindowFilter.All,
+                                    value: undefined,
                                     label: 'All windows',
                                     icon: <IconWindow value="A" className="text-muted" />,
                                 },

@@ -1,7 +1,6 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
-import { RecordingWindowFilter } from '~/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
@@ -19,7 +18,7 @@ describe('playerInspectorLogic', () => {
     describe('setWindowIdFilter', () => {
         it('happy case', async () => {
             await expectLogic(logic).toMatchValues({
-                windowIdFilter: RecordingWindowFilter.All,
+                windowIdFilter: null,
             })
             await expectLogic(logic, () => {
                 logic.actions.setWindowIdFilter('nightly')
@@ -35,7 +34,7 @@ describe('playerInspectorLogic', () => {
             })
                 .toDispatchActions(['setWindowIdFilter'])
                 .toMatchValues({
-                    windowIdFilter: RecordingWindowFilter.All,
+                    windowIdFilter: null,
                 })
         })
     })

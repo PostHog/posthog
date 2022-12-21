@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, reducers, selectors, props } from 'kea'
-import { PlayerPosition, RecordingEventsFilters, RecordingEventType, RecordingWindowFilter } from '~/types'
+import { PlayerPosition, RecordingEventsFilters, RecordingEventType } from '~/types'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import type { eventsListLogicType } from './eventsListLogicType'
 import {
@@ -149,8 +149,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
                 return events
                     .filter(
                         (e) =>
-                            (windowIdFilter === RecordingWindowFilter.All ||
-                                e.playerPosition?.windowId === windowIdFilter) &&
+                            (!windowIdFilter || e.playerPosition?.windowId === windowIdFilter) &&
                             (!shouldShowOnlyMatching || matchingEventIds.has(String(e.id)))
                     )
                     .map((e) => ({
