@@ -84,7 +84,10 @@ class TestDecide(BaseTest):
         self.team.save()
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": False})
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+        )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
     def test_user_console_log_opt_in(self):
@@ -97,7 +100,21 @@ class TestDecide(BaseTest):
         self.team.save()
 
         response = self._post_decide().json()
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": True})
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": True},
+        )
+
+    def test_user_performance_opt_in(self):
+        # :TRICKY: Test for regression around caching
+        response = self._post_decide().json()
+        self.assertEqual(response["capturePerformance"], False)
+
+        self.team.capture_performance_opt_in = True
+        self.team.save()
+
+        response = self._post_decide().json()
+        self.assertEqual(response["capturePerformance"], True)
 
     def test_user_session_recording_opt_in_wildcard_domain(self):
         # :TRICKY: Test for regression around caching
@@ -109,7 +126,10 @@ class TestDecide(BaseTest):
         self.team.save()
 
         response = self._post_decide(origin="https://random.example.com").json()
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": False})
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+        )
         self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
 
         # Make sure the domain matches exactly
@@ -125,7 +145,10 @@ class TestDecide(BaseTest):
         self.assertEqual(response["sessionRecording"], False)
 
         response = self._post_decide(origin="https://example.com").json()
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": False})
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+        )
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self):
         self.team.recording_domains = []
@@ -133,7 +156,10 @@ class TestDecide(BaseTest):
         self.team.save()
 
         response = self._post_decide(origin="any.site.com").json()
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": False})
+        self.assertEqual(
+            response["sessionRecording"],
+            {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
+        )
 
     def test_web_app_queries(self):
         with self.assertNumQueries(2):

@@ -31,6 +31,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "https://app.posthog.com",
         ],
         "capture_console_log_opt_in": true,
+        "capture_performance_opt_in": true,
         "completed_snippet_onboarding": true,
         "correlation_config": {
           "excluded_event_names": [

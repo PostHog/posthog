@@ -22,7 +22,7 @@ Standard.args = { content: '@' }
 
 export const Positioning: ComponentStory<typeof LemonBadge> = () => {
     return (
-        <div className="space-y-4">
+        <div className="space-y-4 m-2">
             <LemonButton type="secondary">
                 top-right
                 <LemonBadge content={<IconPlusMini />} position="top-right" />
@@ -74,7 +74,7 @@ export const Status: ComponentStory<typeof LemonBadge> = () => {
 
 export const Active: ComponentStory<typeof LemonBadge> = () => {
     return (
-        <div className="flex space-x-2 items-center">
+        <div className="flex space-x-2 items-center my-1 mr-1">
             <span>inactive:</span>
             <LemonBadge content={<IconPlusMini />} />
             <span>active:</span>

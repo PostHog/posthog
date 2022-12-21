@@ -122,7 +122,6 @@ export const FEATURE_FLAGS = {
     REGION_SELECT: 'region-select', //owner: @kappa90
     INGESTION_WARNINGS_ENABLED: 'ingestion-warnings-enabled', // owner: @tiina303
     HOG_BOOK: 'hog-book', // owner: @pauldambra
-    EVENT_COUNT_PER_ACTOR: 'event-count-per-actor', // owner: @Twixes
     SESSION_RESET_ON_LOAD: 'session-reset-on-load', // owner: @benjackwhite
     FEEDBACK_BUTTON: 'feedback-button', // owner: @luke
     RECORDINGS_ON_FEATURE_FLAGS: 'recordings-on-feature-flags', // owner: @EDsCODE
