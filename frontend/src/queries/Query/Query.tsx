@@ -1,4 +1,4 @@
-import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQueryNode } from '../utils'
+import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQueryNode, isTimeToSeeDataQuery } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
 import { Node, QueryContext, QuerySchema } from '~/queries/schema'
@@ -6,6 +6,7 @@ import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
+import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
@@ -45,6 +46,8 @@ export function Query(props: QueryProps): JSX.Element {
         component = <DataNode query={query} />
     } else if (isInsightQueryNode(query)) {
         component = <InsightQuery query={query} />
+    } else if (isTimeToSeeDataQuery(query)) {
+        component = <TimeToSeeData query={query} />
     }
 
     if (component) {

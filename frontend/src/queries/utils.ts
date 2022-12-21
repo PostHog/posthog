@@ -24,8 +24,7 @@ export function isDataNode(node?: Node): node is EventsNode | ActionsNode | Pers
         isEventsQuery(node) ||
         isActionsNode(node) ||
         isPersonsNode(node) ||
-        isTimeToSeeDataSessionsQuery(node) ||
-        isTimeToSeeDataQuery(node)
+        isTimeToSeeDataSessionsQuery(node)
     )
 }
 
