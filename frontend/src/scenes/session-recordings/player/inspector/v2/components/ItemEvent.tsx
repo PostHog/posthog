@@ -1,11 +1,11 @@
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, autoCaptureEventToDescription } from 'lib/utils'
-import { SharedListItemEvent } from '../../sharedListLogic'
+import { InspectorListItemEvent } from '../../playerInspectorLogic'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
 export interface ItemEventProps {
-    item: SharedListItemEvent
+    item: InspectorListItemEvent
     expanded: boolean
     setExpanded: (expanded: boolean) => void
 }

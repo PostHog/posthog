@@ -6,12 +6,12 @@ import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
 import { RecordingEventType, RecordingSegment } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { eventsListLogic } from 'scenes/session-recordings/player/inspector/eventsListLogic'
-import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
+import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
+import { eventsListLogic } from './inspector/v1/eventsListLogic'
 
 interface TickProps extends SessionRecordingPlayerLogicProps {
     event: RecordingEventType

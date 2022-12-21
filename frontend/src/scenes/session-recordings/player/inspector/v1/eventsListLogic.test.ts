@@ -1,10 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { List } from 'react-virtualized/dist/es/List'
 import { initKeaTests } from '~/test/init'
-import {
-    DEFAULT_SCROLLING_RESET_TIME_INTERVAL,
-    eventsListLogic,
-} from 'scenes/session-recordings/player/inspector/eventsListLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -12,8 +8,11 @@ import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
-import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { MatchedRecordingEvent } from '~/types'
+import { eventsListLogic, DEFAULT_SCROLLING_RESET_TIME_INTERVAL } from './eventsListLogic'
+import { playerSettingsLogic } from '../../playerSettingsLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -29,6 +28,7 @@ describe('eventsListLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic().mount()
         logic = eventsListLogic(playerLogicProps)
         logic.mount()
     })
@@ -39,7 +39,7 @@ describe('eventsListLogic', () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }),
                 sessionRecordingPlayerLogic(playerLogicProps),
                 eventUsageLogic(playerLogicProps),
-                sharedListLogic(playerLogicProps),
+                playerInspectorLogic(playerLogicProps),
             ])
         })
     })
@@ -230,13 +230,13 @@ describe('eventsListLogic', () => {
             await expectLogic(logic, () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
-                sharedListLogic(playerLogicProps).actions.setWindowIdFilter(
+                playerInspectorLogic(playerLogicProps).actions.setWindowIdFilter(
                     '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
                 )
             })
                 .toDispatchActionsInAnyOrder([
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
-                    sharedListLogic(playerLogicProps).actionTypes.setWindowIdFilter,
+                    playerInspectorLogic(playerLogicProps).actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
                     eventListData: [
@@ -296,11 +296,11 @@ describe('eventsListLogic', () => {
                         events: [{ uuid: 'nightly' }, { uuid: 'gooddog' }] as MatchedRecordingEvent[],
                     },
                 ])
-                sharedListLogic(playerLogicProps).actions.setShowOnlyMatching(true)
+                playerSettingsLogic.actions.setShowOnlyMatching(true)
             })
                 .toDispatchActionsInAnyOrder([
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadEventsSuccess,
-                    sharedListLogic(playerLogicProps).actionTypes.setShowOnlyMatching,
+                    playerSettingsLogic.actionTypes.setShowOnlyMatching,
                     sessionRecordingPlayerLogic(playerLogicProps).actionTypes.setMatching,
                 ])
                 .toMatchValues({

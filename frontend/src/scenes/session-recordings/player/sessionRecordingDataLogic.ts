@@ -6,7 +6,6 @@ import {
     EventType,
     PerformanceEvent,
     PlayerPosition,
-    RecordingConsoleLogBase,
     RecordingEventsFilters,
     RecordingEventType,
     RecordingSegment,
@@ -30,7 +29,6 @@ import {
 } from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { CONSOLE_LOG_PLUGIN_NAME, parseConsoleLogPayloadV2 } from './inspector/consoleLogsUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 
@@ -443,27 +441,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     meta.metadata?.startAndEndTimesByWindowId
                 ),
             }),
-        ],
-
-        consoleLogs: [
-            (s) => [s.sessionPlayerData],
-            (sessionPlayerData): RecordingConsoleLogBase[] => {
-                const logs: RecordingConsoleLogBase[] = []
-
-                sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
-                    sessionPlayerData.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
-                        if (
-                            snapshot.type === 6 && // RRWeb plugin event type
-                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
-                        ) {
-                            const parsed = parseConsoleLogPayloadV2(snapshot as any)
-                            logs.push(parsed)
-                        }
-                    })
-                })
-
-                return logs
-            },
         ],
 
         eventsApiParams: [

@@ -3,14 +3,15 @@ import {
     MatchedRecordingEvent,
     PerformanceEvent,
     PlayerPosition,
-    RecordingConsoleLogBase,
+    RecordingConsoleLogV2,
     RecordingEventType,
+    RecordingSegment,
     RecordingWindowFilter,
+    RRWebRecordingConsoleLogPayload,
     SessionRecordingPlayerTab,
 } from '~/types'
-import type { sharedListLogicType } from './sharedListLogicType'
+import type { playerInspectorLogicType } from './playerInspectorLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/inspector/consoleLogsListLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { sessionRecordingDataLogic } from '../sessionRecordingDataLogic'
@@ -20,36 +21,59 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 import { eventToDescription } from 'lib/utils'
+import { eventWithTime, pluginEvent } from 'rrweb/typings/types'
+import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
+import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
 
 export type WindowOption = RecordingWindowFilter.All | PlayerPosition['windowId']
 
-type SharedListItemBase = {
+type InspectorListItemBase = {
     timestamp: Dayjs
     timeInRecording: number
     search: string
     highlightColor?: 'danger' | 'warning' | 'primary'
 }
 
-export type SharedListItemEvent = SharedListItemBase & {
+export type InspectorListItemEvent = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.EVENTS
     data: RecordingEventType
 }
 
-export type SharedListItemConsole = SharedListItemBase & {
+export type InspectorListItemConsole = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.CONSOLE
-    data: RecordingConsoleLogBase
+    data: RecordingConsoleLogV2
 }
 
-export type SharedListItemPerformance = SharedListItemBase & {
+export type InspectorListItemPerformance = InspectorListItemBase & {
     type: SessionRecordingPlayerTab.PERFORMANCE
     data: PerformanceEvent
 }
 
-export type SharedListItem = SharedListItemEvent | SharedListItemConsole | SharedListItemPerformance
+export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsole | InspectorListItemPerformance
+
+export function parseConsoleLogPayloadV2(
+    event: pluginEvent<RRWebRecordingConsoleLogPayload> & {
+        timestamp: number
+        delay?: number | undefined
+    }
+): RecordingConsoleLogV2 {
+    const payload: RRWebRecordingConsoleLogPayload = event.data.payload
+    const { level, payload: consolePayload } = payload
+    const lines = (Array.isArray(consolePayload) ? consolePayload : [consolePayload]).filter(
+        (entry) => !!entry
+    ) as string[]
+
+    return {
+        timestamp: event.timestamp,
+        content: lines.join('\n'),
+        lines,
+        level,
+    }
+}
 
 // Settings local to each recording
-export const sharedListLogic = kea<sharedListLogicType>([
-    path((key) => ['scenes', 'session-recordings', 'player', 'sharedListLogic', key]),
+export const playerInspectorLogic = kea<playerInspectorLogicType>([
+    path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
@@ -62,7 +86,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
             [
                 'performanceEvents',
                 'performanceEventsLoading',
-                'consoleLogs',
+                'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
                 'sessionEventsData',
@@ -159,6 +183,27 @@ export const sharedListLogic = kea<sharedListLogicType>([
             },
         ],
 
+        consoleLogs: [
+            (s) => [s.sessionPlayerData],
+            (sessionPlayerData): RecordingConsoleLogV2[] => {
+                const logs: RecordingConsoleLogV2[] = []
+
+                sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
+                    sessionPlayerData.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
+                        if (
+                            snapshot.type === 6 && // RRWeb plugin event type
+                            snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
+                        ) {
+                            const parsed = parseConsoleLogPayloadV2(snapshot as any)
+                            logs.push(parsed)
+                        }
+                    })
+                })
+
+                return logs
+            },
+        ],
+
         allItems: [
             (s) => [
                 s.tab,
@@ -181,8 +226,8 @@ export const sharedListLogic = kea<sharedListLogicType>([
                 miniFiltersByKey,
                 matchingEvents,
                 showOnlyMatching
-            ): SharedListItem[] => {
-                const items: SharedListItem[] = []
+            ): InspectorListItem[] => {
+                const items: InspectorListItem[] = []
 
                 if (
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
@@ -286,7 +331,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
                             type: SessionRecordingPlayerTab.CONSOLE,
                             timestamp,
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
-                            search: event.rawString,
+                            search: event.content,
                             data: event,
                             highlightColor:
                                 event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : undefined,
@@ -403,8 +448,8 @@ export const sharedListLogic = kea<sharedListLogicType>([
 
         fuse: [
             (s) => [s.allItems],
-            (allItems): Fuse<SharedListItem> =>
-                new Fuse<SharedListItem>(allItems, {
+            (allItems): Fuse<InspectorListItem> =>
+                new Fuse<InspectorListItem>(allItems, {
                     threshold: 0.3,
                     keys: ['search'],
                     findAllMatches: true,
@@ -415,7 +460,7 @@ export const sharedListLogic = kea<sharedListLogicType>([
 
         items: [
             (s) => [s.allItems, s.fuse, s.searchQuery],
-            (allItems, fuse, searchQuery): SharedListItem[] => {
+            (allItems, fuse, searchQuery): InspectorListItem[] => {
                 if (searchQuery === '') {
                     return allItems
                 }

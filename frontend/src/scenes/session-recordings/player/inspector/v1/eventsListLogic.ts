@@ -16,10 +16,10 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import Fuse from 'fuse.js'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
+import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
@@ -50,7 +50,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
             ['filters', 'sessionEventsData', 'sessionEventsDataLoading'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerTime', 'matchingEvents'],
-            sharedListLogic({ sessionRecordingId, playerKey }),
+            playerInspectorLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter', 'showOnlyMatching'],
         ],
     })),

@@ -1,4 +1,4 @@
-import { parseEntry } from 'scenes/session-recordings/player/inspector/consoleLogsUtils'
+import { parseEntry } from 'scenes/session-recordings/player/inspector/v1/consoleLogsUtils'
 
 describe('parseEntry()', () => {
     it('empty entries', () => {

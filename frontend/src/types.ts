@@ -23,7 +23,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { RowStatus } from 'scenes/session-recordings/player/inspector/listLogic'
+import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { Layout } from 'react-grid-layout'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
@@ -511,7 +511,6 @@ export interface RRWebRecordingConsoleLogPayload {
 }
 
 export interface RecordingConsoleLogBase {
-    timestamp: number
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
     count?: number // Number of duplicate console logs
@@ -523,6 +522,13 @@ export interface RecordingConsoleLogBase {
 }
 
 export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinType
+
+export type RecordingConsoleLogV2 = {
+    timestamp: number
+    level: LogLevel
+    content: string
+    lines: string[]
+}
 
 export interface RecordingSegment {
     startPlayerPosition: PlayerPosition // Player time (for the specific window_id's player) that the segment starts. If the segment starts 10 seconds into a recording, this would be 10000

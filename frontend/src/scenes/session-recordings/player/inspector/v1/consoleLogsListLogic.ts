@@ -15,11 +15,11 @@ import {
     getPlayerTimeFromPlayerPosition,
 } from 'scenes/session-recordings/player/playerUtils'
 import { colonDelimitedDuration } from 'lib/utils'
-import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { parseConsoleLogPayload } from 'scenes/session-recordings/player/inspector/consoleLogsUtils'
+import { parseConsoleLogPayload } from 'scenes/session-recordings/player/inspector/v1/consoleLogsUtils'
 import Fuse from 'fuse.js'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -32,7 +32,7 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
             ['sessionPlayerData', 'filters'],
-            sharedListLogic({ sessionRecordingId, playerKey }),
+            playerInspectorLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter'],
         ],
         actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['setFilters']],

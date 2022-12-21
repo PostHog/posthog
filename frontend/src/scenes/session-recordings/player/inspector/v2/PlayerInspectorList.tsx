@@ -7,7 +7,7 @@ import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { SessionRecordingPlayerTab } from '~/types'
 import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
-import { SharedListItem, sharedListLogic } from '../sharedListLogic'
+import { InspectorListItem, playerInspectorLogic } from '../playerInspectorLogic'
 import { ItemConsoleLog } from './components/ItemConsoleLog'
 import { ItemEvent } from './components/ItemEvent'
 import { ItemPerformanceEvent } from './components/ItemPerformanceEvent'
@@ -37,16 +37,16 @@ function PlayerInspectorListItem({
     logicProps,
     onLayout,
 }: {
-    item: SharedListItem
+    item: InspectorListItem
     index: number
     logicProps: SessionRecordingPlayerLogicProps
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
-    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems } = useValues(sharedListLogic(logicProps))
+    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems } = useValues(playerInspectorLogic(logicProps))
     const { timestampMode } = useValues(playerSettingsLogic)
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
-    const { setItemExpanded } = useActions(sharedListLogic(logicProps))
+    const { setItemExpanded } = useActions(playerInspectorLogic(logicProps))
     const showIcon = tab === SessionRecordingPlayerTab.ALL
     const fixedUnits = recordingTimeInfo.duration / 1000 > 3600 ? 3 : 2
 
@@ -143,8 +143,8 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, syncScroll, tab, loading } = useValues(sharedListLogic(props))
-    const { setSyncScroll } = useActions(sharedListLogic(props))
+    const { items, playbackIndicatorIndex, syncScroll, tab, loading } = useValues(playerInspectorLogic(props))
+    const { setSyncScroll } = useActions(playerInspectorLogic(props))
     const { currentTeam } = useValues(teamLogic)
 
     const cellMeasurerCache = useMemo(

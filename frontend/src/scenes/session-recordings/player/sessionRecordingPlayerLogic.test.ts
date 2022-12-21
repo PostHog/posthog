@@ -6,13 +6,13 @@ import {
     parseMetadataResponse,
     sessionRecordingDataLogic,
 } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/inspector/sharedListLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 describe('sessionRecordingPlayerLogic', () => {
     let logic: ReturnType<typeof sessionRecordingPlayerLogic.build>
@@ -26,6 +26,7 @@ describe('sessionRecordingPlayerLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
         logic = sessionRecordingPlayerLogic({ sessionRecordingId: '2', playerKey: 'test' })
         logic.mount()
     })
@@ -35,7 +36,6 @@ describe('sessionRecordingPlayerLogic', () => {
             await expectLogic(logic).toMount([
                 eventUsageLogic,
                 sessionRecordingDataLogic({ sessionRecordingId: '2' }),
-                sharedListLogic({ sessionRecordingId: '2', playerKey: 'test' }),
                 playerSettingsLogic,
             ])
         })
