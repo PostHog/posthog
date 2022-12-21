@@ -14,9 +14,9 @@ export const fetchEventsForInterval = async (
     db: DB,
     teamId: number,
     timestampLowerBound: Date,
-    offset: number,
     eventsTimeInterval: number,
-    eventsPerRun: number
+    eventsPerRun: number,
+    previousSortKey: Record<string, any>
 ): Promise<HistoricalExportEvent[]> => {
     const timestampUpperBound = new Date(timestampLowerBound.getTime() + eventsTimeInterval)
 
@@ -44,9 +44,13 @@ export const fetchEventsForInterval = async (
     WHERE team_id = ${teamId}
     AND timestamp >= '${chTimestampLower}'
     AND timestamp < '${chTimestampHigher}'
-    ORDER BY timestamp
-    LIMIT ${eventsPerRun}
-    OFFSET ${offset}`
+    AND ${`(${Object.entries(previousSortKey)
+        .map(([key, value]) => `${key} > '${value}'`)
+        .join(' AND ')})`}
+    ORDER BY ${Object.keys(previousSortKey).join(', ')}
+    OFFSET 0 ROWS
+    FETCH NEXT ${eventsPerRun} ROWS 
+    WITH TIES` // Note: WITH TIES is required to ensure we don't miss events if the sort key is not unique.
 
     const clickhouseFetchEventsResult = await db.clickhouseQuery<RawClickHouseEvent>(fetchEventsQuery)
 

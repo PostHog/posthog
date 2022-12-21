@@ -45,7 +45,6 @@ import { isTestEnv } from '../../../../utils/env-utils'
 import { fetchEventsForInterval } from '../utils/fetchEventsForInterval'
 
 const TEN_MINUTES = 1000 * 60 * 10
-const TWELVE_HOURS = 1000 * 60 * 60 * 12
 export const EVENTS_PER_RUN = 500
 
 export const EXPORT_PARAMETERS_KEY = 'EXPORT_PARAMETERS'
@@ -72,7 +71,7 @@ export const JOB_SPEC: JobSpec = {
 export interface TestFunctions {
     exportHistoricalEvents: (payload: ExportHistoricalEventsJobPayload) => Promise<void>
     getTimestampBoundaries: (payload: ExportHistoricalEventsUIPayload) => [ISOTimestamp, ISOTimestamp]
-    nextCursor: (payload: ExportHistoricalEventsJobPayload, eventCount: number) => OffsetParams
+    nextCursor: (payload: ExportHistoricalEventsJobPayload, events: PluginEvent[]) => OffsetParams
     coordinateHistoricalExport: (update?: CoordinationUpdate) => Promise<void>
     calculateCoordination: (
         params: ExportParams,
@@ -99,8 +98,7 @@ export interface ExportHistoricalEventsJobPayload {
     startTime: number
     endTime: number
 
-    // The offset *within* a given timestamp interval
-    offset: number
+    previousSortKey: Record<string, any>
 
     // how many retries a payload has had (max = 15)
     retriesPerformedSoFar: number
@@ -115,7 +113,7 @@ export interface ExportHistoricalEventsJobPayload {
     statusKey: string
 }
 
-type OffsetParams = Pick<ExportHistoricalEventsJobPayload, 'timestampCursor' | 'fetchTimeInterval' | 'offset'>
+type OffsetParams = Pick<ExportHistoricalEventsJobPayload, 'timestampCursor' | 'fetchTimeInterval' | 'previousSortKey'>
 
 export interface ExportHistoricalEventsUIPayload {
     dateRange: [string, string]
@@ -257,7 +255,9 @@ export function addHistoricalEventsExportCapabilityV2(
                         timestampCursor: new Date(startDate).getTime(),
                         startTime: new Date(startDate).getTime(),
                         endTime: new Date(endDate).getTime(),
-                        offset: 0,
+                        previousSortKey: {
+                            timestamp: new Date(startDate).getTime(),
+                        },
                         retriesPerformedSoFar: 0,
                         exportId: params.id,
                         fetchTimeInterval: hub.HISTORICAL_EXPORTS_INITIAL_FETCH_TIME_WINDOW,
@@ -371,6 +371,7 @@ export function addHistoricalEventsExportCapabilityV2(
     }
 
     async function exportHistoricalEvents(payload: ExportHistoricalEventsJobPayload): Promise<void> {
+        console.error(payload)
         const activeExportParameters = await getExportParameters()
         if (activeExportParameters?.id != payload.exportId) {
             // This export has finished or has been stopped
@@ -405,9 +406,13 @@ export function addHistoricalEventsExportCapabilityV2(
                 hub.db,
                 pluginConfig.team_id,
                 new Date(payload.timestampCursor),
-                payload.offset,
                 payload.fetchTimeInterval,
-                EVENTS_PER_RUN
+                EVENTS_PER_RUN,
+                // TODO: I'm relying on the object dict key order here, which
+                // seems pretty weak. Refactor to be a bit more robust.
+                // TODO: this doesn't actually work for export sources that rely
+                // on timestamp ordering, e.g. the replicator.
+                { 'toDate(timestamp)': 0, event: '', 'cityHash64(distinct_id)': 0, 'cityHash64(uuid)': 0 }
             )
         } catch (error) {
             Sentry.captureException(error)
@@ -429,7 +434,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 await methods.exportEvents!(events)
 
                 createLog(
-                    `Successfully processed events ${payload.offset}-${payload.offset + events.length} from ${dateRange(
+                    `Successfully processed events after ${payload.previousSortKey}-${events.length} from ${dateRange(
                         payload.timestampCursor,
                         payload.timestampCursor + payload.fetchTimeInterval
                     )}.`,
@@ -453,15 +458,15 @@ export function addHistoricalEventsExportCapabilityV2(
             }
         }
 
-        const { timestampCursor, fetchTimeInterval, offset } = nextCursor(payload, events.length)
+        const { timestampCursor, fetchTimeInterval, previousSortKey } = nextCursor(payload, events)
 
         await meta.jobs
             .exportHistoricalEventsV2({
                 ...payload,
                 retriesPerformedSoFar: 0,
                 timestampCursor,
-                offset,
                 fetchTimeInterval,
+                previousSortKey,
             } as ExportHistoricalEventsJobPayload)
             .runIn(1, 'seconds')
     }
@@ -476,7 +481,7 @@ export function addHistoricalEventsExportCapabilityV2(
             const nextRetrySeconds = retryDelaySeconds(payload.retriesPerformedSoFar)
 
             createLog(
-                `Failed processing events ${payload.offset}-${payload.offset + eventCount} from ${dateRange(
+                `Failed processing events ${payload.previousSortKey}-${eventCount} from ${dateRange(
                     payload.timestampCursor,
                     payload.timestampCursor + payload.fetchTimeInterval
                 )}. Retrying in ${nextRetrySeconds}s`,
@@ -587,42 +592,14 @@ export function addHistoricalEventsExportCapabilityV2(
         return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 
-    function nextCursor(payload: ExportHistoricalEventsJobPayload, eventCount: number): OffsetParams {
+    function nextCursor(payload: ExportHistoricalEventsJobPayload, events: PluginEvent[]): OffsetParams {
         // More on the same time window
-        if (eventCount === EVENTS_PER_RUN) {
-            return {
-                timestampCursor: payload.timestampCursor,
-                fetchTimeInterval: payload.fetchTimeInterval,
-                offset: payload.offset + EVENTS_PER_RUN,
-            }
-        }
-
-        const nextCursor = payload.timestampCursor + payload.fetchTimeInterval
-        let nextFetchInterval = payload.fetchTimeInterval
-        // If we're fetching too small of a window at a time, increase window to fetch
-        if (payload.offset === 0 && eventCount < EVENTS_PER_RUN * 0.5) {
-            nextFetchInterval = Math.min(
-                Math.floor(payload.fetchTimeInterval * hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER),
-                TWELVE_HOURS
-            )
-        }
-        // If time window seems too large, reduce it
-        if (payload.offset > 2 * EVENTS_PER_RUN) {
-            nextFetchInterval = Math.max(
-                Math.floor(payload.fetchTimeInterval / hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER),
-                TEN_MINUTES
-            )
-        }
-
-        // If we would end up fetching too many events next time, reduce fetch interval
-        if (nextCursor + nextFetchInterval > payload.endTime) {
-            nextFetchInterval = payload.endTime - nextCursor
-        }
-
         return {
-            timestampCursor: nextCursor,
-            fetchTimeInterval: nextFetchInterval,
-            offset: 0,
+            timestampCursor: payload.timestampCursor,
+            fetchTimeInterval: payload.fetchTimeInterval,
+            previousSortKey: Object.fromEntries(
+                Object.keys(payload.previousSortKey).map((key) => [key, events[events.length - 1].properties?.[key]])
+            ),
         }
     }
 

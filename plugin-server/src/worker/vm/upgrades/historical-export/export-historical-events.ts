@@ -205,9 +205,9 @@ export function addHistoricalEventsExportCapability(
                 hub.db,
                 pluginConfig.team_id,
                 new Date(timestampCursor),
-                intraIntervalOffset,
                 EVENTS_TIME_INTERVAL,
-                EVENTS_PER_RUN
+                EVENTS_PER_RUN,
+                { timestamp: 0 }
             )
         } catch (error) {
             fetchEventsError = error
