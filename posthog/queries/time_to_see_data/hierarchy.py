@@ -62,6 +62,9 @@ def is_child(parent: Node, child: Node) -> bool:
     if parent.type == NodeType.SESSION:
         return parent.data["session_id"] == child.data["session_id"]
 
+    if parent.type == NodeType.INTERACTION and child.type == NodeType.EVENT:
+        return parent.data["primary_interaction_id"] == child.data["primary_interaction_id"]
+
     if parent.type == NodeType.INTERACTION and child.type == NodeType.QUERY:
         return parent.data["primary_interaction_id"] in child.data["client_query_id"]
 

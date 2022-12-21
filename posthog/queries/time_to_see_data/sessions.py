@@ -1,4 +1,4 @@
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from posthog.client import query_with_columns
 from posthog.queries.time_to_see_data.hierarchy import construct_hierarchy
@@ -16,7 +16,7 @@ SELECT
     session_id,
     any(user_id) AS user_id,
     any(team_id) AS team_id,
-    min(timestamp) AS session_start,
+    min(timestamp - toIntervalSecond(time_to_see_data_ms)) AS session_start,
     max(timestamp) AS session_end,
     1000 * dateDiff('second', session_start, session_end) AS duration_ms,
     argMax(team_events_last_month, _timestamp) as team_events_last_month,
@@ -58,7 +58,7 @@ def get_sessions(query: SessionsQuerySerializer) -> SessionResponseSerializer:
     return response_serializer
 
 
-def get_session_events(query: SessionEventsQuerySerializer) -> Dict:
+def get_session_events(query: SessionEventsQuerySerializer) -> Optional[Dict]:
     params = {
         "team_id": query.validated_data["team_id"],
         "session_id": query.validated_data["session_id"],
@@ -74,7 +74,7 @@ def get_session_events(query: SessionEventsQuerySerializer) -> Dict:
     sessions = get_sessions(session_query).data
 
     if len(sessions) == 0:
-        return {}
+        return None
 
     return construct_hierarchy(sessions[0], events, queries)
 
