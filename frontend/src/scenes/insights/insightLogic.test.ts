@@ -110,9 +110,18 @@ describe('insightLogic', () => {
         useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
         useMocks({
             get: {
-                '/api/projects/:team/insights/trend/': (req) => {
+                '/api/projects/:team/tags': [],
+                '/api/projects/:team/insights/trend/': async (req) => {
                     if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
+                    }
+                    if (req.url.searchParams.get('date_from') === '-180d') {
+                        // delay for 2 seconds before response without pausing
+                        return new Promise((resolve) =>
+                            setTimeout(() => {
+                                resolve([200, { result: ['very slow result from api'] }])
+                            }, 2000)
+                        )
                     }
                     return [200, { result: ['result from api'] }]
                 },
@@ -1208,6 +1217,39 @@ describe('insightLogic', () => {
                 .toFinishAllListeners()
                 .toMatchValues({
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
+    })
+
+    describe('cancelling queries', () => {
+        beforeEach(async () => {
+            logic = insightLogic({
+                dashboardItemId: 'new',
+            })
+            logic.mount()
+        })
+
+        it('cancels a running query', async () => {
+            setTimeout(() => {
+                // this change of filters will dispatch cancellation on the first query
+                // will run while the -180d query is still running
+                logic.actions.setFilters({ insight: InsightType.TRENDS, date_from: '-90d' })
+            }, 200)
+            // dispatches an artificially slow data request
+            // takes 3000 milliseconds to return
+            logic.actions.setFilters({ insight: InsightType.TRENDS, date_from: '-180d' })
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    'loadResults',
+                    'abortAnyRunningQuery',
+                    'loadResults',
+                    'abortAnyRunningQuery',
+                    'abortQuery',
+                    'loadResultsSuccess',
+                ])
+                .toMatchValues({
+                    filters: partial({ date_from: '-90d' }),
                 })
         })
     })
