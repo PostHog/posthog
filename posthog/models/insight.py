@@ -12,7 +12,7 @@ from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
 from posthog.models.signals import mutable_receiver
-from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
+from posthog.utils import generate_cache_key, generate_short_id, posthog_web_uri
 
 logger = structlog.get_logger(__name__)
 
@@ -160,7 +160,7 @@ class Insight(models.Model):
 
     @property
     def url(self):
-        return absolute_uri(f"/insights/{self.short_id}")
+        return posthog_web_uri(f"/insights/{self.short_id}", self.team_id)
 
 
 class InsightViewed(models.Model):

@@ -68,12 +68,12 @@ def send_slack_subscription_report(
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "View in PostHog"},
-                        "url": f"{resource_info.url}?{utm_tags}",
+                        "url": f"{resource_info.url}&{utm_tags}",
                     },
                     {
                         "type": "button",
                         "text": {"type": "plain_text", "text": "Manage Subscription"},
-                        "url": f"{subscription.url}?{utm_tags}",
+                        "url": f"{subscription.url}&{utm_tags}",
                     },
                 ],
             },
@@ -99,7 +99,7 @@ def send_slack_subscription_report(
                         "type": "section",
                         "text": {
                             "type": "mrkdwn",
-                            "text": f"Showing {len(assets)} of {total_asset_count} Insights. <{resource_info.url}?{utm_tags}|View the rest in PostHog>",
+                            "text": f"Showing {len(assets)} of {total_asset_count} Insights. <{resource_info.url}&{utm_tags}|View the rest in PostHog>",
                         },
                     }
                 ],

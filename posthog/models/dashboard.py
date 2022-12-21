@@ -4,7 +4,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.db import models
 
 from posthog.constants import AvailableFeature
-from posthog.utils import absolute_uri
+from posthog.utils import posthog_web_uri
 
 
 class Dashboard(models.Model):
@@ -59,7 +59,7 @@ class Dashboard(models.Model):
 
     @property
     def url(self):
-        return absolute_uri(f"/dashboard/{self.id}")
+        return posthog_web_uri(f"/dashboard/{self.id}", self.team_id)
 
     @property
     def effective_restriction_level(self) -> RestrictionLevel:

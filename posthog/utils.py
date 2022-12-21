@@ -11,6 +11,7 @@ import secrets
 import string
 import subprocess
 import time
+import urllib.parse
 import uuid
 import zlib
 from enum import Enum
@@ -107,6 +108,27 @@ def absolute_uri(url: Optional[str] = None) -> str:
             raise PotentialSecurityProblemException(f"It is forbidden to provide an absolute URI using {url}")
 
     return urljoin(settings.SITE_URL.rstrip("/") + "/", url.lstrip("/"))
+
+
+def add_search_params(url: str, params: Dict[str, str]) -> str:
+    """Adds search params to a URL. If the URL already has search params, they are preserved."""
+    if not params:
+        return url
+
+    if "?" in url:
+        url += "&"
+    else:
+        url += "?"
+
+    url += urllib.parse.urlencode(params)
+    return url
+
+
+def posthog_web_uri(url, team_id: int) -> str:
+    """
+    Returns an absolutely-formatted URL based on the `SITE_URL` config, with the team_id included as a query parameter.
+    """
+    return add_search_params(absolute_uri(url), {"tid": str(team_id)})
 
 
 def get_previous_week(at: Optional[datetime.datetime] = None) -> Tuple[datetime.datetime, datetime.datetime]:

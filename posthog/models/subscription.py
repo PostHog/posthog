@@ -20,7 +20,7 @@ from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
-from posthog.utils import absolute_uri
+from posthog.utils import posthog_web_uri
 
 # Copied from rrule as it is not exported
 FREQNAMES = ["YEARLY", "MONTHLY", "WEEKLY", "DAILY", "HOURLY", "MINUTELY", "SECONDLY"]
@@ -132,9 +132,9 @@ class Subscription(models.Model):
     @property
     def url(self):
         if self.insight:
-            return absolute_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}")
+            return posthog_web_uri(f"/insights/{self.insight.short_id}/subscriptions/{self.id}", self.team_id)
         elif self.dashboard:
-            return absolute_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}")
+            return posthog_web_uri(f"/dashboard/{self.dashboard_id}/subscriptions/{self.id}", self.team_id)
         return None
 
     @property
