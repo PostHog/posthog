@@ -5,7 +5,7 @@ export interface TimeToSeeDataPayload {
     type: 'insight_load' | 'dashboard_load'
     context: 'insight' | 'dashboard'
     time_to_see_data_ms: number
-    dashboard_query_id?: string
+    primary_interaction_id: string
     query_id?: string
     status?: 'failure' | 'success' | 'cancelled'
     api_response_bytes?: number
