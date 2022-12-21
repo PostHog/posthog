@@ -44,7 +44,7 @@ def determine_event_conditions(
     before = isoparse(before_date) if isinstance(before_date, str) else default_before
 
     if validate_date_range and (after is None or before - after >= timedelta(days=3)):
-        raise ValidationError("Cannot query time range larger than 3 days using personal API key.")
+        raise ValidationError("Cannot query time range larger than 3 days using personal API key. If you are looking to export large amounts of data we recommend using the historical exports e.g. Amazon S3 export")
 
     if after is not None:
         result += "AND timestamp > %(after)s "
