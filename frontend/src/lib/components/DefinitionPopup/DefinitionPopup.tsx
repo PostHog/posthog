@@ -106,7 +106,7 @@ function DescriptionEmpty(): JSX.Element {
     return <div className="definition-popup-description empty">Add a description for this {singularType}</div>
 }
 
-function Example({ value }: { value: string }): JSX.Element {
+function Example({ value }: { value?: string }): JSX.Element {
     const { type } = useValues(definitionPopupLogic)
     let data: KeyMapping | null = null
 

@@ -3,6 +3,7 @@ import {
     ActionsNode,
     DataTableNode,
     EventsNode,
+    EventsQuery,
     FunnelsQuery,
     LegacyQuery,
     LifecycleQuery,
@@ -23,11 +24,12 @@ import {
     PropertyOperator,
     StepOrderValue,
 } from '~/types'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { ShownAsValue } from '~/lib/constants'
 
-const Events: EventsNode = {
-    kind: NodeKind.EventsNode,
+const Events: EventsQuery = {
+    kind: NodeKind.EventsQuery,
+    select: defaultDataTableColumns({ kind: NodeKind.EventsQuery }),
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
@@ -36,7 +38,6 @@ const Events: EventsNode = {
 
 const EventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    columns: defaultDataTableColumns({ kind: NodeKind.EventsNode }),
     source: Events,
 }
 const EventsTableFull: DataTableNode = {
@@ -47,6 +48,52 @@ const EventsTableFull: DataTableNode = {
     showReload: true,
     showColumnConfigurator: true,
     showEventsBufferWarning: true,
+}
+
+const TotalEvents: EventsQuery = {
+    kind: NodeKind.EventsQuery,
+    select: ['total()'],
+}
+
+const TotalEventsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: TotalEvents,
+}
+
+const PropertyFormulas: EventsQuery = {
+    kind: NodeKind.EventsQuery,
+    select: [
+        '1 + 2 + 3',
+        'event',
+        'person.created_at',
+        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name']) # Browser 💚 City",
+        "'random string'",
+    ],
+    limit: 100,
+}
+
+const PropertyFormulasTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: PropertyFormulas,
+}
+
+const EventAggegations: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    source: {
+        kind: NodeKind.EventsQuery,
+        select: [
+            "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
+            'event',
+            'total() + 100000 # Inflamed total',
+            '1 + 2',
+        ],
+        orderBy: ['-total()'],
+    },
+    showReload: true,
+    showEventFilter: true,
+    showPropertyFilter: true,
+    showExport: true,
+    showColumnConfigurator: true,
 }
 
 const Persons: PersonsNode = {
@@ -227,6 +274,11 @@ export const examples: Record<string, Node> = {
     Events,
     EventsTable,
     EventsTableFull,
+    TotalEvents,
+    TotalEventsTable,
+    PropertyFormulas,
+    PropertyFormulasTable,
+    EventAggegations,
     Persons,
     PersonsTable,
     PersonsTableFull,

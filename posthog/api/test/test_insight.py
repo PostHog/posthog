@@ -327,6 +327,32 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         matched_insights = [insight["id"] for insight in any_on_dashboard_one_and_two.json()["results"]]
         assert matched_insights == [insight_two_id]
 
+    def test_searching_insights_includes_tags_and_description(self) -> None:
+        insight_one_id, _ = self.dashboard_api.create_insight(
+            {"name": "needle in a haystack", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+        insight_two_id, _ = self.dashboard_api.create_insight(
+            {"name": "not matching", "filters": {"events": [{"id": "$pageview"}]}}
+        )
+
+        insight_three_id, _ = self.dashboard_api.create_insight(
+            {"name": "not matching name", "filters": {"events": [{"id": "$pageview"}]}, "tags": ["needle"]}
+        )
+
+        insight_four_id, _ = self.dashboard_api.create_insight(
+            {
+                "name": "not matching name",
+                "description": "another needle",
+                "filters": {"events": [{"id": "$pageview"}]},
+                "tags": ["not matching"],
+            }
+        )
+
+        matching = self.client.get(f"/api/projects/{self.team.id}/insights/?search=needle")
+        self.assertEqual(matching.status_code, status.HTTP_200_OK)
+        matched_insights = [insight["id"] for insight in matching.json()["results"]]
+        assert sorted(matched_insights) == [insight_one_id, insight_three_id, insight_four_id]
+
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_items(self) -> None:
         response = self.client.post(

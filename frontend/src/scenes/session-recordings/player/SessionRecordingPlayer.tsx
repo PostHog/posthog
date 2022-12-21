@@ -51,16 +51,18 @@ export const createPlaybackSpeedKey = (action: (val: number) => void): HotkeysIn
     )
 }
 
-export function SessionRecordingPlayer({
-    sessionRecordingId,
-    sessionRecordingData,
-    playerKey,
-    includeMeta = true,
-    recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
-    matching,
-    noBorder = false,
-    nextSessionRecording,
-}: SessionRecordingPlayerProps): JSX.Element {
+export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.Element {
+    const {
+        sessionRecordingId,
+        sessionRecordingData,
+        playerKey,
+        includeMeta = true,
+        recordingStartTime, // While optional, including recordingStartTime allows the underlying ClickHouse query to be much faster
+        matching,
+        noBorder = false,
+        nextSessionRecording,
+    } = props
+
     const logicProps = {
         sessionRecordingId,
         playerKey,
@@ -143,9 +145,7 @@ export function SessionRecordingPlayer({
             })}
         >
             <div className="SessionRecordingPlayer__main">
-                {includeMeta || isFullScreen ? (
-                    <PlayerMeta sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                ) : null}
+                {includeMeta || isFullScreen ? <PlayerMeta {...props} /> : null}
                 <div className="SessionRecordingPlayer__body">
                     <PlayerFrame sessionRecordingId={sessionRecordingId} ref={frame} playerKey={playerKey} />
                     <PlayerFrameOverlay

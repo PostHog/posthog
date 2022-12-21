@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { cloneElement } from 'react'
 import { SessionRecordingsTabs, SessionRecordingPlaylistType } from '~/types'
 import { PLAYLISTS_PER_PAGE, savedSessionRecordingPlaylistsLogic } from './savedSessionRecordingPlaylistsLogic'
-import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonTable, Link } from '@posthog/lemon-ui'
 import { LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { CalendarOutlined, PushpinFilled, PushpinOutlined } from '@ant-design/icons'
 import { urls } from 'scenes/urls'
@@ -20,9 +20,8 @@ export type SavedSessionRecordingPlaylistsProps = {
 
 export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPlaylistsProps): JSX.Element {
     const logic = savedSessionRecordingPlaylistsLogic({ tab })
-    const { playlists, playlistsLoading, filters, sorting, pagination, newPlaylistLoading } = useValues(logic)
-    const { setSavedPlaylistsFilters, updateSavedPlaylist, duplicateSavedPlaylist, deleteSavedPlaylistWithUndo } =
-        useActions(logic)
+    const { playlists, playlistsLoading, filters, sorting, pagination } = useValues(logic)
+    const { setSavedPlaylistsFilters, updatePlaylist, duplicatePlaylist, deletePlaylist } = useActions(logic)
     const { meFirstMembers } = useValues(membersLogic)
 
     const columns: LemonTableColumns<SessionRecordingPlaylistType> = [
@@ -34,7 +33,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                     <LemonButton
                         size="small"
                         status="primary-alt"
-                        onClick={() => updateSavedPlaylist({ short_id, pinned: !pinned })}
+                        onClick={() => updatePlaylist(short_id, { pinned: !pinned })}
                     >
                         {pinned ? <PushpinFilled /> : <PushpinOutlined />}
                     </LemonButton>
@@ -54,21 +53,6 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             {name || derived_name || '(Untitled)'}
                         </Link>
                         {description ? <div className="truncate">{description}</div> : null}
-                    </>
-                )
-            },
-        },
-        {
-            title: 'Type',
-            dataIndex: 'is_static',
-            width: 0,
-            sorter: true,
-            render: function Render(is_static) {
-                return (
-                    <>
-                        <LemonTag type="success" className="uppercase">
-                            {!!is_static ? 'static' : 'dynamic'}
-                        </LemonTag>
                     </>
                 )
             },
@@ -105,10 +89,10 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
                             <>
                                 <LemonButton
                                     status="stealth"
-                                    onClick={() => duplicateSavedPlaylist(playlist, true)}
+                                    onClick={() => duplicatePlaylist(playlist)}
                                     fullWidth
-                                    loading={newPlaylistLoading}
                                     data-attr="duplicate-playlist"
+                                    loading={playlistsLoading}
                                 >
                                     Duplicate
                                 </LemonButton>
@@ -116,8 +100,9 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
 
                                 <LemonButton
                                     status="danger"
-                                    onClick={() => deleteSavedPlaylistWithUndo(playlist)}
+                                    onClick={() => deletePlaylist(playlist)}
                                     fullWidth
+                                    loading={playlistsLoading}
                                 >
                                     Delete playlist
                                 </LemonButton>
@@ -194,7 +179,7 @@ export function SavedSessionRecordingPlaylists({ tab }: SavedSessionRecordingPla
             </div>
 
             {!playlistsLoading && playlists.count < 1 ? (
-                <SavedSessionRecordingPlaylistsEmptyState tab={tab} />
+                <SavedSessionRecordingPlaylistsEmptyState />
             ) : (
                 <LemonTable
                     loading={playlistsLoading}

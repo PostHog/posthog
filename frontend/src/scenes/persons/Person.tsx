@@ -197,11 +197,7 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    <SessionRecordingsPlaylist
-                        logicKey={person.uuid || 'persons'} // force refresh if user changes
-                        personUUID={person.uuid}
-                        updateSearchParams
-                    />
+                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>

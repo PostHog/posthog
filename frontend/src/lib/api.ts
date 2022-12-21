@@ -46,7 +46,6 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/even
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { UpdatedRecordingResponse } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistModelLogic'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -558,7 +557,7 @@ const api = {
             limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
-            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit, orderBy: filters.orderBy ?? ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
         determineListEndpoint(
@@ -566,7 +565,7 @@ const api = {
             limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
-            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
         },
     },
@@ -774,18 +773,14 @@ const api = {
         async delete(roleId: RoleType['id']): Promise<void> {
             return await new ApiRequest().rolesDetail(roleId).delete()
         },
-        async create(
-            roleName: RoleType['name'],
-            featureFlagAccessLevel: RoleType['feature_flags_access_level']
-        ): Promise<RoleType> {
+        async create(roleName: RoleType['name']): Promise<RoleType> {
             return await new ApiRequest().roles().create({
                 data: {
                     name: roleName,
-                    feature_flags_access_level: featureFlagAccessLevel,
                 },
             })
         },
-        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<ActionType> {
+        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<RoleType> {
             return await new ApiRequest().rolesDetail(roleId).update({ data: roleData })
         },
         members: {
@@ -957,7 +952,7 @@ const api = {
             recordingId: SessionRecordingType['id'],
             recording: Partial<SessionRecordingType>,
             params?: string
-        ): Promise<UpdatedRecordingResponse> {
+        ): Promise<SessionRecordingType> {
             return await new ApiRequest().recording(recordingId).withQueryString(params).update({ data: recording })
         },
         async listPlaylists(params: string): Promise<SavedSessionRecordingPlaylistsResult> {
@@ -974,6 +969,39 @@ const api = {
             playlist: Partial<SessionRecordingPlaylistType>
         ): Promise<SessionRecordingPlaylistType> {
             return await new ApiRequest().recordingPlaylist(playlistId).update({ data: playlist })
+        },
+
+        async listPlaylistRecordings(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            params: string
+        ): Promise<SessionRecordingsResponse> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withQueryString(params)
+                .get()
+        },
+
+        async addRecordingToPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction(session_recording_id)
+                .create()
+        },
+
+        async removeRecordingFromPlaylist(
+            playlistId: SessionRecordingPlaylistType['short_id'],
+            session_recording_id: SessionRecordingType['id']
+        ): Promise<SessionRecordingPlaylistType> {
+            return await new ApiRequest()
+                .recordingPlaylist(playlistId)
+                .withAction('recordings')
+                .withAction(session_recording_id)
+                .delete()
         },
     },
 

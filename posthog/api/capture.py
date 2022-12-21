@@ -15,7 +15,7 @@ from kafka.errors import KafkaError
 from kafka.producer.future import FutureRecordMetadata
 from rest_framework import status
 from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception
+from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 
 from posthog.api.utils import (
@@ -205,129 +205,138 @@ def get_event(request):
     if error_response:
         return error_response
 
-    token = get_token(data, request)
+    with start_span(op="request.authenticate"):
+        token = get_token(data, request)
 
-    if not token:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "capture",
-                "API key not provided. You can find your project API key in PostHog project settings.",
-                type="authentication_error",
-                code="missing_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
+        if not token:
+            return cors_response(
+                request,
+                generate_exception_response(
+                    "capture",
+                    "API key not provided. You can find your project API key in PostHog project settings.",
+                    type="authentication_error",
+                    code="missing_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                ),
+            )
 
-    ingestion_context = None
-    send_events_to_dead_letter_queue = False
+        ingestion_context = None
+        send_events_to_dead_letter_queue = False
 
-    if token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
-        logger.debug("lightweight_capture_endpoint_hit", token=token)
-        statsd.incr("lightweight_capture_endpoint_hit")
-    else:
-        ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
+        if token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+            logger.debug("lightweight_capture_endpoint_hit", token=token)
+            statsd.incr("lightweight_capture_endpoint_hit")
+        else:
+            ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
 
-        if error_response:
-            return error_response
+            if error_response:
+                return error_response
 
-        if db_error:
-            send_events_to_dead_letter_queue = True
+            if db_error:
+                send_events_to_dead_letter_queue = True
 
-    if isinstance(data, dict):
-        if data.get("batch"):  # posthog-python and posthog-ruby
-            data = data["batch"]
-            assert data is not None
-        elif "engage" in request.path_info:  # JS identify call
-            data["event"] = "$identify"  # make sure it has an event name
+    with start_span(op="request.process"):
+        if isinstance(data, dict):
+            if data.get("batch"):  # posthog-python and posthog-ruby
+                data = data["batch"]
+                assert data is not None
+            elif "engage" in request.path_info:  # JS identify call
+                data["event"] = "$identify"  # make sure it has an event name
 
-    if isinstance(data, list):
-        events = data
-    else:
-        events = [data]
+        if isinstance(data, list):
+            events = data
+        else:
+            events = [data]
 
-    try:
-        events = preprocess_session_recording_events_for_clickhouse(events)
-    except ValueError as e:
-        return cors_response(
-            request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
-        )
+        try:
+            events = preprocess_session_recording_events_for_clickhouse(events)
+        except ValueError as e:
+            return cors_response(
+                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+            )
 
-    site_url = request.build_absolute_uri("/")[:-1]
+        site_url = request.build_absolute_uri("/")[:-1]
 
-    ip = None if ingestion_context and ingestion_context.anonymize_ips else get_ip_address(request)
+        ip = None if ingestion_context and ingestion_context.anonymize_ips else get_ip_address(request)
 
-    try:
-        processed_events = list(validate_events(events, ingestion_context))
-    except ValueError as e:
-        return cors_response(
-            request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
-        )
+        try:
+            processed_events = list(validate_events(events, ingestion_context))
+        except ValueError as e:
+            return cors_response(
+                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+            )
 
     futures: List[FutureRecordMetadata] = []
 
-    for event, event_uuid, distinct_id in processed_events:
-        if send_events_to_dead_letter_queue:
-            kafka_event = parse_kafka_event_data(
-                distinct_id=distinct_id,
-                ip=None,
-                site_url=site_url,
-                team_id=None,
-                now=now,
-                event_uuid=event_uuid,
-                data=event,
-                sent_at=sent_at,
-                token=token,
-            )
+    with start_span(op="kafka.produce") as span:
+        span.set_tag("event.count", len(processed_events))
+        for event, event_uuid, distinct_id in processed_events:
+            if send_events_to_dead_letter_queue:
+                kafka_event = parse_kafka_event_data(
+                    distinct_id=distinct_id,
+                    ip=None,
+                    site_url=site_url,
+                    team_id=None,
+                    now=now,
+                    event_uuid=event_uuid,
+                    data=event,
+                    sent_at=sent_at,
+                    token=token,
+                )
 
-            log_event_to_dead_letter_queue(
-                data,
-                event["event"],
-                kafka_event,
-                f"Unable to fetch team from Postgres. Error: {db_error}",
-                "django_server_capture_endpoint",
-            )
-            continue
+                log_event_to_dead_letter_queue(
+                    data,
+                    event["event"],
+                    kafka_event,
+                    f"Unable to fetch team from Postgres. Error: {db_error}",
+                    "django_server_capture_endpoint",
+                )
+                continue
 
-        team_id = ingestion_context.team_id if ingestion_context else None
-        try:
-            futures.append(
-                capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid, token)  # type: ignore
-            )
-        except Exception as e:
-            capture_exception(e, {"data": data})
-            statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
-                    code="server_error",
-                    type="server_error",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ),
-            )
+            team_id = ingestion_context.team_id if ingestion_context else None
+            try:
+                futures.append(
+                    capture_internal(
+                        event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid, token
+                    )  # type: ignore
+                )
+            except Exception as exc:
+                capture_exception(exc, {"data": data})
+                statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
+                logger.error("kafka_produce_failure", exc_info=exc)
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
+                        code="server_error",
+                        type="server_error",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    ),
+                )
 
-    start_time = time.monotonic()
-    for future in futures:
-        try:
-            future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
-        except KafkaError as exc:
-            # TODO: distinguish between retriable errors and non-retriable
-            # errors, and set Retry-After header accordingly.
-            # TODO: return 400 error for non-retriable errors that require the
-            # client to change their request.
-            logger.error("kafka_produce_failure", exc_info=exc)
-            return cors_response(
-                request,
-                generate_exception_response(
-                    "capture",
-                    "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
-                    code="server_error",
-                    type="server_error",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                ),
-            )
+    with start_span(op="kafka.wait"):
+        span.set_tag("future.count", len(futures))
+        start_time = time.monotonic()
+        for future in futures:
+            try:
+                future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+            except KafkaError as exc:
+                # TODO: distinguish between retriable errors and non-retriable
+                # errors, and set Retry-After header accordingly.
+                # TODO: return 400 error for non-retriable errors that require the
+                # client to change their request.
+                logger.error("kafka_produce_failure", exc_info=exc)
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
+                        code="server_error",
+                        type="server_error",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    ),
+                )
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))

@@ -16,6 +16,7 @@
     <link rel="preload" href="{% static 'Inter.woff2' %}" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="{% static 'Inter.woff' %}" as="font" type="font/woff" crossorigin>
     <link rel="preload" href="{% static image_webp %}" as="image">
+    <link rel="preload" href="{% static 'background.png' %}" as="image">
     <script>
         !function (t, e) {
             var o, n, p, r;
@@ -99,6 +100,21 @@
             align-items: center;
         }
 
+        body:before {
+            content: ' ';
+            display: block;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.1;
+            background-image: url("{%  static "background.png" %}");
+            background-repeat: no-repeat;
+            background-position: 50% 0;
+            background-size: cover;
+        }
+
         h1 {
             margin: 0;
             text-align: center;
@@ -172,11 +188,8 @@
             width: 100vw;
             display: flex;
             flex-direction: row;
+            z-index:9999;
             align-items: center;
-        }
-
-        .footer .logo {
-            width: 3rem;
         }
 
         .highlight {
@@ -194,6 +207,12 @@
         }
 
         .text-2xl {
+            font-weight: 600;
+            font-size: 2rem;
+            line-height: 1;
+        }
+
+        .text-3xl {
             font-weight: 600;
             font-size: 3rem;
             line-height: 1;
@@ -225,6 +244,10 @@
             padding-bottom: 1rem;
         }
 
+        .pt-4 {
+            padding-top: 1rem;
+        }
+
         .pl-8 {
             padding-left: 2rem;
         }
@@ -246,6 +269,7 @@
             display: flex;
             flex-direction: column;
             flex-basis: 100%;
+            font-size: 1.5rem;
         }
 
         .sharing {
@@ -254,9 +278,11 @@
             width: 100%;
             justify-content: space-around;
             padding-top: 4rem;
+            align-items: center;
+            white-space: nowrap;
         }
 
-        .sharing > div {
+        .sharing * {
             display: flex;
             flex-basis: 100%;
         }
@@ -277,6 +303,13 @@
 
             .footer .sharing {
                 display: flex;
+            }
+
+            .footer .sharing > div:first-child {
+                font-weight: 400;
+                font-size: 1rem;
+                line-height: 1;
+                padding-right: 0.75rem;
             }
 
             .sharing {
@@ -319,28 +352,29 @@
 <body>
 <main class="px-4 pb-4" role="main">
     <div class="left column">
-        <div>This year, I'm {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
+        <div>This year, I'm {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
 
         <picture class="badge my-8">
-            <source type="image/webp" srcset="{% static image_webp %}" width="326" height="326" >
-            <source type="image/png" srcset="{% static image_png %}" width="326" height="326" >
-            <img class="badge" src="{% static image_png %}" width="326" height="326" alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}">
+            <source type="image/webp" srcset="{% static image_webp %}" width="326" height="326">
+            <source type="image/png" srcset="{% static image_png %}" width="326" height="326">
+            <img class="badge" src="{% static image_png %}" width="326" height="326"
+                 alt="image for this badge {{ badge }}. An illustration of a hedgehog who is a {{ human_badge }}">
         </picture>
 
-        <h1 class="highlight text-2xl">{{ human_badge }}</h1>
+        <h1 class="highlight text-3xl">{{ human_badge }}</h1>
     </div>
     <div class="right column">
         <div class="muted">You earned this badge because...</div>
-        <div class="highlight text-xl my-8">{{ explanation }}</div>
-        <div class="stats">
+        <div class="highlight text-2xl my-8">{{ explanation }}</div>
+        <div class="stats pt-4">
             {% for stat in stats %}
                 <div class="stat px-1">
-                    <div class="highlight text-2xl">{{ stat.count }}</div>
+                    <div class="highlight text-3xl">{{ stat.count }}</div>
                     <div>{{ stat.description }}</div>
                 </div>
             {% endfor %}
         </div>
-        <div class="sharing">{%  include "sharing-buttons.html" %}</div>
+        <div class="sharing">{% include "sharing-buttons.html" %}</div>
     </div>
 </main>
 <footer class="footer" role="contentinfo">
@@ -399,7 +433,7 @@
         </svg>
     </div>
     <div>
-        <div class="sharing">{%  include "sharing-buttons.html" %}</div>
+        <div class="sharing">{% include "sharing-buttons.html" %}</div>
     </div>
 </footer>
 </body>

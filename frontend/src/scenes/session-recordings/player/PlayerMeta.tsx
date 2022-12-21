@@ -21,7 +21,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
 
-export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const {
         sessionPerson,
         resolution,
@@ -31,7 +31,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         recordingStartTime,
         sessionPlayerMetaDataLoading,
         windowIds,
-    } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
+    } = useValues(playerMetaLogic(props))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
@@ -144,11 +144,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
                 />
 
-                <div className="flex-1">
-                    {sessionRecordingId ? (
-                        <PlayerMetaLinks sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                    ) : null}
-                </div>
+                <div className="flex-1">{props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}</div>
             </div>
             {sessionPerson && (
                 <CSSTransition

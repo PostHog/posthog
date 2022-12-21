@@ -46,7 +46,9 @@ def migrate_billing(
                 billing_service_token = build_billing_token(license, billing.organization)
 
                 payload = {"stripe_customer_id_v1": billing.stripe_customer_id}
-                if billing.stripe_subscription_id:
+                if not billing.stripe_subscription_id:
+                    should_delete = True
+                elif billing.stripe_subscription_id:
                     subscription = stripe.Subscription.retrieve(billing.stripe_subscription_id)
                     if subscription["status"] == "active":
                         payload["stripe_subscription_id_v1"] = billing.stripe_subscription_id

@@ -528,7 +528,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.models.event.query_event_list.query_with_columns")
+    @patch("posthog.models.event.query_event_list.insight_query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
@@ -686,3 +686,73 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
+
+    @snapshot_clickhouse_queries
+    def test_select_hogql_expressions(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            select = ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"]
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
+            self.assertEqual(
+                response,
+                {
+                    "columns": ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"],
+                    "types": ["String", "String", "String", "String"],
+                    "results": [
+                        ["sign out", "4", "test_val3", "sign out test_val3"],
+                        ["sign out", "3", "test_val2", "sign out test_val2"],
+                        ["sign out", "2", "test_val2", "sign out test_val2"],
+                        ["sign up", "2", "test_val1", "sign up test_val1"],
+                    ],
+                },
+            )
+
+            select = ["*", "event"]
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
+            self.assertEqual(response["columns"], ["*", "event"])
+            self.assertIn("Tuple(", response["types"][0])
+            self.assertEqual(response["types"][1], "String")
+            self.assertEqual(len(response["results"]), 4)
+            self.assertIsInstance(response["results"][0][0], dict)
+            self.assertIsInstance(response["results"][0][1], str)
+
+            select = ["total()", "event"]
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
+            self.assertEqual(
+                response,
+                {
+                    "columns": ["total()", "event"],
+                    "types": ["UInt64", "String"],
+                    "results": [[3, "sign out"], [1, "sign up"]],
+                },
+            )
+
+            select = ["total()", "event"]
+            where = ['event == "sign up" or like(properties.key, "%val2")']
+            orderBy = ["-total()", "event"]
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&where={json.dumps(where)}&orderBy={json.dumps(orderBy)}"
+            ).json()
+            self.assertEqual(
+                response,
+                {
+                    "columns": ["total()", "event"],
+                    "types": ["UInt64", "String"],
+                    "results": [[2, "sign out"], [1, "sign up"]],
+                },
+            )

@@ -1,4 +1,4 @@
-import { Card, Col, Collapse, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Collapse, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -48,7 +48,7 @@ export const scene: SceneExport = {
 export function Experiment(): JSX.Element {
     const {
         experimentId,
-        experimentData,
+        experiment,
         experimentInsightId,
         minimumSampleSizePerVariant,
         recommendedExposureForCountData,
@@ -72,7 +72,6 @@ export function Experiment(): JSX.Element {
         experimentResultCalculationError,
         flagImplementationWarning,
         flagAvailabilityWarning,
-        experiment,
         props,
         sortedExperimentResultVariants,
     } = useValues(experimentLogic)
@@ -84,8 +83,9 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperiment,
         removeExperimentGroup,
-        setExperimentInsightType,
+        createNewExperimentInsight,
         archiveExperiment,
+        resetRunningExperiment,
         loadExperiment,
         setExposureAndSampleSize,
         setExperimentValue,
@@ -132,16 +132,15 @@ export function Experiment(): JSX.Element {
 
     const experimentProgressPercent =
         experimentInsightType === InsightType.FUNNELS
-            ? ((funnelResultsPersonsTotal || 0) / (experimentData?.parameters?.recommended_sample_size || 1)) * 100
-            : (dayjs().diff(experimentData?.start_date, 'day') /
-                  (experimentData?.parameters?.recommended_running_time || 1)) *
+            ? ((funnelResultsPersonsTotal || 0) / (experiment?.parameters?.recommended_sample_size || 1)) * 100
+            : (dayjs().diff(experiment?.start_date, 'day') / (experiment?.parameters?.recommended_running_time || 1)) *
               100
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
-        if (!experimentData?.start_date) {
+        if (!experiment?.start_date) {
             return 'draft'
-        } else if (!experimentData?.end_date) {
+        } else if (!experiment?.end_date) {
             return 'running'
         }
         return 'complete'
@@ -160,7 +159,7 @@ export function Experiment(): JSX.Element {
         return <Skeleton active />
     }
 
-    if (!experimentData && experimentId !== 'new') {
+    if (!experiment && experimentId !== 'new') {
         return <NotFound object="experiment" />
     }
 
@@ -290,19 +289,22 @@ export function Experiment(): JSX.Element {
                                                             </Field>
 
                                                             <div className="float-right">
-                                                                {!(index === 0 || index === 1) && (
-                                                                    <Tooltip
-                                                                        title="Delete this variant"
-                                                                        placement="bottomLeft"
-                                                                    >
-                                                                        <LemonButton
-                                                                            status="primary-alt"
-                                                                            size="small"
-                                                                            icon={<IconDelete />}
-                                                                            onClick={() => removeExperimentGroup(index)}
-                                                                        />
-                                                                    </Tooltip>
-                                                                )}
+                                                                {experimentId === 'new' &&
+                                                                    !(index === 0 || index === 1) && (
+                                                                        <Tooltip
+                                                                            title="Delete this variant"
+                                                                            placement="bottomLeft"
+                                                                        >
+                                                                            <LemonButton
+                                                                                status="primary-alt"
+                                                                                size="small"
+                                                                                icon={<IconDelete />}
+                                                                                onClick={() =>
+                                                                                    removeExperimentGroup(index)
+                                                                                }
+                                                                            />
+                                                                        </Tooltip>
+                                                                    )}
                                                             </div>
                                                         </Row>
                                                     </Group>
@@ -442,9 +444,11 @@ export function Experiment(): JSX.Element {
                                         <LemonSelect
                                             value={experimentInsightType}
                                             onChange={(val) => {
-                                                if (val) {
-                                                    setExperimentInsightType(val)
-                                                }
+                                                val &&
+                                                    createNewExperimentInsight({
+                                                        insight: val,
+                                                        properties: experiment?.filters?.properties,
+                                                    })
                                             }}
                                             dropdownMatchSelectWidth={false}
                                             options={[
@@ -599,7 +603,7 @@ export function Experiment(): JSX.Element {
                         </div>
                     </Form>
                 </>
-            ) : experimentData ? (
+            ) : experiment ? (
                 <div className="view-experiment">
                     <Row className="draft-header">
                         <Row justify="space-between" align="middle" className="w-full pb-4">
@@ -607,21 +611,19 @@ export function Experiment(): JSX.Element {
                                 <Row>
                                     <PageHeader
                                         style={{ paddingRight: 8 }}
-                                        title={`${experimentData?.name}`}
+                                        title={`${experiment?.name}`}
                                         buttons={
                                             <>
                                                 <CopyToClipboardInline
-                                                    explicitValue={experimentData.feature_flag_key}
+                                                    explicitValue={experiment.feature_flag_key}
                                                     iconStyle={{ color: 'var(--muted-alt)' }}
                                                 >
-                                                    <span className="text-muted">
-                                                        {experimentData.feature_flag_key}
-                                                    </span>
+                                                    <span className="text-muted">{experiment.feature_flag_key}</span>
                                                 </CopyToClipboardInline>
                                                 <Tag style={{ alignSelf: 'center' }} color={statusColors[status()]}>
                                                     <b className="uppercase">{status()}</b>
                                                 </Tag>
-                                                {experimentResults && experimentData.end_date && (
+                                                {experimentResults && experiment.end_date && (
                                                     <Tag
                                                         style={{ alignSelf: 'center' }}
                                                         color={areResultsSignificant ? 'green' : 'geekblue'}
@@ -638,11 +640,11 @@ export function Experiment(): JSX.Element {
                                     />
                                 </Row>
                                 <span className="exp-description">
-                                    {experimentData.start_date ? (
+                                    {experiment.start_date ? (
                                         <EditableField
                                             multiline
                                             name="description"
-                                            value={experimentData.description || ''}
+                                            value={experiment.description || ''}
                                             placeholder="Description (optional)"
                                             onSave={(value) => updateExperiment({ description: value })}
                                             maxLength={400} // Sync with Experiment model
@@ -650,14 +652,11 @@ export function Experiment(): JSX.Element {
                                             compactButtons
                                         />
                                     ) : (
-                                        <>
-                                            {experimentData.description ||
-                                                'There is no description for this experiment.'}
-                                        </>
+                                        <>{experiment.description || 'There is no description for this experiment.'}</>
                                     )}
                                 </span>
                             </Col>
-                            {experimentData && !experimentData.start_date && (
+                            {experiment && !experiment.start_date && (
                                 <div className="flex items-center">
                                     <LemonButton
                                         type="secondary"
@@ -671,14 +670,32 @@ export function Experiment(): JSX.Element {
                                     </LemonButton>
                                 </div>
                             )}
-                            {experimentData && experimentData.start_date && !experimentData.end_date && (
-                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                    Stop
-                                </LemonButton>
+                            {experiment && experiment.start_date && !experiment.end_date && (
+                                <div className="flex flex-row gap-2">
+                                    <Popconfirm
+                                        placement="topLeft"
+                                        title={
+                                            <div>
+                                                Reset this experiment and go back to draft mode?
+                                                <div className="text-sm text-muted">
+                                                    All collected data so far will be discarded.
+                                                </div>
+                                            </div>
+                                        }
+                                        onConfirm={() => resetRunningExperiment()}
+                                    >
+                                        <LemonButton type="secondary" status="primary">
+                                            Reset
+                                        </LemonButton>
+                                    </Popconfirm>
+                                    <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                        Stop
+                                    </LemonButton>
+                                </div>
                             )}
-                            {experimentData?.end_date &&
-                                dayjs().isSameOrAfter(dayjs(experimentData.end_date), 'day') &&
-                                !experimentData.archived && (
+                            {experiment?.end_date &&
+                                dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
+                                !experiment.archived && (
                                     <LemonButton type="secondary" status="danger" onClick={() => archiveExperiment()}>
                                         <b>Archive</b>
                                     </LemonButton>
@@ -686,18 +703,18 @@ export function Experiment(): JSX.Element {
                         </Row>
                     </Row>
                     <Row>
-                        {showWarning && experimentResults && areResultsSignificant && !experimentData.end_date && (
+                        {showWarning && experimentResults && areResultsSignificant && !experiment.end_date && (
                             <Row align="middle" className="significant-results">
                                 <Col span={20} style={{ fontWeight: 500, color: '#497342' }}>
                                     <div>
                                         Experiment results are significant.{' '}
-                                        {experimentData.end_date
+                                        {experiment.end_date
                                             ? ''
                                             : 'You can end your experiment now or let it run until complete.'}
                                     </div>
                                 </Col>
                                 <Col span={4}>
-                                    {experimentData.end_date ? (
+                                    {experiment.end_date ? (
                                         <CloseOutlined className="close-button" onClick={() => setShowWarning(false)} />
                                     ) : (
                                         <LemonButton type="primary" onClick={() => endExperiment()}>
@@ -707,13 +724,13 @@ export function Experiment(): JSX.Element {
                                 </Col>
                             </Row>
                         )}
-                        {showWarning && experimentResults && !areResultsSignificant && !experimentData.end_date && (
+                        {showWarning && experimentResults && !areResultsSignificant && !experiment.end_date && (
                             <Row align="top" className="not-significant-results">
                                 <Col span={23} style={{ fontWeight: 500, color: '#2D2D2D' }}>
                                     <strong>Your results are not statistically significant</strong>.{' '}
                                     {significanceBannerDetails}{' '}
-                                    {experimentData?.end_date ? '' : "We don't recommend ending this experiment yet."}{' '}
-                                    See our{' '}
+                                    {experiment?.end_date ? '' : "We don't recommend ending this experiment yet."} See
+                                    our{' '}
                                     <a href="https://posthog.com/docs/user-guides/experimentation#funnel-experiment-calculations">
                                         {' '}
                                         experimentation guide{' '}
@@ -725,7 +742,7 @@ export function Experiment(): JSX.Element {
                                 </Col>
                             </Row>
                         )}
-                        {showWarning && experimentData.end_date && (
+                        {showWarning && experiment.end_date && (
                             <Row align="top" className="feature-flag-mods">
                                 <Col span={23} style={{ fontWeight: 500 }}>
                                     <strong>Your experiment is complete, but the feature flag is still enabled.</strong>{' '}
@@ -733,8 +750,8 @@ export function Experiment(): JSX.Element {
                                     on this distribution.{' '}
                                     <Link
                                         to={
-                                            experimentData.feature_flag
-                                                ? urls.featureFlag(experimentData.feature_flag)
+                                            experiment.feature_flag
+                                                ? urls.featureFlag(experiment.feature_flag)
                                                 : undefined
                                         }
                                     >
@@ -751,21 +768,21 @@ export function Experiment(): JSX.Element {
                         <Collapse className="w-full" defaultActiveKey="experiment-details">
                             <Collapse.Panel header={<b>Experiment details</b>} key="experiment-details">
                                 <Row>
-                                    <Col span={experimentData?.start_date ? 12 : 24}>
+                                    <Col span={experiment?.start_date ? 12 : 24}>
                                         <ExperimentPreview
-                                            experimentId={experimentData.id}
+                                            experimentId={experiment.id}
                                             trendCount={trendCount}
-                                            trendExposure={experimentData?.parameters.recommended_running_time}
-                                            funnelSampleSize={experimentData?.parameters.recommended_sample_size}
+                                            trendExposure={experiment?.parameters.recommended_running_time}
+                                            funnelSampleSize={experiment?.parameters.recommended_sample_size}
                                             funnelConversionRate={conversionRate}
                                             funnelEntrants={
-                                                experimentData?.start_date ? funnelResultsPersonsTotal : entrants
+                                                experiment?.start_date ? funnelResultsPersonsTotal : entrants
                                             }
                                         />
                                     </Col>
-                                    {!experimentResultsLoading && !experimentResults && experimentData.start_date && (
+                                    {!experimentResultsLoading && !experimentResults && experiment.start_date && (
                                         <Col span={12}>
-                                            <ExperimentImplementationDetails experiment={experimentData} />
+                                            <ExperimentImplementationDetails experiment={experiment} />
                                         </Col>
                                     )}
                                     {experimentResults && (
@@ -779,14 +796,14 @@ export function Experiment(): JSX.Element {
                                                 percent={experimentProgressPercent}
                                                 strokeColor="var(--success)"
                                             />
-                                            {experimentInsightType === InsightType.TRENDS && experimentData.start_date && (
+                                            {experimentInsightType === InsightType.TRENDS && experiment.start_date && (
                                                 <Row justify="space-between" className="mt-2">
-                                                    {experimentData.end_date ? (
+                                                    {experiment.end_date ? (
                                                         <div>
                                                             Ran for{' '}
                                                             <b>
-                                                                {dayjs(experimentData.end_date).diff(
-                                                                    experimentData.start_date,
+                                                                {dayjs(experiment.end_date).diff(
+                                                                    experiment.start_date,
                                                                     'day'
                                                                 )}
                                                             </b>{' '}
@@ -794,20 +811,23 @@ export function Experiment(): JSX.Element {
                                                         </div>
                                                     ) : (
                                                         <div>
-                                                            <b>{dayjs().diff(experimentData.start_date, 'day')}</b> days
+                                                            <b>{dayjs().diff(experiment.start_date, 'day')}</b> days
                                                             running
                                                         </div>
                                                     )}
                                                     <div>
                                                         Goal:{' '}
-                                                        <b>{experimentData?.parameters?.recommended_running_time}</b>{' '}
+                                                        <b>
+                                                            {experiment?.parameters?.recommended_running_time ??
+                                                                'Unknown'}
+                                                        </b>{' '}
                                                         days
                                                     </div>
                                                 </Row>
                                             )}
                                             {experimentInsightType === InsightType.FUNNELS && (
                                                 <Row justify="space-between" className="mt-2">
-                                                    {experimentData.end_date ? (
+                                                    {experiment.end_date ? (
                                                         <div>
                                                             Saw <b>{humanFriendlyNumber(funnelResultsPersonsTotal)}</b>{' '}
                                                             participants
@@ -822,7 +842,7 @@ export function Experiment(): JSX.Element {
                                                         Goal:{' '}
                                                         <b>
                                                             {humanFriendlyNumber(
-                                                                experimentData?.parameters?.recommended_sample_size || 0
+                                                                experiment?.parameters?.recommended_sample_size || 0
                                                             )}
                                                         </b>{' '}
                                                         participants
@@ -831,23 +851,23 @@ export function Experiment(): JSX.Element {
                                             )}
                                         </Col>
                                     )}
-                                    {experimentData.secondary_metrics?.length > 0 && (
+                                    {experiment.secondary_metrics?.length > 0 && (
                                         <Col
                                             className="secondary-progress"
                                             span={
-                                                experimentData?.start_date &&
-                                                (experimentData?.parameters?.feature_flag_variants?.length || 0) <= 5
+                                                experiment?.start_date &&
+                                                (experiment?.parameters?.feature_flag_variants?.length || 0) <= 5
                                                     ? 12
                                                     : 24
                                             }
                                         >
-                                            {!!experimentData?.secondary_metrics.length && (
+                                            {!!experiment?.secondary_metrics.length && (
                                                 <Col className="border-b">
                                                     <Row align="middle" justify="space-between" className="mb-2">
                                                         <Col className="card-secondary" span={2 * secondaryColumnSpan}>
                                                             Secondary metrics
                                                         </Col>
-                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                        {experiment?.parameters?.feature_flag_variants?.map(
                                                             (variant, idx) => (
                                                                 <Col
                                                                     key={idx}
@@ -869,12 +889,12 @@ export function Experiment(): JSX.Element {
                                                         )}
                                                     </Row>
 
-                                                    {experimentData.start_date ? (
+                                                    {experiment.start_date ? (
                                                         secondaryMetricResultsLoading ? (
                                                             <Skeleton active paragraph={false} />
                                                         ) : (
                                                             <>
-                                                                {experimentData.secondary_metrics.map((metric, idx) => (
+                                                                {experiment.secondary_metrics.map((metric, idx) => (
                                                                     <Row
                                                                         className="border-t"
                                                                         key={idx}
@@ -887,7 +907,7 @@ export function Experiment(): JSX.Element {
                                                                         <Col span={2 * secondaryColumnSpan}>
                                                                             {capitalizeFirstLetter(metric.name)}
                                                                         </Col>
-                                                                        {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                        {experiment?.parameters?.feature_flag_variants?.map(
                                                                             (variant, index) => (
                                                                                 <Col
                                                                                     key={index}
@@ -927,7 +947,7 @@ export function Experiment(): JSX.Element {
                                                         )
                                                     ) : (
                                                         <>
-                                                            {experimentData.secondary_metrics.map((metric, idx) => (
+                                                            {experiment.secondary_metrics.map((metric, idx) => (
                                                                 <Row
                                                                     className="border-t"
                                                                     key={idx}
@@ -940,7 +960,7 @@ export function Experiment(): JSX.Element {
                                                                     <Col span={2 * secondaryColumnSpan}>
                                                                         {capitalizeFirstLetter(metric.name)}
                                                                     </Col>
-                                                                    {experimentData?.parameters?.feature_flag_variants?.map(
+                                                                    {experiment?.parameters?.feature_flag_variants?.map(
                                                                         (_, index) => (
                                                                             <Col key={index} span={secondaryColumnSpan}>
                                                                                 --
@@ -958,15 +978,15 @@ export function Experiment(): JSX.Element {
                                 </Row>
                             </Collapse.Panel>
                         </Collapse>
-                        {!experimentData?.start_date && (
+                        {!experiment?.start_date && (
                             <div className="mt-4 w-full">
-                                <ExperimentImplementationDetails experiment={experimentData} />
+                                <ExperimentImplementationDetails experiment={experiment} />
                             </div>
                         )}
                     </Row>
                     <div className="experiment-result">
                         {experimentResults ? (
-                            (experimentData?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
+                            (experiment?.parameters?.feature_flag_variants?.length || 0) > 4 ? (
                                 <>
                                     <Row
                                         className="border-t"
@@ -1137,7 +1157,7 @@ export function Experiment(): JSX.Element {
                                 </div>
                             </BindLogic>
                         ) : (
-                            experimentData.start_date && (
+                            experiment.start_date && (
                                 <>
                                     <div className="no-experiment-results">
                                         {!experimentResultsLoading && (

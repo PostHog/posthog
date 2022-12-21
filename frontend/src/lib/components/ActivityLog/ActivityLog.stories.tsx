@@ -23,22 +23,18 @@ export default {
                     ctx.json({ results: [] }),
                 ],
                 '/api/projects/:team/feature_flags/6/activity': (_, __, ctx) => [
-                    ctx.delay(1000),
                     ctx.status(200),
                     ctx.json({ results: [] }),
                 ],
                 '/api/projects/:team/feature_flags/7/activity': (_, __, ctx) => [
-                    ctx.delay(1000),
                     ctx.status(200),
                     ctx.json({ results: featureFlagsActivityResponseJson }),
                 ],
                 '/api/projects/:team/insights/activity': (_, __, ctx) => [
-                    ctx.delay(1000),
                     ctx.status(200),
                     ctx.json({ results: insightsActivityResponseJson }),
                 ],
                 '/api/person/:id/activity': (_, __, ctx) => [
-                    ctx.delay(1000),
                     ctx.status(200),
                     ctx.json({ results: personActivityResponseJson }),
                 ],

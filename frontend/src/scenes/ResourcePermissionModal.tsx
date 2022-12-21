@@ -13,7 +13,7 @@ import {
     permissionsLogic,
     ResourcePermissionMapping,
 } from './organization/Settings/Permissions/permissionsLogic'
-import { rolesLogic } from './organization/Settings/Roles/rolesLogic'
+import { rolesLogic } from './organization/Settings/Permissions/Roles/rolesLogic'
 import { urls } from './urls'
 
 interface ResourcePermissionProps {
@@ -244,7 +244,7 @@ function OrganizationResourcePermissionRoles({ roles }: { roles: RoleType[] }): 
             <h5 className="mt-4">Roles with edit access</h5>
             <Row>
                 {roles.map((role) => (
-                    <span key={role.id} className="simple-tag tag-light-blue text-primary-alt">
+                    <span key={role.id} className="simple-tag tag-light-blue text-primary-alt mr-2">
                         <b>{role.name}</b>{' '}
                     </span>
                 ))}
