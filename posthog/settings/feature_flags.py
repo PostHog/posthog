@@ -7,6 +7,5 @@ from posthog.settings.utils import get_list
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", "")) + [
     "simplify-actions",
     "historical-exports-v2",
-    "event-count-per-actor",
     "ingestion-warnings-enabled",
 ]
