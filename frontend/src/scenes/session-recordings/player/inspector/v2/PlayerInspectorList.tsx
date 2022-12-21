@@ -95,7 +95,7 @@ function PlayerInspectorListItem({
                 marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
             }}
         >
-            {!isExpanded && (
+            {!isExpanded && (showIcon || windowNumber) && (
                 <div className="shrink-0 text-lg text-muted-alt h-8 flex items-center justify-center gap-1">
                     {showIcon ? TabToIcon[item.type] : null}
                     {windowNumber ? <IconWindow value={windowNumber} className="shrink-0" /> : null}
