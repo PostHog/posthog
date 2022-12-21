@@ -256,7 +256,7 @@ export function addHistoricalEventsExportCapabilityV2(
                         startTime: new Date(startDate).getTime(),
                         endTime: new Date(endDate).getTime(),
                         previousSortKey: {
-                            'toDate(timestamp)': 0,
+                            'toDate(timestamp)': '1970-01-01',
                             event: '',
                             'cityHash64(distinct_id)': 0,
                             'cityHash64(uuid)': 0,
@@ -415,7 +415,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 // seems pretty weak. Refactor to be a bit more robust.
                 // TODO: this doesn't actually work for export sources that rely
                 // on timestamp ordering, e.g. the replicator.
-                { 'toDate(timestamp)': 0, event: '', 'cityHash64(distinct_id)': 0, 'cityHash64(uuid)': 0 }
+                { 'toDate(timestamp)': '1970-01-01', event: '', 'cityHash64(distinct_id)': 0, 'cityHash64(uuid)': 0 }
             )
         } catch (error) {
             Sentry.captureException(error)
