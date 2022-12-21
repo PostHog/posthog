@@ -82,8 +82,9 @@ function PlayerInspectorListItem({
             className={clsx('flex flex-1 overflow-hidden gap-2 relative')}
             // eslint-disable-next-line react/forbid-dom-props
             style={{
-                marginTop: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2, // Style as we need it for the layout optimisation
-                marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2, // Style as we need it for the layout optimisation
+                // Style as we need it for the layout optimisation
+                marginTop: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
+                marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
             }}
         >
             {!isExpanded && showIcon ? (

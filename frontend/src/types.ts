@@ -529,6 +529,8 @@ export type RecordingConsoleLogV2 = {
     level: LogLevel
     content: string
     lines: string[]
+    trace: string[]
+    count: number
 }
 
 export interface RecordingSegment {

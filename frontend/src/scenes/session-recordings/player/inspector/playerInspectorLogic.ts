@@ -67,6 +67,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionPlayerMetaDataLoading',
                 'sessionEventsData',
                 'sessionEventsDataLoading',
+                'windowIds',
             ],
             sessionRecordingPlayerLogic(props),
             ['currentPlayerTime'],
@@ -163,6 +164,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (s) => [s.sessionPlayerData],
             (sessionPlayerData): RecordingConsoleLogV2[] => {
                 const logs: RecordingConsoleLogV2[] = []
+                const seenCache = new Set<string>()
 
                 sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
                     sessionPlayerData.snapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
@@ -171,15 +173,29 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             snapshot.data.plugin === CONSOLE_LOG_PLUGIN_NAME
                         ) {
                             const data = snapshot.data.payload as RRWebRecordingConsoleLogPayload
-                            const { level, payload } = data
+                            const { level, payload, trace } = data
                             const lines = (Array.isArray(payload) ? payload : [payload]).filter((x) => !!x) as string[]
+                            const content = lines.join('\n')
+                            const cacheKey = `${snapshot.timestamp}::${content}`
+
+                            if (seenCache.has(cacheKey)) {
+                                return
+                            }
+                            seenCache.add(cacheKey)
+
+                            if (logs[logs.length - 1]?.content === content) {
+                                logs[logs.length - 1].count += 1
+                                return
+                            }
 
                             logs.push({
                                 timestamp: snapshot.timestamp,
                                 windowId: segment.windowId,
-                                content: lines.join('\n'),
+                                content,
                                 lines,
                                 level,
+                                trace,
+                                count: 1,
                             })
                         }
                     })
@@ -405,7 +421,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 // NOTE: Native JS sorting is super slow here!
-
                 items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
 
                 return items

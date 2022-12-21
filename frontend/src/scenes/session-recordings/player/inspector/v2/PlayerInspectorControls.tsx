@@ -8,7 +8,6 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { useMemo } from 'react'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
-import { playerMetaLogic } from '../../playerMetaLogic'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from '../playerInspectorLogic'
@@ -25,11 +24,12 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, searchQuery, syncScroll, loading } = useValues(playerInspectorLogic(logicProps))
+    const { windowIdFilter, tab, searchQuery, syncScroll, loading, windowIds } = useValues(
+        playerInspectorLogic(logicProps)
+    )
     const { setWindowIdFilter, setTab, setSearchQuery, setSyncScroll } = useActions(playerInspectorLogic(logicProps))
     const { showOnlyMatching, timestampMode, miniFilters } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter } = useActions(playerSettingsLogic)
-    const { windowIds } = useValues(playerMetaLogic(logicProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
     const inspectorPerformance = !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]
@@ -95,7 +95,7 @@ export function PlayerInspectorControls({
                         />
                         <Tooltip
                             title="Each recording window translates to a distinct browser tab or window."
-                            className="text-base text-muted-alt mr-2"
+                            className="text-base text-muted-alt"
                         >
                             <IconInfo />
                         </Tooltip>
