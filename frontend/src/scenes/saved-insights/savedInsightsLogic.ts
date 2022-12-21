@@ -256,7 +256,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 actions.loadInsights()
                 redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
             } catch (e: any) {
-                const message = e.code && e.detail ? `${e.code}: ${e.detail}` : 'unknown error'
+                const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e.toString()
                 toast.error('Could not duplicate insight: ' + message)
             }
         },
