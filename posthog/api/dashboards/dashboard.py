@@ -140,7 +140,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
             if (
                 existing_dashboard.get_effective_privilege_level(self.context["request"].user.id)
-                == Dashboard.PrivilegeLevel.CAN_VIEW
+                < Dashboard.PrivilegeLevel.CAN_EDIT
             ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {use_dashboard}")
 
