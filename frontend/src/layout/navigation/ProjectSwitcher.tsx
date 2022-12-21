@@ -11,6 +11,10 @@ import { urls } from 'scenes/urls'
 import { AvailableFeature, TeamBasicType } from '~/types'
 import { navigationLogic } from './navigationLogic'
 
+type OnCloseProps = {
+    onClose: () => void
+}
+
 export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     return (
         <div className="flex items-center">
@@ -24,22 +28,22 @@ export function ProjectName({ team }: { team: TeamBasicType }): JSX.Element {
     )
 }
 
-export function ProjectSwitcherOverlay(): JSX.Element {
+export function ProjectSwitcherOverlay({ onClose }: OnCloseProps): JSX.Element {
     const { currentOrganization, projectCreationForbiddenReason } = useValues(organizationLogic)
     const { currentTeam } = useValues(teamLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
-    const { showCreateProjectModal, hideProjectSwitcher } = useActions(navigationLogic)
+    const { showCreateProjectModal } = useActions(navigationLogic)
 
     return (
         <div className="project-switcher-container space-y-px">
             <h5>Projects</h5>
             <LemonDivider />
-            <CurrentProjectButton />
+            <CurrentProjectButton onClose={onClose} />
             {currentOrganization?.teams &&
                 currentOrganization.teams
                     .filter((team) => team.id !== currentTeam?.id)
                     .sort((teamA, teamB) => teamA.name.localeCompare(teamB.name))
-                    .map((team) => <OtherProjectButton key={team.id} team={team} />)}
+                    .map((team) => <OtherProjectButton key={team.id} team={team} onClose={onClose} />)}
 
             <LemonButton
                 icon={<IconPlus />}
@@ -47,7 +51,7 @@ export function ProjectSwitcherOverlay(): JSX.Element {
                 disabled={!!projectCreationForbiddenReason}
                 tooltip={projectCreationForbiddenReason}
                 onClick={() => {
-                    hideProjectSwitcher()
+                    onClose()
                     guardAvailableFeature(
                         AvailableFeature.ORGANIZATIONS_PROJECTS,
                         'multiple projects',
@@ -62,10 +66,9 @@ export function ProjectSwitcherOverlay(): JSX.Element {
     )
 }
 
-function CurrentProjectButton(): JSX.Element | null {
+function CurrentProjectButton({ onClose }: OnCloseProps): JSX.Element | null {
     const { currentTeam } = useValues(teamLogic)
     const { push } = useActions(router)
-    const { hideProjectSwitcher } = useActions(navigationLogic)
 
     return currentTeam ? (
         <LemonButtonWithSideAction
@@ -74,7 +77,7 @@ function CurrentProjectButton(): JSX.Element | null {
                 icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${currentTeam.name} settings`,
                 onClick: () => {
-                    hideProjectSwitcher()
+                    onClose()
                     push(urls.projectSettings())
                 },
             }}
@@ -87,7 +90,7 @@ function CurrentProjectButton(): JSX.Element | null {
     ) : null
 }
 
-function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
+function OtherProjectButton({ team, onClose }: { team: TeamBasicType } & OnCloseProps): JSX.Element {
     const { location, searchParams, hashParams } = useValues(router)
 
     const projectSwitchUrl = combineUrl(
@@ -102,12 +105,14 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
     return (
         <LemonButtonWithSideAction
             to={projectSwitchUrl}
+            onClick={onClose}
             disableClientSideRouting
             sideAction={{
                 icon: <IconSettings className="text-muted-alt" />,
                 tooltip: `Go to ${team.name} settings`,
                 to: `/project/settings?tid=${team.id}`,
                 disableClientSideRouting: true,
+                onClick: onClose,
             }}
             title={`Switch to project ${team.name}`}
             status="stealth"

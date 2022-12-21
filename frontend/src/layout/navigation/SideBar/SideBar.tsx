@@ -88,7 +88,7 @@ function Pages(): JSX.Element {
                     popup: {
                         visible: isProjectSwitcherShown,
                         onClickOutside: hideProjectSwitcher,
-                        overlay: <ProjectSwitcherOverlay />,
+                        overlay: <ProjectSwitcherOverlay onClose={() => hideProjectSwitcher()} />,
                         actionable: true,
                     },
                 }}

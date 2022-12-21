@@ -35,13 +35,15 @@ function Breadcrumb({ breadcrumb, index }: { breadcrumb: IBreadcrumb; index: num
     if (breadcrumb.popup) {
         return (
             <Popup
-                {...breadcrumb.popup}
+                actionable
                 visible={popoverShown}
                 onClickOutside={() => {
                     if (popoverShown) {
                         setPopoverShown(false)
                     }
                 }}
+                closeParentPopupOnClickInside={true}
+                overlay={breadcrumb.popup(() => setPopoverShown(false))}
             >
                 {breadcrumbContent}
             </Popup>

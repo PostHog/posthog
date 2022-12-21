@@ -107,10 +107,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         symbol: <Lettermark name={currentOrganization.name} />,
                         popup:
                             otherOrganizations?.length || preflight?.can_create_org
-                                ? {
-                                      overlay: <OrganizationSwitcherOverlay />,
-                                      actionable: true,
-                                  }
+                                ? () => <OrganizationSwitcherOverlay />
                                 : undefined,
                     })
                 }
@@ -121,10 +118,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                     }
                     breadcrumbs.push({
                         name: currentTeam.name,
-                        popup: {
-                            overlay: <ProjectSwitcherOverlay />,
-                            actionable: true,
-                        },
+                        popup: (close) => <ProjectSwitcherOverlay onClose={close} />,
                     })
                 }
 

@@ -15,7 +15,6 @@ import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
-import { PopupProps } from 'lib/components/Popup/Popup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { ChartDataset, ChartType, InteractionItem } from 'chart.js'
 import { LogLevel } from 'rrweb'
@@ -2102,7 +2101,7 @@ export interface Breadcrumb {
     /** Path to link to. */
     path?: string
     /** Whether to show a custom popup */
-    popup?: Pick<PopupProps, 'overlay' | 'sameWidth' | 'actionable'>
+    popup?: (close: () => void) => React.ReactNode
 }
 
 export enum GraphType {
