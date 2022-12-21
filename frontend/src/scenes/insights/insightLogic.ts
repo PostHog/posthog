@@ -47,7 +47,7 @@ import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/react'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -867,22 +867,20 @@ export const insightLogic = kea<insightLogicType>([
         abortQuery: async ({ queryId }) => {
             const { currentTeamId } = values
 
-            if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
-                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+            await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
 
-                const duration = performance.now() - values.queryStartTimes[queryId]
-                await captureTimeToSeeData(values.currentTeamId, {
-                    type: 'insight_load',
-                    context: 'insight',
-                    query_id: queryId,
-                    status: 'cancelled',
-                    time_to_see_data_ms: Math.floor(duration),
-                    insights_fetched: 0,
-                    insights_fetched_cached: 0,
-                    api_response_bytes: 0,
-                    insight: values.activeView,
-                })
-            }
+            const duration = performance.now() - values.queryStartTimes[queryId]
+            await captureTimeToSeeData(values.currentTeamId, {
+                type: 'insight_load',
+                context: 'insight',
+                query_id: queryId,
+                status: 'cancelled',
+                time_to_see_data_ms: Math.floor(duration),
+                insights_fetched: 0,
+                insights_fetched_cached: 0,
+                api_response_bytes: 0,
+                insight: values.activeView,
+            })
         },
         endQuery: ({ queryId, view, lastRefresh, scene, exception, response }) => {
             if (values.timeout) {

@@ -28,10 +28,11 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+import api from 'lib/api'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
@@ -103,6 +104,8 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
     } as InsightModel
 }
 
+const seenQueryIDs: string[] = []
+
 describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
 
@@ -112,6 +115,11 @@ describe('insightLogic', () => {
             get: {
                 '/api/projects/:team/tags': [],
                 '/api/projects/:team/insights/trend/': async (req) => {
+                    const clientQueryId = req.url.searchParams.get('client_query_id')
+                    if (clientQueryId !== null) {
+                        seenQueryIDs.push(clientQueryId)
+                    }
+
                     if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
@@ -200,6 +208,7 @@ describe('insightLogic', () => {
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],
+                '/api/projects/997/insights/cancel/': [201],
             },
             patch: {
                 '/api/projects/:team/insights/:id': async (req) => {
@@ -1230,6 +1239,8 @@ describe('insightLogic', () => {
         })
 
         it('cancels a running query', async () => {
+            jest.spyOn(api, 'create')
+
             setTimeout(() => {
                 // this change of filters will dispatch cancellation on the first query
                 // will run while the -180d query is still running
@@ -1251,6 +1262,19 @@ describe('insightLogic', () => {
                 .toMatchValues({
                     filters: partial({ date_from: '-90d' }),
                 })
+
+            const mockCreateCalls = (api.create as jest.Mock).mock.calls
+            // there will be at least two used client query ids
+            // the most recent has not been cancelled
+            // the one before that has been
+            expect(mockCreateCalls).toEqual([
+                [
+                    `api/projects/${MOCK_TEAM_ID}/insights/cancel`,
+                    {
+                        client_query_id: seenQueryIDs[seenQueryIDs.length - 2],
+                    },
+                ],
+            ])
         })
     })
 })
