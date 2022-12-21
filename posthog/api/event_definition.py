@@ -105,8 +105,8 @@ class EventDefinitionViewSet(
             event_type,
             is_enterprise=is_enterprise,
             conditions=search_query,
-            order=order,
-            direction=order_direction,
+            order_expr=order,
+            order_direction=order_direction,
         )
         return event_definition_object_manager.raw(sql, params=params)
 

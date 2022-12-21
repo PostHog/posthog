@@ -360,8 +360,8 @@ def create_event_definitions_sql(
     event_type: EventDefinitionType,
     is_enterprise: bool = False,
     conditions: str = "",
-    order: str = "",
-    direction: Literal["ASC", "DESC"] = "DESC",
+    order_expr: str = "",
+    order_direction: Literal["ASC", "DESC"] = "DESC",
 ) -> str:
     if is_enterprise:
         from ee.models import EnterpriseEventDefinition
@@ -375,7 +375,6 @@ def create_event_definitions_sql(
         for f in ee_model._meta.get_fields()
         if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
     }
-    shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
 
     enterprise_join = (
         "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
@@ -383,20 +382,23 @@ def create_event_definitions_sql(
         else ""
     )
 
-    additional_ordering = f"{order} {direction} {'NULLS FIRST' if direction == 'ASC' else 'NULLS LAST'}, "
-    ordering = f"ORDER BY {additional_ordering} name ASC"
-
     if event_type == EventDefinitionType.EVENT_CUSTOM:
-        shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
+        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
     if event_type == EventDefinitionType.EVENT_POSTHOG:
-        shared_conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+
+    additional_ordering = (
+        f"{order_expr} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}, "
+        if order_expr
+        else ""
+    )
 
     return f"""
             SELECT {",".join(event_definition_fields)}
             FROM posthog_eventdefinition
             {enterprise_join}
-            {shared_conditions}
-            {ordering}
+            WHERE team_id = %(team_id)s {conditions}
+            ORDER BY {additional_ordering}name ASC
         """
 
 
