@@ -15,7 +15,7 @@ import {
     SetInsightOptions,
     TrendsFilterType,
 } from '~/types'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -336,6 +336,7 @@ export const insightLogic = kea<insightLogicType>([
                                 ...filters,
                                 ...(refresh ? { refresh: true } : {}),
                                 client_query_id: queryId,
+                                session_id: currentSessionId(),
                             }
                             ;[fetchResponse, apiUrl] = await legacyInsightQuery({
                                 filters: params,

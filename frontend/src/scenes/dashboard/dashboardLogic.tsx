@@ -48,7 +48,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { Link } from 'lib/components/Link'
-import { captureTimeToSeeData, TimeToSeeDataPayload } from 'lib/internalMetrics'
+import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -950,6 +950,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh: true,
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
+                    session_id: currentSessionId(),
                 })}`
 
                 try {

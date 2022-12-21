@@ -20,12 +20,15 @@ export interface TimeToSeeDataPayload {
     is_primary_interaction?: boolean
 }
 
+export function currentSessionId(): string | undefined {
+    const sessionDetails = posthog.sessionManager?.checkAndGetSessionAndWindowId?.(true)
+    return sessionDetails?.sessionId
+}
+
 export async function captureTimeToSeeData(teamId: number | null, payload: TimeToSeeDataPayload): Promise<void> {
     if (window.JS_CAPTURE_TIME_TO_SEE_DATA && teamId) {
-        const sessionDetails = posthog.sessionManager?.checkAndGetSessionAndWindowId?.(true)
-
         await api.create(`api/projects/${teamId}/insights/timing`, {
-            session_id: sessionDetails?.sessionId ?? '',
+            session_id: currentSessionId(),
             current_url: window.location.href,
             ...payload,
         })
