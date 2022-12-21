@@ -256,7 +256,10 @@ export function addHistoricalEventsExportCapabilityV2(
                         startTime: new Date(startDate).getTime(),
                         endTime: new Date(endDate).getTime(),
                         previousSortKey: {
-                            timestamp: new Date(startDate).getTime(),
+                            'toDate(timestamp)': 0,
+                            event: '',
+                            'cityHash64(distinct_id)': 0,
+                            'cityHash64(uuid)': 0,
                         },
                         retriesPerformedSoFar: 0,
                         exportId: params.id,
@@ -592,13 +595,13 @@ export function addHistoricalEventsExportCapabilityV2(
         return now >= status.statusTime + TEN_MINUTES + retryDelaySeconds(status.retriesPerformedSoFar + 1) * 1000
     }
 
-    function nextCursor(payload: ExportHistoricalEventsJobPayload, events: PluginEvent[]): OffsetParams {
+    function nextCursor(payload: ExportHistoricalEventsJobPayload, events: Record<string, any>[]): OffsetParams {
         // More on the same time window
         return {
             timestampCursor: payload.timestampCursor,
             fetchTimeInterval: payload.fetchTimeInterval,
             previousSortKey: Object.fromEntries(
-                Object.keys(payload.previousSortKey).map((key) => [key, events[events.length - 1].properties?.[key]])
+                Object.keys(payload.previousSortKey).map((key) => [key, events[events.length - 1][key]])
             ),
         }
     }
