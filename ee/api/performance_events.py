@@ -7,8 +7,13 @@ from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import sync_execute
+from posthog.constants import AvailableFeature
 from posthog.models.performance.sql import PERFORMANCE_EVENT_COLUMNS, _column_names_from_column_definitions
-from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.permissions import (
+    PremiumFeaturePermission,
+    ProjectMembershipNecessaryPermissions,
+    TeamMemberAccessPermission,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -94,7 +99,13 @@ class PerformanceEvents:
 
 class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     serializer_class = PerformanceEventSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        IsAuthenticated,
+        PremiumFeaturePermission,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
+    premium_feature = AvailableFeature.RECORDINGS_PERFORMANCE
 
     def get_queryset(self):
         return None
