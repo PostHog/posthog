@@ -142,15 +142,15 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     const { events, actions } = filters
     const series = actionsAndEventsToSeries({ actions, events } as any)
-    const query: InsightQueryNode = {
+    const query: InsightQueryNode = filterUndefined({
         kind: reverseInsightMap[filters.insight],
         properties: filters.properties,
         filterTestAccounts: filters.filter_test_accounts,
-        dateRange: {
+        dateRange: filterUndefined({
             date_to: filters.date_to,
             date_from: filters.date_from,
-        },
-        breakdown: {
+        }),
+        breakdown: filterUndefined({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
             breakdown_normalize_url: filters.breakdown_normalize_url,
@@ -158,18 +158,16 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
             breakdown_value: filters.breakdown_value,
             breakdown_group_type_index: filters.breakdown_group_type_index,
             aggregation_group_type_index: filters.aggregation_group_type_index,
-        },
+        }),
         interval: filters.interval,
         series,
-    }
+    })
 
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
-        query.lifecycleFilter = {
+        query.lifecycleFilter = filterUndefined({
             shown_as: filters.shown_as,
-        }
+        })
     }
-
-    query[filterMap[query.kind]]
 
     return query
 }
