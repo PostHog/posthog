@@ -2,6 +2,7 @@ import { LemonBadge } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
+import { Spinner } from '../Spinner/Spinner'
 import { Tooltip } from '../Tooltip'
 import './TimelineSeekbar.scss'
 
@@ -16,7 +17,7 @@ export interface TimelineSeekbarProps {
     onPointSelection: (index: number) => void
     from?: Dayjs
     to?: Dayjs
-    loading?: boolean // TODO: Use this
+    loading?: boolean
     className?: string
 }
 
@@ -26,6 +27,7 @@ export function TimelineSeekbar({
     onPointSelection,
     from = points.length ? points[0].timestamp : dayjs(),
     to = points.length ? points[points.length - 1].timestamp : dayjs(),
+    loading,
     className,
 }: TimelineSeekbarProps): JSX.Element {
     return (
@@ -33,10 +35,13 @@ export function TimelineSeekbar({
             <div className="TimelineSeekbar__meta">
                 <div className="TimelineSeekbar__note">Relevant properties over time</div>
                 <div className="TimelineSeekbar__current">
-                    As of{' '}
-                    {selectedPointIndex !== null
-                        ? humanFriendlyDetailedTime(points[selectedPointIndex].timestamp)
-                        : 'now'}
+                    {loading && <Spinner monocolor />}
+                    <span>
+                        As of{' '}
+                        {selectedPointIndex !== null
+                            ? humanFriendlyDetailedTime(points[selectedPointIndex].timestamp)
+                            : 'now'}
+                    </span>
                 </div>
             </div>
             {points.length > 0 && (

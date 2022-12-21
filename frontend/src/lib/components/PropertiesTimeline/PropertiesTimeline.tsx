@@ -8,17 +8,17 @@ import { propertiesTimelineLogic, PropertiesTimelineProps } from './propertiesTi
 import { TimelineSeekbar } from '../TimelineSeekbar'
 
 export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): JSX.Element {
-    const { points } = useValues(propertiesTimelineLogic({ actor, filter }))
+    const { points, pointsLoading } = useValues(propertiesTimelineLogic({ actor, filter }))
     const [selectedPointIndex, setSelectedPointIndex] = useState<number | null>(null)
 
     useEffect(() => {
-        if (points && points.length > 0 && selectedPointIndex === null) {
+        if (points.length > 0 && selectedPointIndex === null) {
             setSelectedPointIndex(points.length - 1)
         }
     }, [points, selectedPointIndex, setSelectedPointIndex])
 
     const propertiesShown: Properties =
-        points && selectedPointIndex !== null ? points[selectedPointIndex].properties : actor.properties
+        points.length > 0 && selectedPointIndex !== null ? points[selectedPointIndex].properties : actor.properties
 
     return (
         <div className="flex flex-col px-2">
@@ -35,7 +35,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                 onPointSelection={setSelectedPointIndex}
                 from={filter.date_from ? dayjs(filter.date_from) : undefined}
                 to={filter.date_to ? dayjs(filter.date_to) : undefined}
-                loading={points === null}
+                loading={pointsLoading}
             />
             <LemonDivider className="h-0" />
             {/* TODO: Highlight relevant properties */}

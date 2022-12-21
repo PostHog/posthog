@@ -16,7 +16,8 @@
 }
 
 .TimelineSeekbar__current {
-    width: fit-content;
+    display: flex;
+    align-items: center;
     padding: 0 0.25rem;
     border-radius: var(--radius);
     background: var(--primary);
@@ -26,6 +27,9 @@
     font-weight: 500;
     &::selection {
         background: var(--primary-light); // Default selection background is invisible on primary
+    }
+    .Spinner {
+        margin-right: 0.25rem;
     }
 }
 
