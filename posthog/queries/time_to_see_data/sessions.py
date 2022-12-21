@@ -1,9 +1,9 @@
 from typing import Dict, List, Tuple
 
 from posthog.client import query_with_columns
+from posthog.queries.time_to_see_data.hierarchy import construct_hierarchy
 from posthog.queries.time_to_see_data.serializers import (
     SessionEventsQuerySerializer,
-    SessionEventsResponseSerializer,
     SessionResponseSerializer,
     SessionsQuerySerializer,
     UserLookup,
@@ -58,7 +58,7 @@ def get_sessions(query: SessionsQuerySerializer) -> SessionResponseSerializer:
     return response_serializer
 
 
-def get_session_events(query: SessionEventsQuerySerializer) -> SessionEventsResponseSerializer:
+def get_session_events(query: SessionEventsQuerySerializer) -> Dict:
     params = {
         "team_id": query.validated_data["team_id"],
         "session_id": query.validated_data["session_id"],
@@ -73,11 +73,7 @@ def get_session_events(query: SessionEventsQuerySerializer) -> SessionEventsResp
     session_query.is_valid(raise_exception=True)
     session = get_sessions(session_query).data[0]
 
-    response_serializer = SessionEventsResponseSerializer(
-        data={"session": session, "events": events, "queries": queries}
-    )
-    response_serializer.is_valid(raise_exception=True)
-    return response_serializer
+    return construct_hierarchy(session, events, queries)
 
 
 def _fetch_sessions(query: SessionsQuerySerializer) -> List[Dict]:

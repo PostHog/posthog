@@ -20,4 +20,4 @@ class TimeToSeeDataViewSet(viewsets.ViewSet):
     def session_events(self, request):
         query = SessionEventsQuerySerializer(data=request.data)
         query.is_valid(raise_exception=True)
-        return Response(get_session_events(query).data)
+        return Response(get_session_events(query))
