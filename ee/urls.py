@@ -16,6 +16,7 @@ from .api import (
     hooks,
     license,
     organization_resource_access,
+    performance_events,
     role,
     sentry_stats,
     session_recording_playlist,
@@ -75,6 +76,13 @@ def extend_api_router(
         r"session_recording_playlists",
         session_recording_playlist.SessionRecordingPlaylistViewSet,
         "project_session_recording_playlists",
+        ["team_id"],
+    )
+
+    projects_router.register(
+        r"performance_events",
+        performance_events.PerformanceEventsViewSet,
+        "performance_events",
         ["team_id"],
     )
 

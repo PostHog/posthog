@@ -5,6 +5,8 @@ import { runProcessEvent } from '../../plugins/run'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { EventPipelineRunner, StepResult } from './runner'
 
+const EVENTS_TO_IGNORE = ['$snapshot', '$performance_event']
+
 export async function pluginsProcessEventStep(
     runner: EventPipelineRunner,
     event: PluginEvent,
@@ -13,7 +15,7 @@ export async function pluginsProcessEventStep(
     let processedEvent: PluginEvent | null = event
 
     // run processEvent on all events that are not $snapshot
-    if (event.event !== '$snapshot') {
+    if (!EVENTS_TO_IGNORE.includes(event.event)) {
         processedEvent = await runInstrumentedFunction({
             server: runner.hub,
             event,
