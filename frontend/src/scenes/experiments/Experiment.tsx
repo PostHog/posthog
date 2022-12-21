@@ -1,4 +1,4 @@
-import { Card, Col, Collapse, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
+import { Card, Col, Collapse, Popconfirm, Progress, Row, Skeleton, Tag, Tooltip } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -83,8 +83,9 @@ export function Experiment(): JSX.Element {
         addExperimentGroup,
         updateExperiment,
         removeExperimentGroup,
-        setExperimentInsightType,
+        createNewExperimentInsight,
         archiveExperiment,
+        resetRunningExperiment,
         loadExperiment,
         setExposureAndSampleSize,
         setExperimentValue,
@@ -288,19 +289,22 @@ export function Experiment(): JSX.Element {
                                                             </Field>
 
                                                             <div className="float-right">
-                                                                {!(index === 0 || index === 1) && (
-                                                                    <Tooltip
-                                                                        title="Delete this variant"
-                                                                        placement="bottomLeft"
-                                                                    >
-                                                                        <LemonButton
-                                                                            status="primary-alt"
-                                                                            size="small"
-                                                                            icon={<IconDelete />}
-                                                                            onClick={() => removeExperimentGroup(index)}
-                                                                        />
-                                                                    </Tooltip>
-                                                                )}
+                                                                {experimentId === 'new' &&
+                                                                    !(index === 0 || index === 1) && (
+                                                                        <Tooltip
+                                                                            title="Delete this variant"
+                                                                            placement="bottomLeft"
+                                                                        >
+                                                                            <LemonButton
+                                                                                status="primary-alt"
+                                                                                size="small"
+                                                                                icon={<IconDelete />}
+                                                                                onClick={() =>
+                                                                                    removeExperimentGroup(index)
+                                                                                }
+                                                                            />
+                                                                        </Tooltip>
+                                                                    )}
                                                             </div>
                                                         </Row>
                                                     </Group>
@@ -440,9 +444,11 @@ export function Experiment(): JSX.Element {
                                         <LemonSelect
                                             value={experimentInsightType}
                                             onChange={(val) => {
-                                                if (val) {
-                                                    setExperimentInsightType(val)
-                                                }
+                                                val &&
+                                                    createNewExperimentInsight({
+                                                        insight: val,
+                                                        properties: experiment?.filters?.properties,
+                                                    })
                                             }}
                                             dropdownMatchSelectWidth={false}
                                             options={[
@@ -665,9 +671,27 @@ export function Experiment(): JSX.Element {
                                 </div>
                             )}
                             {experiment && experiment.start_date && !experiment.end_date && (
-                                <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
-                                    Stop
-                                </LemonButton>
+                                <div className="flex flex-row gap-2">
+                                    <Popconfirm
+                                        placement="topLeft"
+                                        title={
+                                            <div>
+                                                Reset this experiment and go back to draft mode?
+                                                <div className="text-sm text-muted">
+                                                    All collected data so far will be discarded.
+                                                </div>
+                                            </div>
+                                        }
+                                        onConfirm={() => resetRunningExperiment()}
+                                    >
+                                        <LemonButton type="secondary" status="primary">
+                                            Reset
+                                        </LemonButton>
+                                    </Popconfirm>
+                                    <LemonButton type="secondary" status="danger" onClick={() => endExperiment()}>
+                                        Stop
+                                    </LemonButton>
+                                </div>
                             )}
                             {experiment?.end_date &&
                                 dayjs().isSameOrAfter(dayjs(experiment.end_date), 'day') &&
@@ -792,7 +816,11 @@ export function Experiment(): JSX.Element {
                                                         </div>
                                                     )}
                                                     <div>
-                                                        Goal: <b>{experiment?.parameters?.recommended_running_time}</b>{' '}
+                                                        Goal:{' '}
+                                                        <b>
+                                                            {experiment?.parameters?.recommended_running_time ??
+                                                                'Unknown'}
+                                                        </b>{' '}
                                                         days
                                                     </div>
                                                 </Row>
