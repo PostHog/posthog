@@ -1773,6 +1773,7 @@ export interface PreflightStatus {
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
     object_storage: boolean
+    instance_tag?: string
 }
 
 export enum ItemMode { // todo: consolidate this and dashboardmode
