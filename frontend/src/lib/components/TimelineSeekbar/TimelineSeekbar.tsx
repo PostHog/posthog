@@ -102,7 +102,7 @@ export function TimelineSeekbar({
                                 key={timestamp.toISOString()}
                                 title={
                                     <span className="text-center">
-                                        {humanFriendlyDetailedTime(timestamp)}
+                                        Starting {humanFriendlyDetailedTime(timestamp)}
                                         <br />
                                         {pluralize(count, 'relevant event')} with such properties
                                     </span>
