@@ -1,9 +1,9 @@
 import { kea, path, props, key, afterMount, selectors, propsChanged, reducers, actions, beforeUnmount } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { DataNode, EventsNode } from '~/queries/schema'
+import { DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
@@ -31,7 +31,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rowIds: string[], now = new Date().valueOf()) => ({ rowIds, now }),
     }),
-    loaders(({ actions, values, props }) => ({
+    loaders(({ values, props }) => ({
         response: [
             null as DataNode['response'] | null,
             {
@@ -44,8 +44,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!values.canLoadNewData || values.dataLoading) {
                         return values.response
                     }
-                    if (isEventsNode(props.query)) {
-                        const diffQuery: EventsNode =
+                    if (isEventsQuery(props.query)) {
+                        const diffQuery: EventsQuery =
                             values.response && values.response.results?.length > 0
                                 ? {
                                       ...props.query,
@@ -53,7 +53,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                   }
                                 : props.query
                         const newResponse = (await query(diffQuery)) ?? null
-                        actions.highlightRows((newResponse?.results ?? []).map((r) => r.id))
+                        // TODO: get this back
+                        // actions.highlightRows((newResponse?.results ?? []).map((r) => r.id))
                         return {
                             results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
                             next: values.response?.next,
@@ -65,8 +66,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!values.canLoadNextData || values.dataLoading) {
                         return values.response
                     }
-                    if (isEventsNode(props.query)) {
-                        const diffQuery: EventsNode =
+                    if (isEventsQuery(props.query)) {
+                        const diffQuery: EventsQuery =
                             values.response && values.response.results?.length > 0
                                 ? {
                                       ...props.query,
@@ -100,8 +101,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 persist: true,
                 storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query.kind, {
-                    action: (isEventsNode(props.query) || isEventsQuery(props.query)) && props.query.actionId,
-                    person: (isEventsNode(props.query) || isEventsQuery(props.query)) && props.query.personId,
+                    action: isEventsQuery(props.query) && props.query.actionId,
+                    person: isEventsQuery(props.query) && props.query.personId,
                 }),
             },
             { toggleAutoLoad: (state) => !state },
@@ -124,15 +125,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     selectors({
         canLoadNewData: [
             (_, p) => [p.query],
-            (query) => isEventsNode(query) || (isEventsQuery(query) && query.orderBy?.[0] === '-timestamp'),
+            (query) => isEventsQuery(query) && query.orderBy?.length === 1 && query.orderBy?.[0] === '-timestamp',
         ],
         canLoadNextData: [
             (s, p) => [p.query, s.response],
             (query, response) => {
+                // TODO: add EventsQuery
                 return (
-                    (isEventsNode(query) || isEventsQuery(query) || isPersonsNode(query)) &&
-                    (response as EventsNode['response'])?.next &&
-                    ((response as EventsNode['response'])?.results?.length ?? 0) > 0
+                    isPersonsNode(query) &&
+                    (response as PersonsNode['response'])?.next &&
+                    ((response as PersonsNode['response'])?.results?.length ?? 0) > 0
                 )
             },
         ],

@@ -1,6 +1,6 @@
 import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { DataTableNode, DataTableColumn } from '~/queries/schema'
+import { DataTableNode, HogQLExpression } from '~/queries/schema'
 import { getColumnsForQuery } from './utils'
 import { sortedKeys } from 'lib/utils'
 import { isEventsQuery } from '~/queries/utils'
@@ -15,7 +15,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
     key((props) => props.key),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
-    actions({ setColumns: (columns: DataTableColumn[]) => ({ columns }) }),
+    actions({ setColumns: (columns: HogQLExpression[]) => ({ columns }) }),
     reducers(({ props }) => ({
         columns: [getColumnsForQuery(props.query), { setColumns: (_, { columns }) => columns }],
     })),
