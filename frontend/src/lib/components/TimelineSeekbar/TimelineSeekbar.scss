@@ -43,9 +43,9 @@
     display: flex;
     height: 100%;
     position: relative;
-    left: var(--timeline-seekbar-thickness);
-    width: calc(100% - var(--timeline-seekbar-arrow-width) - var(--timeline-seekbar-thickness) - 1.25rem);
     top: 0;
+    left: calc(var(--timeline-seekbar-thickness) * 2);
+    width: calc(100% - var(--timeline-seekbar-arrow-width) - var(--timeline-seekbar-thickness) * 3 - 1.25rem);
     .LemonBadge:not(.LemonBadge--active) {
         // Connect each badge to the line rightward to signal the direction in which the badge is applicable
         border-right-color: transparent;
@@ -56,8 +56,9 @@
 .TimelineSeekbar__section {
     position: absolute;
     cursor: pointer;
-    left: var(--timeline-seekbar-section-progress-current);
+    left: calc(var(--timeline-seekbar-section-progress-current) - var(--timeline-seekbar-thickness));
     width: var(--timeline-seekbar-section-progress-next);
+    border-left: var(--timeline-seekbar-thickness) solid var(--bg-light);
     &:last-child {
         width: calc(var(--timeline-seekbar-section-progress-next) + 1.25rem);
     }
