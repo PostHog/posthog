@@ -2,6 +2,7 @@ import { LemonBadge } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs, Dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
+import { AlignType } from 'rc-trigger/lib/interface'
 import { Spinner } from '../Spinner/Spinner'
 import { Tooltip } from '../Tooltip'
 import './TimelineSeekbar.scss'
@@ -19,6 +20,25 @@ export interface TimelineSeekbarProps {
     to?: Dayjs
     loading?: boolean
     className?: string
+}
+
+const SEEKBAR_TOOLTIP_PLACEMENTS: Record<string, AlignType> = {
+    topRight: {
+        points: ['br', 'tr'],
+        offset: [7, 0], // To align with badges
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
+    topLeft: {
+        points: ['bl', 'tl'],
+        offset: [-7, 0], // To align with badges
+        overflow: {
+            adjustX: 0,
+            adjustY: 0,
+        },
+    },
 }
 
 export function TimelineSeekbar({
@@ -55,7 +75,8 @@ export function TimelineSeekbar({
                                     {humanFriendlyDetailedTime(from)}
                                 </span>
                             }
-                            placement="bottom"
+                            placement="topLeft"
+                            builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
                             delayMs={0}
                         >
                             <div className="TimelineSeekbar__line-start" />
@@ -65,10 +86,11 @@ export function TimelineSeekbar({
                                 <span>
                                     This data point's range ends at
                                     <br />
-                                    {humanFriendlyDetailedTime(to)}`
+                                    {humanFriendlyDetailedTime(to)}
                                 </span>
                             }
-                            placement="bottom"
+                            placement="topRight"
+                            builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
                             delayMs={0}
                         >
                             <div className="TimelineSeekbar__line-end" />
@@ -85,7 +107,8 @@ export function TimelineSeekbar({
                                         {pluralize(count, 'relevant event')} with such properties
                                     </span>
                                 }
-                                placement="bottom"
+                                placement="topLeft"
+                                builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
                                 delayMs={0}
                             >
                                 <div

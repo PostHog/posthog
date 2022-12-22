@@ -76,9 +76,15 @@
 .TimelineSeekbar__line-start,
 .TimelineSeekbar__line-end {
     position: absolute;
-    top: calc(50% - var(--timeline-seekbar-arrow-height) / 2);
-    height: var(--timeline-seekbar-arrow-height);
-    background: var(--primary);
+    top: calc(var(--timeline-seekbar-thickness) / 2 - 0.625rem);
+    height: 1.25rem;
+    &::before {
+        content: '';
+        display: block;
+        margin: calc(var(--timeline-seekbar-thickness) + 0.125rem) 0;
+        height: var(--timeline-seekbar-arrow-height);
+        background: var(--primary);
+    }
 }
 
 .TimelineSeekbar__line-start {
@@ -87,7 +93,9 @@
 }
 
 .TimelineSeekbar__line-end {
-    right: calc(var(--timeline-seekbar-arrow-width) * -1);
+    left: 100%;
     width: var(--timeline-seekbar-arrow-width);
-    clip-path: polygon(0 0, 100% 50%, 0 100%);
+    &::before {
+        clip-path: polygon(0 0, 100% 50%, 0 100%);
+    }
 }
