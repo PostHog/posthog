@@ -7,7 +7,6 @@ import { InsightLogicProps, IntervalType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { dayjs } from 'lib/dayjs'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelsQuery, InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
@@ -16,14 +15,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
     path: (key) => ['lib', 'components', 'IntervalFilter', 'intervalFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
         actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuerySourceMerge']],
-        values: [
-            insightLogic(props),
-            ['filters'],
-            insightDataLogic(props),
-            ['query'],
-            featureFlagLogic,
-            ['featureFlags'],
-        ],
+        values: [insightLogic(props), ['filters'], insightDataLogic(props), ['query']],
     }),
     actions: () => ({
         setInterval: (interval: IntervalKeyType) => ({ interval }),

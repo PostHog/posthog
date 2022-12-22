@@ -142,6 +142,7 @@ export const FEATURE_FLAGS = {
     YEAR_IN_HOG: 'year-in-hog', // owner: @pauldambra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
+    DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
