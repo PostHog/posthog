@@ -175,6 +175,53 @@ class TestFilters(PGTestFilters):
             },
         )
 
+    def test_simplify_cohorts_with_recursive_negation(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+        )
+        recursive_cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {"key": "email", "value": "xyz", "type": "person"},
+                        {"type": "cohort", "key": "id", "value": cohort.pk, "negation": True},
+                    ]
+                }
+            ],
+        )
+        filter = Filter(
+            data={"properties": [{"type": "cohort", "key": "id", "value": recursive_cohort.pk, "negation": True}]}
+        )
+
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "cohort", "key": "id", "value": recursive_cohort.pk, "negation": True}],
+                }
+            },
+        )
+
+    def test_simplify_cohorts_with_simple_negation(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "email", "operator": "icontains", "value": ".com", "type": "person"}]}],
+        )
+        filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": cohort.pk, "negation": True}]})
+
+        self.assertEqual(
+            filter.simplify(self.team).properties_to_dict(),
+            {
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "cohort", "key": "id", "value": cohort.pk, "negation": True}],
+                }
+            },
+        )
+
     def test_simplify_no_such_cohort(self):
         filter = Filter(data={"properties": [{"type": "cohort", "key": "id", "value": 555_555}]})
 
