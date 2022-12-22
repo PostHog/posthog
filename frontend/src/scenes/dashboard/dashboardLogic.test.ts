@@ -1,6 +1,6 @@
 /* eslint-disable  @typescript-eslint/no-non-null-assertion */
 // let tiles assert an insight is present in tests i.e. `tile!.insight` when it must be present for tests to pass
-import { expectLogic, partial, truth } from 'kea-test-utils'
+import { expectLogic, truth } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import _dashboardJson from './__mocks__/dashboard.json'
@@ -27,7 +27,7 @@ import api from 'lib/api'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
-function insightOnDashboard(
+export function insightOnDashboard(
     insightId: number,
     dashboardsRelation: number[],
     insight: Partial<InsightModel> = {}
@@ -54,7 +54,7 @@ const TEXT_TILE: DashboardTile = {
 }
 
 let tileId = 0
-const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
+export const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
     id: id,
     layouts: {},
     color: null,
@@ -64,7 +64,7 @@ const tileFromInsight = (insight: InsightModel, id: number = tileId++): Dashboar
     refreshing: false,
 })
 
-const dashboardResult = (
+export const dashboardResult = (
     dashboardId: number,
     tiles: DashboardTile[],
     filters: Partial<Pick<FilterType, 'date_from' | 'date_to' | 'properties'>> = {}
@@ -79,7 +79,7 @@ const dashboardResult = (
 
 const uncached = (insight: InsightModel): InsightModel => ({ ...insight, result: null, last_refresh: null })
 
-const boxToString = (param: string | readonly string[]): string => {
+export const boxToString = (param: string | readonly string[]): string => {
     //path params from msw can be a string or an array
     if (typeof param === 'string') {
         return param
@@ -94,8 +94,6 @@ const insight800 = (): InsightModel => ({
     short_id: '800' as InsightShortId,
     last_refresh: now().toISOString(),
 })
-
-const seenQueryIDs: string[] = []
 
 describe('dashboardLogic', () => {
     let logic: ReturnType<typeof dashboardLogic.build>
@@ -119,8 +117,6 @@ describe('dashboardLogic', () => {
      *             i666    i999
      */
     let dashboards: Record<number, DashboardType> = {}
-
-    let dashboardTwelveInsightLoadedCount = 0
 
     beforeEach(() => {
         jest.spyOn(api, 'update')
@@ -147,12 +143,6 @@ describe('dashboardLogic', () => {
             },
             1001: { id: 1001, short_id: '1001' as InsightShortId } as unknown as InsightModel,
             800: insight800(),
-            2040: {
-                ...insightOnDashboard(2040, [12]),
-                id: 2040,
-                short_id: '2040' as InsightShortId,
-                last_refresh: now().toISOString(),
-            },
         }
         dashboards = {
             5: {
@@ -178,9 +168,6 @@ describe('dashboardLogic', () => {
             11: {
                 ...dashboardResult(11, [], { date_from: '-24h' }),
             },
-            12: {
-                ...dashboardResult(12, [tileFromInsight(insights['2040'])]),
-            },
         }
         useMocks({
             get: {
@@ -191,7 +178,6 @@ describe('dashboardLogic', () => {
                 '/api/projects/:team/dashboards/9/': { ...dashboards['9'] },
                 '/api/projects/:team/dashboards/10/': { ...dashboards['10'] },
                 '/api/projects/:team/dashboards/11/': { ...dashboards['11'] },
-                '/api/projects/:team/dashboards/12/': { ...dashboards['12'] },
                 '/api/projects/:team/dashboards/': {
                     count: 6,
                     next: null,
@@ -202,17 +188,11 @@ describe('dashboardLogic', () => {
                         { ...dashboards['8'] },
                         { ...dashboards['9'] },
                         { ...dashboards['10'] },
-                        { ...dashboards['12'] },
                     ],
                 },
                 '/api/projects/:team/insights/1001/': () => [500, '💣'],
                 '/api/projects/:team/insights/800/': () => [200, { ...insights['800'] }],
                 '/api/projects/:team/insights/:id/': (req) => {
-                    const clientQueryId = req.url.searchParams.get('client_query_id')
-                    if (clientQueryId !== null) {
-                        seenQueryIDs.push(clientQueryId)
-                    }
-
                     const dashboard = req.url.searchParams.get('from_dashboard')
                     if (!dashboard) {
                         throw new Error('the logic must always add this param')
@@ -220,18 +200,6 @@ describe('dashboardLogic', () => {
                     const matched = insights[boxToString(req.params['id'])]
                     if (!matched) {
                         return [404, null]
-                    }
-                    if (dashboard === '12') {
-                        dashboardTwelveInsightLoadedCount++
-                        // delay for 2 seconds before response without pausing
-                        // but only the first time that dashboard 12 refreshes its results
-                        if (dashboardTwelveInsightLoadedCount === 1) {
-                            return new Promise((resolve) =>
-                                setTimeout(() => {
-                                    resolve([200, matched])
-                                }, 2000)
-                            )
-                        }
                     }
                     return [200, matched]
                 },
@@ -895,61 +863,6 @@ describe('dashboardLogic', () => {
                 dashboards: t.insight!.dashboards,
             }))
         ).toEqual([])
-    })
-
-    describe('cancelling queries', () => {
-        beforeEach(async () => {
-            logic = dashboardLogic({ id: 12 })
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-        })
-
-        it('cancels a running query', async () => {
-            jest.spyOn(api, 'create')
-
-            setTimeout(() => {
-                // this change of filters will dispatch cancellation on the first query
-                // will run while the -180d query is still running
-                logic.actions.setDates('-90d', null)
-            }, 200)
-            // dispatches an artificially slow data request
-            // takes 3000 milliseconds to return
-            logic.actions.setDates('-180d', null)
-
-            await expectLogic(logic)
-                .toDispatchActions([
-                    'setDates',
-                    'updateFilters',
-                    'abortAnyRunningQuery',
-                    'refreshAllDashboardItems',
-                    'abortAnyRunningQuery',
-                    'setDates',
-                    'updateFilters',
-                    'abortAnyRunningQuery',
-                    'abortQuery',
-                    'refreshAllDashboardItems',
-                    eventUsageLogic.actionTypes.reportDashboardRefreshed,
-                ])
-                .toMatchValues({
-                    filters: partial({ date_from: '-90d' }),
-                })
-
-            const mockCreateCalls = (api.create as jest.Mock).mock.calls
-            // there will be at least two used client query ids
-            // the most recent has not been cancelled
-            // the one before that has been
-            // the query IDs are made of `${dashboard query ID}::{insight query ID}`
-            // only the dashboard query ID is sent to the API
-            const cancelledQueryID = seenQueryIDs[seenQueryIDs.length - 2].split('::')[0]
-            expect(mockCreateCalls).toEqual([
-                [
-                    `api/projects/${MOCK_TEAM_ID}/insights/cancel`,
-                    {
-                        client_query_id: cancelledQueryID,
-                    },
-                ],
-            ])
-        })
     })
 })
 /* eslint-enable  @typescript-eslint/no-non-null-assertion */
