@@ -20,7 +20,6 @@ import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
     DashboardPrivilegeLevel,
-    FEATURE_FLAGS,
     OrganizationMembershipLevel,
 } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -974,7 +973,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                     totalResponseBytes += getResponseBytes(refreshedInsightResponse)
                 } catch (e: any) {
-                    console.error(e)
                     if (isBreakpoint(e)) {
                         cancelled = true
                     } else if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
@@ -990,8 +988,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 refreshesFinished += 1
                 if (refreshesFinished === insights.length) {
-                    breakpoint()
-
                     const payload: TimeToSeeDataPayload = {
                         type: 'dashboard_load',
                         context: 'dashboard',
@@ -1163,23 +1159,22 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         abortQuery: async ({ dashboardQueryId, queryId, queryStartTime }) => {
             const { currentTeamId } = values
-            if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
-                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
 
-                // TRICKY: we cancel just once using the dashboard query id.
-                // we can record the queryId that happened to capture the AbortError exception
-                // and request the cancellation, but it is probably not particularly relevant
-                await captureTimeToSeeData(values.currentTeamId, {
-                    type: 'insight_load',
-                    context: 'dashboard',
-                    dashboard_query_id: dashboardQueryId,
-                    query_id: queryId,
-                    status: 'cancelled',
-                    time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                    insights_fetched: 0,
-                    insights_fetched_cached: 0,
-                })
-            }
+            await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
+
+            // TRICKY: we cancel just once using the dashboard query id.
+            // we can record the queryId that happened to capture the AbortError exception
+            // and request the cancellation, but it is probably not particularly relevant
+            await captureTimeToSeeData(values.currentTeamId, {
+                type: 'insight_load',
+                context: 'dashboard',
+                dashboard_query_id: dashboardQueryId,
+                query_id: queryId,
+                status: 'cancelled',
+                time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
+                insights_fetched: 0,
+                insights_fetched_cached: 0,
+            })
         },
     })),
 
