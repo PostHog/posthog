@@ -686,8 +686,20 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         _create_person(distinct_ids=["1"], team_id=self.team.pk, properties={"$some_prop": "something1"})
         _create_person(distinct_ids=["2"], team_id=self.team.pk, properties={"$some_prop": "something2"})
 
-        _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"attr": "some_val"})
-        _create_event(event="$pageview", team=self.team, distinct_id="2", properties={"attr": "some_val"})
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=20),
+        )
 
         flush_persons_and_events()
 
@@ -743,8 +755,20 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         _create_person(distinct_ids=["1"], team_id=self.team.pk, properties={"$some_prop": "something1"})
         _create_person(distinct_ids=["2"], team_id=self.team.pk, properties={"$some_prop": "something2"})
 
-        _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"attr": "some_val"})
-        _create_event(event="$pageview", team=self.team, distinct_id="2", properties={"attr": "some_val"})
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=20),
+        )
 
         flush_persons_and_events()
 
