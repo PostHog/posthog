@@ -17,7 +17,7 @@ import {
     isUnimplementedQuery,
     isLifecycleQuery,
 } from '~/queries/utils'
-import { filterUndefined } from './filterUndefined'
+import { objectClean } from 'lib/utils'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
 
@@ -25,7 +25,7 @@ const seriesToActionsAndEvents = (series: (EventsNode | ActionsNode)[]): Require
     const actions: ActionFilter[] = []
     const events: ActionFilter[] = []
     series.forEach((node, index) => {
-        const entity: ActionFilter = filterUndefined({
+        const entity: ActionFilter = objectClean({
             type: isEventsNode(node) ? EntityTypes.EVENTS : EntityTypes.ACTIONS,
             id: (isEventsNode(node) ? node.event : node.id) || null,
             order: index,
@@ -70,7 +70,7 @@ const filterMap: Record<SupportedNodeKind, string> = {
 }
 
 export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> => {
-    const filters: Partial<FilterType> = filterUndefined({
+    const filters: Partial<FilterType> = objectClean({
         insight: insightMap[query.kind],
         properties: query.properties,
         filter_test_accounts: query.filterTestAccounts,
@@ -92,7 +92,7 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     // TODO stickiness should probably support breakdowns as well
     if ((isTrendsQuery(query) || isFunnelsQuery(query)) && query.breakdown) {
-        Object.assign(filters, filterUndefined<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
+        Object.assign(filters, objectClean<Partial<Record<keyof BreakdownFilter, unknown>>>(query.breakdown))
     }
 
     if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query)) {
