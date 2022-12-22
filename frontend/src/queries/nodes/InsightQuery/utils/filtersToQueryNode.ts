@@ -15,7 +15,10 @@ const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
 
-const actionsAndEventsToSeries = ({ actions, events }: FilterTypeActionsAndEvents): (EventsNode | ActionsNode)[] => {
+export const actionsAndEventsToSeries = ({
+    actions,
+    events,
+}: FilterTypeActionsAndEvents): (EventsNode | ActionsNode)[] => {
     const series: any = [...(actions || []), ...(events || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         // TODO: handle new_entity type

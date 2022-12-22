@@ -15,7 +15,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 // import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { TrendsQuery, FunnelsQuery, LifecycleQuery } from '~/queries/schema'
 import { isLifecycleQuery, isUnimplementedQuery } from '~/queries/utils'
-import { actionsAndEventsToSeries, queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
+import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
+import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
+
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
