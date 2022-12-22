@@ -42,12 +42,11 @@ import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
+    // insightSceneLogic
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { push } = useActions(router)
 
+    // insightLogic
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
         insightProps,
@@ -62,18 +61,25 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         exporterResourceParams,
         isUsingDataExploration,
     } = useValues(logic)
-    useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
+
+    // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
+    // insightDataLogic
+    const { query } = useValues(insightDataLogic(insightProps))
+    const { setQuery } = useActions(insightDataLogic(insightProps))
+
+    // other logics
+    useMountedLogic(insightCommandLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-    const { query } = useValues(insightDataLogic(insightProps))
-    const { setQuery } = useActions(insightDataLogic(insightProps))
-
+    const { featureFlags } = useValues(featureFlagLogic)
     const { tags } = useValues(tagsModel)
+    const { currentTeamId } = useValues(teamLogic)
+    const { push } = useActions(router)
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
