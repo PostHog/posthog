@@ -34,17 +34,13 @@ services:
         restart: on-failure
 
     kafka:
-        image: bitnami/kafka:2.8.1-debian-10-r99
+        image: ubuntu/kafka:3.1-22.04_edge
         restart: on-failure
         depends_on:
             - zookeeper
         environment:
-            KAFKA_BROKER_ID: 1001
-            KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
-            KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
-            KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
-            ALLOW_PLAINTEXT_LISTENER: 'true'
+            ZOOKEEPER_HOST: zookeeper
+            ZOOKEEPER_PORT: 2181
 
     object_storage:
         image: minio/minio:RELEASE.2022-06-25T15-50-16Z
