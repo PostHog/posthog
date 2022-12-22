@@ -26,7 +26,7 @@ from posthog.api.utils import (
     safe_clickhouse_string,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.helpers.session_recording import preprocess_session_recording_events_for_clickhouse
+from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed

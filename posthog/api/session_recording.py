@@ -14,14 +14,14 @@ from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.helpers.session_recording import RecordingMetadata
+from posthog.session_recordings.session_recording_helpers import RecordingMetadata
 from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.session_recordings.session_recording import SessionRecording
+from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
@@ -129,8 +129,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording_start_time_string = request.GET.get("recording_start_time")
         recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
-        session_recording_snapshot_data = SessionRecording(
-            request=request,
+        session_recording_snapshot_data = SessionRecordingEvents(
             team=self.team,
             session_recording_id=session_recording_id,
             recording_start_time=recording_start_time,
@@ -190,8 +189,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         self, request: request.Request, session_id: str, start_time: Optional[datetime]
     ) -> Tuple[SessionRecordingMetadataSerializer, RecordingMetadata]:
 
-        session_recording_meta_data = SessionRecording(
-            request=request,
+        session_recording_meta_data = SessionRecordingEvents(
             team=self.team,
             session_recording_id=session_id,
             recording_start_time=start_time,
@@ -212,7 +210,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
                 "start_and_end_times_by_window_id": session_recording_meta_data["start_and_end_times_by_window_id"],
                 "session_id": session_id,
                 "viewed": viewed_session_recording,
-                "description": session_recording_meta_data.get("description", None),
             }
         )
         return session_recording_serializer, session_recording_meta_data

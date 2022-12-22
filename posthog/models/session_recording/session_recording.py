@@ -1,5 +1,9 @@
+from typing import List
 from django.db import models
+from django.dispatch import receiver
 from django.utils import timezone
+from posthog import settings
+from posthog.celery import ee_persist_single_recording
 
 from posthog.models.team import Team
 from posthog.models.utils import UUIDModel
@@ -21,5 +25,21 @@ class SessionRecording(UUIDModel):
         "User", on_delete=models.SET_NULL, null=True, blank=True, related_name="modified_recordings"
     )
     deleted: models.BooleanField = models.BooleanField(default=False)
+    object_storage_path: models.CharField(max_length=200, null=True, blank=True)
+
+    def build_object_storage_path(self) -> str:
+        path_parts: List[str] = [
+            settings.OBJECT_STORAGE_SESSION_RECORDING_FOLDER,
+            f"team-{self.team_id}",
+            f"session-{self.session_id}",
+        ]
+
+        return f'/{"/".join(path_parts)}'
 
     # TODO: add metadata field to keep minimal information on this model for quick access
+
+
+@receiver(models.signals.post_save, sender=SessionRecording)
+def attempt_persist_recoding(sender, instance: SessionRecording, created: bool, **kwargs):
+    if created:
+        ee_persist_single_recording.delay(instance.session_id, instance.team_id)

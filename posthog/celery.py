@@ -676,3 +676,13 @@ def check_flags_to_rollback():
         check_flags_to_rollback()
     except ImportError:
         pass
+
+
+@app.task(ignore_result=True)
+def ee_persist_single_recording(id: str, team_id: int):
+    try:
+        from ee.tasks.session_recording.persistence import persist_single_recording
+
+        persist_single_recording(id, team_id)
+    except ImportError:
+        pass

@@ -14,6 +14,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import list_recordings
 from posthog.api.shared import UserBasicSerializer
+from posthog.celery import ee_persist_single_recording
 from posthog.constants import (
     SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS,
     SESSION_RECORDINGS_PLAYLIST_FREE_COUNT,
@@ -243,6 +244,9 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, session_id=session_recording_id, team=self.team, recording=recording
             )
+
+            # TODO: Remove this temp testing code
+            ee_persist_single_recording.delay(recording.session_id, self.team.id)
 
             return response.Response({"success": True})
 

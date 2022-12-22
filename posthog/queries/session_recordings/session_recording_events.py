@@ -2,11 +2,10 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, cast
 
-from rest_framework.request import Request
 from statshog.defaults.django import statsd
 
 from posthog.client import sync_execute
-from posthog.helpers.session_recording import (
+from posthog.session_recordings.session_recording_helpers import (
     DecompressedRecordingData,
     RecordingMetadata,
     RecordingSegment,
@@ -22,16 +21,12 @@ from posthog.helpers.session_recording import (
 from posthog.models import Team
 
 
-class SessionRecording:
-    _request: Request
+class SessionRecordingEvents:
     _session_recording_id: str
     _recording_start_time: Optional[datetime]
     _team: Team
 
-    def __init__(
-        self, request: Request, session_recording_id: str, team: Team, recording_start_time: Optional[datetime] = None
-    ) -> None:
-        self._request = request
+    def __init__(self, session_recording_id: str, team: Team, recording_start_time: Optional[datetime] = None) -> None:
         self._session_recording_id = session_recording_id
         self._team = team
         self._recording_start_time = recording_start_time

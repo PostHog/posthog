@@ -6,7 +6,7 @@ from posthog.constants import (
     SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS,
     SESSION_RECORDINGS_FILTER_TYPE_DURATION,
 )
-from posthog.helpers.session_recording import MinimalStaticSessionRecording
+from posthog.session_recordings.session_recording_helpers import MinimalStaticSessionRecording
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
