@@ -13,6 +13,7 @@ import { isLifecycleQuery } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
@@ -62,13 +63,15 @@ export const insightDataLogic = kea<insightDataLogicType>([
     key(keyForInsightLogicProps('new')),
     path((key) => ['scenes', 'insights', 'insightDataLogic', key]),
 
-    connect({
+    connect((props: InsightLogicProps) => ({
+        values: [featureFlagLogic, ['featureFlags'], trendsLogic, ['toggledLifecycles as trendsLifecycles']],
         actions: [
             insightLogic,
             ['setFilters', 'setActiveView', 'setInsight', 'loadInsightSuccess', 'loadResultsSuccess'],
+            trendsLogic(props),
+            ['setLifecycles as setTrendsLifecycles'],
         ],
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
+    })),
 
     actions({
         setQuery: (query: Node) => ({ query }),
@@ -94,9 +97,14 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return
             }
 
-            if (isLifecycleQuery((query as InsightVizNode).source)) {
-                const filters = queryNodeToFilter((query as InsightVizNode).source)
+            const querySource = (query as InsightVizNode).source
+            if (isLifecycleQuery(querySource)) {
+                const filters = queryNodeToFilter(querySource)
                 actions.setFilters(filters)
+
+                if (querySource.lifecycleFilter?.toggledLifecycles !== values.trendsLifecycles) {
+                    actions.setTrendsLifecycles(querySource.lifecycleFilter?.toggledLifecycles)
+                }
             }
         },
         setActiveView: ({ type }) => {
