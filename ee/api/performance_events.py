@@ -1,6 +1,5 @@
 from typing import Dict, List, Optional
 
-import structlog
 from rest_framework import request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -14,8 +13,6 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
-
-logger = structlog.get_logger(__name__)
 
 
 class PerformanceEventSerializer(serializers.Serializer):
