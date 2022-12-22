@@ -261,6 +261,8 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
+
+    capture_performance_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: Record<string, any>[]
@@ -680,17 +682,19 @@ interface CommonActorType {
 }
 
 export interface PersonActorType extends CommonActorType {
-    id: number // person serial ID
     type: 'person'
-    uuid?: string
+    /** Serial ID (NOT UUID). */
+    id: number
+    uuid: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
 }
 
 export interface GroupActorType extends CommonActorType {
-    id: string // group key
     type: 'group'
+    /** Group key. */
+    id: string
     group_key: string
     group_type_index: number
 }
@@ -1292,6 +1296,15 @@ export interface FilterType {
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
     aggregation_group_type_index?: number | undefined // Groups aggregation
+}
+
+export interface PropertiesTimelineFilterType {
+    date_from?: string | null // DateMixin
+    date_to?: string | null // DateMixin
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter // PropertyMixin
+    events?: Record<string, any>[] // EntitiesMixin
+    actions?: Record<string, any>[] // EntitiesMixin
+    aggregation_group_type_index?: number | undefined // GroupsAggregationMixin
 }
 
 export interface TrendsFilterType extends FilterType {
