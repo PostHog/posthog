@@ -42,9 +42,8 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         columns,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
-                const breakDefaultOrderBy =
-                    !columns.includes('timestamp') && query.source.orderBy?.includes('-timestamp')
-                if (breakDefaultOrderBy) {
+                // We removed the timestamp column, and can't order by it anymore.
+                if (!columns.includes('timestamp') && query.source.orderBy?.includes('-timestamp')) {
                     setQuery?.({
                         ...query,
                         source: {

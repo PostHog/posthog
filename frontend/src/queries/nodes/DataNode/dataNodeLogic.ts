@@ -7,8 +7,8 @@ import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
-import { getNewQuery, getNextQuery } from '~/queries/nodes/DataNode/utils'
 import { ApiMethodOptions } from 'lib/api'
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export interface DataNodeLogicProps {
     key: string
@@ -160,9 +160,25 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
-                return isEventsQuery(query) && query.orderBy?.length === 1 && query.orderBy[0] === '-timestamp'
-                    ? getNewQuery({ ...query, response: response as EventsQuery['response'] })
-                    : null
+                if (!query.response || !isEventsQuery(query)) {
+                    return null
+                }
+                if (isEventsQuery(query)) {
+                    const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                    if (sortKey === '-timestamp') {
+                        const sortColumnIndex = query.select
+                            .map((hql) => removeExpressionComment(hql))
+                            .indexOf('timestamp')
+                        if (sortColumnIndex !== -1) {
+                            const lastTimestamp = (response as EventsQuery['response'])?.results[
+                                query.response.results.length - 1
+                            ][sortColumnIndex]
+                            const newQuery: EventsQuery = { ...query, before: lastTimestamp }
+                            return newQuery
+                        }
+                    }
+                }
+                return null
             },
         ],
         canLoadNewData: [(s) => [s.newQuery], (newQuery) => !!newQuery],
@@ -171,7 +187,19 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (query, response): DataNode | null => {
                 if (isEventsQuery(query)) {
                     if ((response as EventsQuery['response'])?.hasMore) {
-                        return getNextQuery({ ...query, response: response as EventsQuery['response'] })
+                        const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                        if (sortKey === '-timestamp') {
+                            const sortColumnIndex = query.select
+                                .map((hql) => removeExpressionComment(hql))
+                                .indexOf('timestamp')
+                            if (sortColumnIndex !== -1) {
+                                const firstTimestamp = (response as EventsQuery['response'])?.results[0][
+                                    sortColumnIndex
+                                ]
+                                const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
+                                return nextQuery
+                            }
+                        }
                     }
                 }
                 if (isPersonsNode(query) && response) {
