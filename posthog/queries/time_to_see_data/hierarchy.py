@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import List
 
@@ -24,7 +24,7 @@ NODE_TYPE_WEIGHTS = {
 class Node:
     type: NodeType
     data: dict
-    children: List["Node"]
+    children: List["Node"] = field(default_factory=list)
 
     def to_dict(self):
         return {
