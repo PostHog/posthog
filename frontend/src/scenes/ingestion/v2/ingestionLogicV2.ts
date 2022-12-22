@@ -511,11 +511,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
         },
         inviteTeamMembersSuccess: () => {
             if (router.values.location.pathname.includes('/ingestion')) {
-                actions.setState({
-                    ...values.currentState,
-                    isTechnicalUser: false,
-                    hasInvitedMembers: true,
-                } as IngestionState)
+                actions.setState(viewToState(INGESTION_VIEWS.TEAM_INVITED, values.currentState as IngestionState))
             }
         },
     })),
@@ -597,7 +593,7 @@ function getUrl(values: ingestionLogicV2Type['values']): string | [string, Recor
             url += `/${framework.toLowerCase()}`
         }
     } else {
-        if (!platform && isTechnicalUser && hasInvitedMembers) {
+        if (!platform && hasInvitedMembers) {
             url += '/invites-sent'
         }
     }
