@@ -39,3 +39,10 @@ export function extractExpressionComment(query: string): string {
     }
     return query
 }
+
+export function removeExpressionComment(query: string): string {
+    if (query.includes('#')) {
+        return query.split('#').slice(0, -1).join('#').trim()
+    }
+    return query
+}

@@ -22,7 +22,7 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
-import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
@@ -88,7 +88,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             },
             sorter: canSort || undefined, // we sort on the backend
         })),
-        ...(showActions && (isEventsNode(query.source) || (isEventsQuery(query.source) && columns.includes('*')))
+        ...(showActions && isEventsQuery(query.source) && columns.includes('*')
             ? [
                   {
                       dataIndex: '__more' as any,
@@ -113,13 +113,13 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     )
 
     const firstRow = [
-        showEventFilter && (isEventsNode(query.source) || isEventsQuery(query.source)) ? (
+        showEventFilter && isEventsQuery(query.source) ? (
             <EventName query={query.source} setQuery={setQuerySource} />
         ) : null,
         showSearch && isPersonsNode(query.source) ? (
             <PersonsSearch query={query.source} setQuery={setQuerySource} />
         ) : null,
-        showPropertyFilter && (isEventsNode(query.source) || isEventsQuery(query.source)) ? (
+        showPropertyFilter && isEventsQuery(query.source) ? (
             <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
         ) : null,
         showPropertyFilter && isPersonsNode(query.source) ? (
@@ -130,7 +130,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const secondRowLeft = [showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null].filter((x) => !!x)
 
     const secondRowRight = [
-        showColumnConfigurator && (isEventsNode(query.source) || isEventsQuery(query.source)) ? (
+        showColumnConfigurator && isEventsQuery(query.source) ? (
             <ColumnConfigurator query={query} setQuery={setQuery} />
         ) : null,
         showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
@@ -165,7 +165,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             ) : null}
                         </div>
                     )}
-                    {showEventsBufferWarning && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
+                    {showEventsBufferWarning && isEventsQuery(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
                     {inlineEditorButtonOnRow === 0 ? (
@@ -214,8 +214,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 : undefined
                         }
                         expandable={
-                            expandable &&
-                            (isEventsNode(query.source) || (isEventsQuery(query.source) && columns.includes('*')))
+                            expandable && isEventsQuery(query.source) && columns.includes('*')
                                 ? {
                                       expandedRowRender: function renderExpand(event) {
                                           if (isEventsQuery(query.source) && Array.isArray(event)) {

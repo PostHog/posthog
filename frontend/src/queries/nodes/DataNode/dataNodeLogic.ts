@@ -7,6 +7,7 @@ import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
+import { getNextQuery } from '~/queries/nodes/DataNode/utils'
 
 export interface DataNodeLogicProps {
     key: string
@@ -66,18 +67,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!values.canLoadNextData || values.dataLoading) {
                         return values.response
                     }
-                    if (isEventsQuery(props.query)) {
-                        const diffQuery: EventsQuery =
-                            values.response && values.response.results?.length > 0
-                                ? {
-                                      ...props.query,
-                                      before: values.response.results[values.response.results.length - 1].timestamp,
-                                  }
-                                : props.query
-                        const newResponse = (await query(diffQuery)) ?? null
+                    if (isEventsQuery(props.query) && values.nextQuery) {
+                        const newResponse = (await query(values.nextQuery)) ?? null
                         return {
                             results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
-                            next: values.response?.next,
+                            hasMore: newResponse?.hasMore,
                         }
                     }
                     return values.response
@@ -127,14 +121,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (_, p) => [p.query],
             (query) => isEventsQuery(query) && query.orderBy?.length === 1 && query.orderBy?.[0] === '-timestamp',
         ],
-        canLoadNextData: [
+        nextQuery: [
             (s, p) => [p.query, s.response],
-            (query, response) => {
-                // TODO: add EventsQuery
+            (query, response): DataNode | null => {
+                return isEventsQuery(query) && (response as EventsQuery['response'])?.hasMore
+                    ? getNextQuery({ ...query, response: response as EventsQuery['response'] })
+                    : null
+            },
+        ],
+        canLoadNextData: [
+            (s, p) => [p.query, s.response, s.nextQuery],
+            (query, response, nextQuery) => {
                 return (
-                    isPersonsNode(query) &&
-                    (response as PersonsNode['response'])?.next &&
-                    ((response as PersonsNode['response'])?.results?.length ?? 0) > 0
+                    (isPersonsNode(query) &&
+                        (response as PersonsNode['response'])?.next &&
+                        ((response as PersonsNode['response'])?.results?.length ?? 0) > 0) ||
+                    (isEventsQuery(query) && !!nextQuery)
                 )
             },
         ],

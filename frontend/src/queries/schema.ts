@@ -124,6 +124,7 @@ export interface EventsQuery extends DataNode {
         columns: string[]
         types: string[]
         results: any[][]
+        hasMore?: boolean
     }
 }
 
