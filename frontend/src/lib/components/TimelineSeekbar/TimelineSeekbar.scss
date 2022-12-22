@@ -45,6 +45,7 @@
     position: relative;
     left: var(--timeline-seekbar-thickness);
     width: calc(100% - var(--timeline-seekbar-arrow-width) - var(--timeline-seekbar-thickness) - 1.25rem);
+    top: 0;
     .LemonBadge:not(.LemonBadge--active) {
         // Connect each badge to the line rightward to signal the direction in which the badge is applicable
         border-right-color: transparent;
@@ -77,7 +78,6 @@
     top: calc(50% - var(--timeline-seekbar-arrow-height) / 2);
     height: var(--timeline-seekbar-arrow-height);
     background: var(--primary);
-    cursor: help;
 }
 
 .TimelineSeekbar__line-start {

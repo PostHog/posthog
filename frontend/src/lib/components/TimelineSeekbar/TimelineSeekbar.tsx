@@ -55,7 +55,8 @@ export function TimelineSeekbar({
                                     {humanFriendlyDetailedTime(from)}
                                 </span>
                             }
-                            placement="right"
+                            placement="bottom"
+                            delayMs={0}
                         >
                             <div className="TimelineSeekbar__line-start" />
                         </Tooltip>
@@ -67,7 +68,8 @@ export function TimelineSeekbar({
                                     {humanFriendlyDetailedTime(to)}`
                                 </span>
                             }
-                            placement="right"
+                            placement="bottom"
+                            delayMs={0}
                         >
                             <div className="TimelineSeekbar__line-end" />
                         </Tooltip>
@@ -84,9 +86,11 @@ export function TimelineSeekbar({
                                     </span>
                                 }
                                 placement="bottom"
+                                delayMs={0}
                             >
                                 <div
                                     className="TimelineSeekbar__section"
+                                    // eslint-disable-next-line react/forbid-dom-props
                                     style={
                                         {
                                             '--timeline-seekbar-section-progress-current': `${
