@@ -1039,7 +1039,7 @@ test('performance event stored as performance_event', async () => {
         {
             event: '$perfomance_event',
             properties: {
-                // Taken a real event from the JS
+                // Taken from a real event from the JS
                 '0': 'resource',
                 '1': 1671723295836,
                 '2': 'http://localhost:8000/api/projects/1/session_recordings',

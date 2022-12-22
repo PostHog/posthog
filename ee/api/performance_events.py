@@ -1,5 +1,7 @@
-from typing import Dict, List, Optional
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
 
+import pytz
 from rest_framework import request, serializers, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -65,19 +67,36 @@ class PerformanceEventSerializer(serializers.Serializer):
 
 class PerformanceEvents:
     @classmethod
-    def query(cls, team_id: int, session_id: str, pageview_id: Optional[str] = None) -> List[Dict]:
+    def query(
+        cls,
+        team_id: int,
+        date_range: Tuple[datetime, datetime],
+        session_id: Optional[str] = None,
+        pageview_id: Optional[str] = None,
+    ) -> List[Dict]:
         query = """
                 select * from performance_events
                 prewhere team_id = %(team_id)s
-                and session_id = %(session_id)s
-                order by timestamp
+                AND timestamp >= %(date_from)s
+                AND timestamp <= %(date_to)s
                 """
 
         if pageview_id:
             query += " and pageview_id = %(pageview_id)s"
+        if session_id:
+            query += " and session_id = %(session_id)s"
+
+        query += " order by timestamp asc"
+
         ch_results = sync_execute(
             query,
-            {"team_id": team_id, "session_id": session_id, "pageview_id": pageview_id},
+            {
+                "team_id": team_id,
+                "session_id": session_id,
+                "pageview_id": pageview_id,
+                "date_from": date_range[0].replace(tzinfo=pytz.UTC),
+                "date_to": date_range[1].replace(tzinfo=pytz.UTC),
+            },
         )
 
         columns = [
@@ -94,6 +113,13 @@ class PerformanceEvents:
         return columnized_results
 
 
+class ListPerformanceEventQuerySerializer(serializers.Serializer):
+    session_id = serializers.CharField(required=False)
+    pageview_id = serializers.CharField(required=False)
+    date_from = serializers.DateTimeField()
+    date_to = serializers.DateTimeField()
+
+
 class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
     serializer_class = PerformanceEventSerializer
     permission_classes = [
@@ -108,16 +134,22 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         return None
 
     def list(self, request: request.Request, *args, **kwargs) -> Response:
-        session_id = request.GET.get("session_id")
-        pageview_id = request.GET.get("pageview_id")
+        params_serializer = ListPerformanceEventQuerySerializer(data=request.GET)
+        params_serializer.is_valid(raise_exception=True)
+        params = params_serializer.validated_data
 
-        if not session_id:
-            raise serializers.ValidationError("session_id required")
+        if params["date_to"] - params["date_from"] > timedelta(days=7):
+            # NOTE: We currently don't have a use case out side of recordings and pageviews
+            raise serializers.ValidationError("Date range cannot be more than 7 days")
+
+        if not params["session_id"] and not params["pageview_id"]:
+            raise serializers.ValidationError("Either 'session_id' or 'pageview_id' is required")
 
         results = PerformanceEvents.query(
             self.team_id,
-            session_id,
-            pageview_id,
+            date_range=(params["date_from"], params["date_to"]),
+            session_id=params.get("session_id"),
+            pageview_id=params.get("pageview_id"),
         )
 
         serializer = PerformanceEventSerializer(data=results, many=True)
