@@ -1,5 +1,5 @@
 import { ActionFilter } from '~/types'
-import { actionsAndEventsToSeries } from './queryNodeToFilter'
+import { actionsAndEventsToSeries } from './filtersToQueryNode'
 
 describe('actionsAndEventsToSeries', () => {
     it('sorts series by order', () => {
