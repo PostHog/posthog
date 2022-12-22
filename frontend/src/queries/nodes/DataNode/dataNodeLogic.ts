@@ -30,47 +30,55 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rowIds: string[], now = new Date().valueOf()) => ({ rowIds, now }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, props }) => ({
         response: [
             null as DataNode['response'] | null,
             {
-                loadData: async () => {
-                    return (await query<DataNode>(values.query)) ?? null
+                loadData: async (_, breakpoint) => {
+                    const data = (await query<DataNode>(props.query)) ?? null
+                    breakpoint()
+                    return data
                 },
                 loadNewData: async () => {
                     if (!values.canLoadNewData || values.dataLoading) {
                         return values.response
                     }
-                    const diffQuery: EventsNode =
-                        values.response && values.response.results?.length > 0
-                            ? {
-                                  ...values.query,
-                                  after: values.response.results[0].timestamp,
-                              }
-                            : values.query
-                    const newResponse = (await query(diffQuery)) ?? null
-                    actions.highlightRows((newResponse?.results ?? []).map((r) => r.id))
-                    return {
-                        results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
-                        next: values.response?.next,
+                    if (isEventsNode(props.query)) {
+                        const diffQuery: EventsNode =
+                            values.response && values.response.results?.length > 0
+                                ? {
+                                      ...props.query,
+                                      after: values.response.results[0].timestamp,
+                                  }
+                                : props.query
+                        const newResponse = (await query(diffQuery)) ?? null
+                        actions.highlightRows((newResponse?.results ?? []).map((r) => r.id))
+                        return {
+                            results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
+                            next: values.response?.next,
+                        }
                     }
+                    return values.response
                 },
                 loadNextData: async () => {
                     if (!values.canLoadNextData || values.dataLoading) {
                         return values.response
                     }
-                    const diffQuery: EventsNode =
-                        values.response && values.response.results?.length > 0
-                            ? {
-                                  ...values.query,
-                                  before: values.response.results[values.response.results.length - 1].timestamp,
-                              }
-                            : values.query
-                    const newResponse = (await query(diffQuery)) ?? null
-                    return {
-                        results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
-                        next: values.response?.next,
+                    if (isEventsNode(props.query)) {
+                        const diffQuery: EventsNode =
+                            values.response && values.response.results?.length > 0
+                                ? {
+                                      ...props.query,
+                                      before: values.response.results[values.response.results.length - 1].timestamp,
+                                  }
+                                : props.query
+                        const newResponse = (await query(diffQuery)) ?? null
+                        return {
+                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            next: values.response?.next,
+                        }
                     }
+                    return values.response
                 },
             },
         ],
@@ -113,13 +121,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
     })),
     selectors({
-        query: [() => [(_, props) => props.query], (query) => query],
         canLoadNewData: [
-            (s) => [s.query],
+            (_, p) => [p.query],
             (query) => isEventsNode(query) || (isEventsQuery(query) && query.orderBy?.[0] === '-timestamp'),
         ],
         canLoadNextData: [
-            (s) => [s.query, s.response],
+            (s, p) => [p.query, s.response],
             (query, response) => {
                 return (
                     (isEventsNode(query) || isEventsQuery(query) || isPersonsNode(query)) &&
