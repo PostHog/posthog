@@ -8,6 +8,7 @@ import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
 import { getNewQuery, getNextQuery } from '~/queries/nodes/DataNode/utils'
+import { ApiMethodOptions } from 'lib/api'
 
 export interface DataNodeLogicProps {
     key: string
@@ -32,14 +33,30 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
     }),
-    loaders(({ actions, values, props }) => ({
+    loaders(({ actions, cache, values, props }) => ({
         response: [
             null as DataNode['response'] | null,
             {
                 loadData: async (_, breakpoint) => {
-                    const data = (await query<DataNode>(props.query)) ?? null
-                    breakpoint()
-                    return data
+                    if (cache.abortController) {
+                        cache.abortController.abort()
+                    }
+                    cache.abortController = new AbortController()
+                    const methodOptions: ApiMethodOptions = {
+                        signal: cache.abortController.signal,
+                    }
+                    try {
+                        const data = (await query<DataNode>(props.query, methodOptions)) ?? null
+                        breakpoint()
+                        return data
+                    } catch (e: any) {
+                        cache.abortController = null
+                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                            return values.response
+                        } else {
+                            throw e
+                        }
+                    }
                 },
                 loadNewData: async () => {
                     if (!values.canLoadNewData || values.dataLoading) {
