@@ -83,7 +83,7 @@
        (SELECT pdi.person_id AS person_id,
                countIf(timestamp > now() - INTERVAL 2 year
                        AND timestamp < now()
-                       AND event = '$pageview') > 0 AS performed_event_condition_30_level_level_0_level_0_level_0_0
+                       AND event = '$pageview') > 0 AS performed_event_condition_6_level_level_0_level_0_level_0_0
         FROM events e
         INNER JOIN
           (SELECT distinct_id,
@@ -113,7 +113,7 @@
            HAVING max(is_deleted) = 0
            AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
      WHERE 1 = 1
-       AND ((((performed_event_condition_30_level_level_0_level_0_level_0_0)))) ) as person
+       AND ((((performed_event_condition_6_level_level_0_level_0_level_0_0)))) ) as person
   UNION ALL
   SELECT person_id,
          cohort_id,
@@ -148,7 +148,7 @@
                    (SELECT pdi.person_id AS person_id,
                            countIf(timestamp > now() - INTERVAL 2 year
                                    AND timestamp < now()
-                                   AND event = '$pageview') > 0 AS performed_event_condition_72_level_level_0_level_0_level_0_0
+                                   AND event = '$pageview') > 0 AS performed_event_condition_8_level_level_0_level_0_level_0_0
                     FROM events e
                     INNER JOIN
                       (SELECT distinct_id,
@@ -178,7 +178,7 @@
                        HAVING max(is_deleted) = 0
                        AND (((((NOT has(['something1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))))))) person ON person.person_id = behavior_query.person_id
                  WHERE 1 = 1
-                   AND ((((performed_event_condition_72_level_level_0_level_0_level_0_0)))) ) ))
+                   AND ((((performed_event_condition_8_level_level_0_level_0_level_0_0)))) ) ))
   '
 ---
 # name: TestCohort.test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation.1
