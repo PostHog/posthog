@@ -988,8 +988,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 refreshesFinished += 1
                 if (refreshesFinished === insights.length) {
-                    breakpoint()
-
                     const payload: TimeToSeeDataPayload = {
                         type: 'dashboard_load',
                         context: 'dashboard',
