@@ -41,6 +41,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showActions: query.showActions ?? true,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
+                        showElapsedTime: query.showElapsedTime ?? showIfFull,
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,

@@ -168,6 +168,8 @@ export interface DataTableNode extends Node {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
+    /** Show the time it takes to run a query */
+    showElapsedTime?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */

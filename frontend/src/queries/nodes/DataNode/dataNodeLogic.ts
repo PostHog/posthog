@@ -32,6 +32,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         stopAutoLoad: true,
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
+        setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -46,8 +47,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         signal: cache.abortController.signal,
                     }
                     try {
+                        const now = performance.now()
                         const data = (await query<DataNode>(props.query, methodOptions)) ?? null
                         breakpoint()
+                        actions.setElapsedTime(performance.now() - now)
                         return data
                     } catch (e: any) {
                         cache.abortController = null
@@ -63,7 +66,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return values.response
                     }
                     if (isEventsQuery(props.query) && values.newQuery) {
+                        const now = performance.now()
                         const newResponse = (await query(values.newQuery)) ?? null
+                        actions.setElapsedTime(performance.now() - now)
                         if (newResponse?.results) {
                             actions.highlightRows(newResponse?.results)
                         }
@@ -79,7 +84,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         return values.response
                     }
                     if (isEventsQuery(props.query) && values.nextQuery) {
+                        const now = performance.now()
                         const newResponse = (await query(values.nextQuery)) ?? null
+                        actions.setElapsedTime(performance.now() - now)
                         return {
                             results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
                             hasMore: newResponse?.hasMore,
@@ -118,6 +125,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 highlightRows: (state, { rows }) => new Set([...Array.from(state), ...rows]),
                 loadDataSuccess: () => new Set(),
+            },
+        ],
+        loadingStart: [
+            null as number | null,
+            {
+                setElapsedTime: () => null,
+                loadData: () => performance.now(),
+                loadNewData: () => performance.now(),
+                loadNextData: () => performance.now(),
+            },
+        ],
+        elapsedTime: [
+            null as number | null,
+            {
+                setElapsedTime: (_, { elapsedTime }) => elapsedTime,
+                loadData: () => null,
+                loadNewData: () => null,
+                loadNextData: () => null,
             },
         ],
     })),

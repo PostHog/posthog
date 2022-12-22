@@ -26,6 +26,7 @@ import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 
 interface DataTableProps {
     query: DataTableNode
@@ -65,6 +66,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         showPropertyFilter,
         showReload,
         showExport,
+        showElapsedTime,
         showColumnConfigurator,
         showEventsBufferWarning,
         expandable,
@@ -127,7 +129,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         ) : null,
     ].filter((x) => !!x)
 
-    const secondRowLeft = [showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null].filter((x) => !!x)
+    const secondRowLeft = [
+        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
+        showElapsedTime ? <ElapsedTime /> : null,
+    ].filter((x) => !!x)
 
     const secondRowRight = [
         showColumnConfigurator && isEventsQuery(query.source) ? (
@@ -157,8 +162,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     )}
                     {showFirstRow && showSecondRow && <LemonDivider />}
                     {showSecondRow && (
-                        <div className="flex gap-4">
-                            <div className="flex-1">{secondRowLeft}</div>
+                        <div className="flex gap-4 items-center">
+                            {secondRowLeft}
+                            <div className="flex-1" />
                             {secondRowRight}
                             {inlineEditorButtonOnRow === 2 ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
