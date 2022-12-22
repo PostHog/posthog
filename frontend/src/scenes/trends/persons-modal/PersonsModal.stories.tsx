@@ -27,6 +27,15 @@ export const PersonsModal: Story = () => {
                         relevant_event_count: 2,
                     },
                     {
+                        timestamp: '2022-12-02T08:00:00.000Z',
+                        properties: {
+                            name: 'Francisco Elliott',
+                            email: 'mortgage2056@yandex.com',
+                            $geoip_country_code: 'PL',
+                        },
+                        relevant_event_count: 9,
+                    },
+                    {
                         timestamp: '2022-12-08T00:00:00.000Z',
                         properties: {
                             name: 'Francisco Elliott',

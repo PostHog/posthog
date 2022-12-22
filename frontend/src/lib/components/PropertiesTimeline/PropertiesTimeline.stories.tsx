@@ -41,6 +41,13 @@ export function MultiplePointsForPerson(): JSX.Element {
                     relevant_event_count: 3,
                 },
                 {
+                    timestamp: '2021-01-18T08:00:00.000Z',
+                    properties: {
+                        name: 'Jerry',
+                    },
+                    relevant_event_count: 3,
+                },
+                {
                     timestamp: '2021-03-01T00:00:00.000Z',
                     properties: {
                         name: 'Terry',
