@@ -9,7 +9,6 @@ import { TimeToSeeNode } from './types'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { dayjs } from 'lib/dayjs'
 
-
 let uniqueNode = 0
 
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
@@ -27,11 +26,7 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
     }
 
     if (!response) {
-        return (
-            <div className="text-2xl">
-                No session found.
-            </div>
-        )
+        return <div className="text-2xl">No session found.</div>
     }
 
     const columns: LemonTableColumns<TimeToSeeNode> = [
@@ -43,7 +38,7 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
                     return `${node.data.action ?? 'load'} in ${node.data.context}`
                 }
                 return 'ClickHouse query'
-            }
+            },
         },
         {
             title: 'Context',
@@ -51,7 +46,7 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
                 if (node.type == 'event' || node.type == 'interaction') {
                     return node.data.context
                 }
-            }
+            },
         },
         {
             title: 'Action',
@@ -59,13 +54,13 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
                 if (node.type == 'event' || node.type == 'interaction') {
                     return node.data.action
                 }
-            }
+            },
         },
         {
             title: 'Page',
             render: (_, node) => {
                 return (node.type == 'event' || node.type == 'interaction') && node.data.current_url
-            }
+            },
         },
         {
             title: 'Cache hit ratio',
@@ -74,15 +69,15 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
                     const ratio = node.data.insights_fetched_cached / node.data.insights_fetched
                     return `${Math.round(ratio * 100)}%`
                 }
-            }
+            },
         },
         {
             title: 'Duration',
             render: (_, node) => {
                 const duration = getDurationMs(node)
                 return `${duration}ms`
-            }
-        }
+            },
+        },
     ]
 
     return (
@@ -91,8 +86,8 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
                 dataSource={response.children}
                 columns={columns}
                 expandable={{
-                    expandedRowRender: (node) => (<RenderHierarchy depth={0} node={node} rootNode={node} />),
-                    isRowExpanded: () => true
+                    expandedRowRender: (node) => <RenderHierarchy depth={0} node={node} rootNode={node} />,
+                    isRowExpanded: () => true,
                 }}
             />
 
@@ -111,24 +106,37 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
     )
 }
 
-function RenderHierarchy(props: { depth: number, node: TimeToSeeNode, rootNode: TimeToSeeNode }) {
+function RenderHierarchy(props: { depth: number; node: TimeToSeeNode; rootNode: TimeToSeeNode }): JSX.Element {
     const [startWidth, durationWidth] = getTimeSlice(props.node, props.rootNode)
     return (
         <>
             <div className="flex">
                 <div className="flex">
-                    <span style={{ width: props.depth * 100 }} />
+                    <span
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: props.depth * 100 }}
+                    />
                     <strong>{props.node.type}</strong>
                 </div>
-                <div className="flex" style={{ width: 400 }}>
-                    <div style={{ width: `${startWidth*100}%` }} />
-                    <div style={{ width: `${durationWidth*100}%`, height: 10, backgroundColor: 'red' }} />
+                <div
+                    className="flex"
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: 400 }}
+                >
+                    <div
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${startWidth * 100}%` }}
+                    />
+                    <div
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ width: `${durationWidth * 100}%`, height: 10, backgroundColor: 'red' }}
+                    />
                 </div>
-                <div>
-                    {getDurationMs(props.node)}ms
-                </div>
+                <div>{getDurationMs(props.node)}ms</div>
             </div>
-            {props.node.children.map((childNode, index) => <RenderHierarchy {...props} depth={props.depth + 1} node={childNode} key={index} />)}
+            {props.node.children.map((childNode, index) => (
+                <RenderHierarchy {...props} depth={props.depth + 1} node={childNode} key={index} />
+            ))}
         </>
     )
 }
