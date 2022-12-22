@@ -19,9 +19,5 @@ export function ElapsedTime(): JSX.Element | null {
         return null
     }
 
-    if (time < 1000) {
-        return <div>{(Math.round(time / 10) / 100).toFixed(2)}s</div>
-    }
-
-    return <div>{time ? `${(Math.round(time / 100) / 10).toFixed(1)}s` : ''}</div>
+    return <div>{`${(time / 1000).toFixed(time < 1000 ? 2 : 1)}s`}</div>
 }
