@@ -42,7 +42,27 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         columns,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
-                setQuery?.({ ...query, source: { ...query.source, select: columns } })
+                const breakDefaultOrderBy =
+                    !columns.includes('timestamp') && query.source.orderBy?.includes('-timestamp')
+                if (breakDefaultOrderBy) {
+                    setQuery?.({
+                        ...query,
+                        source: {
+                            ...query.source,
+                            orderBy: [],
+                            select: columns,
+                        },
+                        allowSorting: true,
+                    })
+                } else {
+                    setQuery?.({
+                        ...query,
+                        source: {
+                            ...query.source,
+                            select: columns,
+                        },
+                    })
+                }
             } else {
                 setQuery?.({ ...query, columns })
             }
