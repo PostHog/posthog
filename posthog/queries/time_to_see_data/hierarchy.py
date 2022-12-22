@@ -35,6 +35,10 @@ class Node:
 
 
 def construct_hierarchy(session, interactions_and_events, queries) -> dict:
+    """
+    Constructs a tree-like hierarchy for session based on interactions and queries, to expose
+    triggered-by relationships.
+    """
     nodes: List[Node] = []
     nodes.extend(make_empty_node(interaction_type, data) for data in interactions_and_events)
     nodes.extend(make_empty_node(query_type, data) for data in queries)
