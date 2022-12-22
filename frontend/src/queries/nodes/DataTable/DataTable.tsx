@@ -1,6 +1,6 @@
 import './DataTable.scss'
 import { DataTableNode, EventsNode, EventsQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
@@ -107,7 +107,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
 
     const dataSource =
         (response as null | EventsNode['response'] | EventsQuery['response'] | PersonsNode['response'])?.results ?? []
-    const setQuerySource = (source: EventsNode | EventsQuery | PersonsNode): void => setQuery?.({ ...query, source })
+    const setQuerySource = useCallback(
+        (source: EventsNode | EventsQuery | PersonsNode) => setQuery?.({ ...query, source }),
+        [setQuery]
+    )
 
     const showFilters = showSearch || showEventFilter || showPropertyFilter
     const showTools = showReload || showExport || showColumnConfigurator
