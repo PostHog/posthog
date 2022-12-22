@@ -140,7 +140,8 @@ export const FEATURE_FLAGS = {
     SOCIAL_AUTH_BUTTONS_EXPERIMENT: 'social-auth-buttons-experiment', // owner: #team-growth
     YEAR_IN_HOG: 'year-in-hog', // owner: @pauldambra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
-    HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
+    HOGQL_EXPRESSIONS: 'hogql_expressions', // owner: @mariusandra
+    ACTOR_PROPERTIES_TIMELINE: 'actor-properties-timeline', // owner: @Twixes
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
