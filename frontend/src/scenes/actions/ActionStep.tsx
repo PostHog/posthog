@@ -124,10 +124,6 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
 const validateSelector = (val: string, selectorPrompts: (s: string | null) => void): void => {
     if (val.includes('#')) {
         selectorPrompts('The ID selector "#example" does not match in PostHog actions. Use `[id="example"]` instead')
-    } else if (val.includes('.')) {
-        selectorPrompts(
-            'The class selector ".example" does not match in PostHog actions. Use `[class="example"]` instead'
-        )
     } else {
         selectorPrompts(null)
     }
