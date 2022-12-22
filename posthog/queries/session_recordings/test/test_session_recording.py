@@ -291,14 +291,12 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             )
 
             req, _ = create_recording_request_and_filter("1")
-            SessionRecordingModel.objects.create(session_id="1", team=self.team, description="test description")
             recording = SessionRecording(team=self.team, session_recording_id="1", request=req).get_metadata()
 
             millisecond = relativedelta(microseconds=1000)
 
             expectation = RecordingMetadata(
                 distinct_id="u",
-                description="test description",
                 segments=[
                     RecordingSegment(is_active=True, window_id="2", start_time=now(), end_time=now()),
                     RecordingSegment(

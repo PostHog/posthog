@@ -18,7 +18,6 @@ from posthog.helpers.session_recording import RecordingMetadata
 from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
-from posthog.models.session_recording import SessionRecording as SessionRecordingModel
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
