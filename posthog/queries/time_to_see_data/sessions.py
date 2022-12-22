@@ -16,7 +16,7 @@ SELECT
     session_id,
     any(user_id) AS user_id,
     any(team_id) AS team_id,
-    min(timestamp - toIntervalSecond(time_to_see_data_ms)) AS session_start,
+    min(timestamp - toIntervalSecond(time_to_see_data_ms / 1000)) AS session_start,
     max(timestamp) AS session_end,
     1000 * dateDiff('second', session_start, session_end) AS duration_ms,
     argMax(team_events_last_month, _timestamp) as team_events_last_month,
