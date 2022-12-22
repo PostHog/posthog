@@ -198,7 +198,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  , _timestamp Nullable(DateTime)
+  , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
@@ -732,7 +732,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  , _timestamp Nullable(DateTime)
+  , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
@@ -877,7 +877,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  , _timestamp Nullable(DateTime)
+  , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
@@ -1280,11 +1280,11 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  , _timestamp Nullable(DateTime)
+  , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
-  ) ENGINE = MergeTree
+  ) ENGINE = MergeTree()
   PARTITION BY toYYYYMM(timestamp)
   ORDER BY (team_id, toDate(timestamp), session_id, pageview_id, timestamp)
   
@@ -1431,7 +1431,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  , _timestamp Nullable(DateTime)
+  , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
@@ -1777,7 +1777,7 @@
   unload_event_end Float64,
   unload_event_start Float64
       
-  , _timestamp Nullable(DateTime)
+  , _timestamp DateTime
   , _offset UInt64
   , _partition UInt64
   
