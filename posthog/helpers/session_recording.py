@@ -16,7 +16,6 @@ from typing import (
 )
 
 from sentry_sdk.api import capture_exception, capture_message
-from typing_extensions import NotRequired
 
 from posthog.models import utils
 
