@@ -47,6 +47,7 @@ import {
     RawClickHouseEvent,
     RawGroup,
     RawOrganization,
+    RawPerformanceEvent,
     RawPerson,
     RawSessionRecordingEvent,
     Team,
@@ -1243,6 +1244,13 @@ export class DB {
                 snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
             }
         })
+        return events
+    }
+
+    // PerformanceEvent
+
+    public async fetchPerformanceEvents(): Promise<RawPerformanceEvent[]> {
+        const events = (await this.clickhouseQuery<RawPerformanceEvent>(`SELECT * FROM performance_events`)).data
         return events
     }
 
