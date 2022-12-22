@@ -23,15 +23,20 @@ export function AccessLevelIndicator({ organization }: { organization: Organizat
 export function OtherOrganizationButton({
     organization,
     index,
+    onClick,
 }: {
     organization: OrganizationBasicType
     index: number
+    onClick?: () => void
 }): JSX.Element {
     const { updateCurrentOrganization } = useActions(userLogic)
 
     return (
         <LemonButton
-            onClick={() => updateCurrentOrganization(organization.id)}
+            onClick={() => {
+                updateCurrentOrganization(organization.id)
+                onClick?.()
+            }}
             icon={<Lettermark index={index} name={organization.name} />}
             status="stealth"
             title={`Switch to organization ${organization.name}`}
@@ -43,14 +48,15 @@ export function OtherOrganizationButton({
     )
 }
 
-export function NewOrganizationButton(): JSX.Element {
+export function NewOrganizationButton({ onClick }: { onClick?: () => void }): JSX.Element {
     const { closeSitePopover, showCreateOrganizationModal } = useActions(navigationLogic)
     const { guardAvailableFeature } = useActions(sceneLogic)
 
     return (
         <LemonButton
             icon={<IconPlus />}
-            onClick={() =>
+            onClick={() => {
+                onClick?.()
                 guardAvailableFeature(
                     AvailableFeature.ORGANIZATIONS_PROJECTS,
                     'multiple organizations',
@@ -64,7 +70,7 @@ export function NewOrganizationButton(): JSX.Element {
                         selfHosted: true,
                     }
                 )
-            }
+            }}
             fullWidth
         >
             New organization
@@ -72,7 +78,7 @@ export function NewOrganizationButton(): JSX.Element {
     )
 }
 
-export function OrganizationSwitcherOverlay(): JSX.Element {
+export function OrganizationSwitcherOverlay({ onClose }: { onClose: () => void }): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     const { otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -92,9 +98,14 @@ export function OrganizationSwitcherOverlay(): JSX.Element {
                 </LemonButton>
             )}
             {otherOrganizations.map((otherOrganization, i) => (
-                <OtherOrganizationButton key={otherOrganization.id} organization={otherOrganization} index={i} />
+                <OtherOrganizationButton
+                    key={otherOrganization.id}
+                    organization={otherOrganization}
+                    index={i}
+                    onClick={onClose}
+                />
             ))}
-            {preflight?.can_create_org && <NewOrganizationButton />}
+            {preflight?.can_create_org && <NewOrganizationButton onClick={onClose} />}
         </div>
     )
 }

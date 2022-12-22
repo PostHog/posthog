@@ -107,7 +107,7 @@ export const breadcrumbsLogic = kea<breadcrumbsLogicType>([
                         symbol: <Lettermark name={currentOrganization.name} />,
                         popup:
                             otherOrganizations?.length || preflight?.can_create_org
-                                ? () => <OrganizationSwitcherOverlay />
+                                ? (close) => <OrganizationSwitcherOverlay onClose={close} />
                                 : undefined,
                     })
                 }
