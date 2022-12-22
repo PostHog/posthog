@@ -112,6 +112,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "email_service_available": is_cloud() or is_email_available(with_absolute_urls=True),
         "slack_service": {"available": bool(slack_client_id), "client_id": slack_client_id or None},
         "object_storage": is_cloud() or is_object_storage_available(),
+        "instance_tag": settings.INSTANCE_TAG,
     }
 
     if request.user.is_authenticated:
