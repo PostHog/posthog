@@ -2,7 +2,7 @@ import { InsightQueryNode, EventsNode, ActionsNode, NodeKind, SupportedNodeKind 
 import { FilterType, InsightType, ActionFilter } from '~/types'
 import { isLifecycleQuery } from '~/queries/utils'
 import { isLifecycleFilter } from 'scenes/insights/sharedUtils'
-import { filterUndefined } from './filterUndefined'
+import { objectClean } from 'lib/utils'
 
 const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
     [InsightType.TRENDS]: NodeKind.TrendsQuery,
@@ -47,15 +47,15 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     const { events, actions } = filters
     const series = actionsAndEventsToSeries({ actions, events } as any)
-    const query: InsightQueryNode = filterUndefined({
+    const query: InsightQueryNode = objectClean({
         kind: reverseInsightMap[filters.insight],
         properties: filters.properties,
         filterTestAccounts: filters.filter_test_accounts,
-        dateRange: filterUndefined({
+        dateRange: objectClean({
             date_to: filters.date_to,
             date_from: filters.date_from,
         }),
-        breakdown: filterUndefined({
+        breakdown: objectClean({
             breakdown_type: filters.breakdown_type,
             breakdown: filters.breakdown,
             breakdown_normalize_url: filters.breakdown_normalize_url,
@@ -69,7 +69,7 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     })
 
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
-        query.lifecycleFilter = filterUndefined({
+        query.lifecycleFilter = objectClean({
             shown_as: filters.shown_as,
         })
     }
