@@ -160,7 +160,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         newQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
-                if (!query.response || !isEventsQuery(query)) {
+                if (!response || !isEventsQuery(query)) {
                     return null
                 }
                 if (isEventsQuery(query)) {
@@ -170,11 +170,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             .map((hql) => removeExpressionComment(hql))
                             .indexOf('timestamp')
                         if (sortColumnIndex !== -1) {
-                            const lastTimestamp = (response as EventsQuery['response'])?.results[
-                                query.response.results.length - 1
-                            ][sortColumnIndex]
-                            const newQuery: EventsQuery = { ...query, before: lastTimestamp }
-                            return newQuery
+                            const typedResults = (response as EventsQuery['response'])?.results
+                            const firstTimestamp = typedResults?.[0][sortColumnIndex]
+                            const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
+                            return nextQuery
                         }
                     }
                 }
@@ -193,11 +192,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')
                             if (sortColumnIndex !== -1) {
-                                const firstTimestamp = (response as EventsQuery['response'])?.results[0][
-                                    sortColumnIndex
-                                ]
-                                const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
-                                return nextQuery
+                                const typedResults = (response as EventsQuery['response'])?.results
+                                const lastTimestamp = typedResults?.[typedResults.length - 1][sortColumnIndex]
+                                const newQuery: EventsQuery = { ...query, before: lastTimestamp }
+                                return newQuery
                             }
                         }
                     }
