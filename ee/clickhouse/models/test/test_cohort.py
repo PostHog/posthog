@@ -746,6 +746,8 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="1", properties={"attr": "some_val"})
         _create_event(event="$pageview", team=self.team, distinct_id="2", properties={"attr": "some_val"})
 
+        flush_persons_and_events()
+
         cohort0: Cohort = Cohort.objects.create(
             team=self.team,
             groups=[{"properties": [{"key": "$some_prop", "value": "something1", "type": "person"}]}],
