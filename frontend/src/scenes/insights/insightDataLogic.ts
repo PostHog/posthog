@@ -21,7 +21,7 @@ const getQueryFromFilters = (filters: Partial<FilterType>): InsightVizNode => {
     }
 }
 
-// should take the existing values.query and set params from previous view similar to
+// TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
 const getCleanedQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery): InsightVizNode => {
     if (kind == NodeKind.LifecycleQuery) {
