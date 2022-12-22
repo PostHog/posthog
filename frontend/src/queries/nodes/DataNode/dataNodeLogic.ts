@@ -7,7 +7,7 @@ import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
-import { getNextQuery } from '~/queries/nodes/DataNode/utils'
+import { getNewQuery, getNextQuery } from '~/queries/nodes/DataNode/utils'
 
 export interface DataNodeLogicProps {
     key: string
@@ -30,9 +30,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         startAutoLoad: true,
         stopAutoLoad: true,
         toggleAutoLoad: true,
-        highlightRows: (rowIds: string[], now = new Date().valueOf()) => ({ rowIds, now }),
+        highlightRows: (rows: any[]) => ({ rows }),
     }),
-    loaders(({ values, props }) => ({
+    loaders(({ actions, values, props }) => ({
         response: [
             null as DataNode['response'] | null,
             {
@@ -45,20 +45,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!values.canLoadNewData || values.dataLoading) {
                         return values.response
                     }
-                    if (isEventsQuery(props.query)) {
-                        const diffQuery: EventsQuery =
-                            values.response && values.response.results?.length > 0
-                                ? {
-                                      ...props.query,
-                                      after: values.response.results[0].timestamp,
-                                  }
-                                : props.query
-                        const newResponse = (await query(diffQuery)) ?? null
-                        // TODO: get this back
-                        // actions.highlightRows((newResponse?.results ?? []).map((r) => r.id))
+                    if (isEventsQuery(props.query) && values.newQuery) {
+                        const newResponse = (await query(values.newQuery)) ?? null
+                        if (newResponse?.results) {
+                            actions.highlightRows(newResponse?.results)
+                        }
                         return {
+                            ...values.response,
                             results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
-                            next: values.response?.next,
                         }
                     }
                     return values.response
@@ -103,24 +97,23 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
         highlightedRows: [
-            {} as Record<string, number>,
+            new Set<any>(),
             {
-                highlightRows: (state, { rowIds, now }) => {
-                    const newState = { ...state }
-                    for (const rowId of rowIds) {
-                        newState[rowId] = now
-                    }
-                    return newState
-                },
-                loadDataSuccess: () => ({}),
+                highlightRows: (state, { rows }) => new Set([...Array.from(state), ...rows]),
+                loadDataSuccess: () => new Set(),
             },
         ],
     })),
     selectors({
-        canLoadNewData: [
-            (_, p) => [p.query],
-            (query) => isEventsQuery(query) && query.orderBy?.length === 1 && query.orderBy?.[0] === '-timestamp',
+        newQuery: [
+            (s, p) => [p.query, s.response],
+            (query, response): DataNode | null => {
+                return isEventsQuery(query) && query.orderBy?.length === 1 && query.orderBy[0] === '-timestamp'
+                    ? getNewQuery({ ...query, response: response as EventsQuery['response'] })
+                    : null
+            },
         ],
+        canLoadNewData: [(s) => [s.newQuery], (newQuery) => !!newQuery],
         nextQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {

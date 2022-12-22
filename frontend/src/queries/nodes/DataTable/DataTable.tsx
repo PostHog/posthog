@@ -233,7 +233,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 : undefined
                         }
                         rowClassName={(row) =>
-                            clsx('DataTable__row', { 'DataTable__row--highlight_once': highlightedRows[row?.id] })
+                            clsx('DataTable__row', {
+                                'DataTable__row--highlight_once': row && highlightedRows.has(row),
+                            })
                         }
                     />
                     {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
