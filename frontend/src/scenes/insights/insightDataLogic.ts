@@ -14,13 +14,6 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
 
-const getQueryFromFilters = (filters: Partial<FilterType>): InsightVizNode => {
-    return {
-        kind: NodeKind.InsightVizNode,
-        source: filtersToQueryNode(filters),
-    }
-}
-
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
 const getCleanedQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery): InsightVizNode => {
@@ -50,10 +43,19 @@ const getCleanedQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQ
     }
 }
 
-const INIT_QUERY: InsightVizNode = {
-    kind: NodeKind.InsightVizNode,
-    source: { kind: NodeKind.TrendsQuery, series: [] },
+const getQueryFromFilters = (filters: Partial<FilterType>): InsightVizNode => {
+    return {
+        kind: NodeKind.InsightVizNode,
+        source: filtersToQueryNode(filters),
+    }
 }
+
+const getDefaultQuery = (insightProps: InsightLogicProps): InsightVizNode => ({
+    kind: NodeKind.InsightVizNode,
+    source: insightProps.cachedInsight?.filters
+        ? filtersToQueryNode(insightProps.cachedInsight.filters)
+        : { kind: NodeKind.TrendsQuery, series: [] },
+})
 
 export const insightDataLogic = kea<insightDataLogicType>([
     props({} as InsightLogicProps),
@@ -73,22 +75,18 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuerySourceMerge: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
     }),
 
-    reducers(({ props }) => ({
-        query: [
-            props.cachedInsight?.filters ? getQueryFromFilters(props.cachedInsight.filters) : INIT_QUERY,
-            {
-                setQuery: (_, { query }) => query,
-            },
-        ],
-    })),
+    reducers(({ props }) => ({ query: [getDefaultQuery(props) as Node, { setQuery: (_, { query }) => query }] })),
 
     selectors({
-        querySource: [(s) => [s.query], (query) => query.source],
+        querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
     }),
 
     listeners(({ actions, values }) => ({
         setQuerySourceMerge: ({ query }) => {
-            actions.setQuery({ ...values.query, source: { ...values.query.source, ...query } })
+            actions.setQuery({
+                ...values.query,
+                source: { ...(values.query as InsightVizNode).source, ...query },
+            } as Node)
         },
         setQuery: ({ query }) => {
             // safeguard against accidentally overwriting filters for non-flagged users
@@ -96,8 +94,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 return
             }
 
-            if (isLifecycleQuery(query.source)) {
-                const filters = queryNodeToFilter(query.source)
+            if (isLifecycleQuery((query as InsightVizNode).source)) {
+                const filters = queryNodeToFilter((query as InsightVizNode).source)
                 actions.setFilters(filters)
             }
         },
