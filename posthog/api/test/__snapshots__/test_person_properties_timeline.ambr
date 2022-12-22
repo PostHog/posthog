@@ -23,7 +23,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-4000-8000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -221,8 +221,7 @@
                    AND person_id = '00000000-0000-4000-8000-000000000000'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC') WINDOW person_events AS (
-                                                                                                                         ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)
               UNION ALL
                 (SELECT NULL AS timestamp,
@@ -302,8 +301,7 @@
                    AND person_id = '00000000-0000-4000-8000-000000000000'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC') WINDOW person_events AS (
-                                                                                                                         ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)
               UNION ALL
                 (SELECT NULL AS timestamp,
