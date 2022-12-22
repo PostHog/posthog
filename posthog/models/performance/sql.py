@@ -127,7 +127,7 @@ KAFKA_PERFORMANCE_EVENTS_TABLE_SQL = lambda: PERFORMANCE_EVENTS_TABLE_BASE_SQL()
     table_name="kafka_performance_events",
     cluster=settings.CLICKHOUSE_CLUSTER,
     engine=kafka_engine(topic=KAFKA_PERFORMANCE_EVENTS),
-    extra_fields=KAFKA_COLUMNS_WITH_PARTITION,
+    extra_fields="",
 )
 
 
