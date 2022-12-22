@@ -2,6 +2,7 @@ import { PersonsNode } from '~/queries/schema'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { IconInfo } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { useDebouncedQuery } from '~/queries/hooks/useDebouncedQuery'
 
 interface PersonSearchProps {
     query: PersonsNode
@@ -9,15 +10,22 @@ interface PersonSearchProps {
 }
 
 export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Element {
+    const { value, onChange } = useDebouncedQuery<PersonsNode, string>(
+        query,
+        setQuery,
+        (query) => query.search || '',
+        (query, value) => ({ ...query, search: value })
+    )
+
     return (
         <div className="flex items-center gap-2">
             <LemonInput
                 type="search"
-                value={query.search ?? ''}
+                value={value}
                 placeholder="Search for persons"
                 data-attr="persons-search"
                 disabled={!setQuery}
-                onChange={(value: string) => setQuery?.({ ...query, search: value })}
+                onChange={onChange}
             />
             <Tooltip
                 title={
