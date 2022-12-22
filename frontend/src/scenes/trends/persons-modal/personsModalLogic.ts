@@ -145,17 +145,20 @@ export const personsModalLogic = kea<personsModalLogicType>([
         propertiesTimelineFilterFromUrl: [
             (_, p) => [p.url],
             (url): PropertiesTimelineFilterType => {
-                // PersonsModal fully relies on the actors URLs received with insight results, so we need to parse
-                // filters out of that URL
+                // PersonsModal only gets an persons URL and not its underlying filters, so we need to extract those
                 const params = new URLSearchParams(url.split('?')[1])
+                const eventsString = params.get('events')
+                const actionsString = params.get('actions')
+                const propertiesString = params.get('properties')
+                const aggregationGroupTypeIndexString = params.get('aggregation_group_type_index')
                 const properties: PropertiesTimelineFilterType = {
-                    date_from: params.get('date_from'),
-                    date_to: params.get('date_to'),
-                    events: params.has('events') ? JSON.parse(params.get('events') as string) : undefined,
-                    actions: params.has('actions') ? JSON.parse(params.get('actions') as string) : undefined,
-                    properties: params.has('properties') ? JSON.parse(params.get('properties') as string) : undefined,
-                    aggregation_group_type_index: params.has('aggregation_group_type_index')
-                        ? parseInt(params.get('aggregation_group_type_index') as string)
+                    date_from: params.get('date_from') || undefined,
+                    date_to: params.get('date_to') || undefined,
+                    events: eventsString ? JSON.parse(eventsString) : undefined,
+                    actions: actionsString ? JSON.parse(actionsString) : undefined,
+                    properties: propertiesString ? JSON.parse(propertiesString) : undefined,
+                    aggregation_group_type_index: aggregationGroupTypeIndexString
+                        ? parseInt(aggregationGroupTypeIndexString)
                         : undefined,
                 }
                 return properties
