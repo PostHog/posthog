@@ -7,7 +7,7 @@ import { InsightLogicProps, IntervalType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { dayjs } from 'lib/dayjs'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
-import { FunnelsQuery, InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
+import { FunnelsQuery, InsightQueryNode, InsightVizNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
     props: {} as InsightLogicProps,
@@ -26,7 +26,10 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                 actions.setFilters({ ...values.filters, interval })
             }
 
-            if ((values.query.source as TrendsQuery | FunnelsQuery | StickinessQuery).interval !== interval) {
+            if (
+                ((values.query as InsightVizNode).source as TrendsQuery | FunnelsQuery | StickinessQuery).interval !==
+                interval
+            ) {
                 actions.setQuerySourceMerge({ interval } as Partial<InsightQueryNode>)
             }
         },
