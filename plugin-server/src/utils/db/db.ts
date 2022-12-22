@@ -515,6 +515,23 @@ export class DB {
         })
     }
 
+    public redisZRange(key: string, start: number, stop: number): Promise<string[]> {
+        return instrumentQuery(this.statsd, 'query.redisZRange', undefined, async () => {
+            const client = await this.redisPool.acquire()
+            const timeout = timeoutGuard('ZRANGE delayed. Waiting over 30 sec to perform ZRANGE', {
+                key,
+                start,
+                stop,
+            })
+            try {
+                return await client.zrange(key, start, stop)
+            } finally {
+                clearTimeout(timeout)
+                await this.redisPool.release(client)
+            }
+        })
+    }
+
     /** Calls Celery task. Works similarly to Task.apply_async in Python. */
     async celeryApplyAsync(taskName: string, args: any[] = [], kwargs: Record<string, any> = {}): Promise<void> {
         const taskId = new UUIDT().toString()

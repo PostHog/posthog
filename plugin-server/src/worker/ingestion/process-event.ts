@@ -1,7 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { RateLimiter } from 'utils/rate-limiter'
 
 import { KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
 import {
@@ -21,6 +20,7 @@ import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { RateLimiter } from '../../utils/rate-limiter'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
@@ -114,6 +114,7 @@ export class EventsProcessor {
                         team_id: teamId.toString(),
                         resource: 'events',
                     })
+
                     // LATER: Uncomment below and we will actually start dropping events
                     // return null
                 }
