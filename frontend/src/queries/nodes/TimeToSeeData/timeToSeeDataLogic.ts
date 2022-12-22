@@ -1,6 +1,6 @@
 import { kea, props, key, afterMount, path } from 'kea'
 import { loaders } from 'kea-loaders'
-import { DataNode, TimeToSeeDataQuery } from '~/queries/schema'
+import { TimeToSeeDataQuery } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { TimeToSeeNode } from './types'
 
@@ -20,8 +20,9 @@ export const timeToSeeDataLogic = kea<timeToSeeDataLogicType>([
             null as TimeToSeeNode | null,
             {
                 loadData: async () => {
-                    // TODO: Resolve this mess
-                    return (await query<TimeToSeeNode>(props.query)) ?? null
+                    const response = await query(props.query)
+                    // TODO: Resolve this typing mess
+                    return (response ?? null) as any as TimeToSeeNode | null
                 },
             },
         ],
