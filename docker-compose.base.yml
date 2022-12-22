@@ -34,13 +34,17 @@ services:
         restart: on-failure
 
     kafka:
-        image: ubuntu/kafka:3.1-22.04_edge
+        image: wurstmeister/kafka:2.13-2.8.1
         restart: on-failure
         depends_on:
             - zookeeper
         environment:
-            ZOOKEEPER_HOST: zookeeper
-            ZOOKEEPER_PORT: 2181
+            KAFKA_BROKER_ID: 1001
+            KAFKA_RESERVED_BROKER_MAX_ID: 1001
+            KAFKA_LISTENERS: PLAINTEXT://:9092
+            KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+            KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+            KAFKA_ALLOW_PLAINTEXT_LISTENER: 'true'
 
     object_storage:
         image: minio/minio:RELEASE.2022-06-25T15-50-16Z
