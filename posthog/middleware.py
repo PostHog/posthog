@@ -137,6 +137,7 @@ class AutoProjectMiddleware:
             return None
 
         try:
+            # Teams are called projects in the UI hence pid (project_id but shorter for as clean a URL as possible)
             team_id = request.GET.get("pid")
             return Team.objects.get(id=int(team_id)) if team_id else None
         except:
