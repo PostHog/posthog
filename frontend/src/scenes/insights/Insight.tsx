@@ -83,10 +83,9 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     }, [insightId])
 
     useEffect(() => {
+        // if users navigate away from insights then we may cancel an API call
+        // and when they come back they may see an error state, so clear it
         if (showErrorMessage) {
-            // if mounting and logic is already in error state, then
-            // this insight was probably cancelled on navigation and
-            // it is safe to reload
             loadResults()
         }
         return () => {
