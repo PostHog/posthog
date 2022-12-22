@@ -71,21 +71,22 @@
     background: var(--primary);
 }
 
-.TimelineSeekbar__line-start {
-    position: absolute;
-    top: calc(50% - var(--timeline-seekbar-arrow-height) / 2);
-    left: 0;
-    width: var(--timeline-seekbar-thickness);
-    height: var(--timeline-seekbar-arrow-height);
-    background: var(--primary);
-}
-
+.TimelineSeekbar__line-start,
 .TimelineSeekbar__line-end {
     position: absolute;
     top: calc(50% - var(--timeline-seekbar-arrow-height) / 2);
-    right: calc(var(--timeline-seekbar-arrow-width) * -1);
-    width: var(--timeline-seekbar-arrow-width);
     height: var(--timeline-seekbar-arrow-height);
     background: var(--primary);
+    cursor: help;
+}
+
+.TimelineSeekbar__line-start {
+    left: 0;
+    width: var(--timeline-seekbar-thickness);
+}
+
+.TimelineSeekbar__line-end {
+    right: calc(var(--timeline-seekbar-arrow-width) * -1);
+    width: var(--timeline-seekbar-arrow-width);
     clip-path: polygon(0 0, 100% 50%, 0 100%);
 }

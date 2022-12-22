@@ -47,10 +47,28 @@ export function TimelineSeekbar({
             {points.length > 0 && (
                 <div className="TimelineSeekbar__seekbar">
                     <div className="TimelineSeekbar__line">
-                        <Tooltip title={`Range starts ${humanFriendlyDetailedTime(from)}`} placement="right">
+                        <Tooltip
+                            title={
+                                <span>
+                                    This data point's range starts at
+                                    <br />
+                                    {humanFriendlyDetailedTime(from)}
+                                </span>
+                            }
+                            placement="right"
+                        >
                             <div className="TimelineSeekbar__line-start" />
                         </Tooltip>
-                        <Tooltip title={`Range ends ${humanFriendlyDetailedTime(to)}`} placement="right">
+                        <Tooltip
+                            title={
+                                <span>
+                                    This data point's range ends at
+                                    <br />
+                                    {humanFriendlyDetailedTime(to)}`
+                                </span>
+                            }
+                            placement="right"
+                        >
                             <div className="TimelineSeekbar__line-end" />
                         </Tooltip>
                     </div>
@@ -58,7 +76,13 @@ export function TimelineSeekbar({
                         {points.map(({ timestamp, count }, index) => (
                             <Tooltip
                                 key={timestamp.toISOString()}
-                                title={`${humanFriendlyDetailedTime(timestamp)} • ${pluralize(count, 'such event')}`}
+                                title={
+                                    <span className="text-center">
+                                        {humanFriendlyDetailedTime(timestamp)}
+                                        <br />
+                                        {pluralize(count, 'relevant event')} with such properties
+                                    </span>
+                                }
                                 placement="bottom"
                             >
                                 <div
@@ -76,8 +100,12 @@ export function TimelineSeekbar({
                                         } as React.CSSProperties
                                     }
                                     /** Simulate slider-like behavior with mousedown and mouseenter. */
-                                    onMouseDown={() => index !== selectedPointIndex && onPointSelection(index)}
-                                    onMouseEnter={
+                                    onMouseDown={(e) =>
+                                        // e.button === 0 means that the left mouse button was pressed
+                                        e.button === 0 && index !== selectedPointIndex && onPointSelection(index)
+                                    }
+                                    // For some reason Tooltip blocks onMouseEnter here, but onMouseOver works
+                                    onMouseOver={
                                         // e.buttons === 1 means that the left mouse button, and only that one, must be pressed
                                         (e) =>
                                             e.buttons === 1 && index !== selectedPointIndex && onPointSelection(index)
