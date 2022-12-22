@@ -29,7 +29,7 @@ import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 
 interface DataTableProps {
     query: DataTableNode
-    setQuery?: (node: DataTableNode) => void
+    setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
     context?: QueryContext
 }

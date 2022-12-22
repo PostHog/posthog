@@ -5,7 +5,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 
 interface PersonSearchProps {
     query: PersonsNode
-    setQuery?: (node: PersonsNode) => void
+    setQuery?: (query: PersonsNode) => void
 }
 
 export function PersonsSearch({ query, setQuery }: PersonSearchProps): JSX.Element {

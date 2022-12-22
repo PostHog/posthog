@@ -18,7 +18,7 @@ export function renderColumn(
     value: any,
     record: EventType | PersonType | any[],
     query: DataTableNode,
-    setQuery?: (node: DataTableNode) => void,
+    setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
 ): JSX.Element | string {
     if (key === 'event' && isEventsNode(query.source)) {

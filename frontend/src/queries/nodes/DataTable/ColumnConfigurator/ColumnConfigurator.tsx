@@ -30,7 +30,7 @@ let uniqueNode = 0
 
 interface ColumnConfiguratorProps {
     query: DataTableNode
-    setQuery?: (node: DataTableNode) => void
+    setQuery?: (query: DataTableNode) => void
 }
 
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {

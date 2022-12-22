@@ -48,7 +48,7 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
 
 interface DataTableExportProps {
     query: DataTableNode
-    setQuery?: (node: DataTableNode) => void
+    setQuery?: (query: DataTableNode) => void
 }
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
