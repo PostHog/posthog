@@ -25,6 +25,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
+        loadData: true,
         startAutoLoad: true,
         stopAutoLoad: true,
         toggleAutoLoad: true,

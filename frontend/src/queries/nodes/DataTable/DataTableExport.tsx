@@ -36,7 +36,7 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
     }
 
     if (onlySelectedColumns) {
-        exportContext['columns'] = (query.columns ?? defaultDataTableColumns(query.source))
+        exportContext['columns'] = (query.columns ?? defaultDataTableColumns(query.source.kind))
             ?.flatMap((c) => columnMapping[c] || c)
             .filter((c) => c !== 'person.$delete')
     }
