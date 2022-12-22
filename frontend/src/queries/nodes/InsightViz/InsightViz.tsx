@@ -23,9 +23,11 @@ type InsightVizProps = {
 let uniqueNode = 0
 
 export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
+    // TODO use same key as insight props
     const [key] = useState(() => `InsightViz.${uniqueNode++}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
+    // TODO should not fetch if cached result is available or fetching
     const { response, lastRefresh } = useValues(dataNodeLogic(dataNodeLogicProps))
 
     const { insight } = useValues(insightLogic)
