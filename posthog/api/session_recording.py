@@ -45,7 +45,6 @@ class SessionRecordingSerializer(serializers.Serializer):
     viewed = serializers.BooleanField()
     distinct_id = serializers.CharField()
     duration = serializers.DurationField()
-    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     start_time = serializers.DateTimeField()
     end_time = serializers.DateTimeField()
     click_count = serializers.IntegerField(required=False)
@@ -57,7 +56,6 @@ class SessionRecordingSerializer(serializers.Serializer):
         return {
             "id": instance["session_id"],
             "viewed": instance["viewed"],
-            "description": instance.get("description"),
             "distinct_id": instance["distinct_id"],
             "recording_duration": instance.get("duration"),
             "start_time": instance["start_time"],

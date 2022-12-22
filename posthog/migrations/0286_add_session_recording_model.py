@@ -10,7 +10,7 @@ import posthog.models.utils
 
 def migrate_playlist_item_recording_relations(apps, _) -> None:
     logger = structlog.get_logger(__name__)
-    logger.info("starting_0285_add_session_recording_model")
+    logger.info("starting_0286_add_session_recording_model")
 
     Recording = apps.get_model("posthog", "SessionRecording")
     PlaylistItem = apps.get_model("posthog", "SessionRecordingPlaylistItem")
@@ -58,7 +58,7 @@ def migrate_playlist_item_recording_relations(apps, _) -> None:
 
         count += len(list(playlist_items))
 
-    logger.info("finished_0285_add_session_recording_model", migration_count=count)
+    logger.info("finished_0286_add_session_recording_model", migration_count=count)
 
 
 def reverse(apps, _) -> None:
@@ -83,7 +83,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("session_id", models.CharField(max_length=200, unique=True)),
-                ("description", models.TextField(blank=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True, null=True)),
                 ("last_modified_at", models.DateTimeField(default=django.utils.timezone.now)),
                 ("deleted", models.BooleanField(default=False)),
