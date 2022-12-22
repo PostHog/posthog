@@ -27,16 +27,20 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     const [key] = useState(() => `InsightViz.${uniqueNode++}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
-    // TODO should not fetch if cached result is available or fetching
     const { response, lastRefresh } = useValues(dataNodeLogic(dataNodeLogicProps))
 
-    const { insight } = useValues(insightLogic)
+    // get values and actions from bound insight logic
+    const { insight, hasDashboardItemId } = useValues(insightLogic)
     const { setInsight, setLastRefresh } = useActions(insightLogic)
+
     const { insightMode } = useValues(insightSceneLogic) // TODO: Tight coupling -- remove or make optional
 
     // TODO: use connected logic instead of useEffect?
     useEffect(() => {
-        if (response) {
+        // TODO: this is hacky - we prevent overwriting the insight in case
+        // of a saved insight. instead we should handle loading a saved insight
+        // in a query as well. needs discussion around api and node schema.
+        if (response && !hasDashboardItemId) {
             setInsight(
                 {
                     ...insight,
