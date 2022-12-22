@@ -24,6 +24,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (s) => [(_, props) => props.query, s.columns],
             (query: DataTableNode, columns): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
+                const showIfFull = !!query.full
                 return {
                     kind,
                     columns: columns,
@@ -31,16 +32,17 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     source,
                     ...sortedKeys({
                         ...rest,
+                        full: query.full ?? false,
                         expandable: query.expandable ?? true,
                         propertiesViaUrl: query.propertiesViaUrl ?? false,
-                        showPropertyFilter: query.showPropertyFilter ?? false,
-                        showEventFilter: query.showEventFilter ?? false,
-                        showSearch: query.showSearch ?? false,
+                        showPropertyFilter: query.showPropertyFilter ?? showIfFull,
+                        showEventFilter: query.showEventFilter ?? showIfFull,
+                        showSearch: query.showSearch ?? showIfFull,
                         showActions: query.showActions ?? true,
-                        showExport: query.showExport ?? false,
-                        showReload: query.showReload ?? false,
-                        showColumnConfigurator: query.showColumnConfigurator ?? false,
-                        showEventsBufferWarning: query.showEventsBufferWarning ?? false,
+                        showExport: query.showExport ?? showIfFull,
+                        showReload: query.showReload ?? showIfFull,
+                        showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
+                        showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
                     }),
                 }

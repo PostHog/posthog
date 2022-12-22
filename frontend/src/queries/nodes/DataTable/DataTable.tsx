@@ -112,29 +112,42 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         [setQuery]
     )
 
-    const showFilters = showSearch || showEventFilter || showPropertyFilter
-    const showTools = showReload || showExport || showColumnConfigurator
-    const inlineRow = showFilters ? 1 : showTools ? 2 : 0
+    const firstRow = [
+        showEventFilter && (isEventsNode(query.source) || isEventsQuery(query.source)) ? (
+            <EventName query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showSearch && isPersonsNode(query.source) ? (
+            <PersonsSearch query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showPropertyFilter && (isEventsNode(query.source) || isEventsQuery(query.source)) ? (
+            <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showPropertyFilter && isPersonsNode(query.source) ? (
+            <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
+        ) : null,
+    ].filter((x) => !!x)
+
+    const secondRowLeft = [showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null].filter((x) => !!x)
+
+    const secondRowRight = [
+        showColumnConfigurator && (isEventsNode(query.source) || isEventsQuery(query.source)) ? (
+            <ColumnConfigurator query={query} setQuery={setQuery} />
+        ) : null,
+        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
+    ].filter((x) => !!x)
+
+    const showFirstRow = firstRow.length > 0
+    const showSecondRow = secondRowLeft.length > 0 || secondRowRight.length > 0
+    const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="space-y-4 relative">
-                    {showFilters && (
+                    {showFirstRow && (
                         <div className="flex gap-4">
-                            {showEventFilter && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
-                                <EventName query={query.source} setQuery={setQuerySource} />
-                            )}
-                            {showSearch && isPersonsNode(query.source) && (
-                                <PersonsSearch query={query.source} setQuery={setQuerySource} />
-                            )}
-                            {showPropertyFilter && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
-                                <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
-                            )}
-                            {showPropertyFilter && isPersonsNode(query.source) && (
-                                <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
-                            )}
-                            {inlineRow === 1 ? (
+                            {firstRow}
+                            {inlineEditorButtonOnRow === 1 ? (
                                 <>
                                     <div className="flex-1" />
                                     <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
@@ -142,15 +155,12 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             ) : null}
                         </div>
                     )}
-                    {showFilters && showTools && <LemonDivider />}
-                    {showTools && (
+                    {showFirstRow && showSecondRow && <LemonDivider />}
+                    {showSecondRow && (
                         <div className="flex gap-4">
-                            <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
-                            {showColumnConfigurator && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
-                                <ColumnConfigurator query={query} setQuery={setQuery} />
-                            )}
-                            {showExport && <DataTableExport query={query} setQuery={setQuery} />}
-                            {inlineRow === 2 ? (
+                            <div className="flex-1">{secondRowLeft}</div>
+                            {secondRowRight}
+                            {inlineEditorButtonOnRow === 2 ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
@@ -158,7 +168,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                     {showEventsBufferWarning && (isEventsNode(query.source) || isEventsQuery(query.source)) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
-                    {inlineRow === 0 ? (
+                    {inlineEditorButtonOnRow === 0 ? (
                         <div className="absolute right-0 z-10 p-1">
                             <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>

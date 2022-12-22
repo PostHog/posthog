@@ -32,6 +32,7 @@ import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const { TabPane } = Tabs
 
@@ -163,16 +164,13 @@ export function Person(): JSX.Element | null {
                         <Query
                             query={{
                                 kind: NodeKind.DataTableNode,
+                                full: true,
                                 hiddenColumns: ['person'],
                                 source: {
-                                    kind: NodeKind.EventsNode,
+                                    kind: NodeKind.EventsQuery,
+                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
                                     personId: person.id,
                                 },
-                                showReload: true,
-                                showColumnConfigurator: true,
-                                showExport: true,
-                                showEventFilter: true,
-                                showPropertyFilter: true,
                             }}
                         />
                     ) : (

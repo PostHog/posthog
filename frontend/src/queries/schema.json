@@ -1266,7 +1266,7 @@
                     "type": "boolean"
                 },
                 "columns": {
-                    "description": "Columns shown in the table",
+                    "description": "Columns shown in the table, unless the `source` provides them.",
                     "items": {
                         "$ref": "#/definitions/DataTableColumn"
                     },
@@ -1276,8 +1276,12 @@
                     "description": "Can expand row to show raw event data (default: true)",
                     "type": "boolean"
                 },
+                "full": {
+                    "description": "Show with most visual options enabled. Used in scenes.",
+                    "type": "boolean"
+                },
                 "hiddenColumns": {
-                    "description": "Columns that aren't shown in the table, even if in columns",
+                    "description": "Columns that aren't shown in the table, even if in columns or returned data",
                     "items": {
                         "$ref": "#/definitions/DataTableColumn"
                     },

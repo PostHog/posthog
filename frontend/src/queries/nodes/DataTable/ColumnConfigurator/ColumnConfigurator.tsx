@@ -171,7 +171,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     <div className="flex-1">
                         <LemonButton
                             type="secondary"
-                            onClick={() => setColumns(defaultDataTableColumns({ kind: NodeKind.EventsNode }))}
+                            onClick={() => setColumns(defaultDataTableColumns(NodeKind.EventsNode))}
                         >
                             Reset to defaults
                         </LemonButton>

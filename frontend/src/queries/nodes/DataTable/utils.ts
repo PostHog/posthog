@@ -1,5 +1,5 @@
-import { DataNode, DataTableColumn, DataTableNode } from '~/queries/schema'
-import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { DataNode, DataTableColumn, DataTableNode, NodeKind } from '~/queries/schema'
+import { isEventsQuery } from '~/queries/utils'
 
 export const defaultDataTableEventColumns: DataTableColumn[] = [
     '*',
@@ -12,24 +12,25 @@ export const defaultDataTableEventColumns: DataTableColumn[] = [
 
 export const defaultDataTablePersonColumns: DataTableColumn[] = ['person', 'id', 'created_at', 'person.$delete']
 
-export function defaultDataTableColumns(query: DataNode): DataTableColumn[] {
-    return isPersonsNode(query)
+export function defaultDataTableColumns(kind: NodeKind): DataTableColumn[] {
+    return kind === NodeKind.PersonsNode
         ? defaultDataTablePersonColumns
-        : isEventsQuery(query)
+        : kind === NodeKind.EventsQuery
         ? defaultDataTableEventColumns
-        : isEventsNode(query)
+        : kind === NodeKind.EventsNode
         ? defaultDataTableEventColumns.filter((c) => c !== '*')
         : []
 }
 
-export function getColumnsForQuery(query: DataTableNode): DataTableColumn[] {
+export function getDataNodeDefaultColumns(source: DataNode): DataTableColumn[] {
     return (
-        query.columns ??
-        (isEventsQuery(query.source) && Array.isArray(query.source.select) && query.source.select.length > 0
-            ? query.source.select
-            : null) ??
-        defaultDataTableColumns(query.source)
+        (isEventsQuery(source) && Array.isArray(source.select) && source.select.length > 0 ? source.select : null) ??
+        defaultDataTableColumns(source.kind)
     )
+}
+
+export function getColumnsForQuery(query: DataTableNode): DataTableColumn[] {
+    return query.columns ?? getDataNodeDefaultColumns(query.source)
 }
 
 export function extractExpressionComment(query: string): string {

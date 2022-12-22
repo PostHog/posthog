@@ -138,10 +138,12 @@ export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
     source: EventsNode | EventsQuery | PersonsNode
-    /** Columns shown in the table  */
+    /** Columns shown in the table, unless the `source` provides them. */
     columns?: DataTableColumn[]
-    /** Columns that aren't shown in the table, even if in columns */
+    /** Columns that aren't shown in the table, even if in columns or returned data */
     hiddenColumns?: DataTableColumn[]
+    /** Show with most visual options enabled. Used in scenes. */
+    full?: boolean
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */

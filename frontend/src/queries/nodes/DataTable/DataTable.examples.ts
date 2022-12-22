@@ -91,7 +91,7 @@ const Persons: PersonsNode = {
 const PersonsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
     source: Persons,
-    columns: defaultDataTableColumns(Persons),
+    columns: defaultDataTableColumns(NodeKind.PersonsNode),
     showSearch: true,
     showPropertyFilter: true,
     showExport: true,
