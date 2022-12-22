@@ -12,9 +12,11 @@ import {
     LoaderOptions,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -277,17 +279,35 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
         fuse: [
             (s) => [s.rawLocalItems, s.group],
-            (rawLocalItems, group): ListFuse =>
-                new Fuse(
-                    (rawLocalItems || []).map((item) => ({
-                        name: group?.getName?.(item) || '',
-                        item: item,
-                    })),
-                    {
-                        keys: ['name'],
-                        threshold: 0.3,
+            (rawLocalItems, group): ListFuse => {
+                // maps e.g. "selector" to its display value "CSS Selector"
+                // so a search of "css" matches something
+                function asPostHogName(
+                    group: TaxonomicFilterGroup,
+                    item: EventDefinition | CohortType
+                ): string | undefined {
+                    const keyTypes = {
+                        [TaxonomicFilterGroupType.Events]: 'event',
+                        [TaxonomicFilterGroupType.EventProperties]: 'event',
+                        [TaxonomicFilterGroupType.PersonProperties]: 'event',
+                        [TaxonomicFilterGroupType.Elements]: 'element',
                     }
-                ),
+
+                    const propertyKeyType = keyTypes[group.type]
+                    return propertyKeyType ? getKeyMapping(group?.getName?.(item), propertyKeyType)?.label : undefined
+                }
+
+                const haystack = (rawLocalItems || []).map((item) => ({
+                    name: group?.getName?.(item) || '',
+                    posthogName: asPostHogName(group, item),
+                    item: item,
+                }))
+
+                return new Fuse(haystack, {
+                    keys: ['name', 'posthogName'],
+                    threshold: 0.3,
+                })
+            },
         ],
         localItems: [
             (s) => [s.rawLocalItems, s.searchQuery, s.fuse],

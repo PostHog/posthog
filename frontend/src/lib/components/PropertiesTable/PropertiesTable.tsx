@@ -1,15 +1,15 @@
 import { useMemo, useState } from 'react'
 
-import { keyMappingKeys, PropertyKeyInfo } from './PropertyKeyInfo'
+import { keyMappingKeys, PropertyKeyInfo } from '../PropertyKeyInfo'
 import { Dropdown, Input, Menu, Popconfirm } from 'antd'
 import { isURL } from 'lib/utils'
 import { IconDeleteForever, IconOpenInNew } from 'lib/components/icons'
 import './PropertiesTable.scss'
-import { LemonTable, LemonTableColumns, LemonTableProps } from './LemonTable'
-import { CopyToClipboardInline } from './CopyToClipboard'
+import { LemonTable, LemonTableColumns, LemonTableProps } from '../LemonTable'
+import { CopyToClipboardInline } from '../CopyToClipboard'
 import { useValues } from 'kea'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { LemonButton } from './LemonButton'
+import { LemonButton } from '../LemonButton'
 import { NewPropertyComponent } from 'scenes/persons/NewPropertyComponent'
 import { LemonInput } from '@posthog/lemon-ui'
 import clsx from 'clsx'
@@ -314,6 +314,7 @@ export function PropertiesTable({
                     dataSource={objectProperties}
                     className={className}
                     emptyState="This person doesn't have any properties"
+                    inset={nestingLevel > 0}
                     {...tableProps}
                 />
             </>

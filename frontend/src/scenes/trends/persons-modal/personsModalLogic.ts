@@ -1,6 +1,6 @@
 import { kea, connect, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
 import api from 'lib/api'
-import { ActorType } from '~/types'
+import { ActorType, PropertiesTimelineFilterType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -140,6 +140,28 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     return { singular: 'result', plural: 'results' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
+            },
+        ],
+        propertiesTimelineFilterFromUrl: [
+            (_, p) => [p.url],
+            (url): PropertiesTimelineFilterType => {
+                // PersonsModal only gets an persons URL and not its underlying filters, so we need to extract those
+                const params = new URLSearchParams(url.split('?')[1])
+                const eventsString = params.get('events')
+                const actionsString = params.get('actions')
+                const propertiesString = params.get('properties')
+                const aggregationGroupTypeIndexString = params.get('aggregation_group_type_index')
+                const properties: PropertiesTimelineFilterType = {
+                    date_from: params.get('date_from') || undefined,
+                    date_to: params.get('date_to') || undefined,
+                    events: eventsString ? JSON.parse(eventsString) : undefined,
+                    actions: actionsString ? JSON.parse(actionsString) : undefined,
+                    properties: propertiesString ? JSON.parse(propertiesString) : undefined,
+                    aggregation_group_type_index: aggregationGroupTypeIndexString
+                        ? parseInt(aggregationGroupTypeIndexString)
+                        : undefined,
+                }
+                return properties
             },
         ],
     }),
