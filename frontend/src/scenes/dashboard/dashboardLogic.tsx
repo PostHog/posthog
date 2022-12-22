@@ -20,7 +20,6 @@ import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
     DashboardPrivilegeLevel,
-    FEATURE_FLAGS,
     OrganizationMembershipLevel,
 } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -187,7 +186,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
-        abortAnyRunningQuery: true,
     }),
 
     loaders(({ actions, props, values }) => ({
@@ -226,7 +224,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.allItems
                     }
 
-                    actions.abortAnyRunningQuery()
+                    // actions.abortAnyRunningQuery()
 
                     try {
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
@@ -924,7 +922,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             )
 
             // we will use one abort controller for all insight queries for this dashboard
-            actions.abortAnyRunningQuery()
+            // actions.abortAnyRunningQuery()
             cache.abortController = new AbortController()
             const methodOptions: ApiMethodOptions = {
                 signal: cache.abortController.signal,
@@ -1156,30 +1154,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         abortAnyRunningQuery: () => {
-            if (cache.abortController) {
-                cache.abortController.abort()
-                cache.abortController = null
-            }
+            // if (cache.abortController) {
+            //     cache.abortController.abort()
+            //     cache.abortController = null
+            // }
         },
-        abortQuery: async ({ dashboardQueryId, queryId, queryStartTime }) => {
-            const { currentTeamId } = values
-            if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
-                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
-
-                // TRICKY: we cancel just once using the dashboard query id.
-                // we can record the queryId that happened to capture the AbortError exception
-                // and request the cancellation, but it is probably not particularly relevant
-                await captureTimeToSeeData(values.currentTeamId, {
-                    type: 'insight_load',
-                    context: 'dashboard',
-                    dashboard_query_id: dashboardQueryId,
-                    query_id: queryId,
-                    status: 'cancelled',
-                    time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                    insights_fetched: 0,
-                    insights_fetched_cached: 0,
-                })
-            }
+        abortQuery: async () => {
+            // const { currentTeamId } = values
+            // if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
+            //     await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
+            //
+            //     // TRICKY: we cancel just once using the dashboard query id.
+            //     // we can record the queryId that happened to capture the AbortError exception
+            //     // and request the cancellation, but it is probably not particularly relevant
+            //     await captureTimeToSeeData(values.currentTeamId, {
+            //         type: 'insight_load',
+            //         context: 'dashboard',
+            //         dashboard_query_id: dashboardQueryId,
+            //         query_id: queryId,
+            //         status: 'cancelled',
+            //         time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
+            //         insights_fetched: 0,
+            //         insights_fetched_cached: 0,
+            //     })
+            // }
         },
     })),
 
