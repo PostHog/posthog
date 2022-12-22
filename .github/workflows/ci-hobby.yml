@@ -10,6 +10,7 @@ on:
     pull_request:
         paths:
             - docker-compose.hobby.yml
+            - docker-compose.base.yml
             - bin/deploy-hobby
             - .github/workflows/ci-hobby.yml
 
