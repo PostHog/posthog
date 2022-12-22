@@ -90,7 +90,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
         setQuery: ({ query }) => {
             // safeguard against accidentally overwriting filters for non-flagged users
-            if (values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]) {
+            if (!values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]) {
                 return
             }
 
