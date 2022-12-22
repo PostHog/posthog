@@ -1066,13 +1066,17 @@ export const insightLogic = kea<insightLogicType>([
     })),
     events(({ props, cache, values, actions }) => ({
         afterMount: () => {
-            if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
-                if (
-                    props.dashboardItemId &&
-                    props.dashboardItemId !== 'new' &&
-                    !props.dashboardItemId.startsWith('new-')
-                ) {
-                    const insight = findInsightFromMountedLogic(props.dashboardItemId, props.dashboardId)
+            const hasDashboardItemId =
+                !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-')
+            const isCachedWithResultAndFilters =
+                !!props.cachedInsight && !!props.cachedInsight?.result && !!props.cachedInsight?.filters
+
+            if (!isCachedWithResultAndFilters) {
+                if (hasDashboardItemId) {
+                    const insight = findInsightFromMountedLogic(
+                        props.dashboardItemId as string | InsightShortId,
+                        props.dashboardId
+                    )
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
@@ -1086,11 +1090,7 @@ export const insightLogic = kea<insightLogicType>([
                 if (!props.doNotLoad) {
                     if (props.cachedInsight?.filters) {
                         actions.loadResults()
-                    } else if (
-                        props.dashboardItemId &&
-                        props.dashboardItemId !== 'new' &&
-                        !props.dashboardItemId.startsWith('new-')
-                    ) {
+                    } else if (hasDashboardItemId) {
                         actions.loadInsight(props.dashboardItemId as InsightShortId)
                     }
                 }
