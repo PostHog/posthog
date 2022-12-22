@@ -40,7 +40,7 @@ export function elementToSelector(element: ElementType, dataAttributes: string[]
     if (element.attr_class) {
         selector += element.attr_class
             .filter((a) => a)
-            .map((a) => `[class="${cssEscape(a)}"]`)
+            .map((a) => `.${cssEscape(a)}`)
             .join('')
     }
     if (element.href && element.tag_name === 'a') {

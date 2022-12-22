@@ -11,12 +11,12 @@ describe('elementToSelector', () => {
         expect(actual).toEqual('[id="tomato"]')
     })
 
-    it('generates a data attr not an dot class selector', () => {
+    it('generates an incorrect class selector', () => {
         const element = {
             attr_class: ['potato', 'soup'],
         } as ElementType
 
         const actual = elementToSelector(element, [])
-        expect(actual).toEqual('[class="potato"][class="soup"]')
+        expect(actual).toEqual('.potato.soup')
     })
 })
