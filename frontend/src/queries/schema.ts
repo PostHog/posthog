@@ -142,6 +142,8 @@ export interface PersonsNode extends DataNode {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    limit?: number
+    offset?: number
 }
 
 // Data table node

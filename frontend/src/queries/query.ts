@@ -73,6 +73,8 @@ export function getPersonsEndpoint(query: PersonsNode): string {
         properties: [...(query.fixedProperties || []), ...(query.properties || [])],
         ...(query.search ? { search: query.search } : {}),
         ...(query.distinctId ? { distinct_id: query.distinctId } : {}),
+        ...(query.limit ? { limit: query.limit } : {}),
+        ...(query.offset ? { offset: query.offset } : {}),
     }
     if (query.cohort) {
         return api.cohorts.determineListUrl(query.cohort, params)

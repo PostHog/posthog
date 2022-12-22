@@ -80,16 +80,26 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     return values.response
                 },
                 loadNextData: async () => {
-                    if (!values.canLoadNextData || values.dataLoading) {
+                    if (!values.canLoadNextData || values.dataLoading || !values.nextQuery) {
                         return values.response
                     }
-                    if (isEventsQuery(props.query) && values.nextQuery) {
-                        const now = performance.now()
+                    // TODO: unify when we use the same backend endpoint for both
+                    const now = performance.now()
+                    if (isEventsQuery(props.query)) {
                         const newResponse = (await query(values.nextQuery)) ?? null
                         actions.setElapsedTime(performance.now() - now)
                         return {
+                            ...values.response,
                             results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
                             hasMore: newResponse?.hasMore,
+                        }
+                    } else if (isPersonsNode(props.query)) {
+                        const newResponse = (await query(values.nextQuery)) ?? null
+                        actions.setElapsedTime(performance.now() - now)
+                        return {
+                            ...values.response,
+                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            next: newResponse?.next,
                         }
                     }
                     return values.response
@@ -159,22 +169,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         nextQuery: [
             (s, p) => [p.query, s.response],
             (query, response): DataNode | null => {
-                return isEventsQuery(query) && (response as EventsQuery['response'])?.hasMore
-                    ? getNextQuery({ ...query, response: response as EventsQuery['response'] })
-                    : null
+                if (isEventsQuery(query)) {
+                    if ((response as EventsQuery['response'])?.hasMore) {
+                        return getNextQuery({ ...query, response: response as EventsQuery['response'] })
+                    }
+                }
+                if (isPersonsNode(query) && response) {
+                    const personsResults = (response as PersonsNode['response'])?.results
+                    const nextQuery: PersonsNode = {
+                        ...query,
+                        limit: query.limit || 100,
+                        offset: personsResults.length,
+                    }
+                    return nextQuery
+                }
+                return null
             },
         ],
-        canLoadNextData: [
-            (s, p) => [p.query, s.response, s.nextQuery],
-            (query, response, nextQuery) => {
-                return (
-                    (isPersonsNode(query) &&
-                        (response as PersonsNode['response'])?.next &&
-                        ((response as PersonsNode['response'])?.results?.length ?? 0) > 0) ||
-                    (isEventsQuery(query) && !!nextQuery)
-                )
-            },
-        ],
+        canLoadNextData: [(s) => [s.nextQuery], (nextQuery) => !!nextQuery],
         autoLoadRunning: [
             (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
             (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,

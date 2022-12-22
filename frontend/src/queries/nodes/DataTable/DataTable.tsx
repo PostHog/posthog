@@ -244,7 +244,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             })
                         }
                     />
-                    {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
+                    {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
+                        <LoadNext query={query.source} />
+                    )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />
