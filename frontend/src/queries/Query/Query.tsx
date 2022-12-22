@@ -20,7 +20,6 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
 
 export function Query(props: QueryProps): JSX.Element {
     const { query: propsQuery, setQuery: propsSetQuery, readOnly, context } = props
-    // This might be a string as well, but setting it to Node makes following typing simpler
     const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
         if (propsQuery !== localQuery) {

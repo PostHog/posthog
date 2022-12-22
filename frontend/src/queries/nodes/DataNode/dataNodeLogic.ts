@@ -211,9 +211,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     afterMount(({ actions }) => {
         actions.loadData()
     }),
-    beforeUnmount(({ actions, values }) => {
+    beforeUnmount(({ actions, cache, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
+        }
+        if (cache.abortController) {
+            cache.abortController.abort()
         }
     }),
 ])

@@ -1,10 +1,12 @@
-import { actions, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, HogQLExpression } from '~/queries/schema'
 import { getColumnsForQuery } from './utils'
 import { sortedKeys } from 'lib/utils'
 import { isEventsQuery } from '~/queries/utils'
 import { Sorting } from 'lib/components/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export interface DataTableLogicProps {
     key: string
@@ -19,12 +21,16 @@ export const dataTableLogic = kea<dataTableLogicType>([
     reducers(({ props }) => ({
         columns: [getColumnsForQuery(props.query), { setColumns: (_, { columns }) => columns }],
     })),
+    connect({
+        values: [featureFlagLogic, ['featureFlags']],
+    }),
     selectors({
         queryWithDefaults: [
-            (s) => [(_, props) => props.query, s.columns],
-            (query: DataTableNode, columns): Required<DataTableNode> => {
+            (s) => [(_, props) => props.query, s.columns, s.featureFlags],
+            (query: DataTableNode, columns, featureFlags): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
+                const flagQueryRunningTimeEnabled = featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
                 return {
                     kind,
                     columns: columns,
@@ -41,7 +47,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         showActions: query.showActions ?? true,
                         showExport: query.showExport ?? showIfFull,
                         showReload: query.showReload ?? showIfFull,
-                        showElapsedTime: query.showElapsedTime ?? showIfFull,
+                        showElapsedTime: query.showElapsedTime ?? (flagQueryRunningTimeEnabled ? showIfFull : false),
                         showColumnConfigurator: query.showColumnConfigurator ?? showIfFull,
                         showEventsBufferWarning: query.showEventsBufferWarning ?? showIfFull,
                         allowSorting: query.allowSorting ?? true,
