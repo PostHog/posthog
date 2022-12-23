@@ -39,7 +39,17 @@ export const DEFAULT_RECORDING_FILTERS: RecordingFilters = {
     properties: [],
     events: [],
     actions: [],
-    date_from: dayjs().subtract(21, 'days').format('YYYY-MM-DD'),
+    date_from: '-21d',
+}
+
+export const DEFAULT_PERSON_RECORDING_FILTERS: RecordingFilters = {
+    ...DEFAULT_RECORDING_FILTERS,
+    session_recording_duration: {
+        type: PropertyFilterType.Recording,
+        key: 'duration',
+        value: 0,
+        operator: PropertyOperator.GreaterThan,
+    },
 }
 
 export const defaultPageviewPropertyEntityFilter = (

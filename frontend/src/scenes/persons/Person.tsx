@@ -33,6 +33,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
 import { dayjs } from 'lib/dayjs'
+import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 const { TabPane } = Tabs
 
@@ -201,15 +202,7 @@ export function Person(): JSX.Element | null {
                     <SessionRecordingsPlaylist
                         personUUID={person.uuid}
                         updateSearchParams
-                        filters={{
-                            date_from: dayjs().subtract(21, 'days').format('YYYY-MM-DD'),
-                            session_recording_duration: {
-                                type: PropertyFilterType.Recording,
-                                key: 'duration',
-                                value: 0,
-                                operator: PropertyOperator.GreaterThan,
-                            },
-                        }}
+                        filters={DEFAULT_PERSON_RECORDING_FILTERS}
                     />
                 </TabPane>
 
