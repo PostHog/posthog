@@ -343,8 +343,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             queries.append(capture_query_context.captured_queries)
             query_counts.append(query_count_for_create_and_read)
 
-        # adding more insights doesn't change the query count _too much_
-        assert query_counts == [12, 14, 16, 18, 20]
+        # adding more insights doesn't change the query count
+        assert query_counts == [10, 10, 10, 10, 10]
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:
         insight_one_id, _ = self.dashboard_api.create_insight(

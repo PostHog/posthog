@@ -218,12 +218,8 @@ class InsightSerializer(InsightBasicSerializer):
         )
 
     def get_dashboards(self, insight: Insight) -> List[int]:
-        return [
-            d
-            for d in insight.dashboard_tiles.exclude(deleted=True)
-            .exclude(dashboard__deleted=True)
-            .values_list("dashboard_id", flat=True)
-        ]
+        # dashboard_tiles are filtered by deletion in the queryset, but it is cheap to be extra clear here
+        return [t.dashboard.id for t in insight.dashboard_tiles.all() if not t.deleted and not t.dashboard.deleted]
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> Insight:
         request = self.context["request"]
