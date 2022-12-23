@@ -15,7 +15,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import list_recordings
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import (
-    SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS,
+    SESSION_RECORDINGS_FILTER_IDS,
     SESSION_RECORDINGS_PLAYLIST_FREE_COUNT,
     AvailableFeature,
 )
@@ -226,7 +226,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
 
         filter = SessionRecordingsFilter(request=request)
         # Copy the filter and extend with the pinned recordings
-        filter = filter.with_data({SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS: json.dumps(serialized.data)})
+        filter = filter.with_data({SESSION_RECORDINGS_FILTER_IDS: json.dumps(serialized.data)})
 
         return response.Response(list_recordings(filter, request, self.team))
 
@@ -241,15 +241,13 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
         if request.method == "POST":
             recording, _ = SessionRecording.objects.get_or_create(session_id=session_recording_id, team=self.team)
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
-                playlist=playlist, session_id=session_recording_id, team=self.team, recording=recording
+                playlist=playlist, recording=recording
             )
 
             return response.Response({"success": True})
 
         if request.method == "DELETE":
-            playlist_item = SessionRecordingPlaylistItem.objects.get(
-                playlist=playlist, session_id=session_recording_id, team=self.team
-            )
+            playlist_item = SessionRecordingPlaylistItem.objects.get(playlist=playlist, recording=session_recording_id)  # type: ignore
 
             if playlist_item:
                 playlist_item.delete()
