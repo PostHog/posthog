@@ -160,25 +160,36 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         assert len(result["results"]) == 2
         assert {x["id"] for x in result["results"]} == {"session1", "session2"}
 
-    @freeze_time("2022-01-01")
     def test_fetch_playlist_recordings(self):
+
         playlist1 = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="playlist1", created_by=self.user, is_static=True
+            team=self.team,
+            name="playlist1",
+            created_by=self.user,
         )
         playlist2 = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="playlist2", created_by=self.user, is_static=True
+            team=self.team,
+            name="playlist2",
+            created_by=self.user,
         )
-        recording1 = SessionRecording.objects.create(team=self.team, session_id="1")
-        recording2 = SessionRecording.objects.create(team=self.team, session_id="2")
 
-        SessionRecordingPlaylistItem.objects.create(
-            session_id=recording1.session_id, playlist=playlist1, recording=recording1
+        for id in ["session1", "session2"]:
+            create_session_recording_events(
+                team_id=self.team.id,
+                distinct_id="123",
+                timestamp=datetime.utcnow(),
+                session_id=id,
+                window_id="1234",
+            )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session1",
         )
-        SessionRecordingPlaylistItem.objects.create(
-            session_id=recording2.session_id, playlist=playlist1, recording=recording2
+        self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/session2",
         )
-        SessionRecordingPlaylistItem.objects.create(
-            session_id=recording1.session_id, playlist=playlist2, recording=recording1
+        self.client.post(
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/session1",
         )
 
         result = self.client.get(
@@ -186,8 +197,8 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
 
         assert len(result["results"]) == 2
-        assert result["results"][0]["id"] == "1"
-        assert result["results"][1]["id"] == "2"
+        assert result["results"][0]["id"] == "session2"
+        assert result["results"][1]["id"] == "session1"
 
         # Test get recordings
         result = self.client.get(
@@ -195,15 +206,18 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
 
         assert len(result["results"]) == 1
-        assert result["results"][0]["id"] == "2"
+        assert result["results"][0]["id"] == "session1"
 
-    @freeze_time("2022-01-01")
     def test_add_remove_static_playlist_items(self):
         playlist1 = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="playlist1", created_by=self.user, is_static=True
+            team=self.team,
+            name="playlist1",
+            created_by=self.user,
         )
         playlist2 = SessionRecordingPlaylist.objects.create(
-            team=self.team, name="playlist2", created_by=self.user, is_static=True
+            team=self.team,
+            name="playlist2",
+            created_by=self.user,
         )
 
         recording1_session_id = "1"
@@ -213,9 +227,9 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         result = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording1_session_id}",
         ).json()
-        assert result["success"] is True
+        assert result["success"]
         playlist_item = SessionRecordingPlaylistItem.objects.filter(
-            playlist_id=playlist1.id, session_id=recording1_session_id, team_id=self.team.id
+            playlist_id=playlist1.id, session_id=recording1_session_id
         )
         assert playlist_item is not None
 
@@ -223,9 +237,9 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         result = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording2_session_id}",
         ).json()
-        assert result["success"] is True
+        assert result["success"]
         playlist_item = SessionRecordingPlaylistItem.objects.filter(
-            playlist_id=playlist1.id, session_id=recording2_session_id, team_id=self.team.id
+            playlist_id=playlist1.id, session_id=recording2_session_id
         )
         assert playlist_item is not None
 
@@ -233,9 +247,9 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         result = self.client.post(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording1_session_id}",
         ).json()
-        assert result["success"] is True
+        assert result["success"]
         playlist_item = SessionRecordingPlaylistItem.objects.filter(
-            playlist_id=playlist2.id, session_id=recording1_session_id, team_id=self.team.id
+            playlist_id=playlist2.id, session_id=recording1_session_id
         )
         assert playlist_item is not None
 
@@ -245,30 +259,30 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         result = self.client.delete(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording1_session_id}",
         ).json()
-        assert result["success"] is True
+        assert result["success"]
         assert (
             SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist1.id, session_id=recording1_session_id, team_id=self.team.id
+                playlist_id=playlist1.id, session_id=recording1_session_id
             ).count()
             == 0
         )
         result = self.client.delete(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording2_session_id}",
         ).json()
-        assert result["success"] is True
+        assert result["success"]
         assert (
             SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist1.id, session_id=recording2_session_id, team_id=self.team.id
+                playlist_id=playlist1.id, session_id=recording2_session_id
             ).count()
             == 0
         )
         result = self.client.delete(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording1_session_id}",
         ).json()
-        assert result["success"] is True
+        assert result["success"]
         assert (
             SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist2.id, session_id=recording1_session_id, team_id=self.team.id
+                playlist_id=playlist2.id, session_id=recording1_session_id
             ).count()
             == 0
         )
