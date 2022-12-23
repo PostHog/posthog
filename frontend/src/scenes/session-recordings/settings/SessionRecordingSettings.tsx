@@ -7,6 +7,7 @@ import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authoriz
 import { LemonDialog } from 'lib/components/LemonDialog'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export type SessionRecordingSettingsProps = {
     inModal?: boolean
@@ -71,7 +72,7 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                 </p>
             </div>
 
-            {featureFlags['hackathon-apm'] && (
+            {featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] && (
                 <div className="space-y-2">
                     <LemonSwitch
                         data-attr="opt-in-capture-performance-switch"

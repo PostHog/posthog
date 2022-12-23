@@ -388,7 +388,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         response = self.client.get(f"/api/projects/{another_team.pk}/session_recordings/id_no_team_leaking")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_static_recordings_filter(self):
+    def test_session_ids_filter(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             Person.objects.create(
                 team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
@@ -398,7 +398,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             self.create_snapshot("user", "3", now() - relativedelta(days=3))
 
             # Fetch playlist
-            params_string = urlencode({"static_recordings": '[{"id": "1"}, {"id": "2"}, {"id": "3"}]'})
+            params_string = urlencode({"session_ids": '["1", "2", "3"]'})
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
@@ -408,7 +408,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             self.assertEqual(response_data["results"][1]["id"], "2")
             self.assertEqual(response_data["results"][2]["id"], "3")
 
-    def test_empty_list_static_recordings_filter_returns_no_recordings(self):
+    def test_empty_list_session_ids_filter_returns_no_recordings(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
             Person.objects.create(
                 team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
@@ -418,41 +418,12 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             self.create_snapshot("user", "3", now() - relativedelta(days=3))
 
             # Fetch playlist
-            params_string = urlencode({"static_recordings": "[]"})
+            params_string = urlencode({"session_ids": "[]"})
             response = self.client.get(f"/api/projects/{self.team.id}/session_recordings?{params_string}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             response_data = response.json()
 
             self.assertEqual(len(response_data["results"]), 0)
-
-    def test_add_then_remove_description_to_session_recording(self):
-        with freeze_time("2020-09-13T12:26:40.000Z"):
-            # Create recording
-            p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
-            )
-            session_recording_id = "session_1"
-            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            self.create_snapshot("d1", session_recording_id, base_time)
-            self.create_snapshot("d1", session_recording_id, base_time + relativedelta(seconds=30))
-            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
-            response_data = response.json()
-            self.assertEqual(response_data["result"]["session_recording"]["id"], p.pk)
-
-            # Add description
-            response_data = self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}",
-                {"description": "test description"},
-            ).json()
-            self.assertEqual(response_data["result"]["session_recording"]["id"], p.pk)
-            self.assertEqual(response_data["result"]["session_recording"]["description"], "test description")
-
-            # ...then remove
-            response_data = self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}", {"description": ""}
-            ).json()
-            self.assertEqual(response_data["result"]["session_recording"]["id"], p.pk)
-            self.assertEqual(response_data["result"]["session_recording"]["description"], "")
 
     def test_regression_encoded_emojis_dont_crash(self):
 
