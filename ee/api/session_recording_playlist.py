@@ -60,17 +60,6 @@ def log_playlist_activity(
         )
 
 
-class SessionRecordingPlaylistItemSerializer(serializers.Serializer):
-    session_id = serializers.CharField()
-    created_at = serializers.DateTimeField()
-
-    def to_representation(self, instance):
-        return {
-            "id": instance.session_id,
-            "created_at": instance.created_at.isoformat(),
-        }
-
-
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
     class Meta:
         model = SessionRecordingPlaylist
@@ -218,15 +207,14 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
     def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         playlist = self.get_object()
         playlist_items = (
-            SessionRecordingPlaylistItem.objects.filter(playlist=playlist).exclude(deleted=True).order_by("-created_at")
+            SessionRecordingPlaylistItem.objects.filter(playlist=playlist)
+            .exclude(deleted=True)
+            .order_by("-created_at")
+            .all()
         )
 
-        serialized = SessionRecordingPlaylistItemSerializer(data=playlist_items, many=True)
-        serialized.is_valid(raise_exception=False)
-
         filter = SessionRecordingsFilter(request=request)
-        # Copy the filter and extend with the pinned recordings
-        filter = filter.with_data({SESSION_RECORDINGS_FILTER_IDS: json.dumps(serialized.data)})
+        filter = filter.with_data({SESSION_RECORDINGS_FILTER_IDS: json.dumps([x.recording_id for x in playlist_items])})
 
         return response.Response(list_recordings(filter, request, self.team))
 
