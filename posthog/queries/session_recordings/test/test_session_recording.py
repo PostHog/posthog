@@ -10,7 +10,6 @@ from rest_framework.request import Request
 
 from posthog.helpers.session_recording import ACTIVITY_THRESHOLD_SECONDS, DecompressedRecordingData, RecordingSegment
 from posthog.models import Filter
-from posthog.models.session_recording import SessionRecording as SessionRecordingModel
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
 from posthog.session_recordings.test.test_factory import create_chunked_snapshots, create_snapshot

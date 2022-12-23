@@ -425,35 +425,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
 
             self.assertEqual(len(response_data["results"]), 0)
 
-    def test_add_then_remove_description_to_session_recording(self):
-        with freeze_time("2020-09-13T12:26:40.000Z"):
-            # Create recording
-            p = Person.objects.create(
-                team=self.team, distinct_ids=["d1"], properties={"$some_prop": "something", "email": "bob@bob.com"}
-            )
-            session_recording_id = "session_1"
-            base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
-            self.create_snapshot("d1", session_recording_id, base_time)
-            self.create_snapshot("d1", session_recording_id, base_time + relativedelta(seconds=30))
-            response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
-            response_data = response.json()
-            self.assertEqual(response_data["result"]["session_recording"]["id"], p.pk)
-
-            # Add description
-            response_data = self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}",
-                {"description": "test description"},
-            ).json()
-            self.assertEqual(response_data["result"]["session_recording"]["id"], p.pk)
-            self.assertEqual(response_data["result"]["session_recording"]["description"], "test description")
-
-            # ...then remove
-            response_data = self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}", {"description": ""}
-            ).json()
-            self.assertEqual(response_data["result"]["session_recording"]["id"], p.pk)
-            self.assertEqual(response_data["result"]["session_recording"]["description"], "")
-
     def test_regression_encoded_emojis_dont_crash(self):
 
         Person.objects.create(
