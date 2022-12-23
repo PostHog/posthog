@@ -905,7 +905,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         tile: DashboardTile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
         tile.deleted = True
-        tile.layout = {"is set": "to some value"}
+        tile.layouts = {"is set": "to some value"}
         tile.save()
 
         # adding when there is an existing soft-deleted tile, undeletes the tile
@@ -917,7 +917,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # adding to a deleted relation undeletes the tile
         tile.refresh_from_db()
         assert tile.deleted is False
-        assert tile.layout == {"is set": "to some value"}
+        assert tile.layouts == {"is set": "to some value"}
 
     def test_can_remove_an_insight_from_a_dashboard_as_an_isolated_operation(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({})
