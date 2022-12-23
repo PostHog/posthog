@@ -62,7 +62,6 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
     }
 
     return (
-        // <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
         <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
             {insightMode === ItemMode.Edit && <InsightsNav />}
             <div
@@ -72,16 +71,15 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
             >
                 <EditorFilters query={query.source} setQuery={setQuerySource} />
 
+                <div className="insights-container" data-attr="insight-view">
+                    <InsightContainer insightMode={insightMode} />
+                </div>
+
                 <div>
                     <h4>Query</h4>
                     <pre>{JSON.stringify(query, null, 2)}</pre>
                 </div>
-
-                <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} />
-                </div>
             </div>
         </BindLogic>
-        // </BindLogic>
     )
 }
