@@ -5,7 +5,8 @@ from typing import Dict, List, Optional, Tuple, cast
 from statshog.defaults.django import statsd
 
 from posthog.client import sync_execute
-from posthog.session_recordings.session_recording_helpers import (
+from posthog.models import Team
+from posthog.models.session_recording.metadata import (
     DecompressedRecordingData,
     RecordingMetadata,
     RecordingSegment,
@@ -13,12 +14,13 @@ from posthog.session_recordings.session_recording_helpers import (
     SessionRecordingEventSummary,
     SnapshotDataTaggedWithWindowId,
     WindowId,
+)
+from posthog.session_recordings.session_recording_helpers import (
     decompress_chunked_snapshot_data,
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
     parse_snapshot_timestamp,
 )
-from posthog.models import Team
 
 
 class SessionRecordingEvents:
@@ -91,14 +93,20 @@ class SessionRecordingEvents:
         )
         return bool(response)
 
-    def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
+    def get_snapshots(self, limit, offset) -> Optional[DecompressedRecordingData]:
         all_snapshots = [
             SnapshotDataTaggedWithWindowId(
                 window_id=recording_snapshot["window_id"], snapshot_data=recording_snapshot["snapshot_data"]
             )
             for recording_snapshot in self._query_recording_snapshots(include_snapshots=True)
         ]
-        return decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, all_snapshots, limit, offset)
+        decompressed = decompress_chunked_snapshot_data(
+            self._team.pk, self._session_recording_id, all_snapshots, limit, offset
+        )
+
+        if decompressed["snapshot_data_by_window_id"] == {}:
+            return None
+        return decompressed
 
     def get_metadata(self) -> Optional[RecordingMetadata]:
         snapshots = self._query_recording_snapshots(include_snapshots=False)

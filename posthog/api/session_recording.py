@@ -1,9 +1,7 @@
 import json
-from datetime import datetime
-from typing import Any, Optional, Tuple
+from typing import Any
 
 import structlog
-from dateutil import parser
 from django.http import JsonResponse
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -14,14 +12,12 @@ from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.session_recordings.session_recording_helpers import RecordingMetadata
 from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
-from posthog.models.person import Person
+from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
-from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
 from posthog.queries.session_recordings.session_recording_list import SessionRecordingList
 from posthog.queries.session_recordings.session_recording_properties import SessionRecordingProperties
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
@@ -32,38 +28,39 @@ DEFAULT_RECORDING_CHUNK_LIMIT = 20  # Should be tuned to find the best value
 logger = structlog.get_logger(__name__)
 
 
-class SessionRecordingMetadataSerializer(serializers.Serializer):
-    segments = serializers.ListField(required=False)
-    start_and_end_times_by_window_id = serializers.DictField(required=False)
-    session_id = serializers.CharField()
-    viewed = serializers.BooleanField()
+class SessionRecordingSerializer(serializers.ModelSerializer):
+    person = PersonSerializer()
 
+    class Meta:
+        model = SessionRecording
+        fields = [
+            "session_id",
+            "distinct_id",
+            "viewed",
+            "duration",
+            "start_time",
+            "end_time",
+            "click_count",
+            "keypress_count",
+            "urls",
+            "matching_events",
+            "person",
+            "segments",
+            "start_and_end_times_by_window_id",
+        ]
 
-class SessionRecordingSerializer(serializers.Serializer):
-    session_id = serializers.CharField()
-    viewed = serializers.BooleanField()
-    distinct_id = serializers.CharField()
-    duration = serializers.DurationField()
-    start_time = serializers.DateTimeField()
-    end_time = serializers.DateTimeField()
-    click_count = serializers.IntegerField(required=False)
-    keypress_count = serializers.IntegerField(required=False)
-    urls = serializers.ListField(required=False)
-    matching_events = serializers.ListField(required=False)
-
-    def to_representation(self, instance):
-        return {
-            "id": instance["session_id"],
-            "viewed": instance["viewed"],
-            "distinct_id": instance["distinct_id"],
-            "recording_duration": instance.get("duration"),
-            "start_time": instance["start_time"],
-            "end_time": instance["end_time"],
-            "click_count": instance["click_count"],
-            "keypress_count": instance["keypress_count"],
-            "urls": instance.get("urls"),
-            "matching_events": instance["matching_events"],
-        }
+        read_only_fields = [
+            "session_id",
+            "distinct_id",
+            "viewed",
+            "duration",
+            "start_time",
+            "end_time",
+            "click_count",
+            "keypress_count",
+            "urls",
+            "matching_events",
+        ]
 
 
 class SessionRecordingPropertiesSerializer(serializers.Serializer):
@@ -87,69 +84,54 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     # Returns meta data about the recording
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
-        session_recording_id = kwargs["pk"]
-        recording_start_time_string = request.GET.get("recording_start_time")
-        recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
+        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
 
-        session_recording_serializer, session_recording_metadata = self._get_serialized_recording_metadata(
-            request=request, session_id=session_recording_id, start_time=recording_start_time
-        )
-        session_recording_serializer.is_valid(raise_exception=True)
+        recording.load_metadata()
+        recording.check_viewed_for_user(request.user)
 
-        try:
-            person: Optional[Person] = Person.objects.get(
-                persondistinctid__distinct_id=session_recording_metadata["distinct_id"],
-                persondistinctid__team_id=self.team,
-                team=self.team,
-            )
-        except Person.DoesNotExist:
-            person = None
+        # recording_start_time_string = request.GET.get("recording_start_time")
+        # recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
         if request.GET.get("save_view"):
+            # TODO: Move this into SessionRecording model maybe?
             SessionRecordingViewed.objects.get_or_create(
-                team=self.team, user=request.user, session_id=session_recording_id
+                team=self.team, user=request.user, session_id=recording.session_id
             )
 
-        return Response(
-            {
-                "result": {
-                    "session_recording": session_recording_serializer.data,
-                    "person": PersonSerializer(instance=person).data if person else None,
-                }
-            }
-        )
+        serializer = SessionRecordingSerializer(recording)
+
+        return Response(serializer.data)
 
     # Paginated endpoint that returns the snapshots for the recording
     @action(methods=["GET"], detail=True)
     def snapshots(self, request: request.Request, **kwargs):
-        session_recording_id = kwargs["pk"]
+        # TODO: Why do we use a Filter? Just swap to norma, offset, limit pagination
         filter = Filter(request=request)
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
-        recording_start_time_string = request.GET.get("recording_start_time")
-        recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
-        session_recording_snapshot_data = SessionRecordingEvents(
-            team=self.team,
-            session_recording_id=session_recording_id,
-            recording_start_time=recording_start_time,
-        ).get_snapshots(limit, offset)
+        # recording_start_time_string = request.GET.get("recording_start_time")
+        # recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
-        if session_recording_snapshot_data["snapshot_data_by_window_id"] == {}:
-            raise exceptions.NotFound("Snapshots not found")
+        recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+        recording.load_snapshots(limit, offset)
 
-        next_url = (
-            format_query_params_absolute_url(request, offset + limit, limit)
-            if session_recording_snapshot_data["has_next"]
-            else None
-        )
-
-        res = {
-            "result": {
+        if recording.snapshot_data_by_window_id:
+            next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
+            res = {
                 "next": next_url,
-                "snapshot_data_by_window_id": session_recording_snapshot_data["snapshot_data_by_window_id"],
+                "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
+                # TODO: Remove this once the frontend is migrated to use the above values
+                "result": {
+                    "next": next_url,
+                    "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
+                },
             }
-        }
+        else:
+            res = {
+                "next": None,
+                "snapshot_data_by_window_id": None,
+            }
 
         # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
         # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
@@ -184,35 +166,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer.is_valid(raise_exception=True)
 
         return Response({"results": session_recording_serializer.data})
-
-    def _get_serialized_recording_metadata(
-        self, request: request.Request, session_id: str, start_time: Optional[datetime]
-    ) -> Tuple[SessionRecordingMetadataSerializer, RecordingMetadata]:
-
-        session_recording_meta_data = SessionRecordingEvents(
-            team=self.team,
-            session_recording_id=session_id,
-            recording_start_time=start_time,
-        ).get_metadata()
-
-        if not session_recording_meta_data:
-            raise exceptions.NotFound("Session not found")
-
-        if not request.user.is_authenticated:  # for mypy
-            raise exceptions.NotAuthenticated()
-        viewed_session_recording = SessionRecordingViewed.objects.filter(
-            team=self.team, user=request.user, session_id=session_id
-        ).exists()
-
-        session_recording_serializer = SessionRecordingMetadataSerializer(
-            data={
-                "segments": session_recording_meta_data["segments"],
-                "start_and_end_times_by_window_id": session_recording_meta_data["start_and_end_times_by_window_id"],
-                "session_id": session_id,
-                "viewed": viewed_session_recording,
-            }
-        )
-        return session_recording_serializer, session_recording_meta_data
 
 
 def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team) -> dict:

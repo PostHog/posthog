@@ -16,7 +16,7 @@ import {
     SessionRecordingEvents,
     SessionRecordingId,
     SessionRecordingMeta,
-    SessionRecordingPlaylistType,
+    SessionRecordingType,
     SessionRecordingUsageType,
 } from '~/types'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -34,25 +34,10 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
-export interface UnparsedRecordingSegment {
-    start_time: string
-    end_time: string
-    window_id: string
-    is_active: boolean
-}
-
-export interface UnparsedMetadata {
-    session_id: string
-    viewed: boolean
-    segments: UnparsedRecordingSegment[]
-    start_and_end_times_by_window_id: Record<string, Record<string, string>>
-    playlists: SessionRecordingPlaylistType['id'][]
-}
-
-export const parseMetadataResponse = (metadata?: UnparsedMetadata): SessionRecordingMeta => {
+export const parseMetadataResponse = (recording: SessionRecordingType): SessionRecordingMeta => {
     const segments: RecordingSegment[] =
-        metadata?.segments.map((segment: UnparsedRecordingSegment): RecordingSegment => {
-            const windowStartTime = +dayjs(metadata?.start_and_end_times_by_window_id[segment.window_id].start_time)
+        recording.segments?.map((segment): RecordingSegment => {
+            const windowStartTime = +dayjs(recording.start_and_end_times_by_window_id?.[segment.window_id]?.start_time)
             const startTimeEpochMs = +dayjs(segment?.start_time)
             const endTimeEpochMs = +dayjs(segment?.end_time)
             const startPlayerPosition: PlayerPosition = {
@@ -75,7 +60,7 @@ export const parseMetadataResponse = (metadata?: UnparsedMetadata): SessionRecor
             }
         }) || []
     const startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime> = {}
-    Object.entries(metadata?.start_and_end_times_by_window_id || {}).forEach(([windowId, startAndEndTimes]) => {
+    Object.entries(recording.start_and_end_times_by_window_id || {}).forEach(([windowId, startAndEndTimes]) => {
         startAndEndTimesByWindowId[windowId] = {
             startTimeEpochMs: +dayjs(startAndEndTimes.start_time),
             endTimeEpochMs: +dayjs(startAndEndTimes.end_time),
@@ -85,7 +70,7 @@ export const parseMetadataResponse = (metadata?: UnparsedMetadata): SessionRecor
         segments,
         startAndEndTimesByWindowId,
         recordingDurationMs: sum(segments.map((s) => s.durationMs)),
-        playlists: metadata?.playlists ?? [],
+        playlists: recording.playlists ?? [],
     }
 }
 
@@ -281,16 +266,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     save_view: true,
                     recording_start_time: props.recordingStartTime,
                 })
-                const response = await api.get(
-                    `api/projects/${values.currentTeamId}/session_recordings/${props.sessionRecordingId}?${params}`
-                )
+                const response = await api.recordings.get(props.sessionRecordingId, params)
 
-                const unparsedMetadata: UnparsedMetadata | undefined = response.result?.session_recording
-                const metadata = parseMetadataResponse(unparsedMetadata)
+                const metadata = parseMetadataResponse(response)
                 breakpoint()
                 return {
                     ...values.sessionPlayerMetaData,
-                    person: response.result?.person,
+                    person: response.person || null,
                     metadata,
                 }
             },
@@ -318,14 +300,14 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 }
                 const incomingSnapshotByWindowId: {
                     [key: string]: eventWithTime[]
-                } = response.result?.snapshot_data_by_window_id
+                } = response.snapshot_data_by_window_id
                 Object.entries(incomingSnapshotByWindowId).forEach(([windowId, snapshots]) => {
                     snapshotsByWindowId[windowId] = [...(snapshotsByWindowId[windowId] ?? []), ...snapshots]
                 })
                 return {
                     ...values.sessionPlayerSnapshotData,
                     snapshotsByWindowId,
-                    next: response.result?.next,
+                    next: response.next,
                 }
             },
         },

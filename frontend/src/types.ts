@@ -870,6 +870,13 @@ export interface SessionRecordingPlaylistType {
     filters?: RecordingFilters
 }
 
+export interface SessionRecordingSegmentType {
+    start_time: string
+    end_time: string
+    window_id: string
+    is_active: boolean
+}
+
 export interface SessionRecordingType {
     id: string
     /** Whether this recording has been viewed already. */
@@ -890,6 +897,10 @@ export interface SessionRecordingType {
     click_count?: number
     keypress_count?: number
     urls?: string[]
+
+    // These values are only present when loaded as a full recording
+    segments?: SessionRecordingSegmentType[]
+    start_and_end_times_by_window_id?: Record<string, Record<string, string>>
 }
 
 export interface SessionRecordingPropertiesType {
