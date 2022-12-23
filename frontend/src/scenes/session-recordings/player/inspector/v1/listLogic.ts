@@ -2,14 +2,14 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { PlayerPosition, SessionRecordingPlayerTab } from '~/types'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { eventsListLogic } from 'scenes/session-recordings/player/list/eventsListLogic'
 import { ceilMsToClosestSecond, clamp, findLastIndex, floorMsToClosestSecond } from 'lib/utils'
 import {
     sessionRecordingPlayerLogic,
     SessionRecordingPlayerLogicProps,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
 import type { listLogicType } from './listLogicType'
+import { consoleLogsListLogic } from './consoleLogsListLogic'
+import { eventsListLogic } from './eventsListLogic'
 
 export enum RowStatus {
     Warning = 'warning',
@@ -26,7 +26,7 @@ export interface ListLogicProps extends SessionRecordingPlayerLogicProps {
     tab: SessionRecordingPlayerTab
 }
 
-// See sharedListLogic for logic that is shared across recording tabs
+// See playerInspectorLogic for logic that is shared across recording tabs
 export const listLogic = kea<listLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'listLogic', key]),
     props({} as ListLogicProps),

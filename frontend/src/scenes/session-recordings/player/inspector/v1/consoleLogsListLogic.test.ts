@@ -2,13 +2,14 @@ import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { consoleLogsListLogic } from 'scenes/session-recordings/player/list/consoleLogsListLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { useMocks } from '~/mocks/jest'
 import recordingSnapshotsJson from 'scenes/session-recordings/__mocks__/recording_snapshots.json'
 import recordingMetaJson from 'scenes/session-recordings/__mocks__/recording_meta.json'
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events.json'
 import { YesOrNoResponse } from '~/types'
+import { consoleLogsListLogic } from './consoleLogsListLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -24,6 +25,8 @@ describe('consoleLogsListLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic().mount()
+
         logic = consoleLogsListLogic(playerLogicProps)
         logic.mount()
     })
@@ -33,7 +36,7 @@ describe('consoleLogsListLogic', () => {
             await expectLogic(logic).toMount([
                 sessionRecordingDataLogic(playerLogicProps),
                 eventUsageLogic(playerLogicProps),
-                sharedListLogic(playerLogicProps),
+                playerInspectorLogic(playerLogicProps),
             ])
         })
     })
@@ -159,14 +162,14 @@ describe('consoleLogsListLogic', () => {
             await expectLogic(logic, () => {
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingSnapshots()
                 sessionRecordingDataLogic({ sessionRecordingId: '1' }).actions.loadRecordingMeta()
-                sharedListLogic(playerLogicProps).actions.setWindowIdFilter(
+                playerInspectorLogic(playerLogicProps).actions.setWindowIdFilter(
                     '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841'
                 )
             })
                 .toDispatchActionsInAnyOrder([
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingSnapshotsSuccess,
                     sessionRecordingDataLogic({ sessionRecordingId: '1' }).actionTypes.loadRecordingMetaSuccess,
-                    sharedListLogic(playerLogicProps).actionTypes.setWindowIdFilter,
+                    playerInspectorLogic(playerLogicProps).actionTypes.setWindowIdFilter,
                 ])
                 .toMatchValues({
                     consoleListData: ['182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841']

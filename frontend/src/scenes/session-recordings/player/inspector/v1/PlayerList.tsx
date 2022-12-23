@@ -8,7 +8,7 @@ import {
     listLogic,
     OVERSCANNED_ROW_COUNT,
     RowStatus,
-} from 'scenes/session-recordings/player/list/listLogic'
+} from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import { List } from 'react-virtualized/dist/es/List'
 import { Empty } from 'antd'
@@ -17,12 +17,12 @@ import { ArrowDownOutlined, ArrowUpOutlined, CloseOutlined } from '@ant-design/i
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { ExpandableConfig } from 'lib/components/LemonTable'
-import { ListRowOptions, PlayerListRow } from 'scenes/session-recordings/player/list/PlayerListRow'
 import { getRowExpandedState } from 'scenes/session-recordings/player/playerUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { openSessionRecordingSettingsDialog } from 'scenes/session-recordings/settings/SessionRecordingSettings'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
+import { ListRowOptions, PlayerListRow } from './PlayerListRow'
 
 interface RowConfig<T extends Record<string, any>> {
     /** Class to append to each row. */
@@ -109,7 +109,6 @@ export function PlayerList<T extends Record<string, any>>({
                                     width={width}
                                     onRowsRendered={setRenderedRows}
                                     noRowsRenderer={() =>
-                                        // TODO @benjackwhite - add upsell for performance too
                                         tab === SessionRecordingPlayerTab.CONSOLE &&
                                         !currentTeam?.capture_console_log_opt_in ? (
                                             <div className="flex flex-col items-center h-full w-full pt-16 px-4 bg-white">
