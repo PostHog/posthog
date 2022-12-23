@@ -750,12 +750,23 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('specifically for the S3 exporter, make sure to use a larger than default batch size', () => {
-            const eventsPerRun = addHistoricalEventsExportCapabilityV2(
+            // NOTE: this doesn't actually check that this value is used in the
+            // requests to ClickHouse, but :fingercrossed: it's good enough.
+            createVM()
+            let eventsPerRun = addHistoricalEventsExportCapabilityV2(
                 hub,
-                { plugin: { name: 'S3 Exporter' } } as any,
+                { plugin: { name: 'S3 Export Plugin' } } as any,
                 vm
-            )
-            expect(eventsPerRun).expect(10000)
+            ).eventsPerRun
+            expect(eventsPerRun).toEqual(10000)
+
+            // Otherwise it should be the default, 500
+            eventsPerRun = addHistoricalEventsExportCapabilityV2(
+                hub,
+                { plugin: { name: 'foo' } } as any,
+                vm
+            ).eventsPerRun
+            expect(eventsPerRun).toEqual(500)
         })
     })
 
