@@ -151,11 +151,13 @@ class TeamSerializer(serializers.ModelSerializer):
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
-        team = Team.objects.create_with_data(**validated_data, organization=organization)
+        if validated_data.get("is_demo", False):
+            team = Team.objects.create(**validated_data, organization=organization)
+            create_data_for_demo_team.delay(team.pk, request.user.pk)
+        else:
+            team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
         request.user.save()
-        if validated_data.get("is_demo", False):
-            create_data_for_demo_team.delay(team.pk, request.user.pk)
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:

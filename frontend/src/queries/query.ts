@@ -65,12 +65,15 @@ export function getEventsEndpoint(query: EventsNode | EventsQuery): string {
 }
 
 export function getPersonsEndpoint(query: PersonsNode): string {
-    return api.persons.determineListUrl({
+    const params = {
         properties: [...(query.fixedProperties || []), ...(query.properties || [])],
         ...(query.search ? { search: query.search } : {}),
-        ...(query.cohort ? { cohort: query.cohort } : {}),
         ...(query.distinctId ? { distinct_id: query.distinctId } : {}),
-    })
+    }
+    if (query.cohort) {
+        return api.cohorts.determineListUrl(query.cohort, params)
+    }
+    return api.persons.determineListUrl(params)
 }
 
 interface LegacyInsightQueryParams {

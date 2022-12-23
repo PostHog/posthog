@@ -21,7 +21,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    flush_persons_and_events,
     snapshot_clickhouse_insert_cohortpeople_queries,
+    snapshot_clickhouse_queries,
 )
 
 
@@ -678,6 +680,139 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         res = self._get_cohortpeople(cohort1)
         self.assertEqual(len(res), 1)
+
+    @snapshot_clickhouse_insert_cohortpeople_queries
+    def test_cohortpeople_with_not_in_cohort_operator(self):
+        _create_person(distinct_ids=["1"], team_id=self.team.pk, properties={"$some_prop": "something1"})
+        _create_person(distinct_ids=["2"], team_id=self.team.pk, properties={"$some_prop": "something2"})
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=20),
+        )
+
+        flush_persons_and_events()
+
+        cohort0: Cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something1", "type": "person"}]}],
+            name="cohort0",
+        )
+        cohort0.calculate_people_ch(pending_version=0)
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "event_type": "events",
+                            "key": "$pageview",
+                            "negation": False,
+                            "time_interval": "year",
+                            "time_value": 2,
+                            "type": "behavioral",
+                            "value": "performed_event",
+                        },
+                        {
+                            "key": "id",
+                            "negation": True,
+                            "type": "cohort",
+                            "value": cohort0.pk,
+                        },
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        cohort1.calculate_people_ch(pending_version=0)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+
+            filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+            query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+            final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
+
+            result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
+
+    @snapshot_clickhouse_queries
+    def test_cohortpeople_with_not_in_cohort_operator_and_no_precalculation(self):
+        _create_person(distinct_ids=["1"], team_id=self.team.pk, properties={"$some_prop": "something1"})
+        _create_person(distinct_ids=["2"], team_id=self.team.pk, properties={"$some_prop": "something2"})
+
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="1",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=10),
+        )
+        _create_event(
+            event="$pageview",
+            team=self.team,
+            distinct_id="2",
+            properties={"attr": "some_val"},
+            timestamp=datetime.now() - timedelta(days=20),
+        )
+
+        flush_persons_and_events()
+
+        cohort0: Cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[{"properties": [{"key": "$some_prop", "value": "something1", "type": "person"}]}],
+            name="cohort0",
+        )
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "event_type": "events",
+                            "key": "$pageview",
+                            "negation": False,
+                            "time_interval": "year",
+                            "time_value": 2,
+                            "type": "behavioral",
+                            "value": "performed_event",
+                        },
+                        {
+                            "key": "id",
+                            "negation": True,
+                            "type": "cohort",
+                            "value": cohort0.pk,
+                        },
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
+        self.assertIn("\nFROM person_distinct_id2\n", final_query)
+
+        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
 
     def test_cohortpeople_with_nonexistent_other_cohort_filter(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["1"], properties={"foo": "bar"})
