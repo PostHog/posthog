@@ -549,6 +549,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
 
+        insight_json = self.dashboard_api.get_insight(insight_id)
+        assert insight_json["dashboards"] == [dashboard_id]
+
     def test_can_update_insight_with_inconsistent_dashboards(self) -> None:
         """
         Regression test because there are some DashboardTiles in production that should not exist.
