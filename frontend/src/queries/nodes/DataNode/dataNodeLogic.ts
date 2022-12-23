@@ -1,4 +1,16 @@
-import { kea, path, props, key, afterMount, selectors, propsChanged, reducers, actions, beforeUnmount } from 'kea'
+import {
+    kea,
+    path,
+    props,
+    key,
+    afterMount,
+    selectors,
+    propsChanged,
+    reducers,
+    actions,
+    beforeUnmount,
+    listeners,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
@@ -27,6 +39,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
+        abortQuery: true,
         loadData: true,
         startAutoLoad: true,
         stopAutoLoad: true,
@@ -39,9 +52,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             null as DataNode['response'] | null,
             {
                 loadData: async (_, breakpoint) => {
-                    if (cache.abortController) {
-                        cache.abortController.abort()
-                    }
+                    // TODO: cancel with queryId, combine with abortQuery action
+                    cache.abortController?.abort()
                     cache.abortController = new AbortController()
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
@@ -53,7 +65,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         actions.setElapsedTime(performance.now() - now)
                         return data
                     } catch (e: any) {
-                        cache.abortController = null
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             return values.response
                         } else {
@@ -218,6 +229,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,
         ],
     }),
+    listeners(({ cache }) => ({
+        abortQuery: () => {
+            // TODO: also cancel with queryId
+            cache.abortController?.abort()
+        },
+    })),
     subscriptions(({ actions, cache, values }) => ({
         autoLoadRunning: (autoLoadRunning) => {
             if (cache.autoLoadInterval) {
@@ -237,12 +254,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     afterMount(({ actions }) => {
         actions.loadData()
     }),
-    beforeUnmount(({ actions, cache, values }) => {
+    beforeUnmount(({ actions, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
         }
-        if (cache.abortController) {
-            cache.abortController.abort()
+        if (values.dataLoading) {
+            actions.abortQuery()
         }
     }),
 ])
