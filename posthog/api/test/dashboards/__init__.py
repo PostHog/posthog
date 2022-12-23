@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from rest_framework import status
+from rest_framework.response import Response
 
 from posthog.models.team import Team
 
@@ -245,8 +246,28 @@ class DashboardAPI:
 
     def add_insight_to_dashboard(
         self, dashboard_ids: List[int], insight_id: int, expected_status: int = status.HTTP_200_OK
-    ):
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}", {"dashboards": dashboard_ids}
+    ) -> Dict:
+        """
+        Accepts an array of dashboard ids to simplify some test setup.
+        In reality the UX we provide is to add or remove insights from one dashboard at a time.
+        """
+        response: Optional[Response] = None
+        for dashboard_id in dashboard_ids:
+            patch_response: Response = self.client.patch(
+                f"/api/projects/{self.team.id}/insights/{insight_id}/add_to_dashboard", {"dashboard_id": dashboard_id}
+            )
+            self.assertEqual(patch_response.status_code, expected_status)
+            response = patch_response
+
+        if response is None:
+            raise Exception("super impossible or silly to get here")
+        return response.json()
+
+    def remove_insight_from_dashboard(
+        self, dashboard_id: int, insight_id: int, expected_status: int = status.HTTP_200_OK
+    ) -> Dict:
+        patch_response: Response = self.client.patch(
+            f"/api/projects/{self.team.id}/insights/{insight_id}/remove_from_dashboard", {"dashboard_id": dashboard_id}
         )
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(patch_response.status_code, expected_status)
+        return patch_response.json()

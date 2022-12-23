@@ -135,7 +135,7 @@ class Insight(models.Model):
 
     @property
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        dashboards = list(self.dashboards.all())
+        dashboards = [t.dashboard for t in self.dashboard_tiles.exclude(deleted=True).all()]
         if not dashboards:
             return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
@@ -149,10 +149,12 @@ class Insight(models.Model):
             return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
     def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
-        if self.dashboards.count() == 0:
+        if self.dashboard_tiles.exclude(deleted=True).count() == 0:
             return Dashboard.PrivilegeLevel.CAN_EDIT
 
-        edit_permissions = [d.can_user_edit(user_id) for d in self.dashboards.all()]
+        edit_permissions = [
+            t.dashboard.can_user_edit(user_id) for t in self.dashboard_tiles.exclude(deleted=True).all()
+        ]
         if any(edit_permissions):
             return Dashboard.PrivilegeLevel.CAN_EDIT
         else:
