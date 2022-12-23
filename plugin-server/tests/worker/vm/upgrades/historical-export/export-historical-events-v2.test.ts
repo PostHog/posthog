@@ -748,6 +748,15 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 offset: 0,
             })
         })
+
+        it('specifically for the S3 exporter, make sure to use a larger than default batch size', () => {
+            const eventsPerRun = addHistoricalEventsExportCapabilityV2(
+                hub,
+                { plugin: { name: 'S3 Exporter' } } as any,
+                vm
+            )
+            expect(eventsPerRun).expect(10000)
+        })
     })
 
     describe('getTimestampBoundaries()', () => {

@@ -83,6 +83,7 @@ export interface TestFunctions {
     progressBar: (progress: number, length?: number) => string
     stopExport: (params: ExportParams, message: string, status: 'success' | 'fail') => Promise<void>
     shouldResume: (status: ExportChunkStatus, now: number) => void
+    eventsPerRun: number
 }
 
 export type ExportHistoricalEventsUpgradeV2 = Plugin<{
@@ -158,7 +159,7 @@ export function addHistoricalEventsExportCapabilityV2(
     hub: Hub,
     pluginConfig: PluginConfig,
     response: PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgradeV2>>
-): void {
+) {
     const { methods, tasks, meta } = response
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
@@ -172,7 +173,7 @@ export function addHistoricalEventsExportCapabilityV2(
     // events from ClickHouse will read a much larger amount of data from disk
     // than is required, due to us trying to order the dataset by `timestamp`
     // and this not being included in the `sharded_events` table.
-    const eventsPerRun = pluginConfig.plugin?.name === 'S3 Export' ? 10000 : EVENTS_PER_RUN
+    const eventsPerRun = pluginConfig.plugin?.name === 'S3 Export Plugin' ? 10000 : EVENTS_PER_RUN
 
     // If public job hasn't been registered or has changed, update it!
     if (
@@ -697,6 +698,9 @@ export function addHistoricalEventsExportCapabilityV2(
             progressBar,
             stopExport,
             shouldResume,
+            eventsPerRun,
         }
     }
+
+    return { eventsPerRun }
 }
