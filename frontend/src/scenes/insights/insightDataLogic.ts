@@ -103,7 +103,11 @@ export const insightDataLogic = kea<insightDataLogicType>([
                 actions.setFilters(filters)
 
                 if (querySource.lifecycleFilter?.toggledLifecycles !== values.trendsLifecycles) {
-                    actions.setTrendsLifecycles(querySource.lifecycleFilter?.toggledLifecycles)
+                    actions.setTrendsLifecycles(
+                        querySource.lifecycleFilter?.toggledLifecycles
+                            ? querySource.lifecycleFilter.toggledLifecycles
+                            : ['new', 'resurrecting', 'returning', 'dormant']
+                    )
                 }
             }
         },
