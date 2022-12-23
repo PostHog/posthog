@@ -45,9 +45,7 @@ function PlayerInspectorListItem({
     logicProps: SessionRecordingPlayerLogicProps
     onLayout: (layout: { width: number; height: number }) => void
 }): JSX.Element {
-    const { tab, lastItemTimestamp, recordingTimeInfo, expandedItems, windowIds } = useValues(
-        playerInspectorLogic(logicProps)
-    )
+    const { tab, recordingTimeInfo, expandedItems, windowIds } = useValues(playerInspectorLogic(logicProps))
     const { timestampMode } = useValues(playerSettingsLogic)
 
     const { seekToTime } = useActions(sessionRecordingPlayerLogic(logicProps))
@@ -111,7 +109,7 @@ function PlayerInspectorListItem({
                 )}
             >
                 {item.type === 'performance' ? (
-                    <ItemPerformanceEvent item={item.data} finalTimestamp={lastItemTimestamp} {...itemProps} />
+                    <ItemPerformanceEvent item={item.data} finalTimestamp={recordingTimeInfo.end} {...itemProps} />
                 ) : item.type === 'console' ? (
                     <ItemConsoleLog item={item} {...itemProps} />
                 ) : item.type === 'events' ? (

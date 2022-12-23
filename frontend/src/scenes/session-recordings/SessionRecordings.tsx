@@ -41,7 +41,7 @@ export function SessionsRecordings(): JSX.Element {
 
     return (
         // Margin bottom hacks the fact that our wrapping container has an annoyingly large padding
-        <div style={{ marginBottom: '-3rem' }}>
+        <div className="-mb-12">
             <PageHeader
                 title={<div>Session Recordings</div>}
                 buttons={

@@ -52,7 +52,6 @@ export type InspectorListItemPerformance = InspectorListItemBase & {
 
 export type InspectorListItem = InspectorListItemEvent | InspectorListItemConsole | InspectorListItemPerformance
 
-// Settings local to each recording
 export const playerInspectorLogic = kea<playerInspectorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playerInspectorLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
@@ -139,7 +138,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             (sessionEventsDataLoading, performanceEventsLoading, sessionPlayerMetaDataLoading) => {
                 return {
                     [SessionRecordingPlayerTab.ALL]: false,
-                    // sessionEventsDataLoading || performanceEventsLoading || (sessionPlayerMetaDataLoading),
                     [SessionRecordingPlayerTab.EVENTS]: sessionEventsDataLoading,
                     [SessionRecordingPlayerTab.CONSOLE]: sessionPlayerMetaDataLoading,
                     [SessionRecordingPlayerTab.PERFORMANCE]: performanceEventsLoading,
@@ -235,6 +233,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 showOnlyMatching,
                 windowIdFilter
             ): InspectorListItem[] => {
+                // NOTE: Possible perf improvement here would be to have a selector to parse the items
+                // and then do the filtering of what items are shown, elsewhere
+                // ALSO: We could move the individual filtering logic into the MiniFilters themselves
                 const items: InspectorListItem[] = []
 
                 if (
@@ -428,7 +429,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
                 }
 
-                // NOTE: Native JS sorting is super slow here!
+                // NOTE: Native JS sorting is relatively slow here - be careful changing this
                 items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
 
                 return items
@@ -438,7 +439,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         playbackIndicatorIndex: [
             (s) => [s.currentPlayerTime, s.items],
             (playerTime, items): number => {
-                // Return the indexes of all the events
+                // Returnts the index of the event that the playback is closest to
                 if (!playerTime) {
                     return 0
                 }
@@ -447,24 +448,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const startIndex = items.findIndex((x) => Math.floor(x.timeInRecording / 1000) >= timeSeconds)
 
                 return startIndex
-            },
-        ],
-
-        lastItemTimestamp: [
-            (s) => [s.allItems],
-            (allItems): Dayjs | undefined => {
-                if (allItems.length === 0) {
-                    return undefined
-                }
-                let maxTimestamp = allItems[0].timestamp
-
-                for (const item of allItems) {
-                    if (item.timestamp.isAfter(maxTimestamp)) {
-                        maxTimestamp = item.timestamp
-                    }
-                }
-
-                return maxTimestamp
             },
         ],
 
