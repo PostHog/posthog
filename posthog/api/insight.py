@@ -434,14 +434,11 @@ class InsightViewSet(
 
         queryset = queryset.prefetch_related(
             Prefetch(
-                "dashboards",
-                queryset=Dashboard.objects.exclude(deleted=True).filter(
-                    id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
-                ),
+                "dashboard_tiles",
+                queryset=DashboardTile.objects.exclude(deleted=True)
+                .exclude(dashboard__deleted=True)
+                .prefetch_related("dashboard__created_by", "dashboard__team", "dashboard__team__organization"),
             ),
-            "dashboards__created_by",
-            "dashboards__team",
-            "dashboards__team__organization",
         )
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
