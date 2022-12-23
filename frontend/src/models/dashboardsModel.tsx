@@ -75,6 +75,8 @@ export const dashboardsModel = kea<dashboardsModelType>({
             dashboardId,
         }),
         tileAddedToDashboard: (dashboardId: number) => ({ dashboardId }),
+        insightAddedToDashboard: (dashboardId: number, insightId: number) => ({ dashboardId, insightId }),
+        insightRemovedFromDashboard: (dashboardId: number, insightId: number) => ({ dashboardId, insightId }),
     }),
     loaders: ({ values, actions }) => ({
         rawDashboards: [

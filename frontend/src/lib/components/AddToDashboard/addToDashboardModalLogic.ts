@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import type { addToDashboardModalLogicType } from './addToDashboardModalLogicType'
+import api from 'lib/api'
 
 export interface AddToDashboardModalLogicProps {
     insight: Partial<InsightModel>
@@ -61,6 +62,8 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
                 removeFromDashboard: (_, { dashboardId }) => dashboardId,
                 updateInsightSuccess: () => null,
                 updateInsightFailure: () => null,
+                [dashboardsModel.actionTypes.insightAddedToDashboard]: () => null,
+                [dashboardsModel.actionTypes.insightRemovedFromDashboard]: () => null,
             },
         ],
     },
@@ -125,28 +128,39 @@ export const addToDashboardModalLogic = kea<addToDashboardModalLogicType>({
         },
 
         addToDashboard: async ({ insight, dashboardId }) => {
-            actions.updateInsight({ ...insight, dashboards: [...(insight.dashboards || []), dashboardId] }, () => {
+            if (!insight.id) {
+                // what are we updating?!
+                return
+            }
+            try {
+                await api.tiles.addInsightToDashboard(insight.id, dashboardId)
                 actions.reportSavedInsightToDashboard()
-                dashboardsModel.actions.tileAddedToDashboard(dashboardId)
+                dashboardsModel.actions.insightAddedToDashboard(dashboardId, insight.id)
                 lemonToast.success('Insight added to dashboard', {
                     button: {
                         label: 'View dashboard',
                         action: () => router.actions.push(urls.dashboard(dashboardId)),
                     },
                 })
-            })
+            } catch (e: any) {
+                console.error(e)
+                lemonToast.error('Could not add insight to dashboard: ', e.toString())
+            }
         },
         removeFromDashboard: async ({ insight, dashboardId }): Promise<void> => {
-            actions.updateInsight(
-                {
-                    ...insight,
-                    dashboards: (insight.dashboards || []).filter((d) => d !== dashboardId),
-                },
-                () => {
-                    actions.reportRemovedInsightFromDashboard()
-                    lemonToast.success('Insight removed from dashboard')
-                }
-            )
+            if (!insight.id) {
+                // what are we updating?!
+                return
+            }
+            try {
+                await api.tiles.removeInsightFromDashboard(insight.id, dashboardId)
+                actions.reportRemovedInsightFromDashboard()
+                dashboardsModel.actions.insightRemovedFromDashboard(dashboardId, insight.id)
+                lemonToast.success('Insight removed from dashboard')
+            } catch (e: any) {
+                console.error(e)
+                lemonToast.error('Could not remove insight from dashboard: ', e.toString())
+            }
         },
     }),
 })

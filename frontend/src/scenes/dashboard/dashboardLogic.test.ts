@@ -672,6 +672,35 @@ describe('dashboardLogic', () => {
             expect(logic.values.insightTiles[0]!.last_refresh).toEqual('2012-04-01T00:00:00Z')
         })
 
+        it('can respond to external removal of an insight from a dashboard', async () => {
+            expectLogic(logic, () => {
+                dashboardsModel.actions.insightRemovedFromDashboard(9, 800)
+            }).toMatchValues({
+                allItems: truth((d) => d.tiles.length === 1),
+            })
+        })
+
+        it('can ignore external removal of an insight from a dashboard', async () => {
+            expectLogic(logic, () => {
+                dashboardsModel.actions.insightRemovedFromDashboard(10, 800)
+            }).toMatchValues({
+                allItems: truth((d) => d.tiles.length === 2),
+            })
+        })
+
+        it('can respond to external addition of an insight to the dashboard', async () => {
+            dashboardsModel.actions.insightAddedToDashboard(9, 7)
+
+            await expectLogic(logic).toDispatchActions(['loadDashboardItems'])
+        })
+
+        it('can ignore external addition of an insight to a different dashboard', async () => {
+            expectLogic(logic).clearHistory()
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.insightAddedToDashboard(54, 7)
+            }).toNotHaveDispatchedActions(['loadDashboardItems'])
+        })
+
         it('can respond to external insight rename', async () => {
             expect(logic.values.allItems?.tiles[0].color).toEqual(null)
 

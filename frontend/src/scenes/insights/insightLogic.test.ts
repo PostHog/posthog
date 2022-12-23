@@ -1106,6 +1106,7 @@ describe('insightLogic', () => {
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadInsight']).toFinishAllListeners()
         })
+
         it('reacts to rename of its own insight', async () => {
             await expectLogic(logic, () => {
                 insightsModel.actions.renameInsightSuccess(
@@ -1125,6 +1126,7 @@ describe('insightLogic', () => {
                     }),
                 })
         })
+
         it('does not react to rename of a different insight', async () => {
             await expectLogic(logic, () => {
                 insightsModel.actions.renameInsightSuccess(
@@ -1145,7 +1147,7 @@ describe('insightLogic', () => {
                 })
         })
 
-        it('reacts to removal from dashboard', async () => {
+        it('reacts to tile removal from dashboard', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.tileRemovedFromDashboard({
                     tile: { insight: { id: 42 } } as DashboardTile,
@@ -1164,6 +1166,26 @@ describe('insightLogic', () => {
                     tile: { insight: { id: 12 } } as DashboardTile,
                     dashboardId: 3,
                 })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
+
+        it('reacts to insight removal from dashboard', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.insightRemovedFromDashboard(3, 42)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2] }),
+                })
+        })
+
+        it('does not reacts to removal of a different insight from dashboard', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.insightRemovedFromDashboard(3, 12)
             })
                 .toFinishAllListeners()
                 .toMatchValues({

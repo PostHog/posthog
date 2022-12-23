@@ -173,6 +173,14 @@ class ApiRequest {
         return this.insights(teamId).addPathComponent(id)
     }
 
+    public addInsightToDashboard(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('add_to_dashboard')
+    }
+
+    public removeInsightFromDashboard(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.insight(id, teamId).addPathComponent('remove_from_dashboard')
+    }
+
     public insightsActivity(teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent('activity')
     }
@@ -462,6 +470,18 @@ const ensureProjectIdNotInvalid = (url: string): void => {
 }
 
 const api = {
+    tiles: {
+        async addInsightToDashboard(insightId: number, dashboardId: number): Promise<void> {
+            return await new ApiRequest()
+                .addInsightToDashboard(insightId)
+                .update({ data: { dashboard_id: dashboardId } })
+        },
+        async removeInsightFromDashboard(insightId: number, dashboardId: number): Promise<void> {
+            return await new ApiRequest()
+                .removeInsightFromDashboard(insightId)
+                .update({ data: { dashboard_id: dashboardId } })
+        },
+    },
     actions: {
         async get(actionId: ActionType['id']): Promise<ActionType> {
             return await new ApiRequest().actionsDetail(actionId).get()

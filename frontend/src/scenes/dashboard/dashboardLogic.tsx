@@ -484,6 +484,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles,
                     } as DashboardType
                 },
+                [dashboardsModel.actionTypes.insightRemovedFromDashboard]: (state, { dashboardId, insightId }) => {
+                    if (!state) {
+                        return state
+                    }
+                    // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
+                    if (dashboardId === state.id) {
+                        return {
+                            ...state,
+                            tiles: [...state.tiles.filter((tile) => !tile.insight || tile.insight.id !== insightId)],
+                        } as DashboardType
+                    }
+                    return state
+                },
             },
         ],
         loadTimer: [null as Date | null, { loadDashboardItems: () => new Date() }],
@@ -820,6 +833,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
             actions.loadDashboardItems({ action: 'update' })
         },
         [dashboardsModel.actionTypes.tileAddedToDashboard]: ({ dashboardId }) => {
+            // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
+            if (dashboardId === props.id) {
+                actions.loadDashboardItems({ action: 'update' })
+            }
+        },
+        [dashboardsModel.actionTypes.insightAddedToDashboard]: ({ dashboardId }) => {
             // when adding an insight to a dashboard, we need to reload the dashboard to get the new insight
             if (dashboardId === props.id) {
                 actions.loadDashboardItems({ action: 'update' })
