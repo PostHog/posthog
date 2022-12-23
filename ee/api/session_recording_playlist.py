@@ -15,11 +15,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import list_recordings
 from posthog.api.shared import UserBasicSerializer
 from posthog.celery import ee_persist_single_recording
-from posthog.constants import (
-    SESSION_RECORDINGS_FILTER_IDS,
-    SESSION_RECORDINGS_PLAYLIST_FREE_COUNT,
-    AvailableFeature,
-)
+from posthog.constants import SESSION_RECORDINGS_FILTER_IDS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT, AvailableFeature
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
