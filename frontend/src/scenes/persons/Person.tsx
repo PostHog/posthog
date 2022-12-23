@@ -32,6 +32,7 @@ import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 const { TabPane } = Tabs
 
@@ -197,7 +198,11 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                    <SessionRecordingsPlaylist
+                        personUUID={person.uuid}
+                        updateSearchParams
+                        filters={DEFAULT_PERSON_RECORDING_FILTERS}
+                    />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
