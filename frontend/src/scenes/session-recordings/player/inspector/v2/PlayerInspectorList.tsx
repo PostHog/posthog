@@ -283,7 +283,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                             Go deeper with <span className="highlight">Network Performance</span>!
                                         </>
                                     }
-                                    caption="Underszand what is happening with network requests during your recordings to idnetify slow pages, API errors and more."
+                                    caption="Understand what is happening with network requests during your recordings to identify slow pages, API errors and more."
                                     docsLink="https://posthog.com/docs/user-guides/session-recordings"
                                 />
                             </div>
