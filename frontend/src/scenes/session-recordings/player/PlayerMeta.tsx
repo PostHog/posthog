@@ -73,7 +73,7 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                         <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xxl' : 'md'} />
                     )}
                 </div>
-                <div className="overflow-hidden ph-no-capture">
+                <div className="overflow-hidden ph-no-capture flex-1">
                     <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -144,7 +144,7 @@ export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element
                     tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
                 />
 
-                <div className="flex-1">{props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}</div>
+                {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
             </div>
             {sessionPerson && (
                 <CSSTransition

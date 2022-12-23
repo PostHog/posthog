@@ -144,6 +144,8 @@ export const FEATURE_FLAGS = {
     HOGQL_EXPRESSIONS: 'hogql_expressions', // owner: @mariusandra
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     ACTOR_PROPERTIES_TIMELINE: 'actor-properties-timeline', // owner: @Twixes
+    RECORDINGS_INSPECTOR_V2: 'recordings-inspector-v2', // owner: #team-session-recordings
+    RECORDINGS_INSPECTOR_PERFORMANCE: 'recordings-inspector-performance', // owner: #team-session-recordings
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */
@@ -171,6 +173,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
     [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
     [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
+    [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'
