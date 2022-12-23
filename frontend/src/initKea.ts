@@ -8,6 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { lemonToast } from 'lib/lemon-ui/lemonToast'
 import { subscriptionsPlugin } from 'kea-subscriptions'
 import { formsPlugin } from 'kea-forms'
+import { getCurrentTeamId } from 'lib/utils/logics'
 
 /*
 Actions for which we don't want to show error alerts,
@@ -70,6 +71,15 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                 // :TRICKY: We override default url segment matching characters.
                 // This list includes all characters which are not escaped by encodeURIComponent
                 segmentValueCharset: "a-zA-Z0-9-_~ %.@()!'",
+            },
+            pathFromRoutesToWindow: (path) => {
+                return path.match(/^\/p\/\d+/)
+                    ? path
+                    : `/p/${getCurrentTeamId()}/${path.startsWith('/') ? path.slice(1) : path}`
+            },
+            pathFromWindowToRoutes: (path) => {
+                const newPath = path.replace(/^\/p\/\d+/, '')
+                return newPath === '' ? '/' : newPath
             },
         }),
         formsPlugin,
