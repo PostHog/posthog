@@ -11,7 +11,7 @@ import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/components/Tooltip'
-import { PersonsTabType, PersonType } from '~/types'
+import { PersonsTabType, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -32,6 +32,7 @@ import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { dayjs } from 'lib/dayjs'
 
 const { TabPane } = Tabs
 
@@ -197,7 +198,19 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    <SessionRecordingsPlaylist personUUID={person.uuid} updateSearchParams />
+                    <SessionRecordingsPlaylist
+                        personUUID={person.uuid}
+                        updateSearchParams
+                        filters={{
+                            date_from: dayjs().subtract(21, 'days').format('YYYY-MM-DD'),
+                            session_recording_duration: {
+                                type: PropertyFilterType.Recording,
+                                key: 'duration',
+                                value: 0,
+                                operator: PropertyOperator.GreaterThan,
+                            },
+                        }}
+                    />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
