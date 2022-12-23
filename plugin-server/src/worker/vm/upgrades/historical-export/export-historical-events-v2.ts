@@ -83,7 +83,6 @@ export interface TestFunctions {
     progressBar: (progress: number, length?: number) => string
     stopExport: (params: ExportParams, message: string, status: 'success' | 'fail') => Promise<void>
     shouldResume: (status: ExportChunkStatus, now: number) => void
-    eventsPerRun: number
 }
 
 export type ExportHistoricalEventsUpgradeV2 = Plugin<{
@@ -164,7 +163,7 @@ export function addHistoricalEventsExportCapabilityV2(
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
 
-    // Returns the number of events to fetch per chunk, defaulting to 10000
+    // Set the number of events to fetch per chunk, defaulting to 10000
     // if the plugin is PostHog S3 Export plugin, otherwise we detault to
     // 500. This is to avoid writting lots of small files to S3.
     //
@@ -172,7 +171,7 @@ export function addHistoricalEventsExportCapabilityV2(
     // it's current implementation the querying logic for pulling pages of
     // events from ClickHouse will read a much larger amount of data from disk
     // than is required, due to us trying to order the dataset by `timestamp`
-    // and this not being included in the `sharded_events` table.
+    // and this not being included in the `sharded_events` table sort key.
     const eventsPerRun = pluginConfig.plugin?.name === 'S3 Export Plugin' ? 10000 : EVENTS_PER_RUN
 
     // If public job hasn't been registered or has changed, update it!
@@ -698,9 +697,9 @@ export function addHistoricalEventsExportCapabilityV2(
             progressBar,
             stopExport,
             shouldResume,
-            eventsPerRun,
         }
     }
 
+    // NOTE: we return the eventsPerRun, purely for testing purposes
     return { eventsPerRun }
 }
