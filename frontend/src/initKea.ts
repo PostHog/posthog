@@ -77,6 +77,11 @@ export function initKea({ routerHistory, routerLocation, beforePlugins }: InitKe
                     ? path
                     : `/p/${getCurrentTeamId()}/${path.startsWith('/') ? path.slice(1) : path}`
             },
+            transformPathInActions: (path) => {
+                return path.match(/^\/p\/\d+/)
+                    ? path
+                    : `/p/${getCurrentTeamId()}/${path.startsWith('/') ? path.slice(1) : path}`
+            },
             pathFromWindowToRoutes: (path) => {
                 const newPath = path.replace(/^\/p\/\d+/, '')
                 return newPath === '' ? '/' : newPath
