@@ -14,7 +14,6 @@ import type { sessionRecordingsListLogicType } from './sessionRecordingsListLogi
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import equal from 'fast-deep-equal'
-import { dayjs } from 'lib/dayjs'
 import { loaders } from 'kea-loaders'
 
 export type PersonUUID = string
