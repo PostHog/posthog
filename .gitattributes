@@ -4,4 +4,4 @@
 .github/ export-ignore
 CONTRIBUTING.md export-ignore
 CODE_OF_CONDUCT.md export-ignore
-e2e-vrt/**.png filter=lfs diff=lfs merge=lfs -text
+playwright/**/*.png filter=lfs diff=lfs merge=lfs -text
