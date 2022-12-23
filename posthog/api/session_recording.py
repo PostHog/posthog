@@ -117,7 +117,10 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording.load_snapshots(limit, offset)
 
         if recording.snapshot_data_by_window_id:
-            next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
+            if recording.can_load_more_snapshots:
+                next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
+            else:
+                next_url = None
             res = {
                 "next": next_url,
                 "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,

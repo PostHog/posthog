@@ -36,7 +36,12 @@ class SessionRecording(UUIDModel):
     def load_metadata(self) -> None:
         from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
 
-        if not self.object_storage_path:
+        if self._metadata:
+            return
+
+        if self.object_storage_path:
+            self.load_object_data()
+        else:
             # Try to load from Clickhouse
             metadata = SessionRecordingEvents(
                 team=self.team,
@@ -47,23 +52,54 @@ class SessionRecording(UUIDModel):
             if not metadata:
                 return
 
-        self._metadata = metadata
+            self._metadata = metadata
 
     def load_snapshots(self, limit=20, offset=0) -> None:
         from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
 
-        if not self.object_storage_path:
+        if self._snapshots:
+            return
+
+        if self.object_storage_path:
+            self.load_object_data()
+        else:
             snapshots = SessionRecordingEvents(
                 team=self.team,
                 session_recording_id=self.session_id,
-                recording_start_time=None,  # TODO Add this as an otpimisation
+                recording_start_time=None,  # TODO Add this as an optimisation
             ).get_snapshots(limit, offset)
 
             self._snapshots = snapshots
 
+    def load_object_data(self) -> None:
+        try:
+            from ee.models.session_recording_extensions import load_persisted_recording
+        except ImportError:
+            pass
+
+        data = load_persisted_recording(self)
+
+        if not data:
+            return
+
+        self._metadata = {
+            "distinct_id": data["distinct_id"],
+            "start_and_end_times_by_window_id": data["start_and_end_times_by_window_id"],
+            "segments": data["segments"],
+        }
+
+        self._snapshots = {
+            "has_next": False,
+            "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
+        }
+
     @property
     def snapshot_data_by_window_id(self):
         return self._snapshots["snapshot_data_by_window_id"] if self._snapshots else None
+
+    @property
+    def can_load_more_snapshots(self):
+        return self._snapshots["has_next"] if self._snapshots else False
 
     @property
     def distinct_id(self):

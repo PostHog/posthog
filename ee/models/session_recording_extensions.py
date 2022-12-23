@@ -1,13 +1,15 @@
 # EE extended functions for SessionRecording model
 
 import json
+from typing import Optional
 
 import structlog
 from sentry_sdk import capture_exception
 
 from posthog import settings
+from posthog.models.session_recording.metadata import PersistedRecordingV1
 from posthog.models.session_recording.session_recording import SessionRecording
-from posthog.session_recordings.session_recording_helpers import compress_to_string
+from posthog.session_recordings.session_recording_helpers import compress_to_string, decompress
 from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
@@ -31,8 +33,9 @@ def persist_recording(recording_id: str, team_id: int) -> None:
     recording.load_metadata()
     recording.load_snapshots(100000)  # TODO: Paginate rather than hardcode a limit
 
-    content = {
+    content: PersistedRecordingV1 = {
         "version": "2022-12-22",
+        "distinct_id": recording.distinct_id,
         "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
         "start_and_end_times_by_window_id": recording.start_and_end_times_by_window_id,
         "segments": recording.segments,
@@ -54,3 +57,33 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         logger.error(
             "session_recording.object-storage-error", recording_id=recording.session_id, exception=ose, exc_info=True
         )
+
+
+def load_persisted_recording(recording: SessionRecording) -> Optional[PersistedRecordingV1]:
+    """Load a persisted recording from S3"""
+
+    logger.info(
+        "Persisting recording load: reading from S3...",
+        recording_id=recording.session_id,
+        path=recording.object_storage_path,
+    )
+
+    try:
+        content = object_storage.read(recording.object_storage_path)
+        decompressed = json.loads(decompress(content))
+        logger.info(
+            "Persisting recording load: loaded!", recording_id=recording.session_id, path=recording.object_storage_path
+        )
+
+        return decompressed
+    except object_storage.ObjectStorageError as ose:
+        capture_exception(ose)
+        logger.error(
+            "session_recording.object-storage-load-error",
+            recording_id=recording.session_id,
+            path=recording.object_storage_path,
+            exception=ose,
+            exc_info=True,
+        )
+
+        return None
