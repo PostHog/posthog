@@ -1255,16 +1255,17 @@
             ],
             "type": "string"
         },
-        "DataTableColumn": {
-            "type": "string"
-        },
         "DataTableNode": {
             "additionalProperties": false,
             "properties": {
+                "allowSorting": {
+                    "description": "Can the user click on column headers to sort the table? (default: true)",
+                    "type": "boolean"
+                },
                 "columns": {
-                    "description": "Columns shown in the table",
+                    "description": "Columns shown in the table, unless the `source` provides them.",
                     "items": {
-                        "$ref": "#/definitions/DataTableColumn"
+                        "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
                 },
@@ -1272,10 +1273,14 @@
                     "description": "Can expand row to show raw event data (default: true)",
                     "type": "boolean"
                 },
+                "full": {
+                    "description": "Show with most visual options enabled. Used in scenes.",
+                    "type": "boolean"
+                },
                 "hiddenColumns": {
-                    "description": "Columns that aren't shown in the table, even if in columns",
+                    "description": "Columns that aren't shown in the table, even if in columns or returned data",
                     "items": {
-                        "$ref": "#/definitions/DataTableColumn"
+                        "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
                 },
@@ -1386,7 +1391,7 @@
                     "type": "string"
                 }
             },
-            "required": ["attributes", "href", "nth_child", "nth_of_type", "order", "tag_name"],
+            "required": ["attributes", "tag_name"],
             "type": "object"
         },
         "EntityType": {
@@ -1450,18 +1455,6 @@
         "EventsNode": {
             "additionalProperties": false,
             "properties": {
-                "actionId": {
-                    "description": "Show events matching a given action",
-                    "type": "number"
-                },
-                "after": {
-                    "description": "Only fetch events that happened after this timestamp",
-                    "type": "string"
-                },
-                "before": {
-                    "description": "Only fetch events that happened before this timestamp",
-                    "type": "string"
-                },
                 "custom_name": {
                     "type": "string"
                 },
@@ -1512,10 +1505,6 @@
                     },
                     "type": "array"
                 },
-                "personId": {
-                    "description": "Show events for a given person",
-                    "type": "string"
-                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -1559,10 +1548,8 @@
                     "description": "Only fetch events that happened before this timestamp",
                     "type": "string"
                 },
-                "custom_name": {
-                    "type": "string"
-                },
                 "event": {
+                    "description": "Limit to events matching this string",
                     "type": "string"
                 },
                 "fixedProperties": {
@@ -1577,30 +1564,8 @@
                     "type": "string"
                 },
                 "limit": {
+                    "description": "Number of rows to return",
                     "type": "number"
-                },
-                "math": {
-                    "anyOf": [
-                        {
-                            "$ref": "#/definitions/BaseMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/PropertyMathType"
-                        },
-                        {
-                            "$ref": "#/definitions/CountPerActorMathType"
-                        }
-                    ]
-                },
-                "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
-                    "type": "number"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
                 },
                 "orderBy": {
                     "description": "Columns to order by",
@@ -1622,6 +1587,7 @@
                 },
                 "response": {
                     "additionalProperties": false,
+                    "description": "Cached query response",
                     "properties": {
                         "columns": {
                             "items": {
@@ -1649,14 +1615,14 @@
                 "select": {
                     "description": "Return a limited set of data. Required.",
                     "items": {
-                        "$ref": "#/definitions/DataTableColumn"
+                        "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
                 },
                 "where": {
-                    "description": "Filters to apply before and after data is returned",
+                    "description": "HogQL filters to apply on returned data",
                     "items": {
-                        "$ref": "#/definitions/DataTableColumn"
+                        "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
                 }
@@ -1863,6 +1829,9 @@
             },
             "required": ["kind", "series"],
             "type": "object"
+        },
+        "HogQLExpression": {
+            "type": "string"
         },
         "InsightType": {
             "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],

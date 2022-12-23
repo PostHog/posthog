@@ -1,12 +1,26 @@
-import { kea, path, props, key, afterMount, selectors, propsChanged, reducers, actions, beforeUnmount } from 'kea'
+import {
+    kea,
+    path,
+    props,
+    key,
+    afterMount,
+    selectors,
+    propsChanged,
+    reducers,
+    actions,
+    beforeUnmount,
+    listeners,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { DataNode, EventsNode } from '~/queries/schema'
+import { DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isEventsNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
+import { ApiMethodOptions } from 'lib/api'
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export interface DataNodeLogicProps {
     key: string
@@ -25,52 +39,81 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         }
     }),
     actions({
+        abortQuery: true,
+        loadData: true,
         startAutoLoad: true,
         stopAutoLoad: true,
         toggleAutoLoad: true,
-        highlightRows: (rowIds: string[], now = new Date().valueOf()) => ({ rowIds, now }),
+        highlightRows: (rows: any[]) => ({ rows }),
+        setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, cache, values, props }) => ({
         response: [
             null as DataNode['response'] | null,
             {
-                loadData: async () => {
-                    return (await query<DataNode>(values.query)) ?? null
+                loadData: async (_, breakpoint) => {
+                    // TODO: cancel with queryId, combine with abortQuery action
+                    cache.abortController?.abort()
+                    cache.abortController = new AbortController()
+                    const methodOptions: ApiMethodOptions = {
+                        signal: cache.abortController.signal,
+                    }
+                    try {
+                        const now = performance.now()
+                        const data = (await query<DataNode>(props.query, methodOptions)) ?? null
+                        breakpoint()
+                        actions.setElapsedTime(performance.now() - now)
+                        return data
+                    } catch (e: any) {
+                        if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
+                            return values.response
+                        } else {
+                            throw e
+                        }
+                    }
                 },
                 loadNewData: async () => {
                     if (!values.canLoadNewData || values.dataLoading) {
                         return values.response
                     }
-                    const diffQuery: EventsNode =
-                        values.response && values.response.results?.length > 0
-                            ? {
-                                  ...values.query,
-                                  after: values.response.results[0].timestamp,
-                              }
-                            : values.query
-                    const newResponse = (await query(diffQuery)) ?? null
-                    actions.highlightRows((newResponse?.results ?? []).map((r) => r.id))
-                    return {
-                        results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
-                        next: values.response?.next,
+                    if (isEventsQuery(props.query) && values.newQuery) {
+                        const now = performance.now()
+                        const newResponse = (await query(values.newQuery)) ?? null
+                        actions.setElapsedTime(performance.now() - now)
+                        if (newResponse?.results) {
+                            actions.highlightRows(newResponse?.results)
+                        }
+                        return {
+                            ...values.response,
+                            results: [...(newResponse?.results ?? []), ...(values.response?.results ?? [])],
+                        }
                     }
+                    return values.response
                 },
                 loadNextData: async () => {
-                    if (!values.canLoadNextData || values.dataLoading) {
+                    if (!values.canLoadNextData || values.dataLoading || !values.nextQuery) {
                         return values.response
                     }
-                    const diffQuery: EventsNode =
-                        values.response && values.response.results?.length > 0
-                            ? {
-                                  ...values.query,
-                                  before: values.response.results[values.response.results.length - 1].timestamp,
-                              }
-                            : values.query
-                    const newResponse = (await query(diffQuery)) ?? null
-                    return {
-                        results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
-                        next: values.response?.next,
+                    // TODO: unify when we use the same backend endpoint for both
+                    const now = performance.now()
+                    if (isEventsQuery(props.query)) {
+                        const newResponse = (await query(values.nextQuery)) ?? null
+                        actions.setElapsedTime(performance.now() - now)
+                        return {
+                            ...values.response,
+                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            hasMore: newResponse?.hasMore,
+                        }
+                    } else if (isPersonsNode(props.query)) {
+                        const newResponse = (await query(values.nextQuery)) ?? null
+                        actions.setElapsedTime(performance.now() - now)
+                        return {
+                            ...values.response,
+                            results: [...(values.response?.results ?? []), ...(newResponse?.results ?? [])],
+                            next: newResponse?.next,
+                        }
                     }
+                    return values.response
                 },
             },
         ],
@@ -91,48 +134,107 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             {
                 persist: true,
                 storageKey: clsx('queries.nodes.dataNodeLogic.autoLoadToggled', props.query.kind, {
-                    action: (isEventsNode(props.query) || isEventsQuery(props.query)) && props.query.actionId,
-                    person: (isEventsNode(props.query) || isEventsQuery(props.query)) && props.query.personId,
+                    action: isEventsQuery(props.query) && props.query.actionId,
+                    person: isEventsQuery(props.query) && props.query.personId,
                 }),
             },
             { toggleAutoLoad: (state) => !state },
         ],
         autoLoadStarted: [false, { startAutoLoad: () => true, stopAutoLoad: () => false }],
         highlightedRows: [
-            {} as Record<string, number>,
+            new Set<any>(),
             {
-                highlightRows: (state, { rowIds, now }) => {
-                    const newState = { ...state }
-                    for (const rowId of rowIds) {
-                        newState[rowId] = now
-                    }
-                    return newState
-                },
-                loadDataSuccess: () => ({}),
+                highlightRows: (state, { rows }) => new Set([...Array.from(state), ...rows]),
+                loadDataSuccess: () => new Set(),
+            },
+        ],
+        loadingStart: [
+            null as number | null,
+            {
+                setElapsedTime: () => null,
+                loadData: () => performance.now(),
+                loadNewData: () => performance.now(),
+                loadNextData: () => performance.now(),
+            },
+        ],
+        elapsedTime: [
+            null as number | null,
+            {
+                setElapsedTime: (_, { elapsedTime }) => elapsedTime,
+                loadData: () => null,
+                loadNewData: () => null,
+                loadNextData: () => null,
             },
         ],
     })),
     selectors({
-        query: [() => [(_, props) => props.query], (query) => query],
-        canLoadNewData: [
-            (s) => [s.query],
-            (query) => isEventsNode(query) || (isEventsQuery(query) && query.orderBy?.[0] === '-timestamp'),
-        ],
-        canLoadNextData: [
-            (s) => [s.query, s.response],
-            (query, response) => {
-                return (
-                    (isEventsNode(query) || isEventsQuery(query) || isPersonsNode(query)) &&
-                    (response as EventsNode['response'])?.next &&
-                    ((response as EventsNode['response'])?.results?.length ?? 0) > 0
-                )
+        newQuery: [
+            (s, p) => [p.query, s.response],
+            (query, response): DataNode | null => {
+                if (!response || !isEventsQuery(query)) {
+                    return null
+                }
+                if (isEventsQuery(query)) {
+                    const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                    if (sortKey === '-timestamp') {
+                        const sortColumnIndex = query.select
+                            .map((hql) => removeExpressionComment(hql))
+                            .indexOf('timestamp')
+                        if (sortColumnIndex !== -1) {
+                            const typedResults = (response as EventsQuery['response'])?.results
+                            const firstTimestamp = typedResults?.[0][sortColumnIndex]
+                            const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
+                            return nextQuery
+                        }
+                    }
+                }
+                return null
             },
         ],
+        canLoadNewData: [(s) => [s.newQuery], (newQuery) => !!newQuery],
+        nextQuery: [
+            (s, p) => [p.query, s.response],
+            (query, response): DataNode | null => {
+                if (isEventsQuery(query)) {
+                    if ((response as EventsQuery['response'])?.hasMore) {
+                        const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                        if (sortKey === '-timestamp') {
+                            const sortColumnIndex = query.select
+                                .map((hql) => removeExpressionComment(hql))
+                                .indexOf('timestamp')
+                            if (sortColumnIndex !== -1) {
+                                const typedResults = (response as EventsQuery['response'])?.results
+                                const lastTimestamp = typedResults?.[typedResults.length - 1][sortColumnIndex]
+                                const newQuery: EventsQuery = { ...query, before: lastTimestamp }
+                                return newQuery
+                            }
+                        }
+                    }
+                }
+                if (isPersonsNode(query) && response) {
+                    const personsResults = (response as PersonsNode['response'])?.results
+                    const nextQuery: PersonsNode = {
+                        ...query,
+                        limit: query.limit || 100,
+                        offset: personsResults.length,
+                    }
+                    return nextQuery
+                }
+                return null
+            },
+        ],
+        canLoadNextData: [(s) => [s.nextQuery], (nextQuery) => !!nextQuery],
         autoLoadRunning: [
             (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
             (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,
         ],
     }),
+    listeners(({ cache }) => ({
+        abortQuery: () => {
+            // TODO: also cancel with queryId
+            cache.abortController?.abort()
+        },
+    })),
     subscriptions(({ actions, cache, values }) => ({
         autoLoadRunning: (autoLoadRunning) => {
             if (cache.autoLoadInterval) {
@@ -155,6 +257,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     beforeUnmount(({ actions, values }) => {
         if (values.autoLoadRunning) {
             actions.stopAutoLoad()
+        }
+        if (values.dataLoading) {
+            actions.abortQuery()
         }
     }),
 ])

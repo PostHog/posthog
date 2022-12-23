@@ -30,7 +30,7 @@ let uniqueNode = 0
 
 interface ColumnConfiguratorProps {
     query: DataTableNode
-    setQuery?: (node: DataTableNode) => void
+    setQuery?: (query: DataTableNode) => void
 }
 
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {
@@ -42,7 +42,26 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         columns,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
-                setQuery?.({ ...query, source: { ...query.source, select: columns } })
+                // We removed the timestamp column, and can't order by it anymore.
+                if (!columns.includes('timestamp') && query.source.orderBy?.includes('-timestamp')) {
+                    setQuery?.({
+                        ...query,
+                        source: {
+                            ...query.source,
+                            orderBy: [],
+                            select: columns,
+                        },
+                        allowSorting: true,
+                    })
+                } else {
+                    setQuery?.({
+                        ...query,
+                        source: {
+                            ...query.source,
+                            select: columns,
+                        },
+                    })
+                }
             } else {
                 setQuery?.({ ...query, columns })
             }
@@ -171,7 +190,7 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                     <div className="flex-1">
                         <LemonButton
                             type="secondary"
-                            onClick={() => setColumns(defaultDataTableColumns({ kind: NodeKind.EventsNode }))}
+                            onClick={() => setColumns(defaultDataTableColumns(NodeKind.EventsNode))}
                         >
                             Reset to defaults
                         </LemonButton>

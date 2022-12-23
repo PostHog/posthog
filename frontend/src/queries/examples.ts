@@ -29,7 +29,7 @@ import { ShownAsValue } from '~/lib/constants'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,
-    select: defaultDataTableColumns({ kind: NodeKind.EventsQuery }),
+    select: defaultDataTableColumns(NodeKind.EventsQuery),
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
@@ -41,13 +41,9 @@ const EventsTable: DataTableNode = {
     source: Events,
 }
 const EventsTableFull: DataTableNode = {
-    ...EventsTable,
-    showPropertyFilter: true,
-    showEventFilter: true,
-    showExport: true,
-    showReload: true,
-    showColumnConfigurator: true,
-    showEventsBufferWarning: true,
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: Events,
 }
 
 const TotalEvents: EventsQuery = {
@@ -57,6 +53,7 @@ const TotalEvents: EventsQuery = {
 
 const TotalEventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
+    full: true,
     source: TotalEvents,
 }
 
@@ -74,11 +71,13 @@ const PropertyFormulas: EventsQuery = {
 
 const PropertyFormulasTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
+    full: true,
     source: PropertyFormulas,
 }
 
-const EventAggegations: DataTableNode = {
+const EventAggregations: DataTableNode = {
     kind: NodeKind.DataTableNode,
+    full: true,
     source: {
         kind: NodeKind.EventsQuery,
         select: [
@@ -89,11 +88,6 @@ const EventAggegations: DataTableNode = {
         ],
         orderBy: ['-total()'],
     },
-    showReload: true,
-    showEventFilter: true,
-    showPropertyFilter: true,
-    showExport: true,
-    showColumnConfigurator: true,
 }
 
 const Persons: PersonsNode = {
@@ -105,16 +99,15 @@ const Persons: PersonsNode = {
 
 const PersonsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    columns: defaultDataTableColumns({ kind: NodeKind.PersonsNode }),
+    columns: defaultDataTableColumns(NodeKind.PersonsNode),
     source: Persons,
 }
 
 const PersonsTableFull: DataTableNode = {
-    ...PersonsTable,
-    showSearch: true,
-    showPropertyFilter: true,
-    showExport: true,
-    showReload: true,
+    kind: NodeKind.DataTableNode,
+    full: true,
+    columns: defaultDataTableColumns(NodeKind.PersonsNode),
+    source: Persons,
 }
 
 const LegacyTrendsQuery: LegacyQuery = {
@@ -274,11 +267,9 @@ export const examples: Record<string, Node> = {
     Events,
     EventsTable,
     EventsTableFull,
-    TotalEvents,
     TotalEventsTable,
-    PropertyFormulas,
     PropertyFormulasTable,
-    EventAggegations,
+    EventAggregations,
     Persons,
     PersonsTable,
     PersonsTableFull,
