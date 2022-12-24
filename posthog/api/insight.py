@@ -70,7 +70,7 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, should_refresh, str_to_bool
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, generate_short_id, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -171,6 +171,11 @@ class InsightSerializer(InsightBasicSerializer):
         Used as a cache key for this result.
         A different hash will be returned if loading the insight on a dashboard that has filters.""",
     )
+    use_insight: serializers.CharField = serializers.CharField(
+        write_only=True,
+        required=False,
+        help_text="To duplicate an insight provide its short id, and it will be used as a source.",
+    )
 
     class Meta:
         model = Insight
@@ -201,6 +206,7 @@ class InsightSerializer(InsightBasicSerializer):
             "effective_privilege_level",
             "timezone",
             "is_cached",
+            "use_insight",
         ]
         read_only_fields = (
             "created_at",
@@ -227,17 +233,33 @@ class InsightSerializer(InsightBasicSerializer):
         tags = validated_data.pop("tags", None)  # tags are created separately as global tag relationships
 
         created_by = validated_data.pop("created_by", request.user)
-        dashboards = validated_data.pop("dashboards", None)
 
-        insight = Insight.objects.create(
-            team=team,
-            created_by=created_by,
-            last_modified_by=request.user,
-            **validated_data,
-        )
+        use_insight = validated_data.pop("use_insight", None)
+        source_insight = None
+        if use_insight is not None:
+            try:
+                source_insight: Insight = Insight.objects.get(short_id=use_insight, team=team)
 
-        if dashboards is not None:
-            for dashboard in Dashboard.objects.filter(id__in=[d.id for d in dashboards]).all():
+            except Insight.DoesNotExist:
+                raise ValidationError("That insight cannot be duplicated")
+
+        if source_insight is not None:
+            source_insight.pk = None
+            source_insight._state.adding = True
+            source_insight.created_by = created_by
+            source_insight.last_modified_by = request.user
+            source_insight.last_modified_at = now()
+            source_insight.created_at = now()
+            source_insight.short_id = generate_short_id()
+            source_insight.save()
+            insight = source_insight
+        else:
+            insight = Insight.objects.create(
+                team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+            )
+
+        if source_insight is not None and source_insight.dashboards:
+            for dashboard in source_insight.dashboards.all():
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 

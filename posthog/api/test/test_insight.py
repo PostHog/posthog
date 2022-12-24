@@ -44,6 +44,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def setUp(self) -> None:
         super().setUp()
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
+        self.another_team = Team.objects.create(organization=self.organization, name="other team")
 
     def test_get_insight_items(self) -> None:
         filter_dict = {
@@ -261,10 +262,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
 
         # Red herring: Should be ignored because it's not on the current team (even though the user has access)
-        new_team = Team.objects.create(organization=self.organization)
         Insight.objects.create(
             filters=Filter(data=filter_dict).to_dict(),
-            team=new_team,
+            team=self.another_team,
             short_id="12345678",
         )
 
@@ -480,7 +480,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.assert_insight_activity(response_data["id"], [])
 
-    def test_create_insight_items_on_a_dashboard(self) -> None:
+    def test_add_insight_items_on_a_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
 
         insight_id, _ = self.dashboard_api.create_insight(
@@ -604,6 +604,47 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile.filters_hash)
+
+    def test_create_insight_by_duplication(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        _, source_insight = self.dashboard_api.create_insight({"date_from": "-180d"})
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], source_insight["id"])
+        _, duplicated_insight = self.dashboard_api.create_insight({"use_insight": source_insight["short_id"]})
+
+        # some things vary
+        assert source_insight["id"] != duplicated_insight["id"]
+        assert source_insight["short_id"] is not None
+        assert duplicated_insight["short_id"] is not None
+        assert source_insight["short_id"] != duplicated_insight["short_id"]
+        assert duplicated_insight["created_at"] > source_insight["created_at"]
+        assert duplicated_insight["last_modified_at"] > source_insight["last_modified_at"]
+        assert duplicated_insight["updated_at"] > source_insight["updated_at"]
+        source_insight.pop("id")
+        duplicated_insight.pop("id")
+        source_insight.pop("short_id")
+        duplicated_insight.pop("short_id")
+        source_insight.pop("created_at")
+        duplicated_insight.pop("created_at")
+        source_insight.pop("last_modified_at")
+        duplicated_insight.pop("last_modified_at")
+        source_insight.pop("updated_at")
+        duplicated_insight.pop("updated_at")
+        # the rest should be identical
+        assert source_insight == duplicated_insight
+
+    def test_cannot_create_insight_by_duplication_from_another_team(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+
+        source_insight = Insight.objects.create(
+            short_id="abc1234", team=self.another_team, filters={"date_from": "-180d"}, name="on another team"
+        )
+
+        _, duplicated_insight = self.dashboard_api.create_insight(
+            {
+                "use_insight": source_insight.short_id,
+            },
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_logs_derived_name_if_there_is_no_name(self) -> None:
@@ -1660,7 +1701,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             )
 
     def test_cant_create_insight_viewed_for_another_team(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other team")
         filter_dict = {"events": [{"id": "$pageview"}]}
         insight = Insight.objects.create(
             filters=Filter(data=filter_dict).to_dict(),
@@ -1668,17 +1708,16 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             short_id="12345678",
         )
 
-        response = self.client.post(f"/api/projects/{other_team.id}/insights/{insight.id}/viewed")
+        response = self.client.post(f"/api/projects/{self.another_team.id}/insights/{insight.id}/viewed")
 
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
         self.assertEqual(InsightViewed.objects.count(), 0)
 
     def test_cant_create_insight_viewed_for_insight_in_another_team(self) -> None:
-        other_team = Team.objects.create(organization=self.organization, name="other team")
         filter_dict = {"events": [{"id": "$pageview"}]}
         insight = Insight.objects.create(
             filters=Filter(data=filter_dict).to_dict(),
-            team=other_team,
+            team=self.another_team,
             short_id="12345678",
         )
 
@@ -1830,8 +1869,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(
         self,
     ) -> None:
-        another_team = Team.objects.create(organization=self.organization)
-        dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
+        dashboard_other_team: Dashboard = Dashboard.objects.create(team=self.another_team)
 
         insight_id, _ = self.dashboard_api.create_insight(
             data={
@@ -1849,8 +1887,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
 
     def test_cannot_update_insight_with_dashboard_from_another_team(self) -> None:
-        another_team = Team.objects.create(organization=self.organization)
-        dashboard_other_team: Dashboard = Dashboard.objects.create(team=another_team)
+        dashboard_other_team: Dashboard = Dashboard.objects.create(team=self.another_team)
         dashboard_own_team: Dashboard = Dashboard.objects.create(team=self.team)
 
         insight_id, _ = self.dashboard_api.create_insight(
