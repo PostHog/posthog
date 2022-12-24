@@ -244,6 +244,8 @@ class InsightSerializer(InsightBasicSerializer):
                 raise ValidationError("That insight cannot be duplicated")
 
         if source_insight is not None:
+            dashboards = source_insight.dashboards.all()
+
             source_insight.pk = None
             source_insight._state.adding = True
             source_insight.created_by = created_by
@@ -251,20 +253,22 @@ class InsightSerializer(InsightBasicSerializer):
             source_insight.last_modified_at = now()
             source_insight.created_at = now()
             source_insight.short_id = generate_short_id()
+            if source_insight.name:
+                source_insight.name = f"{source_insight.name} (copy)"
+
             source_insight.save()
             insight = source_insight
-        else:
-            insight = Insight.objects.create(
-                team=team, created_by=created_by, last_modified_by=request.user, **validated_data
-            )
 
-        if source_insight is not None and source_insight.dashboards:
-            for dashboard in source_insight.dashboards.all():
+            for dashboard in dashboards:
                 if dashboard.team != insight.team:
                     raise serializers.ValidationError("Dashboard not found")
 
                 DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
                 insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
+        else:
+            insight = Insight.objects.create(
+                team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+            )
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, insight)

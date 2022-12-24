@@ -607,8 +607,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
     def test_create_insight_by_duplication(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        _, source_insight = self.dashboard_api.create_insight({"date_from": "-180d"})
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], source_insight["id"])
+
+        source_insight_id, _ = self.dashboard_api.create_insight({"date_from": "-180d", "name": "the source insight"})
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], source_insight_id)
+        source_insight = self.dashboard_api.get_insight(source_insight_id)
+
         _, duplicated_insight = self.dashboard_api.create_insight({"use_insight": source_insight["short_id"]})
 
         # some things vary
@@ -619,18 +622,17 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert duplicated_insight["created_at"] > source_insight["created_at"]
         assert duplicated_insight["last_modified_at"] > source_insight["last_modified_at"]
         assert duplicated_insight["updated_at"] > source_insight["updated_at"]
-        source_insight.pop("id")
-        duplicated_insight.pop("id")
-        source_insight.pop("short_id")
-        duplicated_insight.pop("short_id")
-        source_insight.pop("created_at")
-        duplicated_insight.pop("created_at")
-        source_insight.pop("last_modified_at")
-        duplicated_insight.pop("last_modified_at")
-        source_insight.pop("updated_at")
-        duplicated_insight.pop("updated_at")
+        assert duplicated_insight["name"] == source_insight["name"] + " (copy)"
+
+        fields_that_vary = ["id", "short_id", "created_at", "last_modified_at", "updated_at", "name"]
+        for field in fields_that_vary:
+            source_insight.pop(field)
+            duplicated_insight.pop(field)
+
         # the rest should be identical
         assert source_insight == duplicated_insight
+
+        assert len(duplicated_insight["dashboards"]) == 1
 
     def test_cannot_create_insight_by_duplication_from_another_team(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
