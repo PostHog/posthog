@@ -1032,69 +1032,6 @@ test('snapshot event stored as session_recording_event', async () => {
     expect(event.snapshot_data).toEqual({ timestamp: 123 })
 })
 
-it('snapshot event not stored if above recordings limit', async () => {
-    await hub.db.postgresQuery(
-        `update posthog_organization set usage = $1`,
-        [{ events: { usage: 101, limit: 100 } }],
-        'testEventsUsage'
-    )
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'other-event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    const events = await hub.db.fetchEvents()
-    expect(events.length).toBe(0)
-})
-
-it('snapshot event not stored if above recordings limit', async () => {
-    await hub.db.postgresQuery('update posthog_team set session_recording_opt_in = $1', [true], 'testRecordings')
-    await hub.db.postgresQuery(
-        `update posthog_organization set usage = $1`,
-        [{ recordings: { usage: 101, limit: 100 } }],
-        'testRecordingsUsage'
-    )
-    await eventsProcessor.processEvent(
-        'some-id',
-        '',
-        {
-            event: '$snapshot',
-            properties: { $session_id: 'abcf-efg', $snapshot_data: { timestamp: 123 } },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    // capture a different event to make sure we processed the snapshot event already
-    await processEvent(
-        'distinct_id1',
-        '',
-        '',
-        {
-            event: 'other-event',
-            properties: {
-                token: team.api_token,
-                distinct_id: 'distinct_id1',
-            },
-        } as any as PluginEvent,
-        team.id,
-        now,
-        new UUIDT().toString()
-    )
-    const sessionRecordingEvents = await hub.db.fetchSessionRecordingEvents()
-    expect(sessionRecordingEvents.length).toBe(0)
-})
-
 test('identify set', async () => {
     await createPerson(hub, team, ['distinct_id1'])
     const ts_before = now

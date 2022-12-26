@@ -702,26 +702,4 @@ describe('TeamManager()', () => {
             })
         })
     })
-
-    describe('isAboveUsageLimit()', () => {
-        it('should return the correct answer in each implicit case', async () => {
-            let team = await teamManager.fetchTeam(2)
-            // no usage set, should return false
-            expect(teamManager.isAboveUsageLimit(team!, 'events')).toEqual(false)
-            // update organization usage
-            await hub.db.postgresQuery(
-                'UPDATE posthog_organization SET usage = $1',
-                [{ events: { usage: 101, limit: 100 }, recordings: { usage: 99, limit: 100 } }],
-                'testUsage'
-            )
-            // delete the cache so we get the new usage
-            teamManager.teamCache.del(2)
-            team = await teamManager.fetchTeam(2)
-            // should return true for events, false for recordings, according to usage json
-            expect(teamManager.isAboveUsageLimit(team!, 'events')).toEqual(true)
-            expect(teamManager.isAboveUsageLimit(team!, 'recordings')).toEqual(false)
-            // should return false for unknown key
-            expect(teamManager.isAboveUsageLimit(team!, 'unknown')).toEqual(false)
-        })
-    })
 })
