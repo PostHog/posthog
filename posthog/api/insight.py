@@ -244,27 +244,7 @@ class InsightSerializer(InsightBasicSerializer):
                 raise ValidationError("That insight cannot be duplicated")
 
         if source_insight is not None:
-            dashboards = source_insight.dashboards.all()
-
-            source_insight.pk = None
-            source_insight._state.adding = True
-            source_insight.created_by = created_by
-            source_insight.last_modified_by = request.user
-            source_insight.last_modified_at = now()
-            source_insight.created_at = now()
-            source_insight.short_id = generate_short_id()
-            if source_insight.name:
-                source_insight.name = f"{source_insight.name} (copy)"
-
-            source_insight.save()
-            insight = source_insight
-
-            for dashboard in dashboards:
-                if dashboard.team != insight.team:
-                    raise serializers.ValidationError("Dashboard not found")
-
-                DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
-                insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
+            insight = self._copy_insight(source_insight, request.user)
         else:
             insight = Insight.objects.create(
                 team=team, created_by=created_by, last_modified_by=request.user, **validated_data
@@ -283,6 +263,30 @@ class InsightSerializer(InsightBasicSerializer):
             user=self.context["request"].user,
         )
 
+        return insight
+
+    def _copy_insight(self, source_insight: Insight, user: User) -> Insight:
+        """
+        Django docs advice on copying models https://docs.djangoproject.com/en/4.1/topics/db/queries/#copying-model-instances
+        """
+        dashboards = source_insight.dashboards.all()
+        source_insight.pk = None
+        source_insight._state.adding = True
+        source_insight.created_by = user
+        source_insight.last_modified_by = user
+        source_insight.last_modified_at = now()
+        source_insight.created_at = now()
+        source_insight.short_id = generate_short_id()
+        if source_insight.name:
+            source_insight.name = f"{source_insight.name} (copy)"
+        source_insight.save()
+        insight = source_insight
+        for dashboard in dashboards:
+            if dashboard.team != insight.team:
+                raise serializers.ValidationError("Dashboard not found")
+
+            DashboardTile.objects.create(insight=insight, dashboard=dashboard, last_refresh=now())
+            insight.last_refresh = now()  # set last refresh if the insight is on at least one dashboard
         return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
