@@ -15,14 +15,12 @@ from rest_framework import exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
-from posthog.api.dashboards.basic_dashboard_tile_serializer import BasicDashboardTileSerializer
 from posthog.api.documentation import extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.insight_serializers import (
@@ -536,58 +534,6 @@ class InsightViewSet(
                         queryset = queryset.filter(dashboard_tiles__dashboard_id=dashboard_id)
 
         return queryset
-
-    @action(methods=["PATCH"], detail=True)
-    def add_to_dashboard(self, request: Request, *args, **kwargs) -> Response:
-        instance = self.get_object()
-        try:
-            dashboard_id = request.data.get("dashboard_id")
-
-            if isinstance(dashboard_id, str) or isinstance(dashboard_id, int):
-                dashboard: Dashboard = Dashboard.objects.exclude(deleted=True).get(id=dashboard_id, team=self.team)
-            else:
-                raise Dashboard.DoesNotExist()
-
-        except Dashboard.DoesNotExist:
-            raise ValidationError(detail="That dashboard cannot be added to this insight.")
-
-        if dashboard.get_effective_privilege_level(self.request.user.id) <= Dashboard.PrivilegeLevel.CAN_VIEW:
-            raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.name}")
-
-        tile, created = DashboardTile.objects.get_or_create(insight=instance, dashboard=dashboard)
-
-        if tile.deleted:
-            tile.deleted = False
-            tile.save()
-
-        serializer = BasicDashboardTileSerializer(tile, context={"request": request})
-
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
-
-    @action(methods=["PATCH"], detail=True)
-    def remove_from_dashboard(self, request: Request, *args, **kwargs) -> Response:
-        instance = self.get_object()
-        try:
-            dashboard_id = request.data.get("dashboard_id")
-
-            if isinstance(dashboard_id, str) or isinstance(dashboard_id, int):
-                dashboard: Dashboard = Dashboard.objects.exclude(deleted=True).get(id=dashboard_id, team=self.team)
-            else:
-                raise Dashboard.DoesNotExist()
-
-        except Dashboard.DoesNotExist:
-            raise ValidationError(detail="That dashboard cannot be removed from this insight.")
-
-        if dashboard.get_effective_privilege_level(self.request.user.id) <= Dashboard.PrivilegeLevel.CAN_VIEW:
-            raise PermissionDenied(f"You don't have permission to remove insights from dashboard: {dashboard.name}")
-
-        tile = DashboardTile.objects.get(insight=instance, dashboard=dashboard)
-        tile.deleted = True
-        tile.save()
-
-        serializer = BasicDashboardTileSerializer(tile, context={"request": request})
-
-        return Response(data=serializer.data, status=status.HTTP_200_OK)
 
     @extend_schema(
         parameters=[

@@ -125,9 +125,10 @@ router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "as
 router.register(r"instance_settings", instance_settings.InstanceSettingsViewset, "instance_settings")
 router.register(r"kafka_inspector", kafka_inspector.KafkaInspectorViewSet, "kafka_inspector")
 
-
+# all marked noqa: E402 to keep iSort happy
 from posthog.api.action import ActionViewSet  # noqa: E402
 from posthog.api.cohort import CohortViewSet, LegacyCohortViewSet  # noqa: E402
+from posthog.api.dashboards.dashboard_tile import DashboardTileViewSet  # noqa: E402
 from posthog.api.element import ElementViewSet, LegacyElementViewSet  # noqa: E402
 from posthog.api.event import EventViewSet, LegacyEventViewSet  # noqa: E402
 from posthog.api.insight import InsightViewSet  # noqa: E402
@@ -160,6 +161,7 @@ if EE_AVAILABLE:
     project_insights_router = projects_router.register(
         r"insights", ClickhouseInsightsViewSet, "project_insights", ["team_id"]
     )
+    projects_router.register(r"dashboard_tiles", DashboardTileViewSet, "project_dashboard_tiles", ["team_id"])
     projects_router.register(r"persons", EnterprisePersonViewSet, "project_persons", ["team_id"])
     router.register(r"person", LegacyEnterprisePersonViewSet, basename="person")
 else:

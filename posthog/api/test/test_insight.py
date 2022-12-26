@@ -936,67 +936,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(objects[0].filters["layout"], "horizontal")
         self.assertEqual(len(objects[0].short_id), 8)
 
-    def test_can_add_an_insight_to_a_dashboard_as_an_isolated_operation(self) -> None:
-        insight_id, _ = self.dashboard_api.create_insight({})
-        dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        # repeat the same API call
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-
-        tiles_count = DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id).count()
-        assert tiles_count == 1
-
-        tile: DashboardTile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
-        tile.deleted = True
-        tile.layouts = {"is set": "to some value"}
-        tile.save()
-
-        # adding when there is an existing soft-deleted tile, undeletes the tile
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-
-        insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
-
-        # adding to a deleted relation undeletes the tile
-        tile.refresh_from_db()
-        assert tile.deleted is False
-        assert tile.layouts == {"is set": "to some value"}
-
-    def test_can_remove_an_insight_from_a_dashboard_as_an_isolated_operation(self) -> None:
-        insight_id, _ = self.dashboard_api.create_insight({})
-        dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.pk}/insights/{insight_id}/remove_from_dashboard", {"dashboard_id": dashboard_id}
-        )
-        assert response.status_code == status.HTTP_200_OK
-
-        insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == []
-        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
-        assert dashboard_json["tiles"] == []
-
-        self.dashboard_api.remove_insight_from_dashboard(dashboard_id, insight_id)
-
-        tiles = DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
-        assert tiles.count() == 1
-        assert tiles[0].deleted is True
-
-        tile: DashboardTile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
-        tile.deleted = False
-        tile.layouts = {"some": "layouts"}
-        tile.save()
-
-        self.dashboard_api.remove_insight_from_dashboard(dashboard_id, insight_id)
-        response_json = self.dashboard_api.get_insight(insight_id)
-        assert response_json["dashboards"] == []
-
-        # adding to a deleted relation re-deletes the same tile
-        tile.refresh_from_db()
-        assert tile.deleted is True
-        assert tile.layouts == {"some": "layouts"}
-
     @patch(
         "posthog.api.insight.synchronously_update_cache",
         wraps=synchronously_update_cache,

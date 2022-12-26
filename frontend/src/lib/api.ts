@@ -164,6 +164,11 @@ class ApiRequest {
         return this.projects().addPathComponent(id)
     }
 
+    // # Tiles
+    public dashboardTiles(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('dashboard_tiles')
+    }
+
     // # Insights
     public insights(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('insights')
@@ -171,14 +176,6 @@ class ApiRequest {
 
     public insight(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
         return this.insights(teamId).addPathComponent(id)
-    }
-
-    public addInsightToDashboard(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insight(id, teamId).addPathComponent('add_to_dashboard')
-    }
-
-    public removeInsightFromDashboard(id: InsightModel['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.insight(id, teamId).addPathComponent('remove_from_dashboard')
     }
 
     public insightsActivity(teamId?: TeamType['id']): ApiRequest {
@@ -473,13 +470,13 @@ const api = {
     tiles: {
         async addInsightToDashboard(insightId: number, dashboardId: number): Promise<void> {
             return await new ApiRequest()
-                .addInsightToDashboard(insightId)
-                .update({ data: { dashboard_id: dashboardId } })
+                .dashboardTiles()
+                .create({ data: { insight_id: insightId, dashboard_id: dashboardId } })
         },
         async removeInsightFromDashboard(insightId: number, dashboardId: number): Promise<void> {
             return await new ApiRequest()
-                .removeInsightFromDashboard(insightId)
-                .update({ data: { dashboard_id: dashboardId } })
+                .dashboardTiles()
+                .create({ data: { insight_id: insightId, dashboard_id: dashboardId, deleted: true } })
         },
     },
     actions: {

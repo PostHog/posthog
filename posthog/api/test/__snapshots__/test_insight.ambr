@@ -701,7 +701,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('018544d9-6b50-0001-fe50-7d371876f85f'::uuid, 1892, 1588, NULL, 'cache_9902bd7f8e4ed6f7418e12e0a6172e9d', NULL, '2022-12-24T15:56:17.616953+00:00'::timestamptz, '2022-12-24T15:56:17.616953+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01854ebc-b93d-0001-f2d1-1c672757dee7'::uuid, 2360, 1841, NULL, 'cache_2066080eeb528da06521ecc892527ece', NULL, '2022-12-26T14:01:09.181386+00:00'::timestamptz, '2022-12-26T14:01:09.181386+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE

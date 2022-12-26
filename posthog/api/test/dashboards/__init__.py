@@ -253,11 +253,12 @@ class DashboardAPI:
         """
         response: Optional[Response] = None
         for dashboard_id in dashboard_ids:
-            patch_response: Response = self.client.patch(
-                f"/api/projects/{self.team.id}/insights/{insight_id}/add_to_dashboard", {"dashboard_id": dashboard_id}
+            create_response: Response = self.client.post(
+                f"/api/projects/{self.team.id}/dashboard_tiles",
+                {"insight_id": insight_id, "dashboard_id": dashboard_id},
             )
-            self.assertEqual(patch_response.status_code, expected_status)
-            response = patch_response
+            self.assertEqual(create_response.status_code, expected_status)
+            response = create_response
 
         if response is None:
             raise Exception("super impossible or silly to get here")
@@ -266,8 +267,9 @@ class DashboardAPI:
     def remove_insight_from_dashboard(
         self, dashboard_id: int, insight_id: int, expected_status: int = status.HTTP_200_OK
     ) -> Dict:
-        patch_response: Response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}/remove_from_dashboard", {"dashboard_id": dashboard_id}
+        patch_response: Response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboard_tiles",
+            {"insight_id": insight_id, "dashboard_id": dashboard_id, "deleted": True},
         )
         self.assertEqual(patch_response.status_code, expected_status)
         return patch_response.json()
