@@ -132,6 +132,8 @@ def handle_billing_service_error(res: requests.Response, valid_codes=(200, 404, 
 
 
 class BillingManager:
+    license: Optional[License]
+
     def __init__(self, license):
         self.license = license or License.objects.first_valid()
 
@@ -145,7 +147,10 @@ class BillingManager:
 
         return {"available_features": []}
 
-    def update_billing(self, organization: Organization, data: Dict[str, Any]) -> Dict[str, Any]:
+    def update_billing(self, organization: Organization, data: Dict[str, Any]) -> None:
+        if not self.license:  # mypy
+            raise Exception("No license found")
+
         billing_service_token = build_billing_token(self.license, organization)
 
         res = requests.patch(
@@ -160,6 +165,8 @@ class BillingManager:
         """
         Retrieves billing info and updates local models if necessary
         """
+        if not self.license:  # mypy
+            raise Exception("No license found")
         billing_service_token = build_billing_token(self.license, organization)
 
         res = requests.get(
@@ -181,7 +188,7 @@ class BillingManager:
 
         # Sync the License and Org if we have a valid response
         if self.license and billing_service_response.get("license"):
-            self._update_license_details(billing_service_response["license"])
+            self.update_license_details(billing_service_response["license"])
         if organization and billing_service_response.get("customer"):
             response.update(billing_service_response["customer"])
 
@@ -229,10 +236,13 @@ class BillingManager:
 
         return res.json()
 
-    def _update_license_details(self, data: Dict[str, Any]) -> License:
+    def update_license_details(self, data: Dict[str, Any]) -> License:
         """
         Ensure the license details are up-to-date locally
         """
+        if not self.license:  # mypy
+            raise Exception("No license found")
+
         license_modified = False
 
         if not self.license.valid_until or self.license.valid_until < timezone.now() + timedelta(days=29):
@@ -263,12 +273,10 @@ class BillingManager:
             "events": {
                 "usage": None,
                 "limit": None,
-                "unreported_usage": None,
             },
             "recordings": {
                 "usage": None,
                 "limit": None,
-                "unreported_usage": None,
             },
         }
 
@@ -318,7 +326,7 @@ class BillingViewset(viewsets.GenericViewSet):
         if license and not license.is_v2_license:
             raise NotFound("Billing V2 is not supported for this license type")
 
-        org = self._get_org()
+        org = self._get_org_required()
 
         # If on Cloud and we have the property billing - return 404 as we always use legacy billing it it exists
         if hasattr(org, "billing"):
@@ -402,18 +410,13 @@ class BillingViewset(viewsets.GenericViewSet):
                 }
             )
         data = res.json()
-        self._update_license_details(license, data["license"])
+        BillingManager(license).update_license_details(data["license"])
         return Response({"success": True})
 
-    def _get_org(self) -> Optional[Organization]:
+    def _get_org_required(self) -> Organization:
         org = None if self.request.user.is_anonymous else self.request.user.organization
 
-        return org
-
-    def _get_org_required(self) -> Organization:
-        org = self._get_org()
-
         if not org:
-            raise Exception("You cannot setup billing without an organization configured.")
+            raise Exception("You cannot interact with the billing service without an organization configured.")
 
         return org

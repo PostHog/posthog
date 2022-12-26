@@ -237,7 +237,8 @@ def send_report_to_billing_service(organization: Organization, report: Dict) -> 
             f"Failed to send usage report to billing service code:{response.status_code} response:{response.text}"
         )
 
-    BillingManager(license)._process_billing_service_response(response)
+    response_data: Dict[str, Any] = response.json()
+    BillingManager(license)._process_billing_service_response(organization, response_data)
 
 
 def capture_event(

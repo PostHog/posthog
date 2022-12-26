@@ -30,7 +30,7 @@ RATE_LIMITER_CACHE_KEY = "@posthog-plugin-server/rate-limiter/"
 def update_all_org_billing_rate_limiting(
     dry_run: bool = False,
     only_organization_id: Optional[str] = None,
-) -> Dict[str, Dict[str, int]]:  # Dict[str, Any]]:
+) -> Dict[str, Dict[str, float]]:  # Dict[str, Any]]:
 
     period = get_current_day()
     period_start, period_end = period
@@ -73,7 +73,7 @@ def update_all_org_billing_rate_limiting(
                         getattr(org_report, field.name) + getattr(team_report, field.name),
                     )
 
-    rate_limited_orgs: Dict[str, Dict[str, int]] = {"events": {}, "recordings": {}}
+    rate_limited_orgs: Dict[str, Dict[str, float]] = {"events": {}, "recordings": {}}
 
     redis_client = get_client()
 
@@ -102,7 +102,7 @@ def update_all_org_billing_rate_limiting(
             if org_mapping != {}:
                 redis_client.zadd(
                     f"{RATE_LIMITER_CACHE_KEY}{field.name}",
-                    org_mapping,
+                    org_mapping,  # type: ignore
                 ),
 
     return rate_limited_orgs

@@ -1,4 +1,4 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from uuid import uuid4
 
 import fakeredis
@@ -12,11 +12,11 @@ from posthog.test.base import BaseTest, _create_event
 
 @freeze_time("2022-01-10T02:01:00Z")
 class TestBillingRateLimit(BaseTest):
-    def setUp(self):
+    def setUp(self) -> None:
         self.redis_client = fakeredis.FakeStrictRedis()
 
     @patch("posthog.tasks.rate_limit.get_client")
-    def test_billing_rate_limit_not_set_if_missing_org_usage(self, mock_redis_client):
+    def test_billing_rate_limit_not_set_if_missing_org_usage(self, mock_redis_client: MagicMock) -> None:
         mock_redis_client.return_value = self.redis_client
         with self.settings(USE_TZ=False):
             self.organization.usage = {}
@@ -43,7 +43,7 @@ class TestBillingRateLimit(BaseTest):
         assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}recordings", 0, -1) == []
 
     @patch("posthog.tasks.rate_limit.get_client")
-    def test_billing_rate_limit(self, mock_redis_client):
+    def test_billing_rate_limit(self, mock_redis_client: MagicMock) -> None:
         mock_redis_client.return_value = self.redis_client
         with self.settings(USE_TZ=False):
             self.organization.usage = {"events": {"usage": 99, "limit": 100}, "recordings": {"usage": 1, "limit": 100}}
