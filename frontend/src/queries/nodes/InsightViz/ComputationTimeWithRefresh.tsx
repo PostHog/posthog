@@ -9,7 +9,7 @@ const REFRESH_INTERVAL_MINUTES = 3
 
 export function ComputationTimeWithRefresh(): JSX.Element | null {
     const { lastRefresh } = useValues(dataNodeLogic)
-    const { loadRefreshedData } = useActions(dataNodeLogic)
+    const { loadData } = useActions(dataNodeLogic)
 
     usePeriodicRerender(15000)
 
@@ -29,7 +29,9 @@ export function ComputationTimeWithRefresh(): JSX.Element | null {
                 <Button
                     size="small"
                     type="link"
-                    onClick={loadRefreshedData}
+                    onClick={() => {
+                        loadData(true)
+                    }}
                     disabled={
                         !!lastRefresh &&
                         dayjs()

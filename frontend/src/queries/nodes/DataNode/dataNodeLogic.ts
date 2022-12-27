@@ -34,11 +34,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         response: [
             null as DataNode['response'] | null,
             {
-                loadData: async () => {
-                    return (await query<DataNode>(values.query)) ?? null
-                },
-                loadRefreshedData: async () => {
-                    return (await query<DataNode>(values.query, undefined, true)) ?? null
+                loadData: async (refresh?: boolean) => {
+                    return (await query<DataNode>(values.query, undefined, refresh)) ?? null
                 },
                 loadNewData: async () => {
                     if (!values.canLoadNewData || values.dataLoading) {
