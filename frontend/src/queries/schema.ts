@@ -91,6 +91,29 @@ export interface EventsNode extends EntityNode {
     kind: NodeKind.EventsNode
     event?: string
     limit?: number
+    /** Columns to order by */
+    orderBy?: string[]
+    /** Return a limited set of data */
+    response?: {
+        results: EventType[]
+        next?: string
+    }
+}
+
+export interface EventsQuery extends DataNode {
+    kind: NodeKind.EventsQuery
+    /** Return a limited set of data. Required. */
+    select: HogQLExpression[]
+    /** HogQL filters to apply on returned data */
+    where?: HogQLExpression[]
+    /** Properties configurable in the interface */
+    properties?: AnyPropertyFilter[]
+    /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
+    fixedProperties?: AnyPropertyFilter[]
+    /** Limit to events matching this string */
+    event?: string
+    /** Number of rows to return */
+    limit?: number
     /** Show events matching a given action */
     actionId?: number
     /** Show events for a given person */
@@ -101,23 +124,12 @@ export interface EventsNode extends EntityNode {
     after?: string
     /** Columns to order by */
     orderBy?: string[]
-    /** Return a limited set of data */
-    response?: {
-        results: EventType[]
-        next?: string
-    }
-}
 
-export interface EventsQuery extends Omit<EventsNode, 'kind' | 'response'> {
-    kind: NodeKind.EventsQuery
-    /** Return a limited set of data. Required. */
-    select: DataTableColumn[]
-    /** Filters to apply before and after data is returned */
-    where?: DataTableColumn[]
     response?: {
         columns: string[]
         types: string[]
         results: any[][]
+        hasMore?: boolean
     }
 }
 
@@ -135,6 +147,8 @@ export interface PersonsNode extends DataNode {
     properties?: AnyPropertyFilter[]
     /** Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person) */
     fixedProperties?: AnyPropertyFilter[]
+    limit?: number
+    offset?: number
 }
 
 // Data table node
@@ -143,10 +157,12 @@ export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
     source: EventsNode | EventsQuery | PersonsNode
-    /** Columns shown in the table  */
-    columns?: DataTableColumn[]
-    /** Columns that aren't shown in the table, even if in columns */
-    hiddenColumns?: DataTableColumn[]
+    /** Columns shown in the table, unless the `source` provides them. */
+    columns?: HogQLExpression[]
+    /** Columns that aren't shown in the table, even if in columns or returned data */
+    hiddenColumns?: HogQLExpression[]
+    /** Show with most visual options enabled. Used in scenes. */
+    full?: boolean
     /** Include an event filter above the table (EventsNode only) */
     showEventFilter?: boolean
     /** Include a free text search field (PersonsNode only) */
@@ -159,6 +175,8 @@ export interface DataTableNode extends Node {
     showExport?: boolean
     /** Show a reload button */
     showReload?: boolean
+    /** Show the time it takes to run a query */
+    showElapsedTime?: boolean
     /** Show a button to configure the table's columns if possible */
     showColumnConfigurator?: boolean
     /** Can expand row to show raw event data (default: true) */
@@ -262,7 +280,7 @@ export type InsightQueryNode =
 export type InsightNodeKind = InsightQueryNode['kind']
 export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
 
-export type DataTableColumn = string
+export type HogQLExpression = string
 
 // Legacy queries
 

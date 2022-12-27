@@ -12,7 +12,7 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
     query: T | string
     /** Set this if you're controlling the query parameter */
-    setQuery?: (node: T) => void
+    setQuery?: (query: T) => void
     /** Does not call setQuery, not even locally */
     readOnly?: boolean
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
@@ -20,15 +20,16 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
 }
 
 export function Query(props: QueryProps): JSX.Element {
-    const { query: globalQuery, setQuery: globalSetQuery, readOnly, context } = props
-    const [localQuery, localSetQuery] = useState(globalQuery)
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, context } = props
+    const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
-        if (globalQuery !== localQuery) {
-            localSetQuery(globalQuery)
+        if (propsQuery !== localQuery) {
+            localSetQuery(propsQuery)
         }
-    }, [globalQuery])
-    const query = readOnly ? globalQuery : localQuery
-    const setQuery = readOnly ? undefined : globalSetQuery ?? localSetQuery
+    }, [propsQuery])
+
+    const query = readOnly ? propsQuery : localQuery
+    const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
 
     if (typeof query === 'string') {
         try {
@@ -37,6 +38,7 @@ export function Query(props: QueryProps): JSX.Element {
             return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
         }
     }
+
     let component
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />

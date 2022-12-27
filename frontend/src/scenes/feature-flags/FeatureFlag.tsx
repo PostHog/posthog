@@ -60,6 +60,7 @@ import { ResourcePermission } from 'scenes/ResourcePermissionModal'
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -450,13 +451,14 @@ function ExposureTab({ id, featureFlagKey }: { id: string; featureFlagKey: strin
             query={{
                 kind: NodeKind.DataTableNode,
                 source: {
-                    kind: NodeKind.EventsNode,
+                    kind: NodeKind.EventsQuery,
+                    select: defaultDataTableColumns(NodeKind.EventsQuery),
                     event: '$feature_flag_called',
                     properties: defaultPropertyOnFlag(featureFlagKey),
                 },
-                showReload: true,
-                showColumnConfigurator: true,
-                showExport: true,
+                full: true,
+                showEventFilter: false,
+                showPropertyFilter: false,
             }}
         />
     ) : (

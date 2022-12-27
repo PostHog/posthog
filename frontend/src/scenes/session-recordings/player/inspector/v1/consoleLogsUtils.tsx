@@ -1,13 +1,15 @@
 import { Link } from 'lib/components/Link'
 import React from 'react'
-import { RecordingConsoleLog, RecordingTimeMixinType, RRWebRecordingConsoleLogPayload } from '~/types'
+import { RecordingConsoleLogBase, RRWebRecordingConsoleLogPayload } from '~/types'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/list/ConsoleDetails'
+import { ConsoleDetails, ConsoleDetailsProps } from 'scenes/session-recordings/player/inspector/v1/ConsoleDetails'
 import md5 from 'md5'
 
 const STRING_INCLUDES_URL = new RegExp(
     '([a-zA-Z0-9]+://)?([a-zA-Z0-9_]+:[a-zA-Z0-9_]+@)?([a-zA-Z0-9.-]+\\.[A-Za-z]{2,4})(:[0-9]+)?(/.*)?'
 )
+
+export const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
 export interface ParsedEntry {
     type: 'array' | 'object' | 'string'
@@ -112,9 +114,7 @@ export function parseEntry(entry?: string): ParsedEntry {
 }
 
 // Parses a rrweb console log payload into something the frontend likes
-export function parseConsoleLogPayload(
-    payload: RRWebRecordingConsoleLogPayload
-): Omit<RecordingConsoleLog, keyof RecordingTimeMixinType> {
+export function parseConsoleLogPayload(payload: RRWebRecordingConsoleLogPayload): RecordingConsoleLogBase {
     const { level, payload: content, trace } = payload
 
     // Parse each string entry in content and trace

@@ -143,6 +143,9 @@ export const FEATURE_FLAGS = {
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
     ACTOR_PROPERTIES_TIMELINE: 'actor-properties-timeline', // owner: @Twixes
+    QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
+    RECORDINGS_INSPECTOR_V2: 'recordings-inspector-v2', // owner: #team-session-recordings
+    RECORDINGS_INSPECTOR_PERFORMANCE: 'recordings-inspector-performance', // owner: #team-session-recordings
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
 }
 
@@ -171,6 +174,7 @@ export const FEATURE_MINIMUM_PLAN: Record<AvailableFeature, LicensePlan> = {
     [AvailableFeature.RECORDINGS_PLAYLISTS]: LicensePlan.Scale,
     [AvailableFeature.ROLE_BASED_ACCESS]: LicensePlan.Enterprise,
     [AvailableFeature.RECORDINGS_FILE_EXPORT]: LicensePlan.Scale,
+    [AvailableFeature.RECORDINGS_PERFORMANCE]: LicensePlan.Scale,
 }
 
 export const ENTITY_MATCH_TYPE = 'entities'

@@ -18,8 +18,8 @@ import {
     EventsQuery,
 } from '~/queries/schema'
 
-export function isDataNode(node?: Node): node is EventsNode | ActionsNode | PersonsNode {
-    return isEventsNode(node) || isEventsQuery(node) || isActionsNode(node) || isPersonsNode(node)
+export function isDataNode(node?: Node): node is EventsQuery | PersonsNode {
+    return isEventsQuery(node) || isPersonsNode(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {

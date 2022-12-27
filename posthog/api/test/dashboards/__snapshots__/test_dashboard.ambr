@@ -40,6 +40,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -83,6 +84,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -178,6 +180,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -268,6 +271,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -406,6 +410,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -542,6 +547,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -681,6 +687,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -788,6 +795,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -925,6 +933,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1017,6 +1026,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1086,6 +1096,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1222,6 +1233,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1291,6 +1303,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1334,6 +1347,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1452,6 +1466,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1483,7 +1498,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-a8c6-0001-284a-8fee08338829'::uuid, 144, 2626, 3459, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:51.654838+00:00'::timestamptz, '2022-12-13T01:12:51.654838+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-5404-0001-dad7-b7788141b5cc'::uuid, 1, 66, 74, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:40.324974+00:00'::timestamptz, '2022-12-23T12:12:40.324974+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -1617,6 +1632,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1712,6 +1728,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1802,6 +1819,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -1942,6 +1960,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2040,6 +2059,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2145,6 +2165,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2222,6 +2243,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2253,7 +2275,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-a8a4-0001-89cf-751900394bc5'::uuid, 144, 2626, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:51.620814+00:00'::timestamptz, '2022-12-13T01:12:51.620814+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-53f2-0001-9d4b-d3df7d5fc2e6'::uuid, 1, 66, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:40.306865+00:00'::timestamptz, '2022-12-23T12:12:40.306865+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -2317,6 +2339,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2360,6 +2383,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2403,6 +2427,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2508,6 +2533,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2585,6 +2611,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2616,7 +2643,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-aba3-0001-d0fb-f4b90374b8fa'::uuid, 144, 2629, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.387851+00:00'::timestamptz, '2022-12-13T01:12:52.387851+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-5769-0001-af1c-156057dbc81b'::uuid, 1, 69, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.193377+00:00'::timestamptz, '2022-12-23T12:12:41.193377+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -2680,6 +2707,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2723,6 +2751,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2858,6 +2887,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -2889,7 +2919,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-abba-0001-7f2c-f9a58887e53e'::uuid, 144, 2629, 3463, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.410769+00:00'::timestamptz, '2022-12-13T01:12:52.410769+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-577a-0001-df5f-ad4e9d2789bb'::uuid, 1, 69, 78, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.210194+00:00'::timestamptz, '2022-12-23T12:12:41.210194+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -2994,6 +3024,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3102,6 +3133,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3192,6 +3224,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3287,6 +3320,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3392,6 +3426,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3473,6 +3508,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3603,6 +3639,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3634,7 +3671,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-abe6-0001-89ff-020cfb97a9cd'::uuid, 144, 2630, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.454201+00:00'::timestamptz, '2022-12-13T01:12:52.454201+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-579d-0001-06a3-9af7863ce3e7'::uuid, 1, 70, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.245662+00:00'::timestamptz, '2022-12-23T12:12:41.245662+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -3698,6 +3735,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3741,6 +3779,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3859,6 +3898,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -3911,7 +3951,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-abf9-0001-e53c-2503d653ba13'::uuid, 144, 2630, 3464, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.473766+00:00'::timestamptz, '2022-12-13T01:12:52.473766+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-57ad-0001-dd4d-764752dc7d11'::uuid, 1, 70, 79, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.261276+00:00'::timestamptz, '2022-12-23T12:12:41.261276+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -4016,6 +4056,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4111,6 +4152,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4227,6 +4269,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4336,6 +4379,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4472,6 +4516,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4611,6 +4656,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4742,6 +4788,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4785,6 +4832,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4828,6 +4876,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4871,6 +4920,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -4914,6 +4964,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5019,6 +5070,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5062,6 +5114,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5105,6 +5158,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5182,6 +5236,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5242,7 +5297,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-ac43-0001-5dcd-1a3b36cb5ee8'::uuid, 144, 2627, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.547943+00:00'::timestamptz, '2022-12-13T01:12:52.547943+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-57e7-0001-e5c8-0028a30c6998'::uuid, 1, 67, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.319230+00:00'::timestamptz, '2022-12-23T12:12:41.319230+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -5342,6 +5397,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5385,6 +5441,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5462,6 +5519,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5493,7 +5551,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-ac58-0001-2a64-f584c79ae4f3'::uuid, 144, 2628, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.568812+00:00'::timestamptz, '2022-12-13T01:12:52.568812+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-57f8-0001-cf80-a8983034e3d4'::uuid, 1, 68, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.336689+00:00'::timestamptz, '2022-12-23T12:12:41.336689+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -5593,6 +5651,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5636,6 +5695,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5679,6 +5739,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5756,6 +5817,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5787,7 +5849,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-ac76-0001-a2db-8d8d3c032b14'::uuid, 144, 2629, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.598121+00:00'::timestamptz, '2022-12-13T01:12:52.598121+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-580a-0001-3258-763bbc0cd635'::uuid, 1, 69, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.354334+00:00'::timestamptz, '2022-12-23T12:12:41.354334+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -5887,6 +5949,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -5930,6 +5993,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6007,6 +6071,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6038,7 +6103,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-ac8b-0001-bf12-98c4aa56827f'::uuid, 144, 2630, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.619363+00:00'::timestamptz, '2022-12-13T01:12:52.619363+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-581c-0001-c95c-954b3e492deb'::uuid, 1, 70, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.372130+00:00'::timestamptz, '2022-12-23T12:12:41.372130+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -6114,6 +6179,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6313,6 +6379,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6467,6 +6534,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6578,6 +6646,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6695,6 +6764,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6764,6 +6834,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6882,6 +6953,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -6987,6 +7059,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7064,6 +7137,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7157,7 +7231,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-aafc-0001-884d-b213dad8d629'::uuid, 144, 2627, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.220942+00:00'::timestamptz, '2022-12-13T01:12:52.220942+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-56de-0001-3563-2aca54a3ab06'::uuid, 1, 67, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.054127+00:00'::timestamptz, '2022-12-23T12:12:41.054127+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -7221,6 +7295,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7264,6 +7339,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7382,6 +7458,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7413,7 +7490,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-ab19-0001-2018-cc5404c41a27'::uuid, 144, 2627, 3460, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.249162+00:00'::timestamptz, '2022-12-13T01:12:52.249162+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-56f0-0001-126b-28f847d823b4'::uuid, 1, 67, 75, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.072185+00:00'::timestamptz, '2022-12-23T12:12:41.072185+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -7451,6 +7528,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7501,6 +7579,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7619,6 +7698,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7650,7 +7730,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-ab2b-0000-06b0-b2ddeda4d045'::uuid, 144, 2627, 3461, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.267026+00:00'::timestamptz, '2022-12-13T01:12:52.267026+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-5707-0001-64cc-7b7c56a097b1'::uuid, 1, 67, 76, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.095483+00:00'::timestamptz, '2022-12-23T12:12:41.095483+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -7755,6 +7835,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7840,6 +7921,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7935,6 +8017,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -7999,6 +8082,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8097,6 +8181,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8192,6 +8277,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8297,6 +8383,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8374,6 +8461,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8405,7 +8493,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-ab5e-0001-263c-a4364f3bda96'::uuid, 144, 2628, NULL, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.318974+00:00'::timestamptz, '2022-12-13T01:12:52.318974+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-5733-0001-fd7b-34cf9cfb2003'::uuid, 1, 68, NULL, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.139316+00:00'::timestamptz, '2022-12-23T12:12:41.139316+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -8482,6 +8570,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8525,6 +8614,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8643,6 +8733,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8674,7 +8765,7 @@
   '
   
   INSERT INTO posthog_insightcachingstate AS state (id, team_id, insight_id, dashboard_tile_id, cache_key, target_cache_age_seconds, created_at, updated_at, refresh_attempt)
-  VALUES ('0185090a-ab72-0001-1ac6-061e6dc724f0'::uuid, 144, 2628, 3462, 'cache_c9b7f1812694e57913a894da0e95b7fc', NULL, '2022-12-13T01:12:52.338383+00:00'::timestamptz, '2022-12-13T01:12:52.338383+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
+  VALUES ('01853ee6-5744-0001-3716-5c0aa426b805'::uuid, 1, 68, 77, 'cache_8ebf94c84ccaac0ea4f796d475478017', NULL, '2022-12-23T12:12:41.156776+00:00'::timestamptz, '2022-12-23T12:12:41.156776+00:00'::timestamptz, 0) ON CONFLICT (insight_id, coalesce(dashboard_tile_id, -1)) DO
   UPDATE
   SET last_refresh =
     (SELECT CASE
@@ -8786,6 +8877,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8881,6 +8973,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -8971,6 +9064,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -9173,6 +9267,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -9298,6 +9393,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -9407,6 +9503,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -9543,6 +9640,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -9732,6 +9830,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -9775,6 +9874,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -9886,6 +9986,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -10029,6 +10130,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -10101,6 +10203,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -10291,6 +10394,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -10402,6 +10506,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -10519,6 +10624,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -10588,6 +10694,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",
@@ -10705,6 +10812,7 @@
          "posthog_team"."ingested_event",
          "posthog_team"."session_recording_opt_in",
          "posthog_team"."capture_console_log_opt_in",
+         "posthog_team"."capture_performance_opt_in",
          "posthog_team"."signup_token",
          "posthog_team"."is_demo",
          "posthog_team"."access_control",

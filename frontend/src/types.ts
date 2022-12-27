@@ -23,7 +23,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
+import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { Layout } from 'react-grid-layout'
 import { InsightQueryNode } from './queries/schema'
 
@@ -53,6 +53,7 @@ export enum AvailableFeature {
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     ROLE_BASED_ACCESS = 'role_based_access',
     RECORDINGS_FILE_EXPORT = 'recordings_file_export',
+    RECORDINGS_PERFORMANCE = 'recordings_performance',
 }
 
 export enum LicensePlan {
@@ -513,7 +514,7 @@ export interface RRWebRecordingConsoleLogPayload {
     trace: string[]
 }
 
-export interface RecordingConsoleLog extends RecordingTimeMixinType {
+export interface RecordingConsoleLogBase {
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
     count?: number // Number of duplicate console logs
@@ -522,6 +523,18 @@ export interface RecordingConsoleLog extends RecordingTimeMixinType {
     traceContent?: React.ReactNode // Url content to show on right side
     rawString: string // Raw text used for fuzzy search
     level: LogLevel
+}
+
+export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinType
+
+export type RecordingConsoleLogV2 = {
+    timestamp: number
+    windowId: string | undefined
+    level: LogLevel
+    content: string
+    lines: string[]
+    trace: string[]
+    count: number
 }
 
 export interface RecordingSegment {
@@ -567,8 +580,10 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingPlayerTab {
+    ALL = 'all',
     EVENTS = 'events',
     CONSOLE = 'console',
+    PERFORMANCE = 'performance',
 }
 
 export enum SessionPlayerState {
@@ -662,7 +677,7 @@ export interface PersonListParams {
     distinct_id?: string
 }
 
-export interface MatchedRecordingEvents {
+export interface MatchedRecordingEvent {
     uuid: string
     session_id: string
     window_id: string
@@ -671,7 +686,7 @@ export interface MatchedRecordingEvents {
 
 export interface MatchedRecording {
     session_id?: string
-    events: MatchedRecordingEvents[]
+    events: MatchedRecordingEvent[]
 }
 
 interface CommonActorType {
@@ -886,6 +901,64 @@ export interface SessionRecordingPropertiesType {
 export interface SessionRecordingEvents {
     next?: string
     events: RecordingEventType[]
+}
+
+export interface PerformanceEvent {
+    uuid: string
+    timestamp: string
+    distinct_id: string
+    session_id: string
+    window_id: string
+    pageview_id: string
+    current_url: string
+
+    // BASE_EVENT_COLUMNS
+    time_origin?: string
+    entry_type?: string
+    name?: string
+
+    // RESOURCE_EVENT_COLUMNS
+    start_time?: number
+    duration?: number
+    redirect_start?: number
+    redirect_end?: number
+    worker_start?: number
+    fetch_start?: number
+    domain_lookup_start?: number
+    domain_lookup_end?: number
+    connect_start?: number
+    secure_connection_start?: number
+    connect_end?: number
+    request_start?: number
+    response_start?: number
+    response_end?: number
+    decoded_body_size?: number
+    encoded_body_size?: number
+
+    initiator_type?: string
+    next_hop_protocol?: string
+    render_blocking_status?: string
+    response_status?: number
+    transfer_size?: number
+
+    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
+    largest_contentful_paint_element?: string
+    largest_contentful_paint_render_time?: number
+    largest_contentful_paint_load_time?: number
+    largest_contentful_paint_size?: number
+    largest_contentful_paint_id?: string
+    largest_contentful_paint_url?: string
+
+    // NAVIGATION_EVENT_COLUMNS
+    dom_complete?: number
+    dom_content_loaded_event?: number
+    dom_interactive?: number
+    load_event_end?: number
+    load_event_start?: number
+    redirect_count?: number
+    navigation_type?: string
+    unload_event_end?: number
+    unload_event_start?: number
 }
 
 export interface CurrentBillCycleType {

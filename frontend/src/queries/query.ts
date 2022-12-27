@@ -1,5 +1,5 @@
-import { DataNode, EventsNode, EventsQuery, PersonsNode } from './schema'
-import { isEventsNode, isInsightQueryNode, isEventsQuery, isLegacyQuery, isPersonsNode } from './utils'
+import { DataNode, EventsQuery, PersonsNode } from './schema'
+import { isInsightQueryNode, isEventsQuery, isLegacyQuery, isPersonsNode } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { AnyPartialFilterType } from '~/types'
@@ -26,18 +26,22 @@ export async function query<N extends DataNode = DataNode>(
     methodOptions?: ApiMethodOptions,
     refresh?: boolean
 ): Promise<N['response']> {
-    if (isEventsNode(query) || isEventsQuery(query)) {
+    if (isEventsQuery(query)) {
         if (!query.before && !query.after) {
             const earlyResults = await api.get(
-                getEventsEndpoint({ ...query, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() })
+                getEventsEndpoint({ ...query, after: now().subtract(EVENTS_DAYS_FIRST_FETCH, 'day').toISOString() }),
+                methodOptions
             )
             if (earlyResults.results.length > 0) {
                 return earlyResults
             }
         }
-        return await api.get(getEventsEndpoint({ after: now().subtract(1, 'year').toISOString(), ...query }))
+        return await api.get(
+            getEventsEndpoint({ after: now().subtract(1, 'year').toISOString(), ...query }),
+            methodOptions
+        )
     } else if (isPersonsNode(query)) {
-        return await api.get(getPersonsEndpoint(query))
+        return await api.get(getPersonsEndpoint(query), methodOptions)
     } else if (isInsightQueryNode(query)) {
         const filters = queryNodeToFilter(query)
         const [response] = await legacyInsightQuery({
@@ -57,7 +61,7 @@ export async function query<N extends DataNode = DataNode>(
     throw new Error(`Unsupported query: ${query.kind}`)
 }
 
-export function getEventsEndpoint(query: EventsNode | EventsQuery): string {
+export function getEventsEndpoint(query: EventsQuery): string {
     return api.events.determineListEndpoint(
         {
             properties: [...(query.fixedProperties || []), ...(query.properties || [])],
@@ -79,6 +83,8 @@ export function getPersonsEndpoint(query: PersonsNode): string {
         properties: [...(query.fixedProperties || []), ...(query.properties || [])],
         ...(query.search ? { search: query.search } : {}),
         ...(query.distinctId ? { distinct_id: query.distinctId } : {}),
+        ...(query.limit ? { limit: query.limit } : {}),
+        ...(query.offset ? { offset: query.offset } : {}),
     }
     if (query.cohort) {
         return api.cohorts.determineListUrl(query.cohort, params)
