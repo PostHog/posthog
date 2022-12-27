@@ -74,11 +74,6 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
                 <div className="insights-container" data-attr="insight-view">
                     <InsightContainer insightMode={insightMode} />
                 </div>
-
-                <div>
-                    <h4>Query</h4>
-                    <pre>{JSON.stringify(query, null, 2)}</pre>
-                </div>
             </div>
         </BindLogic>
     )
