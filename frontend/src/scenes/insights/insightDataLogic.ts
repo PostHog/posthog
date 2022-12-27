@@ -75,7 +75,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node) => ({ query }),
-        setQuerySourceMerge: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
+        updateQuerySource: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
     }),
 
     reducers(({ props }) => ({ query: [getDefaultQuery(props) as Node, { setQuery: (_, { query }) => query }] })),
@@ -85,7 +85,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        setQuerySourceMerge: ({ query }) => {
+        updateQuerySource: ({ query }) => {
             actions.setQuery({
                 ...values.query,
                 source: { ...(values.query as InsightVizNode).source, ...query },

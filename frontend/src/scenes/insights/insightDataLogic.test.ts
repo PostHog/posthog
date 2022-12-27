@@ -21,9 +21,9 @@ describe('insightDataLogic', () => {
             logic.mount()
         })
 
-        it('setQuerySourceMerge update the query source', () => {
+        it('updateQuerySource update the query source', () => {
             expectLogic(logic, () => {
-                logic.actions.setQuerySourceMerge({ filterTestAccounts: true })
+                logic.actions.updateQuerySource({ filterTestAccounts: true })
             }).toMatchValues({
                 query: expect.objectContaining({
                     source: expect.objectContaining({

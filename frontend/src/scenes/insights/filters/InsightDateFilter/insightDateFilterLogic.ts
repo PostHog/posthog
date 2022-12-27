@@ -10,7 +10,7 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
     key: keyForInsightLogicProps('new'),
     path: (key) => ['scenes', 'insights', 'InsightDateFilter', 'insightDateFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
-        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['setQuerySourceMerge']],
+        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['updateQuerySource']],
         values: [insightLogic(props), ['filters']],
     }),
     actions: () => ({
@@ -32,7 +32,7 @@ export const insightDateFilterLogic = kea<insightDateFilterLogicType>({
                 date_from: dateFrom || null,
                 date_to: dateTo || null,
             })
-            actions.setQuerySourceMerge({
+            actions.updateQuerySource({
                 dateRange: {
                     date_from: dateFrom || null,
                     date_to: dateTo || null,

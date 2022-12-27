@@ -28,7 +28,7 @@ type TrendsSeriesProps = {
 export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element | null {
     const dataLogic = insightDataLogic(insightProps)
     const { querySource } = useValues(dataLogic)
-    const { setQuerySourceMerge } = useActions(dataLogic)
+    const { updateQuerySource } = useActions(dataLogic)
     // const { setFilters } = useActions(trendsLogic(insightProps))
     // const { filters, isFormulaOn } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -58,7 +58,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
             <ActionFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
-                    setQuerySourceMerge({ series: actionsAndEventsToSeries(payload as any) } as
+                    updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as
                         | TrendsQuery
                         | FunnelsQuery
                         | LifecycleQuery)
