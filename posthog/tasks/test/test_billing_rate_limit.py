@@ -15,7 +15,7 @@ class TestBillingRateLimit(BaseTest):
     def setUp(self) -> None:
         self.redis_client = fakeredis.FakeStrictRedis()
 
-    @patch("posthog.tasks.rate_limit.get_client")
+    @patch("posthog.tasks.billing_rate_limit.get_client")
     def test_billing_rate_limit_not_set_if_missing_org_usage(self, mock_redis_client: MagicMock) -> None:
         mock_redis_client.return_value = self.redis_client
         with self.settings(USE_TZ=False):
@@ -42,7 +42,7 @@ class TestBillingRateLimit(BaseTest):
         assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}events", 0, -1) == []
         assert self.redis_client.zrange(f"{RATE_LIMITER_CACHE_KEY}recordings", 0, -1) == []
 
-    @patch("posthog.tasks.rate_limit.get_client")
+    @patch("posthog.tasks.billing_rate_limit.get_client")
     def test_billing_rate_limit(self, mock_redis_client: MagicMock) -> None:
         mock_redis_client.return_value = self.redis_client
         with self.settings(USE_TZ=False):
