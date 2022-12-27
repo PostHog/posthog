@@ -45,7 +45,7 @@ class TrendsEventQuery(TrendsEventQueryBase):
             + (self._get_extra_person_columns())
         )
 
-        base_query, params = super().get_query()
+        base_query, params = super().get_base_query()
 
         return f"SELECT {_fields} {base_query}", params
 
