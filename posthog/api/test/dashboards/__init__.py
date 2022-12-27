@@ -255,9 +255,9 @@ class DashboardAPI:
         for dashboard_id in dashboard_ids:
             create_response: Response = self.client.post(
                 f"/api/projects/{self.team.id}/dashboard_tiles",
-                {"insight_id": insight_id, "dashboard_id": dashboard_id},
+                {"insight": insight_id, "dashboard": dashboard_id},
             )
-            self.assertEqual(create_response.status_code, expected_status)
+            self.assertEqual(create_response.status_code, expected_status, create_response.json())
             response = create_response
 
         if response is None:
@@ -269,7 +269,7 @@ class DashboardAPI:
     ) -> Dict:
         patch_response: Response = self.client.post(
             f"/api/projects/{self.team.id}/dashboard_tiles",
-            {"insight_id": insight_id, "dashboard_id": dashboard_id, "deleted": True},
+            {"insight": insight_id, "dashboard": dashboard_id, "deleted": True},
         )
         self.assertEqual(patch_response.status_code, expected_status)
         return patch_response.json()

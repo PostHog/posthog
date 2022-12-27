@@ -1,8 +1,7 @@
-from datetime import timedelta
 from typing import Dict, List, Optional
 from unittest import mock
 
-from freezegun import freeze_time
+from rest_framework import status
 
 from posthog.api.test.dashboards import DashboardAPI
 from posthog.models import DashboardTile, Team
@@ -17,26 +16,27 @@ class TestDashboardTiles(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.dashboard_api = DashboardAPI(self.client, self.team, self.assertEqual)
         self.another_team = Team.objects.create(organization=self.organization, name="other team")
 
-    def test_can_add_an_insight_to_a_dashboard_as_an_isolated_operation(self) -> None:
-        insight_id, _ = self.dashboard_api.create_insight({})
-        dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        # repeat the same API call
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
+        self.insight_id, self.insight_json = self.dashboard_api.create_insight({"name": "the insight"})
+        self.dashboard_id, self.dashboard_json = self.dashboard_api.create_dashboard({"name": "the dashboard"})
 
-        tiles_count = DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id).count()
+    def test_can_add_an_insight_to_a_dashboard_as_an_isolated_operation(self) -> None:
+        # repeat the same API call
+        self.dashboard_api.add_insight_to_dashboard([self.dashboard_id], self.insight_id)
+        self.dashboard_api.add_insight_to_dashboard([self.dashboard_id], self.insight_id)
+
+        tiles_count = DashboardTile.objects.filter(insight_id=self.insight_id, dashboard_id=self.dashboard_id).count()
         assert tiles_count == 1
 
-        tile: DashboardTile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+        tile: DashboardTile = DashboardTile.objects.get(insight_id=self.insight_id, dashboard_id=self.dashboard_id)
         tile.deleted = True
         tile.layouts = {"is set": "to some value"}
         tile.save()
 
         # adding when there is an existing soft-deleted tile, undeletes the tile
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
+        self.dashboard_api.add_insight_to_dashboard([self.dashboard_id], self.insight_id)
 
-        insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == [dashboard_id]
+        insight_json = self.dashboard_api.get_insight(self.insight_id)
+        assert insight_json["dashboards"] == [self.dashboard_id]
 
         # adding to a deleted relation undeletes the tile
         tile.refresh_from_db()
@@ -44,30 +44,28 @@ class TestDashboardTiles(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert tile.layouts == {"is set": "to some value"}
 
     def test_can_remove_an_insight_from_a_dashboard_as_an_isolated_operation(self) -> None:
-        insight_id, _ = self.dashboard_api.create_insight({})
-        dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
+        self.dashboard_api.add_insight_to_dashboard([self.dashboard_id], self.insight_id)
 
-        self.dashboard_api.remove_insight_from_dashboard(dashboard_id, insight_id)
+        self.dashboard_api.remove_insight_from_dashboard(self.dashboard_id, self.insight_id)
 
-        insight_json = self.dashboard_api.get_insight(insight_id)
+        insight_json = self.dashboard_api.get_insight(self.insight_id)
         assert insight_json["dashboards"] == []
-        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        dashboard_json = self.dashboard_api.get_dashboard(self.dashboard_id)
         assert dashboard_json["tiles"] == []
 
-        self.dashboard_api.remove_insight_from_dashboard(dashboard_id, insight_id)
+        self.dashboard_api.remove_insight_from_dashboard(self.dashboard_id, self.insight_id)
 
-        tiles = DashboardTile.objects.filter(insight_id=insight_id, dashboard_id=dashboard_id)
+        tiles = DashboardTile.objects.filter(insight_id=self.insight_id, dashboard_id=self.dashboard_id)
         assert tiles.count() == 1
         assert tiles[0].deleted is True
 
-        tile: DashboardTile = DashboardTile.objects.get(insight_id=insight_id, dashboard_id=dashboard_id)
+        tile: DashboardTile = DashboardTile.objects.get(insight_id=self.insight_id, dashboard_id=self.dashboard_id)
         tile.deleted = False
         tile.layouts = {"some": "layouts"}
         tile.save()
 
-        self.dashboard_api.remove_insight_from_dashboard(dashboard_id, insight_id)
-        response_json = self.dashboard_api.get_insight(insight_id)
+        self.dashboard_api.remove_insight_from_dashboard(self.dashboard_id, self.insight_id)
+        response_json = self.dashboard_api.get_insight(self.insight_id)
         assert response_json["dashboards"] == []
 
         # adding to a deleted relation re-deletes the same tile
@@ -76,46 +74,63 @@ class TestDashboardTiles(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert tile.layouts == {"some": "layouts"}
 
     def test_changes_update_the_activity_log(self) -> None:
-        with freeze_time("2012-01-14T03:21:34.000Z") as frozen_time:
-            insight_id, insight_json = self.dashboard_api.create_insight({"name": "the insight"})
-            dashboard_id, _ = self.dashboard_api.create_dashboard({})
-
-            frozen_time.tick(timedelta(seconds=1))
-            self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-
-            frozen_time.tick(timedelta(seconds=1))
-            self.dashboard_api.remove_insight_from_dashboard(dashboard_id, insight_id)
+        self.dashboard_api.add_insight_to_dashboard([self.dashboard_id], self.insight_id)
+        self.dashboard_api.remove_insight_from_dashboard(self.dashboard_id, self.insight_id)
 
         self.assert_insight_activity(
-            insight_id,
+            self.insight_id,
             [
                 self._an_insight_activity_log(
                     activity="updated",
-                    insight_id=insight_id,
-                    insight_short_id=insight_json["short_id"],
-                    before=[{"dashboard": {"id": dashboard_id, "name": None}, "insight": {"id": insight_id}}],
+                    before=[
+                        {
+                            "dashboard": {"id": self.dashboard_id, "name": self.dashboard_json["name"]},
+                            "insight": {"id": self.insight_id},
+                        }
+                    ],
                     after=[],
                 ),
                 self._an_insight_activity_log(
                     activity="updated",
-                    insight_id=insight_id,
-                    insight_short_id=insight_json["short_id"],
                     before=[],
-                    after=[{"dashboard": {"id": dashboard_id, "name": None}, "insight": {"id": insight_id}}],
+                    after=[
+                        {
+                            "dashboard": {"id": self.dashboard_id, "name": self.dashboard_json["name"]},
+                            "insight": {"id": self.insight_id},
+                        }
+                    ],
                 ),
                 self._an_insight_activity_log(
                     activity="created",
-                    insight_id=insight_id,
-                    insight_short_id=insight_json["short_id"],
                     before=None,
                     after=None,
                 ),
             ],
         )
 
-    @staticmethod
+    def test_must_provide_insight(self) -> None:
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboard_tiles",
+            {"dashboard": 1},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_must_provide_insight_that_exists(self) -> None:
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboard_tiles",
+            {"dashboard": self.dashboard_id, "insight": 200},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_must_provide_dashboard(self) -> None:
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboard_tiles",
+            {"insight": self.insight_id, "dashboard": 200},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def _an_insight_activity_log(
-        activity: str, insight_id: int, insight_short_id: str, before: Optional[List[Dict]], after: Optional[List[Dict]]
+        self, activity: str, before: Optional[List[Dict]], after: Optional[List[Dict]]
     ) -> Dict:
         return {
             "activity": activity,
@@ -132,11 +147,11 @@ class TestDashboardTiles(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                         "type": "Insight",
                     }
                 ],
-                "name": "the insight",
-                "short_id": insight_short_id,
+                "name": self.insight_json["name"],
+                "short_id": self.insight_json["short_id"],
                 "trigger": None,
             },
-            "item_id": str(insight_id),
+            "item_id": str(self.insight_id),
             "scope": "Insight",
             "user": {"email": "user1@posthog.com", "first_name": ""},
         }

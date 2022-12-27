@@ -471,12 +471,12 @@ const api = {
         async addInsightToDashboard(insightId: number, dashboardId: number): Promise<void> {
             return await new ApiRequest()
                 .dashboardTiles()
-                .create({ data: { insight_id: insightId, dashboard_id: dashboardId } })
+                .create({ data: { insight: insightId, dashboard: dashboardId } })
         },
         async removeInsightFromDashboard(insightId: number, dashboardId: number): Promise<void> {
             return await new ApiRequest()
                 .dashboardTiles()
-                .create({ data: { insight_id: insightId, dashboard_id: dashboardId, deleted: true } })
+                .create({ data: { insight: insightId, dashboard: dashboardId, deleted: true } })
         },
     },
     actions: {
