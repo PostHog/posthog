@@ -15,6 +15,7 @@ export function CompareFilter(): JSX.Element | null {
 
     return (
         <LemonCheckbox
+            id="compare-filter"
             onChange={setCompare}
             checked={compare}
             disabled={disabled}

@@ -1,7 +1,6 @@
 import 'givens/setup'
 import './commands'
 import 'cypress-axe'
-import { decideResponse } from 'cypress/fixtures/api/decide'
 
 try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
@@ -18,15 +17,6 @@ Cypress.on('window:before:load', (win) => {
 beforeEach(() => {
     cy.intercept('api/prompts/my_prompts/', { sequences: [], state: {} })
 
-    cy.intercept('https://app.posthog.com/decide/*', (req) =>
-        req.reply(
-            decideResponse({
-                // set feature flags here e.g.
-                // 'toolbar-launch-side-action': true,
-            })
-        )
-    )
-
     if (Cypress.spec.name.includes('Premium')) {
         cy.intercept('/api/users/@me/', { fixture: 'api/user-enterprise' })
 
@@ -36,15 +26,9 @@ beforeEach(() => {
         })
         cy.visit('/?no-preloaded-app-context=true')
     } else {
-        cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?/).as('getInsights')
-
         cy.request('POST', '/api/login/', {
             email: 'test@posthog.com',
             password: '12345678',
-        })
-        cy.visit('/insights')
-        cy.wait('@getInsights').then(() => {
-            cy.get('.saved-insights tr').should('exist')
         })
     }
 })
