@@ -28,9 +28,11 @@ SELECT {aggregate_operation} as data FROM (
 
 SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} as data, date FROM (
-    SELECT {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date, any(session_duration) as session_duration
-    FROM ({event_query})
-    GROUP BY $session_id, date
+    SELECT
+        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date,
+        any(sessions.session_duration) as session_duration
+    {event_base_query}
+    GROUP BY sessions.$session_id, date
 ) GROUP BY date
 """
 

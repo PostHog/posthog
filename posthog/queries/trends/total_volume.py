@@ -136,8 +136,11 @@ class TrendsTotalVolume:
             elif entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
+                event_query, _ = trend_event_query.get_base_query()
                 content_sql = SESSION_DURATION_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter.interval), **content_sql_params
+                    event_base_query=event_query,
+                    start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
                 )
             else:
                 event_query, _ = trend_event_query.get_base_query()
