@@ -70,13 +70,13 @@ WHERE 1 = 1 {parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_dat
 FINAL_TIME_SERIES_SQL = """
 SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     SELECT {smoothing_operation} AS count, day_start
-    from (
+    FROM (
         {null_sql}
         UNION ALL
         {content_sql}
     )
-    group by day_start
-    order by day_start
+    GROUP BY day_start
+    ORDER BY day_start
 )
 SETTINGS timeout_before_checking_execution_speed = 60
 """
