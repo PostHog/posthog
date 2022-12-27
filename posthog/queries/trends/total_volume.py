@@ -126,8 +126,9 @@ class TrendsTotalVolume:
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 # Calculate average number of events per actor
                 # (only including actors with at least one matching event in a period)
+                event_query, _ = trend_event_query.get_base_query()
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
-                    event_query=event_query,
+                    event_base_query=event_query,
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     aggregator=determine_aggregator(entity, team),
                     **content_sql_params,

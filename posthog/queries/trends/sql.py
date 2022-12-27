@@ -13,7 +13,7 @@ SELECT {aggregate_operation} as data FROM ({event_query}) events
 VOLUME_PER_ACTOR_SQL = """
 SELECT {aggregate_operation} AS data, date FROM (
     SELECT COUNT(*) AS intermediate_count, {aggregator}, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS date
-    FROM ({event_query})
+    {event_base_query}
     GROUP BY {aggregator}, date
 ) GROUP BY date
 """
