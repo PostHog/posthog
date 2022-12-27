@@ -29,7 +29,7 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
     return (
         <>
             {isLifecycleFilter(filters) && (
-                <div className="mb-2">
+                <div className="mb-2" data-attr="lifecycle-series-label">
                     Showing <b>Unique users</b> who did
                 </div>
             )}

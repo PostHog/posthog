@@ -1,3 +1,5 @@
+import random
+
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
@@ -44,6 +46,7 @@ class Command(BaseCommand):
                 user=user, label="e2e_demo_api_key key", secure_value=hash_key_value("e2e_demo_api_key")
             )
             if not options["no_data"]:
+                random.seed(4542355562136458828)
                 create_demo_data(team)
 
             if options["create_e2e_test_plugin"]:

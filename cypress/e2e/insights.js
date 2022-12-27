@@ -2,7 +2,7 @@ import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
 import { savedInsights, createInsight } from 'cypress/productAnalytics'
 
-// For tests related to trends please check trendsElements.js
+// For tests related to trends please check trends.js
 describe('Insights', () => {
     beforeEach(() => {
         cy.visit(urls.insightNew())
