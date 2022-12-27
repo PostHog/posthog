@@ -11,19 +11,16 @@ describe('RateLimiter()', () => {
     let redis: Redis.Redis
     let rateLimiter: RateLimiter
 
-    beforeAll(async () => {
+    beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         rateLimiter = hub.rateLimiter
-    })
-
-    beforeEach(async () => {
         redis = await hub.redisPool.acquire()
-        await redis.flushall()
+        await redis.flushdb()
+        await hub.db.redisPool.release(redis)
         jest.useFakeTimers({ advanceTimers: true })
     })
 
     afterEach(async () => {
-        await hub.redisPool.release(redis)
         await closeHub()
         jest.clearAllTimers()
         jest.useRealTimers()
