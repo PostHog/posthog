@@ -86,7 +86,8 @@ class TrendsTotalVolume:
             elif entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+                event_query, _ = trend_event_query.get_base_query()
+                content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_base_query=event_query, **content_sql_params)
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
                     event_query=event_query,

@@ -38,7 +38,9 @@ SELECT {aggregate_operation} as data, date FROM (
 
 SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
-    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
+    SELECT any(session_duration) as session_duration
+    {event_base_query}
+    GROUP BY $session_id
 )
 """
 
