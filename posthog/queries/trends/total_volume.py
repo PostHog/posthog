@@ -44,7 +44,11 @@ class TrendsTotalVolume:
 
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
-        aggregate_operation, join_condition, math_params = process_math(entity, team, person_id_alias="person_id")
+        aggregate_operation, join_condition, math_params = process_math(
+            entity,
+            team,
+            person_id_alias=f"person_id" if team.person_on_events_querying_enabled else "pdi.person_id",
+        )
 
         trend_event_query = TrendsEventQuery(
             filter=filter,
