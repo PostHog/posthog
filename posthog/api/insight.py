@@ -160,7 +160,11 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.SerializerMethodField(
-        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
+        help_text="""
+        A dashboard ID for each of the dashboards that this insight is displayed on.
+        Originally this field allowed adding and removing this insight to/from dashboards.
+        That usage has been removed. Use the dashboard_tiles API instead.
+        """,
         required=False,
     )
     filters_hash = serializers.CharField(
