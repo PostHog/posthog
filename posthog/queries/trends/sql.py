@@ -7,7 +7,8 @@ GROUP BY date
 """
 
 VOLUME_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data FROM ({event_query}) events
+SELECT {aggregate_operation} as data
+{event_base_query}
 """
 
 VOLUME_PER_ACTOR_SQL = """

@@ -95,7 +95,8 @@ class TrendsTotalVolume:
                     aggregator=determine_aggregator(entity, team),
                 )
             else:
-                content_sql = VOLUME_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+                event_query, _ = trend_event_query.get_base_query()
+                content_sql = VOLUME_AGGREGATE_SQL.format(event_base_query=event_query, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
