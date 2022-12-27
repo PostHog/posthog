@@ -260,19 +260,24 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
                 continue // insight updates have to have a "field" to be described
             }
 
-            const {
-                description,
-                extendedDescription: _extendedDescription,
-                suffix,
-            } = insightActionsMapping[change.field](change, logItem, asNotification)
-            if (description) {
-                changes = changes.concat(description)
-            }
-            if (_extendedDescription) {
-                extendedDescription = _extendedDescription
-            }
-            if (suffix) {
-                changeSuffix = suffix
+            try {
+                const {
+                    description,
+                    extendedDescription: _extendedDescription,
+                    suffix,
+                } = insightActionsMapping[change.field](change, logItem, asNotification)
+
+                if (description) {
+                    changes = changes.concat(description)
+                }
+                if (_extendedDescription) {
+                    extendedDescription = _extendedDescription
+                }
+                if (suffix) {
+                    changeSuffix = suffix
+                }
+            } catch (e) {
+                console.error('could not get insight action mapping for field: ', change.field)
             }
         }
 

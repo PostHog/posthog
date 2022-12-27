@@ -135,7 +135,7 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecor
 }
 
 
-def _description(m: List[Any]) -> Union[str, Dict]:
+def model_description(m: Any) -> Union[str, Dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
@@ -150,7 +150,7 @@ def _description(m: List[Any]) -> Union[str, Dict]:
 
 
 def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
-    described_models = [_description(r) for r in relation.all()]
+    described_models = [model_description(r) for r in relation.all()]
 
     if all(isinstance(elem, str) for elem in described_models):
         # definitely a list of strings now but mypy doesn't know that

@@ -1,3 +1,5 @@
+from typing import cast
+
 from rest_framework import status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
@@ -6,8 +8,11 @@ from rest_framework.response import Response
 
 from posthog.api.dashboards.basic_dashboard_tile_serializer import BasicDashboardTileSerializer
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.insight import log_insight_activity
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Dashboard, DashboardTile, Insight
+from posthog.models import Dashboard, DashboardTile, Insight, User
+from posthog.models.activity_logging.activity_log import Change, model_description
+from posthog.models.utils import UUIDT
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
 
@@ -43,6 +48,12 @@ class DashboardTileViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.
         if dashboard.get_effective_privilege_level(self.request.user.id) <= Dashboard.PrivilegeLevel.CAN_VIEW:
             raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.name}")
 
+        tiles_before_change = [
+            model_description(tile)
+            for tile in insight.dashboard_tiles.exclude(deleted=True).exclude(dashboard__deleted=True).all()
+        ]
+
+        tile: DashboardTile
         tile, created = DashboardTile.objects.get_or_create(insight=insight, dashboard=dashboard)
 
         if request.data.get("deleted", None) is not None:
@@ -54,5 +65,29 @@ class DashboardTileViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.
                 tile.save()
 
         serializer = BasicDashboardTileSerializer(tile, context={"request": request})
+
+        # with transaction.atomic():
+        insight.refresh_from_db()
+        log_insight_activity(
+            "updated",
+            tile.insight,
+            int(tile.insight_id),
+            str(tile.insight.short_id),
+            UUIDT(uuid_str=self.organization_id),
+            self.team_id,
+            cast(User, self.request.user),
+            [
+                Change(
+                    type="Insight",
+                    action="changed",
+                    field="dashboards",  # TODO UI is expecting dashboards but should expect dashboard_tiles
+                    before=tiles_before_change,
+                    after=[
+                        model_description(tile)
+                        for tile in insight.dashboard_tiles.exclude(deleted=True).exclude(dashboard__deleted=True).all()
+                    ],
+                )
+            ],
+        )
 
         return Response(data=serializer.data, status=status.HTTP_200_OK)
