@@ -242,7 +242,12 @@ class BillingManager:
         if organization and billing_service_response.get("customer"):
             response.update(billing_service_response["customer"])
 
-        response["products"] = self._process_products(response["products"])
+        if billing_service_response["customer"].get("products"):
+            response["products"] = self._process_products(billing_service_response["customer"]["products"])
+        else:
+            products = self.get_default_products(organization)
+            response["products"] = products["products"]
+            response["products_enterprise"] = products["products_enterprise"]
 
         # Before responding ensure the org is updated with the latest info
         if organization:
