@@ -1,31 +1,38 @@
+import Redis from 'ioredis'
+
 import { Hub } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
 import { RATE_LIMITER_CACHE_KEY, RateLimiter } from '../../src/utils/rate-limiter'
 import { commonOrganizationId } from '../helpers/plugins'
-import { resetTestDatabase } from '../helpers/sql'
 
 describe('RateLimiter()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
+    let redis: Redis.Redis
     let rateLimiter: RateLimiter
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         ;[hub, closeHub] = await createHub()
-        await resetTestDatabase()
         rateLimiter = hub.rateLimiter
+    })
+
+    beforeEach(async () => {
+        redis = await hub.redisPool.acquire()
+        await redis.flushall()
         jest.useFakeTimers({ advanceTimers: true })
     })
 
     afterEach(async () => {
+        await hub.redisPool.release(redis)
+        await closeHub()
         jest.clearAllTimers()
         jest.useRealTimers()
-        await closeHub?.()
+        jest.clearAllMocks()
     })
 
     it('checks if an organization_id is rate limited', async () => {
-        const redisClient = await hub.db.redisPool.acquire()
-        await redisClient.zadd(`${RATE_LIMITER_CACHE_KEY}events`, 1, commonOrganizationId)
-        await redisClient.zadd(`${RATE_LIMITER_CACHE_KEY}recordings`, 1, commonOrganizationId)
+        await redis.zadd(`${RATE_LIMITER_CACHE_KEY}events`, 1, commonOrganizationId)
+        await redis.zadd(`${RATE_LIMITER_CACHE_KEY}recordings`, 1, commonOrganizationId)
         const isEventsRateLimited = await rateLimiter.checkLimited('events', commonOrganizationId)
         const isRecordingsRateLimited = await rateLimiter.checkLimited('recordings', commonOrganizationId)
         expect(isEventsRateLimited).toBe(true)
@@ -33,18 +40,18 @@ describe('RateLimiter()', () => {
     })
 
     it('checks that the rate limiter is caching the org ids', async () => {
-        const redisClient = await hub.db.redisPool.acquire()
         expect(await rateLimiter.checkLimited('events', commonOrganizationId)).toBe(false)
-        expect(await rateLimiter.checkLimited('recordings', commonOrganizationId)).toBe(false)
+        // expect(await rateLimiter.checkLimited('recordings', commonOrganizationId)).toBe(false)
 
-        await redisClient.zadd(`${RATE_LIMITER_CACHE_KEY}events`, 1, commonOrganizationId)
-        await redisClient.zadd(`${RATE_LIMITER_CACHE_KEY}recordings`, 1, commonOrganizationId)
+        await redis.zadd(`${RATE_LIMITER_CACHE_KEY}events`, 1, commonOrganizationId)
+        await redis.zadd(`${RATE_LIMITER_CACHE_KEY}recordings`, 1, commonOrganizationId)
 
         // should be cached and still return false
         expect(await rateLimiter.checkLimited('events', commonOrganizationId)).toBe(false)
         expect(await rateLimiter.checkLimited('recordings', commonOrganizationId)).toBe(false)
 
-        jest.advanceTimersByTime(60000)
+        jest.advanceTimersByTime(60001)
+
         expect(await rateLimiter.checkLimited('events', commonOrganizationId)).toBe(true)
         expect(await rateLimiter.checkLimited('recordings', commonOrganizationId)).toBe(true)
     })
