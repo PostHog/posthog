@@ -110,7 +110,6 @@ class TrendsTotalVolume:
                     **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
-                # TODO: for groups aggregation as well
                 event_query, _ = trend_event_query.get_base_query()
                 # :TODO: Consider using bitmap-per-date to speed this up
                 cumulative_sql = CUMULATIVE_SQL.format(
