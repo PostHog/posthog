@@ -2426,8 +2426,66 @@
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') )
            GROUP BY person_id, date)
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestTrends.test_trends_groups_per_day_cumulative
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-06 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-30 00:00:00', 'UTC')), toDateTime('2020-01-06 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-30 00:00:00', 'UTC'))
+        UNION ALL SELECT COUNT(DISTINCT actor_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(first_seen_timestamp, 'UTC'), 'UTC')) as date
+        FROM
+          (SELECT "$group_0" AS actor_id,
+                  min(timestamp) AS first_seen_timestamp
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'viewed video'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-30 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 23:59:59', 'UTC')
+             AND "$group_0" != ''
+           GROUP BY actor_id)
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
+  '
+---
+# name: TestTrends.test_trends_per_day_cumulative
+  '
+  
+  SELECT groupArray(day_start) as date,
+         groupArray(count) as data
+  FROM
+    (SELECT SUM(total) AS count,
+            day_start
+     FROM
+       (SELECT toUInt16(0) AS total,
+               toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
+        UNION ALL SELECT toUInt16(0) AS total,
+                         toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
+        UNION ALL SELECT count(*) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND e.person_id != toUUIDOrZero('')
+        GROUP BY date)
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_person_breakdown_with_session_property_single_aggregate_math_and_breakdown
