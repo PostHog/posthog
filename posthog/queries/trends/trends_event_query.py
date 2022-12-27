@@ -111,10 +111,11 @@ class TrendsEventQuery(EventQuery):
         return query, self.params
 
     def _determine_should_join_persons(self) -> None:
-        EventQuery._determine_should_join_persons(self)
         if self._using_person_on_events:
             self._should_join_distinct_ids = False
             self._should_join_persons = False
+        else:
+            EventQuery._determine_should_join_persons(self)
 
     def _get_extra_person_columns(self) -> str:
         if self._using_person_on_events:
