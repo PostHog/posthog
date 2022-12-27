@@ -6,6 +6,7 @@ from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
     TRENDS_CUMULATIVE,
+    UNIQUE_GROUPS,
     UNIQUE_USERS,
     WEEKLY_ACTIVE,
 )
@@ -108,11 +109,18 @@ class TrendsTotalVolume:
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **trend_event_query.active_user_params,
                 )
-            elif filter.display == TRENDS_CUMULATIVE and entity.math == UNIQUE_USERS:
+            elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
                 # TODO: for groups aggregation as well
-                cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
+                event_query, _ = trend_event_query.get_base_query()
+                # :TODO: Consider using bitmap-per-date to speed this up
+                cumulative_sql = CUMULATIVE_SQL.format(
+                    actor_expression=determine_aggregator(entity, team),
+                    event_base_query=event_query,
+                )
+                content_sql_params["aggregate_operation"] = "COUNT(DISTINCT actor_id)"
                 content_sql = VOLUME_SQL.format(
-                    event_query=cumulative_sql,
+                    timestamp_column="first_seen_timestamp",
+                    event_base_query=f"FROM ({cumulative_sql})",
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
@@ -134,6 +142,7 @@ class TrendsTotalVolume:
             else:
                 event_query, _ = trend_event_query.get_base_query()
                 content_sql = VOLUME_SQL.format(
+                    timestamp_column="timestamp",
                     event_base_query=event_query,
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,

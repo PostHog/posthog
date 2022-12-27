@@ -1,5 +1,7 @@
 VOLUME_SQL = """
-SELECT {aggregate_operation} as data, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date
+SELECT
+    {aggregate_operation} as data,
+    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s) {start_of_week_fix}) as date
 {event_base_query}
 GROUP BY date
 """
@@ -38,6 +40,8 @@ SELECT {aggregate_operation} as data FROM (
 )
 """
 
+# This query performs poorly due to aggregation happening outside of subqueries.
+# :TODO: Fix this!
 ACTIVE_USERS_SQL = """
 SELECT counts AS total, timestamp AS day_start FROM (
     SELECT d.timestamp, COUNT(DISTINCT {aggregator}) AS counts FROM (
@@ -84,8 +88,9 @@ SETTINGS timeout_before_checking_execution_speed = 60
 """
 
 CUMULATIVE_SQL = """
-SELECT person_id, min(timestamp) as timestamp
-FROM ({event_query}) GROUP BY person_id
+SELECT {actor_expression} AS actor_id, min(timestamp) AS first_seen_timestamp
+{event_base_query}
+GROUP BY actor_id
 """
 
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
