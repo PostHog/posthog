@@ -9,50 +9,57 @@
      FROM
        (SELECT SUM(total) AS count,
                day_start
-        FROM
+        from
           (SELECT toUInt16(0) AS total,
                   toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
            FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
            UNION ALL SELECT toUInt16(0) AS total,
                             toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-           UNION ALL SELECT count(DISTINCT e."$session_id") as data,
+           UNION ALL SELECT count(DISTINCT "$session_id") as data,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'session start'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+           FROM
+             (SELECT e.timestamp as timestamp,
+                     e."$session_id" as "$session_id"
+              FROM events e
+              WHERE team_id = 2
+                AND event = 'session start'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
            GROUP BY date)
-        GROUP BY day_start
-        ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60) as sub_A
+        group by day_start
+        order by day_start) SETTINGS timeout_before_checking_execution_speed = 60) as sub_A
   CROSS JOIN
     (SELECT groupArray(day_start) as date,
             groupArray(count) as data
      FROM
        (SELECT SUM(total) AS count,
                day_start
-        FROM
+        from
           (SELECT toUInt16(0) AS total,
                   toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
            FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
            UNION ALL SELECT toUInt16(0) AS total,
                             toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
-           UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+           UNION ALL SELECT count(DISTINCT person_id) as data,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
+           FROM
+             (SELECT e.timestamp as timestamp,
+                     e."$session_id" as "$session_id",
+                     pdi.person_id as person_id
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
+                 WHERE team_id = 2
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
               WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           WHERE team_id = 2
-             AND event = 'session start'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+                AND event = 'session start'
+                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
            GROUP BY date)
-        GROUP BY day_start
-        ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60) as sub_B
+        group by day_start
+        order by day_start) SETTINGS timeout_before_checking_execution_speed = 60) as sub_B
   '
 ---
