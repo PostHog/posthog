@@ -59,10 +59,6 @@ def default_settings() -> Dict:
         return {"optimize_move_to_prewhere": 0}
 
 
-def async_execute(query, args=None, settings=None, with_column_types=False):
-    return sync_execute(query, args, settings=settings, with_column_types=with_column_types)
-
-
 def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None, with_column_types=False):
     if not redis_client:
         redis_client = redis.get_client()
