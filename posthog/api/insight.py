@@ -237,10 +237,10 @@ class InsightSerializer(InsightBasicSerializer):
         created_by = validated_data.pop("created_by", request.user)
 
         use_insight = validated_data.pop("use_insight", None)
-        source_insight = None
+        source_insight: Optional[Insight] = None
         if use_insight is not None:
             try:
-                source_insight: Insight = Insight.objects.get(short_id=use_insight, team=team)
+                source_insight = Insight.objects.get(short_id=use_insight, team=team)
 
             except Insight.DoesNotExist:
                 raise ValidationError("That insight cannot be duplicated")

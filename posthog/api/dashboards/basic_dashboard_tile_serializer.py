@@ -58,30 +58,31 @@ class BasicDashboardTileSerializer(serializers.ModelSerializer):
                 tile.deleted = False
                 tile.save()
 
-        tile.insight.refresh_from_db()
-        log_insight_activity(
-            "updated",
-            tile.insight,
-            int(tile.insight_id),
-            str(tile.insight.short_id),
-            self.context["organization_id"],
-            self.context["team"].id,
-            self.context["user"],
-            [
-                Change(
-                    type="Insight",
-                    action="changed",
-                    field="dashboards",  # TODO UI is expecting dashboards but should expect dashboard_tiles
-                    before=tiles_before_change,
-                    after=[
-                        model_description(tile)
-                        for tile in tile.insight.dashboard_tiles.exclude(deleted=True)
-                        .exclude(dashboard__deleted=True)
-                        .all()
-                    ],
-                )
-            ],
-        )
+        if tile.insight is not None:
+            tile.insight.refresh_from_db()
+            log_insight_activity(
+                "updated",
+                tile.insight,
+                int(tile.insight.id),
+                str(tile.insight.short_id),
+                self.context["organization_id"],
+                self.context["team"].id,
+                self.context["user"],
+                [
+                    Change(
+                        type="Insight",
+                        action="changed",
+                        field="dashboards",  # TODO UI is expecting dashboards but should expect dashboard_tiles
+                        before=tiles_before_change,
+                        after=[
+                            model_description(tile)
+                            for tile in tile.insight.dashboard_tiles.exclude(deleted=True)
+                            .exclude(dashboard__deleted=True)
+                            .all()
+                        ],
+                    )
+                ],
+            )
 
         return tile
 
