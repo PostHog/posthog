@@ -11,8 +11,9 @@ from django.utils.timezone import now
 from posthog.async_migrations.definition import AsyncMigrationOperation
 from posthog.async_migrations.setup import DEPENDENCY_TO_ASYNC_MIGRATION
 from posthog.celery import app
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import make_ch_pool
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
-from posthog.client import make_ch_pool, sync_execute
 from posthog.email import is_email_available
 from posthog.models.async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
 from posthog.models.instance_setting import get_instance_setting
@@ -103,7 +104,7 @@ def execute_on_each_shard(sql: str, args=None, settings=None) -> None:
 
 
 def _get_all_shard_connections():
-    from posthog.client import ch_pool as default_ch_pool
+    from posthog.clickhouse.client.connection import ch_pool as default_ch_pool
 
     if CLICKHOUSE_ALLOW_PER_SHARD_EXECUTION:
         rows = sync_execute(

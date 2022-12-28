@@ -10,7 +10,7 @@ from kafka.structs import TopicPartition
 from statshog.defaults.django import statsd
 from structlog import get_logger
 
-from posthog.client import async_execute, sync_execute
+from posthog.client import sync_execute
 from posthog.kafka_client import helper
 from posthog.settings import (
     KAFKA_BASE64_KEYS,
@@ -216,7 +216,5 @@ class ClickhouseProducer:
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
         if self.producer is not None:
             self.producer.produce(topic=topic, data=data)
-        elif sync:
-            sync_execute(sql, data)
         else:
-            async_execute(sql, data)
+            sync_execute(sql, data)
