@@ -394,12 +394,14 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                 DashboardTile.objects.prefetch_related(
                     "caching_states",
                     Prefetch(
-                        "insight__dashboards",
-                        queryset=Dashboard.objects.exclude(deleted=True)
-                        .filter(
-                            id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
-                        )
-                        .select_related("team__organization"),
+                        "insight__dashboard_tiles",
+                        queryset=DashboardTile.objects.exclude(deleted=True)
+                        .exclude(dashboard__deleted=True)
+                        .select_related(
+                            "insight__team__organization",
+                            "dashboard__created_by",
+                            "dashboard__team__organization",
+                        ),
                     ),
                 )
             )
