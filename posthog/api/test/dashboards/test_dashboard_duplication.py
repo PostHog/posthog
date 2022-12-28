@@ -18,7 +18,8 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
             dashboard_id, extra_data={"layouts": self.tile_layout, "color": self.tile_color}
         )
 
-        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        insight_id, _ = self.dashboard_api.create_insight({})
+        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
 
         dashboard_json_to_update = self.dashboard_api.get_dashboard(dashboard_id)
 
