@@ -2,26 +2,18 @@ import json
 import types
 from functools import lru_cache
 from time import perf_counter
-from typing import Any, Dict, List, Optional, Sequence, Union, cast
+from typing import Any, Dict, List, Optional, Sequence, Union
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
+from clickhouse_driver.util.escape import escape_params
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
-from posthog.settings import (
-    CLICKHOUSE_CA,
-    CLICKHOUSE_DATABASE,
-    CLICKHOUSE_HOST,
-    CLICKHOUSE_PASSWORD,
-    CLICKHOUSE_SECURE,
-    CLICKHOUSE_USER,
-    CLICKHOUSE_VERIFY,
-    TEST,
-)
+from posthog.settings import TEST
 from posthog.utils import generate_short_id, patchable
 
 InsertParams = Union[list, tuple, types.GeneratorType]
@@ -143,17 +135,8 @@ def substitute_params(query, params):
     containing code is only responsible for it's parameters, and we can
     avoid any potential param collisions.
     """
-    ch_client = SyncClient(
-        host=CLICKHOUSE_HOST,
-        database=CLICKHOUSE_DATABASE,
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-        settings={"mutations_sync": "1"} if TEST else {},
-    )
-    return cast(SyncClient, ch_client).substitute_params(query, params)
+    escaped = escape_params(params)
+    return query % escaped
 
 
 @patchable
