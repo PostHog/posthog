@@ -48,6 +48,7 @@ class TrendsTotalVolume:
         aggregate_operation, join_condition, math_params = process_math(
             entity,
             team,
+            event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS,
             person_id_alias=f"person_id" if team.person_on_events_querying_enabled else "pdi.person_id",
         )
 
