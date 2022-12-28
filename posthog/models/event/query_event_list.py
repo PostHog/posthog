@@ -70,6 +70,9 @@ def query_events_list(
     unbounded_date_from: bool = False,
     limit: int = 100,
 ) -> Union[List, EventsQueryResponse]:
+    # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
+    # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
+
     limit += 1
     limit_sql = "LIMIT %(limit)s"
 
