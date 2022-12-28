@@ -144,6 +144,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         _create_action(team=self.team, name="no events")
         sign_up_action = _create_action(team=self.team, name="sign up")
 
+        flush_persons_and_events()
+
         return sign_up_action, person
 
     def _create_breakdown_events(self):
