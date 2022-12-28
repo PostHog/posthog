@@ -2,19 +2,19 @@ VOLUME_SQL = """
 SELECT
     {aggregate_operation} as data,
     {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s) {start_of_week_fix}) as date
-{event_base_query}
+{event_query_base}
 GROUP BY date
 """
 
 VOLUME_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data
-{event_base_query}
+{event_query_base}
 """
 
 VOLUME_PER_ACTOR_SQL = """
 SELECT {aggregate_operation} AS data, date FROM (
     SELECT COUNT(*) AS intermediate_count, {aggregator}, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS date
-    {event_base_query}
+    {event_query_base}
     GROUP BY {aggregator}, date
 ) GROUP BY date
 """
@@ -22,7 +22,7 @@ SELECT {aggregate_operation} AS data, date FROM (
 VOLUME_PER_ACTOR_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
     SELECT COUNT(*) AS intermediate_count, {aggregator}
-    {event_base_query}
+    {event_query_base}
     GROUP BY {aggregator}
 ) events
 """
@@ -32,7 +32,7 @@ SELECT {aggregate_operation} as data, date FROM (
     SELECT
         {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date,
         any(sessions.session_duration) as session_duration
-    {event_base_query}
+    {event_query_base}
     GROUP BY sessions.$session_id, date
 ) GROUP BY date
 """
@@ -40,7 +40,7 @@ SELECT {aggregate_operation} as data, date FROM (
 SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
     SELECT any(session_duration) as session_duration
-    {event_base_query}
+    {event_query_base}
     GROUP BY $session_id
 )
 """
@@ -62,7 +62,7 @@ SELECT counts AS total, timestamp AS day_start FROM (
         SELECT
             toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
             {aggregator}
-        {event_base_query}
+        {event_query_base}
         GROUP BY timestamp, {aggregator}
     ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
@@ -73,7 +73,7 @@ SELECT counts AS total, timestamp AS day_start FROM (
 ACTIVE_USERS_AGGREGATE_SQL = """
 SELECT
     {aggregate_operation} AS total
-{event_base_query}
+{event_query_base}
 """
 
 FINAL_TIME_SERIES_SQL = """
@@ -92,7 +92,7 @@ SETTINGS timeout_before_checking_execution_speed = 60
 
 CUMULATIVE_SQL = """
 SELECT {actor_expression} AS actor_id, min(timestamp) AS first_seen_timestamp
-{event_base_query}
+{event_query_base}
 GROUP BY actor_id
 """
 

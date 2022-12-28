@@ -20,7 +20,11 @@ class TrendsEventQueryBase(EventQuery):
         self._entity = entity
         super().__init__(*args, **kwargs)
 
-    def get_base_query(self) -> Tuple[str, Dict[str, Any]]:
+    def get_query_base(self) -> Tuple[str, Dict[str, Any]]:
+        """
+        Returns part of the event query with only FROM, JOINs and WHERE clauses.
+        """
+
         date_query, date_params = self._get_date_filter()
         self.params.update(date_params)
 

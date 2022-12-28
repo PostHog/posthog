@@ -61,7 +61,7 @@ class TrendsTotalVolume:
             else False,
             using_person_on_events=team.person_on_events_querying_enabled,
         )
-        event_base_query, event_query_params = trend_event_query.get_base_query()
+        event_query_base, event_query_params = trend_event_query.get_query_base()
 
         content_sql_params = {
             "aggregate_operation": aggregate_operation,
@@ -75,7 +75,7 @@ class TrendsTotalVolume:
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
                 content_sql = ACTIVE_USERS_AGGREGATE_SQL.format(
-                    event_base_query=event_base_query,
+                    event_query_base=event_query_base,
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
@@ -85,23 +85,23 @@ class TrendsTotalVolume:
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_AGGREGATE_SQL.format(
-                    event_base_query=event_base_query, **content_sql_params
+                    event_query_base=event_query_base, **content_sql_params
                 )
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
-                    event_base_query=event_base_query,
+                    event_query_base=event_query_base,
                     **content_sql_params,
                     aggregator=determine_aggregator(entity, team),
                 )
             else:
-                content_sql = VOLUME_AGGREGATE_SQL.format(event_base_query=event_base_query, **content_sql_params)
+                content_sql = VOLUME_AGGREGATE_SQL.format(event_query_base=event_query_base, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
                 content_sql = ACTIVE_USERS_SQL.format(
-                    event_base_query=event_base_query,
+                    event_query_base=event_query_base,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
                     aggregator=determine_aggregator(entity, team),  # TODO: Support groups officialy and with tests
@@ -113,12 +113,12 @@ class TrendsTotalVolume:
                 # :TODO: Consider using bitmap-per-date to speed this up
                 cumulative_sql = CUMULATIVE_SQL.format(
                     actor_expression=determine_aggregator(entity, team),
-                    event_base_query=event_base_query,
+                    event_query_base=event_query_base,
                 )
                 content_sql_params["aggregate_operation"] = "COUNT(DISTINCT actor_id)"
                 content_sql = VOLUME_SQL.format(
                     timestamp_column="first_seen_timestamp",
-                    event_base_query=f"FROM ({cumulative_sql})",
+                    event_query_base=f"FROM ({cumulative_sql})",
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
@@ -126,7 +126,7 @@ class TrendsTotalVolume:
                 # Calculate average number of events per actor
                 # (only including actors with at least one matching event in a period)
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
-                    event_base_query=event_base_query,
+                    event_query_base=event_query_base,
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     aggregator=determine_aggregator(entity, team),
                     **content_sql_params,
@@ -135,14 +135,14 @@ class TrendsTotalVolume:
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_SQL.format(
-                    event_base_query=event_base_query,
+                    event_query_base=event_query_base,
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
             else:
                 content_sql = VOLUME_SQL.format(
                     timestamp_column="timestamp",
-                    event_base_query=event_base_query,
+                    event_query_base=event_query_base,
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
