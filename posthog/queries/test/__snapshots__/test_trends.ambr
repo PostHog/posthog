@@ -758,7 +758,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
@@ -766,34 +766,31 @@
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT group_key,
-                     argMax(group_properties, _timestamp) AS group_properties_0
-              FROM groups
-              WHERE team_id = 2
-                AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
-           INNER JOIN
-             (SELECT group_key,
-                     argMax(group_properties, _timestamp) AS group_properties_2
-              FROM groups
-              WHERE team_id = 2
-                AND group_type_index = 2
-              GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
+        FROM events e
+        INNER JOIN
+          (SELECT group_key,
+                  argMax(group_properties, _timestamp) AS group_properties_0
+           FROM groups
            WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
-                  AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
-             AND e.person_id != toUUIDOrZero('') )
+             AND group_type_index = 0
+           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        INNER JOIN
+          (SELECT group_key,
+                  argMax(group_properties, _timestamp) AS group_properties_2
+           FROM groups
+           WHERE team_id = 2
+             AND group_type_index = 2
+           GROUP BY group_key) groups_2 ON "$group_2" == groups_2.group_key
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+          AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
+               AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_filtering_by_multiple_groups_person_on_events.1
@@ -843,7 +840,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
@@ -851,28 +848,24 @@
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id,
-                  e."person_properties" as "person_properties"
-           FROM events e
-           INNER JOIN
-             (SELECT group_key,
-                     argMax(group_properties, _timestamp) AS group_properties_0
-              FROM groups
-              WHERE team_id = 2
-                AND group_type_index = 0
-              GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        FROM events e
+        INNER JOIN
+          (SELECT group_key,
+                  argMax(group_properties, _timestamp) AS group_properties_0
+           FROM groups
            WHERE team_id = 2
-             AND event = '$pageview'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-                  AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
-             AND e.person_id != toUUIDOrZero('') )
+             AND group_type_index = 0
+           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+          AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+               AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_person_property_filtering
@@ -883,7 +876,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -891,36 +884,33 @@
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+        WHERE team_id = 2
+          AND event = 'watched movie'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property
@@ -931,7 +921,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -939,36 +929,33 @@
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', ''))) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND (has(['person1'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))) person ON person.id = pdi.person_id
+        WHERE team_id = 2
+          AND event = 'watched movie'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property.1
@@ -979,7 +966,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -987,18 +974,15 @@
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e."properties" as "properties"
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND (has(['1'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', ''))) )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'watched movie'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND (has(['1'], replaceRegexpAll(JSONExtractRaw(e.properties, 'name'), '^"|"$', '')))
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized
@@ -1009,7 +993,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -1017,36 +1001,33 @@
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['person1'], person."pmat_name")) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['person1'], person."pmat_name")) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
+        WHERE team_id = 2
+          AND event = 'watched movie'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_person_property_filtering_clashing_with_event_property_materialized.1
@@ -1057,7 +1038,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -1065,18 +1046,15 @@
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e."mat_name" as "mat_name"
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND (has(['1'], "mat_name")) )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'watched movie'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND (has(['1'], "mat_name"))
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_person_property_filtering_materialized
@@ -1087,7 +1065,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -1095,36 +1073,33 @@
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['person1'], person."pmat_name")) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = 'watched movie'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['person1'], person."pmat_name")) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND (has(['person1'], argMax(person."pmat_name", version)))) person ON person.id = pdi.person_id
+        WHERE team_id = 2
+          AND event = 'watched movie'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezone_weekly
@@ -1135,7 +1110,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfWeek(toDateTime('2020-01-25 23:59:59', 'US/Pacific') - toIntervalWeek(number), 0) AS day_start
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0), toDateTime('2020-01-25 23:59:59', 'US/Pacific')))
@@ -1143,16 +1118,14 @@
                          toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0)
         UNION ALL SELECT count(*) as data,
                          toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific'), 0) as date
-        FROM
-          (SELECT e.timestamp as timestamp
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0)
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-25 23:59:59', 'US/Pacific') )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2020-01-11 00:00:00', 'US/Pacific'), 0)
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-25 23:59:59', 'US/Pacific')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezones
@@ -1163,7 +1136,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
@@ -1171,16 +1144,14 @@
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
-        FROM
-          (SELECT e.timestamp as timestamp
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezones.1
@@ -1191,32 +1162,29 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-22 00:00:00', 'US/Pacific'))
-        UNION ALL SELECT count(DISTINCT person_id) as data,
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'US/Pacific')), 'US/Pacific')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-22 00:00:00', 'US/Pacific')), 'US/Pacific')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezones.2
@@ -1227,7 +1195,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
@@ -1237,33 +1205,27 @@
                          timestamp AS day_start
         FROM
           (SELECT d.timestamp,
-                  COUNT(DISTINCT person_id) AS counts
+                  COUNT(DISTINCT e.person_id) AS counts
            FROM
              (SELECT toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-22 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific') AS timestamp,
-                     person_id
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
-                 FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                     e.person_id
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
                  WHERE team_id = 2
-                   AND event = 'sign up'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'US/Pacific')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') ) events
-              WHERE 1 = 1
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'US/Pacific')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
               GROUP BY timestamp,
-                       person_id) e
+                       e.person_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -1271,8 +1233,8 @@
         WHERE 1 = 1
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') )
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezones.3
@@ -1283,7 +1245,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-05 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
@@ -1291,16 +1253,14 @@
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
-        FROM
-          (SELECT e.timestamp as timestamp
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific') )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), 'US/Pacific')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'US/Pacific')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezones.4
@@ -1382,7 +1342,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfHour(toDateTime('2020-01-03 23:59:59', 'US/Pacific') - toIntervalHour(number)) AS day_start
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-03 00:00:00', 'US/Pacific')), toDateTime('2020-01-03 23:59:59', 'US/Pacific')))
@@ -1390,16 +1350,14 @@
                          toStartOfHour(toDateTime('2020-01-03 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
                          toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
-        FROM
-          (SELECT e.timestamp as timestamp
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'US/Pacific')), 'US/Pacific')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'US/Pacific') )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-03 00:00:00', 'US/Pacific')), 'US/Pacific')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'US/Pacific')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezones.7
@@ -1410,7 +1368,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-03 23:59:59', 'US/Pacific') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-03 00:00:00', 'US/Pacific')), toDateTime('2020-01-03 23:59:59', 'US/Pacific')))
@@ -1418,16 +1376,14 @@
                          toStartOfDay(toDateTime('2020-01-03 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
-        FROM
-          (SELECT e.timestamp as timestamp
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'US/Pacific')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'US/Pacific') )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-03 00:00:00', 'US/Pacific')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'US/Pacific')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezones_hourly
@@ -1438,32 +1394,29 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfHour(toDateTime('2020-01-05 10:02:01', 'US/Pacific') - toIntervalHour(number)) AS day_start
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 10:02:01', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific'))
-        UNION ALL SELECT count(DISTINCT person_id) as data,
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
                          toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), 'US/Pacific')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), 'US/Pacific')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_timezones_hourly.1
@@ -1503,7 +1456,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfHour(toDateTime('2020-01-05 10:02:01', 'US/Pacific') - toIntervalHour(number)) AS day_start
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 10:02:01', 'US/Pacific')))
@@ -1511,16 +1464,14 @@
                          toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific'))
         UNION ALL SELECT count(*) as data,
                          toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')) as date
-        FROM
-          (SELECT e.timestamp as timestamp
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), 'US/Pacific')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific') )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 00:00:00', 'US/Pacific')), 'US/Pacific')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 10:02:01', 'US/Pacific')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies
@@ -1531,7 +1482,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -1539,18 +1490,15 @@
                          toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT person_id) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e.person_id as person_id
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-             AND e.person_id != toUUIDOrZero('') )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+          AND e.person_id != toUUIDOrZero('')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trend_actors_person_on_events_pagination_with_alias_inconsistencies.1
@@ -1856,25 +1804,22 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT distinct_id) as data,
+        UNION ALL SELECT count(DISTINCT e.distinct_id) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e.distinct_id as distinct_id
-           FROM events e
-           WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
+        FROM events e
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.1
@@ -1885,45 +1830,41 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
-        UNION ALL SELECT count(DISTINCT distinct_id) as data,
+        UNION ALL SELECT count(DISTINCT e.distinct_id) as data,
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id,
-                  e.distinct_id as distinct_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = 'sign up'
-             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        INNER JOIN
+          (SELECT id
+           FROM person
+           WHERE team_id = 2
+             AND id IN
+               (SELECT id
+                FROM person
+                WHERE team_id = 2
+                  AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))) )
+           GROUP BY id
+           HAVING max(is_deleted) = 0
+           AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', '')))) person ON person.id = pdi.person_id
+        WHERE team_id = 2
+          AND event = 'sign up'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.2
@@ -2026,7 +1967,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))
@@ -2036,26 +1977,20 @@
                          timestamp AS day_start
         FROM
           (SELECT d.timestamp,
-                  COUNT(DISTINCT distinct_id) AS counts
+                  COUNT(DISTINCT e.distinct_id) AS counts
            FROM
              (SELECT toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC') - toIntervalDay(number)) AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-11-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
-                     distinct_id
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        e.distinct_id as distinct_id
-                 FROM events e
-                 WHERE team_id = 2
-                   AND event = 'sign up'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') ) events
-              WHERE 1 = 1
+                     e.distinct_id
+              FROM events e
+              WHERE team_id = 2
+                AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
               GROUP BY timestamp,
-                       distinct_id) e
+                       e.distinct_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 29 DAY
            GROUP BY d.timestamp
@@ -2063,8 +1998,8 @@
         WHERE 1 = 1
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.5
@@ -2075,7 +2010,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))
@@ -2085,26 +2020,20 @@
                          timestamp AS day_start
         FROM
           (SELECT d.timestamp,
-                  COUNT(DISTINCT distinct_id) AS counts
+                  COUNT(DISTINCT e.distinct_id) AS counts
            FROM
              (SELECT toStartOfDay(toDateTime('2019-12-31 23:59:59', 'UTC') - toIntervalDay(number)) AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-17 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
-                     distinct_id
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        e.distinct_id as distinct_id
-                 FROM events e
-                 WHERE team_id = 2
-                   AND event = 'sign up'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-17 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') ) events
-              WHERE 1 = 1
+                     e.distinct_id
+              FROM events e
+              WHERE team_id = 2
+                AND event = 'sign up'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-17 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC')
               GROUP BY timestamp,
-                       distinct_id) e
+                       e.distinct_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -2112,8 +2041,8 @@
         WHERE 1 = 1
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2019-12-31 23:59:59', 'UTC') )
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_aggregate_by_distinct_id.6
@@ -2307,15 +2236,12 @@
   FROM
     (SELECT COUNT(*) AS intermediate_count,
             "$group_0"
-     FROM
-       (SELECT e.timestamp as timestamp,
-               e."$group_0" as "$group_0"
-        FROM events e
-        WHERE team_id = 2
-          AND event = 'viewed video'
-          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
-          AND "$group_0" != '' )
+     FROM events e
+     WHERE team_id = 2
+       AND event = 'viewed video'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+       AND "$group_0" != ''
      GROUP BY "$group_0") events
   '
 ---
@@ -2327,7 +2253,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
@@ -2338,19 +2264,16 @@
           (SELECT COUNT(*) AS intermediate_count,
                   "$group_0",
                   toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-           FROM
-             (SELECT e.timestamp as timestamp,
-                     e."$group_0" as "$group_0"
-              FROM events e
-              WHERE team_id = 2
-                AND event = 'viewed video'
-                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
-                AND "$group_0" != '' )
+           FROM events e
+           WHERE team_id = 2
+             AND event = 'viewed video'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+             AND "$group_0" != ''
            GROUP BY "$group_0", date)
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_count_per_user_average_aggregated
@@ -2359,29 +2282,26 @@
   SELECT avg(intermediate_count) as data
   FROM
     (SELECT COUNT(*) AS intermediate_count,
-            person_id
-     FROM
-       (SELECT e.timestamp as timestamp,
-               pdi.person_id as person_id
-        FROM events e
-        INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-           GROUP BY id
-           HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+            e.person_id
+     FROM events e
+     INNER JOIN
+       (SELECT distinct_id,
+               argMax(person_id, version) as person_id
+        FROM person_distinct_id2
         WHERE team_id = 2
-          AND event = 'viewed video'
-          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') )
-     GROUP BY person_id) events
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+     INNER JOIN
+       (SELECT id
+        FROM person
+        WHERE team_id = 2
+        GROUP BY id
+        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+     WHERE team_id = 2
+       AND event = 'viewed video'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+     GROUP BY e.person_id) events
   '
 ---
 # name: TestTrends.test_trends_count_per_user_average_daily
@@ -2392,7 +2312,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-07 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-07 23:59:59', 'UTC')))
@@ -2401,30 +2321,27 @@
         UNION ALL SELECT avg(intermediate_count) AS data, date
         FROM
           (SELECT COUNT(*) AS intermediate_count,
-                  person_id,
+                  e.person_id,
                   toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS date
-           FROM
-             (SELECT e.timestamp as timestamp,
-                     pdi.person_id as person_id
-              FROM events e
-              INNER JOIN
-                (SELECT distinct_id,
-                        argMax(person_id, version) as person_id
-                 FROM person_distinct_id2
-                 WHERE team_id = 2
-                 GROUP BY distinct_id
-                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-              INNER JOIN
-                (SELECT id
-                 FROM person
-                 WHERE team_id = 2
-                 GROUP BY id
-                 HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
               WHERE team_id = 2
-                AND event = 'viewed video'
-                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
-                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC') )
-           GROUP BY person_id, date)
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           INNER JOIN
+             (SELECT id
+              FROM person
+              WHERE team_id = 2
+              GROUP BY id
+              HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
+           WHERE team_id = 2
+             AND event = 'viewed video'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-07 23:59:59', 'UTC')
+           GROUP BY e.person_id, date)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -2482,7 +2399,6 @@
           AND event = 'sign up'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-          AND e.person_id != toUUIDOrZero('')
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -2582,25 +2498,20 @@
   SELECT quantile(0.50)(session_duration) as data
   FROM
     (SELECT any(session_duration) as session_duration
-     FROM
-       (SELECT e.timestamp as timestamp,
-               e."properties" as "properties",
-               sessions.session_duration as session_duration,
-               sessions.$session_id as $session_id
-        FROM events e
-        INNER JOIN
-          (SELECT $session_id,
-                  dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-           FROM events
-           WHERE $session_id != ''
-             AND team_id = 2
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-           GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
-          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) events
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+        GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY $session_id)
   '
 ---
@@ -2610,25 +2521,20 @@
   SELECT quantile(0.50)(session_duration) as data
   FROM
     (SELECT any(session_duration) as session_duration
-     FROM
-       (SELECT e.timestamp as timestamp,
-               e."properties" as "properties",
-               sessions.session_duration as session_duration,
-               sessions.$session_id as $session_id
-        FROM events e
-        INNER JOIN
-          (SELECT $session_id,
-                  dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-           FROM events
-           WHERE $session_id != ''
-             AND team_id = 2
-             AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-           GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
-        WHERE team_id = 2
-          AND event = 'sign up'
-          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') ) events
+     FROM events e
+     INNER JOIN
+       (SELECT $session_id,
+               dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+        FROM events
+        WHERE $session_id != ''
+          AND team_id = 2
+          AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+        GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+     WHERE team_id = 2
+       AND event = 'sign up'
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
      GROUP BY $session_id)
   '
 ---
@@ -2640,7 +2546,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfWeek(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS day_start
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -2649,30 +2555,25 @@
         UNION ALL SELECT quantile(0.50)(session_duration) as data, date
         FROM
           (SELECT toStartOfWeek(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC'), 0) as date,
-                  any(session_duration) as session_duration
-           FROM
-             (SELECT e.timestamp as timestamp,
-                     e."properties" as "properties",
-                     sessions.session_duration as session_duration,
-                     sessions.$session_id as $session_id
-              FROM events e
-              INNER JOIN
-                (SELECT $session_id,
-                        dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-                 FROM events
-                 WHERE $session_id != ''
-                   AND team_id = 2
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-                 GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
-              WHERE team_id = 2
-                AND event = 'sign up'
-                AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
-                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
-           GROUP BY $session_id, date)
+                  any(sessions.session_duration) as session_duration
+           FROM events e
+           INNER JOIN
+             (SELECT $session_id,
+                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+              FROM events
+              WHERE $session_id != ''
+                AND team_id = 2
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+              GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+           GROUP BY sessions.$session_id, date)
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math.1
@@ -2683,7 +2584,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-04 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), toDateTime('2020-01-04 23:59:59', 'UTC')))
@@ -2692,30 +2593,25 @@
         UNION ALL SELECT quantile(0.50)(session_duration) as data, date
         FROM
           (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date,
-                  any(session_duration) as session_duration
-           FROM
-             (SELECT e.timestamp as timestamp,
-                     e."properties" as "properties",
-                     sessions.session_duration as session_duration,
-                     sessions.$session_id as $session_id
-              FROM events e
-              INNER JOIN
-                (SELECT $session_id,
-                        dateDiff('second', min(timestamp), max(timestamp)) as session_duration
-                 FROM events
-                 WHERE $session_id != ''
-                   AND team_id = 2
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
-                 GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
-              WHERE team_id = 2
-                AND event = 'sign up'
-                AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
-                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') )
-           GROUP BY $session_id, date)
+                  any(sessions.session_duration) as session_duration
+           FROM events e
+           INNER JOIN
+             (SELECT $session_id,
+                     dateDiff('second', min(timestamp), max(timestamp)) as session_duration
+              FROM events
+              WHERE $session_id != ''
+                AND team_id = 2
+                AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-28 00:00:00', 'UTC') - INTERVAL 24 HOUR
+                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC') + INTERVAL 24 HOUR
+              GROUP BY $session_id) as sessions ON sessions.$session_id = e.$session_id
+           WHERE team_id = 2
+             AND event = 'sign up'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
+           GROUP BY sessions.$session_id, date)
         GROUP BY date)
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math_with_breakdowns
@@ -2954,48 +2850,36 @@
 # name: TestTrends.test_weekly_active_users_aggregated_range_narrower_than_week
   '
   
-  SELECT count(DISTINCT person_id) AS total
-  FROM
-    (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  SELECT count(DISTINCT pdi.person_id) AS total
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 23:59:59', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC') ) events
-  WHERE 1 = 1
-    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 23:59:59', 'UTC') - INTERVAL 6 DAY
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 23:59:59', 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
   '
 ---
 # name: TestTrends.test_weekly_active_users_aggregated_range_wider_than_week
   '
   
-  SELECT count(DISTINCT person_id) AS total
-  FROM
-    (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id
-     FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  SELECT count(DISTINCT pdi.person_id) AS total
+  FROM events e
+  INNER JOIN
+    (SELECT distinct_id,
+            argMax(person_id, version) as person_id
+     FROM person_distinct_id2
      WHERE team_id = 2
-       AND event = '$pageview'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
-  WHERE 1 = 1
-    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC') - INTERVAL 6 DAY
+     GROUP BY distinct_id
+     HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 23:59:59', 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
   '
 ---
@@ -3007,7 +2891,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfDay(toDateTime('2020-01-19 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), toDateTime('2020-01-19 23:59:59', 'UTC')))
@@ -3017,33 +2901,27 @@
                          timestamp AS day_start
         FROM
           (SELECT d.timestamp,
-                  COUNT(DISTINCT person_id) AS counts
+                  COUNT(DISTINCT e.person_id) AS counts
            FROM
              (SELECT toStartOfDay(toDateTime('2020-01-19 23:59:59', 'UTC') - toIntervalDay(number)) AS timestamp
               FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-19 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
-                     person_id
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
-                 FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                     e.person_id
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
                  WHERE team_id = 2
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC') ) events
-              WHERE 1 = 1
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC')
               GROUP BY timestamp,
-                       person_id) e
+                       e.person_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -3051,8 +2929,8 @@
         WHERE 1 = 1
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-19 23:59:59', 'UTC') )
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_weekly_active_users_hourly
@@ -3063,7 +2941,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfHour(toDateTime('2020-01-09 17:00:00', 'UTC') - toIntervalHour(number)) AS day_start
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), toDateTime('2020-01-09 17:00:00', 'UTC')))
@@ -3073,33 +2951,27 @@
                          timestamp AS day_start
         FROM
           (SELECT d.timestamp,
-                  COUNT(DISTINCT person_id) AS counts
+                  COUNT(DISTINCT e.person_id) AS counts
            FROM
              (SELECT toStartOfHour(toDateTime('2020-01-09 17:00:00', 'UTC') - toIntervalHour(number)) AS timestamp
               FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-02 06:00:00', 'UTC')), toDateTime('2020-01-09 17:00:00', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
-                     person_id
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
-                 FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                     e.person_id
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
                  WHERE team_id = 2
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC') ) events
-              WHERE 1 = 1
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 06:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC')
               GROUP BY timestamp,
-                       person_id) e
+                       e.person_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -3107,8 +2979,8 @@
         WHERE 1 = 1
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-09 17:00:00', 'UTC') )
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_weekly_active_users_monthly
@@ -3119,7 +2991,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'UTC') - toIntervalMonth(number)) AS day_start
         FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), toDateTime('2020-02-29 23:59:59', 'UTC')))
@@ -3129,33 +3001,27 @@
                          timestamp AS day_start
         FROM
           (SELECT d.timestamp,
-                  COUNT(DISTINCT person_id) AS counts
+                  COUNT(DISTINCT e.person_id) AS counts
            FROM
              (SELECT toStartOfMonth(toDateTime('2020-02-29 23:59:59', 'UTC') - toIntervalMonth(number)) AS timestamp
               FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-11-24 00:00:00', 'UTC')), toDateTime('2020-02-29 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
-                     person_id
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
-                 FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                     e.person_id
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
                  WHERE team_id = 2
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') ) events
-              WHERE 1 = 1
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-11-24 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC')
               GROUP BY timestamp,
-                       person_id) e
+                       e.person_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -3163,8 +3029,8 @@
         WHERE 1 = 1
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-02-29 23:59:59', 'UTC') )
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: TestTrends.test_weekly_active_users_weekly
@@ -3175,7 +3041,7 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
                toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS day_start
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0), toDateTime('2020-01-18 23:59:59', 'UTC')))
@@ -3185,33 +3051,27 @@
                          timestamp AS day_start
         FROM
           (SELECT d.timestamp,
-                  COUNT(DISTINCT person_id) AS counts
+                  COUNT(DISTINCT e.person_id) AS counts
            FROM
              (SELECT toStartOfWeek(toDateTime('2020-01-18 23:59:59', 'UTC') - toIntervalWeek(number), 0) AS timestamp
               FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-22 00:00:00', 'UTC'), 0), toDateTime('2020-01-18 23:59:59', 'UTC')))) d
            CROSS JOIN
              (SELECT toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') AS timestamp,
-                     person_id
-              FROM
-                (SELECT e.timestamp as timestamp,
-                        pdi.person_id as person_id
-                 FROM events e
-                 INNER JOIN
-                   (SELECT distinct_id,
-                           argMax(person_id, version) as person_id
-                    FROM person_distinct_id2
-                    WHERE team_id = 2
-                    GROUP BY distinct_id
-                    HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                     e.person_id
+              FROM events e
+              INNER JOIN
+                (SELECT distinct_id,
+                        argMax(person_id, version) as person_id
+                 FROM person_distinct_id2
                  WHERE team_id = 2
-                   AND event = '$pageview'
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC') ) events
-              WHERE 1 = 1
+                 GROUP BY distinct_id
+                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+              WHERE team_id = 2
+                AND event = '$pageview'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime('2019-12-22 00:00:00', 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC')
               GROUP BY timestamp,
-                       person_id) e
+                       e.person_id) e
            WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY
              AND e.timestamp > d.timestamp - INTERVAL 6 DAY
            GROUP BY d.timestamp
@@ -3219,7 +3079,7 @@
         WHERE 1 = 1
           AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0)
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-18 23:59:59', 'UTC') )
-     group by day_start
-     order by day_start) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
