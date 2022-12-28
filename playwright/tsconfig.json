@@ -1,0 +1,9 @@
+{
+    "compilerOptions": {
+        "baseUrl": "../frontend",
+        "paths": {
+            "lib/*": ["src/lib/*"],
+            "scenes/*": ["src/scenes/*"]
+        }
+    }
+}

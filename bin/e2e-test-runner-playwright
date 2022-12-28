@@ -102,6 +102,7 @@ $SKIP_SETUP_DEV || setupDev
 # parallel block
 ./bin/plugin-server &
 # Only start webpack if not already running
-nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend &
-pnpm exec cypress open --config-file cypress.e2e.config.ts &
-python manage.py runserver 8080
+nc -vz 127.0.0.1 8234 2> /dev/null || ./bin/start-frontend 
+#&
+#pnpm exec playwright test -c playwright.e2e.config.ts
+

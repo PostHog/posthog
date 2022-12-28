@@ -1,0 +1,15 @@
+{
+    "cookies": [
+        {
+            "name": "posthog_csrftoken",
+            "value": "5UlDek4VkFbb8fwuGTt1f4fj3uKCkadAkbs3ICyI2zeGyiWXAggN63to739vAbOw",
+            "domain": "localhost",
+            "path": "/",
+            "expires": 1703682929.638315,
+            "httpOnly": false,
+            "secure": false,
+            "sameSite": "Lax"
+        }
+    ],
+    "origins": []
+}
