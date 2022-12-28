@@ -628,6 +628,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.add_insight_to_dashboard([existing_dashboard.pk], insight_one_id)
         _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
 
+        # soft deleted tiles are not duplicated
+        insight_two_id, _ = self.dashboard_api.create_insight({"name": "the insight"})
+        self.dashboard_api.add_insight_to_dashboard([existing_dashboard.pk], insight_two_id)
+        self.dashboard_api.soft_delete(insight_two_id, "insights")
+
         _, duplicate_response = self.dashboard_api.create_dashboard(
             {"name": "another", "use_dashboard": existing_dashboard.id}
         )
@@ -681,7 +686,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         existing_dashboard_item_id_set = set(map(lambda x: x.id, existing_dashboard.insights.all()))
         response_item_id_set = set(map(lambda x: x.get("id", None), response["tiles"]))
-        # check both sets are disjoint to verify that the new items' ids are different than the existing items
+        # check both sets are disjoint to verify that the new items' ids are different from the existing items
         self.assertTrue(existing_dashboard_item_id_set.isdisjoint(response_item_id_set))
 
         for item in response["tiles"]:

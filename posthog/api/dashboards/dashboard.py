@@ -148,7 +148,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         elif use_dashboard:
             try:
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
-                existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
+                existing_tiles = DashboardTile.dashboard_queryset(
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                )
+                # TODO - this should loop in layout order not current undetermined order
                 for existing_tile in existing_tiles:
                     if self.initial_data.get("duplicate_tiles", False):
                         self._deep_duplicate_tiles(dashboard, existing_tile)

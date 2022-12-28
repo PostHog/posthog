@@ -59,7 +59,7 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
         # always makes new tiles
         assert [tile["id"] for tile in duplicated_dashboard["tiles"]] != self.tile_ids
         # uses existing children
-        assert self.original_child_ids == self._tile_child_ids_from(duplicated_dashboard)
+        assert sorted(self.original_child_ids) == sorted(self._tile_child_ids_from(duplicated_dashboard))
 
         assert [tile["color"] for tile in duplicated_dashboard["tiles"]] == [self.tile_color, self.tile_color]
         assert [tile["layouts"] for tile in duplicated_dashboard["tiles"]] == [self.tile_layout, self.tile_layout]
