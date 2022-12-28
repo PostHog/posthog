@@ -7,6 +7,7 @@ from dateutil.parser import isoparse
 from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
+from posthog.clickhouse.client.connection import Workload
 from posthog.hogql.expr_parser import SELECT_STAR_FROM_EVENTS_FIELDS, ExprParserContext, translate_hql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
@@ -108,12 +109,14 @@ def query_events_list(
                 ),
                 {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
                 query_type="events_list",
+                workload=Workload.OFFLINE,
             )
         else:
             return insight_query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
                 {"team_id": team.pk, "limit": limit, **condition_params},
                 query_type="events_list",
+                workload=Workload.OFFLINE,
             )
 
     # events list v2 - hogql
@@ -174,6 +177,7 @@ def query_events_list(
         {"team_id": team.pk, **condition_params, **prop_filter_params, **collected_hogql_values},
         with_column_types=True,
         query_type="events_list",
+        workload=Workload.OFFLINE,
     )
 
     # Convert star field from tuple to dict in each result
