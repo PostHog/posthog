@@ -975,16 +975,26 @@ export const insightLogic = kea<insightLogicType>([
                     filters,
                     deleted,
                     saved: true,
-                    dashboards,
                     tags,
                 }
 
-                savedInsight = insightNumericId
-                    ? await api.update(
-                          `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
-                          insightRequest
-                      )
-                    : await api.create(`api/projects/${teamLogic.values.currentTeamId}/insights/`, insightRequest)
+                if (insightNumericId) {
+                    savedInsight = await api.update(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/${insightNumericId}`,
+                        insightRequest
+                    )
+                } else {
+                    savedInsight = await api.create(
+                        `api/projects/${teamLogic.values.currentTeamId}/insights/`,
+                        insightRequest
+                    )
+
+                    /* allows creation of an insight and adding it to a dashboard in one step */
+                    for (const dashboardId of dashboards || []) {
+                        await api.tiles.addInsightToDashboard(savedInsight.id, dashboardId)
+                    }
+                    savedInsight.dashboards = dashboards || []
+                }
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()

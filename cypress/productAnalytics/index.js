@@ -80,6 +80,7 @@ export const dashboards = {
 export const dashboard = {
     addInsightToEmptyDashboard: (insightName) => {
         cy.intercept('POST', /api\/projects\/\d+\/insights\//).as('postInsight')
+        cy.intercept('POST', /api\/projects\/\d+\/dashboard_tiles\//).as('postTile')
 
         cy.get('[data-attr=dashboard-add-graph-header]').contains('Add insight').click()
         cy.get('[data-attr=toast-close-button]').click({ multiple: true })
@@ -93,6 +94,7 @@ export const dashboard = {
 
         cy.get('[data-attr=insight-save-button]').contains('Save & add to dashboard').click()
         cy.wait('@postInsight')
+        cy.wait('@postTile')
     },
 }
 
