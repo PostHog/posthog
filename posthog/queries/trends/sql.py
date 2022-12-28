@@ -22,7 +22,7 @@ SELECT {aggregate_operation} AS data, date FROM (
 VOLUME_PER_ACTOR_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
     SELECT COUNT(*) AS intermediate_count, {aggregator}
-    FROM ({event_query})
+    {event_base_query}
     GROUP BY {aggregator}
 ) events
 """
@@ -74,8 +74,7 @@ SELECT counts AS total, timestamp AS day_start FROM (
 ACTIVE_USERS_AGGREGATE_SQL = """
 SELECT
     {aggregate_operation} AS total
-FROM ({event_query}) events
-WHERE 1 = 1 {parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+{event_base_query}
 """
 
 FINAL_TIME_SERIES_SQL = """

@@ -74,13 +74,12 @@ class TrendsTotalVolume:
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                event_query, _ = trend_event_query.get_base_query()
                 content_sql = ACTIVE_USERS_AGGREGATE_SQL.format(
-                    event_query=event_query,
-                    **content_sql_params,
-                    parsed_date_to=trend_event_query.parsed_date_to,
-                    parsed_date_from=trend_event_query.parsed_date_from,
+                    event_base_query=event_query,
                     aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                     start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
             elif entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
@@ -89,8 +88,9 @@ class TrendsTotalVolume:
                 event_query, _ = trend_event_query.get_base_query()
                 content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_base_query=event_query, **content_sql_params)
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
+                event_query, _ = trend_event_query.get_base_query()
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
-                    event_query=event_query,
+                    event_base_query=event_query,
                     **content_sql_params,
                     aggregator=determine_aggregator(entity, team),
                 )
