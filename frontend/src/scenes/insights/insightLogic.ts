@@ -44,7 +44,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { urls } from 'scenes/urls'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { actionsModel } from '~/models/actionsModel'
 import * as Sentry from '@sentry/react'
 import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
@@ -111,7 +111,6 @@ export const insightLogic = kea<insightLogicType>([
 
     actions({
         setActiveView: (type: InsightType) => ({ type }),
-        updateActiveView: (type: InsightType) => ({ type }),
         setFilters: (filters: Partial<FilterType>, insightMode?: ItemMode) => ({ filters, insightMode }),
         setFiltersMerge: (filters: Partial<FilterType>) => ({ filters }),
         reportInsightViewedForRecentInsights: () => true,
@@ -582,6 +581,11 @@ export const insightLogic = kea<insightLogicType>([
         /** filters for data that's being displayed, might not be same as `savedInsight.filters` or filters */
         loadedFilters: [(s) => [s.insight], (insight) => insight.filters],
         insightProps: [() => [(_, props) => props], (props): InsightLogicProps => props],
+        hasDashboardItemId: [
+            () => [(_, props) => props],
+            (props: InsightLogicProps) =>
+                !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-'),
+        ],
         derivedName: [
             (s) => [s.insight, s.aggregationLabel, s.cohortsById, s.mathDefinitions],
             (insight, aggregationLabel, cohortsById, mathDefinitions) =>
@@ -748,6 +752,14 @@ export const insightLogic = kea<insightLogicType>([
                 )
             },
         ],
+        isUsingDataExploration: [
+            (s) => [s.featureFlags, s.filters],
+            (featureFlags: FeatureFlagsSet, filters: Partial<FilterType>): boolean => {
+                const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
+                const isLifecycle = isLifecycleFilter(filters)
+                return !!featureDataExploration && isLifecycle
+            },
+        ],
     }),
     listeners(({ actions, selectors, values }) => ({
         setFiltersMerge: ({ filters }) => {
@@ -789,7 +801,9 @@ export const insightLogic = kea<insightLogicType>([
 
             // (Re)load results when filters have changed or if there's no result yet
             if (backendFilterChanged || !values.insight?.result) {
-                actions.loadResults()
+                if (!values.isUsingDataExploration) {
+                    actions.loadResults()
+                }
             }
         },
         reportInsightViewedForRecentInsights: async () => {
@@ -1057,13 +1071,17 @@ export const insightLogic = kea<insightLogicType>([
     })),
     events(({ props, cache, values, actions }) => ({
         afterMount: () => {
-            if (!props.cachedInsight || !props.cachedInsight?.result || !!props.cachedInsight?.filters) {
-                if (
-                    props.dashboardItemId &&
-                    props.dashboardItemId !== 'new' &&
-                    !props.dashboardItemId.startsWith('new-')
-                ) {
-                    const insight = findInsightFromMountedLogic(props.dashboardItemId, props.dashboardId)
+            const hasDashboardItemId =
+                !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-')
+            const isCachedWithResultAndFilters =
+                !!props.cachedInsight && !!props.cachedInsight?.result && !!props.cachedInsight?.filters
+
+            if (!isCachedWithResultAndFilters) {
+                if (hasDashboardItemId) {
+                    const insight = findInsightFromMountedLogic(
+                        props.dashboardItemId as string | InsightShortId,
+                        props.dashboardId
+                    )
                     if (insight) {
                         actions.setInsight(insight, { overrideFilter: true, fromPersistentApi: true })
                         if (insight?.result) {
@@ -1077,11 +1095,7 @@ export const insightLogic = kea<insightLogicType>([
                 if (!props.doNotLoad) {
                     if (props.cachedInsight?.filters) {
                         actions.loadResults()
-                    } else if (
-                        props.dashboardItemId &&
-                        props.dashboardItemId !== 'new' &&
-                        !props.dashboardItemId.startsWith('new-')
-                    ) {
+                    } else if (hasDashboardItemId) {
                         actions.loadInsight(props.dashboardItemId as InsightShortId)
                     }
                 }

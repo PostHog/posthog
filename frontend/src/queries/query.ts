@@ -1,5 +1,5 @@
 import { DataNode, EventsQuery, PersonsNode } from './schema'
-import { isEventsQuery, isLegacyQuery, isPersonsNode } from './utils'
+import { isInsightQueryNode, isEventsQuery, isLegacyQuery, isPersonsNode } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { AnyPartialFilterType } from '~/types'
@@ -13,6 +13,7 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { toParams } from 'lib/utils'
+import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { now } from 'lib/dayjs'
 
 const EVENTS_DAYS_FIRST_FETCH = 5
@@ -22,7 +23,8 @@ export const DEFAULT_QUERY_LIMIT = 100
 // Return data for a given query
 export async function query<N extends DataNode = DataNode>(
     query: N,
-    methodOptions?: ApiMethodOptions
+    methodOptions?: ApiMethodOptions,
+    refresh?: boolean
 ): Promise<N['response']> {
     if (isEventsQuery(query)) {
         if (!query.before && !query.after) {
@@ -40,6 +42,14 @@ export async function query<N extends DataNode = DataNode>(
         )
     } else if (isPersonsNode(query)) {
         return await api.get(getPersonsEndpoint(query), methodOptions)
+    } else if (isInsightQueryNode(query)) {
+        const filters = queryNodeToFilter(query)
+        const [response] = await legacyInsightQuery({
+            filters,
+            currentTeamId: getCurrentTeamId(),
+            refresh,
+        })
+        return await response.json()
     } else if (isLegacyQuery(query)) {
         const [response] = await legacyInsightQuery({
             filters: query.filters,
@@ -98,16 +108,20 @@ export async function legacyInsightQuery({
     let apiUrl: string
     let fetchResponse: Response
     if (isTrendsFilter(filters) || isStickinessFilter(filters) || isLifecycleFilter(filters)) {
-        apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(filterTrendsClientSideParams(filters))}`
+        apiUrl = `api/projects/${currentTeamId}/insights/trend/?${toParams(filterTrendsClientSideParams(filters))}${
+            refresh ? '&refresh=true' : ''
+        }`
         fetchResponse = await api.getResponse(apiUrl, methodOptions)
     } else if (isRetentionFilter(filters)) {
-        apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(filters)}`
+        apiUrl = `api/projects/${currentTeamId}/insights/retention/?${toParams(filters)}${
+            refresh ? '&refresh=true' : ''
+        }`
         fetchResponse = await api.getResponse(apiUrl, methodOptions)
     } else if (isFunnelsFilter(filters)) {
         apiUrl = `api/projects/${currentTeamId}/insights/funnel/${refresh ? '?refresh=true' : ''}`
         fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
     } else if (isPathsFilter(filters)) {
-        apiUrl = `api/projects/${currentTeamId}/insights/path`
+        apiUrl = `api/projects/${currentTeamId}/insights/path${refresh ? '&refresh=true' : ''}`
         fetchResponse = await api.createResponse(apiUrl, filters, methodOptions)
     } else {
         throw new Error(`Unsupported insight type: ${filters.insight}`)

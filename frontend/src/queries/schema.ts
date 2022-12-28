@@ -17,6 +17,7 @@ import {
     PathsFilterType,
     StickinessFilterType,
     LifecycleFilterType,
+    LifecycleToggle,
 } from '~/types'
 
 export enum NodeKind {
@@ -28,6 +29,7 @@ export enum NodeKind {
 
     // Interface nodes
     DataTableNode = 'DataTableNode',
+    InsightVizNode = 'InsightVizNode',
     LegacyQuery = 'LegacyQuery',
 
     // New queries, not yet implemented
@@ -37,6 +39,8 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
+    /** Used for insights that haven't been converted to the new query format yet */
+    UnimplementedQuery = 'UnimplementedQuery',
 }
 
 export type QuerySchema =
@@ -48,6 +52,7 @@ export type QuerySchema =
 
     // Interface nodes
     | DataTableNode
+    | InsightVizNode
     | LegacyQuery
 
     // New queries, not yet implemented
@@ -184,6 +189,15 @@ export interface DataTableNode extends Node {
     allowSorting?: boolean
 }
 
+// Insight viz node
+
+export interface InsightVizNode extends Node {
+    kind: NodeKind.InsightVizNode
+    source: InsightQueryNode
+
+    // showViz, showTable, etc.
+}
+
 // Base class should not be used directly
 interface InsightsQueryBase extends Node {
     /** Date range for the query */
@@ -241,10 +255,18 @@ export interface StickinessQuery extends InsightsQueryBase {
 }
 export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: IntervalType
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
-    lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> & {
+        /** Lifecycles that have been removed from display */
+        toggledLifecycles?: LifecycleToggle[]
+    } // using everything except what it inherits from FilterType
+}
+export interface UnimplementedQuery extends InsightsQueryBase {
+    kind: NodeKind.UnimplementedQuery
 }
 
 export type InsightQueryNode =
@@ -254,7 +276,9 @@ export type InsightQueryNode =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+    | UnimplementedQuery
 export type InsightNodeKind = InsightQueryNode['kind']
+export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
 
 export type HogQLExpression = string
 

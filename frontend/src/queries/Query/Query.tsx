@@ -1,6 +1,7 @@
-import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQueryNode } from '../utils'
+import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQueryNode, isInsightVizNode } from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
+import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { Node, QueryContext, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
@@ -45,6 +46,8 @@ export function Query(props: QueryProps): JSX.Element {
         component = <DataTable query={query} setQuery={setQuery} context={context} />
     } else if (isDataNode(query)) {
         component = <DataNode query={query} />
+    } else if (isInsightVizNode(query)) {
+        component = <InsightViz query={query} setQuery={setQuery} />
     } else if (isInsightQueryNode(query)) {
         component = <InsightQuery query={query} />
     }

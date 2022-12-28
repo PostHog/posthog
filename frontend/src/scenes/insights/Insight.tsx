@@ -4,6 +4,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
+import { insightDataLogic } from './insightDataLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
 import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { InsightsNav } from './InsightsNav'
@@ -16,7 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconLock } from 'lib/components/icons'
-import { summarizeInsightFilters } from './utils'
+import { summarizeInsightFilters, summarizeInsightQuery } from './utils'
 import { groupsModel } from '~/models/groupsModel'
 import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
@@ -38,14 +39,15 @@ import clsx from 'clsx'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { tagsModel } from '~/models/tagsModel'
+import { Query } from '~/queries/Query/Query'
+import { InsightVizNode } from '~/queries/schema'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
+    // insightSceneLogic
     const { insightMode, subscriptionId } = useValues(insightSceneLogic)
     const { setInsightMode } = useActions(insightSceneLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { currentTeamId } = useValues(teamLogic)
-    const { push } = useActions(router)
 
+    // insightLogic
     const logic = insightLogic({ dashboardItemId: insightId || 'new' })
     const {
         insightProps,
@@ -58,22 +60,33 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         tagLoading,
         insightSaving,
         exporterResourceParams,
+        isUsingDataExploration,
     } = useValues(logic)
-    useMountedLogic(insightCommandLogic(insightProps))
     const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
+
+    // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
 
+    // insightDataLogic
+    const { query } = useValues(insightDataLogic(insightProps))
+    const { setQuery } = useActions(insightDataLogic(insightProps))
+
+    // other logics
+    useMountedLogic(insightCommandLogic(insightProps))
     const { hasAvailableFeature } = useValues(userLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
     const { mathDefinitions } = useValues(mathsLogic)
-
+    const { featureFlags } = useValues(featureFlagLogic)
     const { tags } = useValues(tagsModel)
+    const { currentTeamId } = useValues(teamLogic)
+    const { push } = useActions(router)
 
     useEffect(() => {
         reportInsightViewedForRecentInsights()
     }, [insightId])
 
+    // feature flag insight-editor-panels
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
     // Show the skeleton if loading an insight for which we only know the id
@@ -106,7 +119,11 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     <EditableField
                         name="name"
                         value={insight.name || ''}
-                        placeholder={summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)}
+                        placeholder={
+                            isUsingDataExploration
+                                ? summarizeInsightQuery((query as InsightVizNode).source)
+                                : summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
+                        }
                         onSave={(value) => setInsightMetadata({ name: value })}
                         saveOnBlur={true}
                         maxLength={400} // Sync with Insight model
@@ -280,19 +297,25 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
             />
 
-            {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
-
-            <div
-                className={clsx('insight-wrapper', {
-                    'insight-wrapper--editorpanels': usingEditorPanels,
-                    'insight-wrapper--singlecolumn': !usingEditorPanels && filters.insight === InsightType.FUNNELS,
-                })}
-            >
-                <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
-                <div className="insights-container" data-attr="insight-view">
-                    <InsightContainer insightMode={insightMode} />
-                </div>
-            </div>
+            {isUsingDataExploration ? (
+                <Query query={query} setQuery={setQuery} />
+            ) : (
+                <>
+                    {!usingEditorPanels && insightMode === ItemMode.Edit && <InsightsNav />}
+                    <div
+                        className={clsx('insight-wrapper', {
+                            'insight-wrapper--editorpanels': usingEditorPanels,
+                            'insight-wrapper--singlecolumn':
+                                !usingEditorPanels && filters.insight === InsightType.FUNNELS,
+                        })}
+                    >
+                        <EditorFilters insightProps={insightProps} showing={insightMode === ItemMode.Edit} />
+                        <div className="insights-container" data-attr="insight-view">
+                            <InsightContainer insightMode={insightMode} />
+                        </div>
+                    </div>
+                </>
+            )}
 
             {insightMode !== ItemMode.View ? (
                 <>

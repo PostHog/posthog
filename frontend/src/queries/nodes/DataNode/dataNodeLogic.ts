@@ -15,7 +15,7 @@ import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
 import { DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
-import { isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
 import { objectsEqual } from 'lib/utils'
 import clsx from 'clsx'
@@ -40,7 +40,6 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     actions({
         abortQuery: true,
-        loadData: true,
         startAutoLoad: true,
         stopAutoLoad: true,
         toggleAutoLoad: true,
@@ -51,7 +50,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         response: [
             null as DataNode['response'] | null,
             {
-                loadData: async (_, breakpoint) => {
+                loadData: async (refresh: boolean = false, breakpoint) => {
                     // TODO: cancel with queryId, combine with abortQuery action
                     cache.abortController?.abort()
                     cache.abortController = new AbortController()
@@ -60,7 +59,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     }
                     try {
                         const now = performance.now()
-                        const data = (await query<DataNode>(props.query, methodOptions)) ?? null
+                        const data = (await query<DataNode>(props.query, methodOptions, refresh)) ?? null
                         breakpoint()
                         actions.setElapsedTime(performance.now() - now)
                         return data
@@ -227,6 +226,12 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         autoLoadRunning: [
             (s) => [s.autoLoadToggled, s.autoLoadStarted, s.dataLoading],
             (autoLoadToggled, autoLoadStarted, dataLoading) => autoLoadToggled && autoLoadStarted && !dataLoading,
+        ],
+        lastRefresh: [
+            (s, p) => [p.query, s.response],
+            (query, response) => {
+                return isInsightQueryNode(query) && response?.last_refresh
+            },
         ],
     }),
     listeners(({ cache }) => ({

@@ -1300,6 +1300,10 @@
                     "description": "Show a button to configure the table's columns if possible",
                     "type": "boolean"
                 },
+                "showElapsedTime": {
+                    "description": "Show the time it takes to run a query",
+                    "type": "boolean"
+                },
                 "showEventFilter": {
                     "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
@@ -1595,6 +1599,9 @@
                             },
                             "type": "array"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "results": {
                             "items": {
                                 "items": {},
@@ -1833,9 +1840,48 @@
         "HogQLExpression": {
             "type": "string"
         },
+        "InsightQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/UnimplementedQuery"
+                }
+            ]
+        },
         "InsightType": {
             "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],
             "type": "string"
+        },
+        "InsightVizNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightVizNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
         },
         "IntervalType": {
             "enum": ["hour", "day", "week", "month"],
@@ -1866,6 +1912,10 @@
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
                 "kind": {
                     "const": "LifecycleQuery",
                     "type": "string"
@@ -1876,6 +1926,13 @@
                     "properties": {
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "toggledLifecycles": {
+                            "description": "Lifecycles that have been removed from display",
+                            "items": {
+                                "$ref": "#/definitions/LifecycleToggle"
+                            },
+                            "type": "array"
                         }
                     },
                     "type": "object"
@@ -1911,6 +1968,10 @@
             },
             "required": ["kind", "series"],
             "type": "object"
+        },
+        "LifecycleToggle": {
+            "enum": ["new", "resurrecting", "returning", "dormant"],
+            "type": "string"
         },
         "PathType": {
             "enum": ["$pageview", "$screen", "custom_event"],
@@ -2039,6 +2100,12 @@
                     "const": "PersonsNode",
                     "type": "string"
                 },
+                "limit": {
+                    "type": "number"
+                },
+                "offset": {
+                    "type": "number"
+                },
                 "properties": {
                     "description": "Properties configurable in the interface",
                     "items": {
@@ -2160,6 +2227,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataTableNode"
+                },
+                {
+                    "$ref": "#/definitions/InsightVizNode"
                 },
                 {
                     "$ref": "#/definitions/LegacyQuery"
@@ -2442,6 +2512,40 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "UnimplementedQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "UnimplementedQuery",
+                    "description": "Used for insights that haven't been converted to the new query format yet",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         }
     }
