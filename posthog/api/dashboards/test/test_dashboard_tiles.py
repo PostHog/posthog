@@ -129,6 +129,26 @@ class TestDashboardTiles(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
         self.assertEqual(create_response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_cannot_add_insight_to_deleted_dashboard(self) -> None:
+        deleted_dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "deleted"})
+        self.dashboard_api.update_dashboard(deleted_dashboard_id, {"deleted": True})
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboard_tiles",
+            {"insight": self.insight_id, "dashboard": deleted_dashboard_id},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_cannot_add_deleted_insight_to_a_dashboard(self) -> None:
+        deleted_insight_id, _ = self.dashboard_api.create_insight({"name": "deleted"})
+        self.dashboard_api.update_insight(deleted_insight_id, {"deleted": True})
+
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/dashboard_tiles",
+            {"insight": deleted_insight_id, "dashboard": self.dashboard_id},
+        )
+        self.assertEqual(create_response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def _an_insight_activity_log(
         self, activity: str, before: Optional[List[Dict]], after: Optional[List[Dict]]
     ) -> Dict:

@@ -23,6 +23,12 @@ class BasicDashboardTileSerializer(serializers.ModelSerializer):
         if insight.team != team or dashboard.team != team:
             raise ValidationError(detail="Cannot add that insight to that dashboard.")
 
+        if dashboard.deleted:
+            raise ValidationError(detail="Cannot add insight to a deleted dashboard.")
+
+        if insight.deleted:
+            raise ValidationError(detail="Cannot add deleted insight to a dashboard.")
+
         if dashboard.get_effective_privilege_level(self.context["user"].id) <= Dashboard.PrivilegeLevel.CAN_VIEW:
             raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.name}")
 
