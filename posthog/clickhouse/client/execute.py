@@ -185,7 +185,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Wo
         prepared_args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
-    annotated_sql, tags = _annotate_tagged_query(formatted_sql, args, workload)
+    annotated_sql, tags = _annotate_tagged_query(formatted_sql, workload)
 
     if app_settings.SHELL_PLUS_PRINT_SQL:
         print()  # noqa T201
