@@ -28,8 +28,6 @@ InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
 QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
-SLOW_QUERY_THRESHOLD_MS = 15000
-
 
 @lru_cache(maxsize=1)
 def default_settings() -> Dict:
