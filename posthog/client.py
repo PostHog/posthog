@@ -19,19 +19,17 @@ from typing import (
 import sqlparse
 from celery.task.control import revoke
 from clickhouse_driver import Client as SyncClient
-from clickhouse_pool import ChPool
 from dataclasses_json import dataclass_json
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
+from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import (
     CLICKHOUSE_CA,
-    CLICKHOUSE_CONN_POOL_MAX,
-    CLICKHOUSE_CONN_POOL_MIN,
     CLICKHOUSE_DATABASE,
     CLICKHOUSE_HOST,
     CLICKHOUSE_PASSWORD,
@@ -64,51 +62,6 @@ def default_settings() -> Dict:
         return {}
     else:
         return {"optimize_move_to_prewhere": 0}
-
-
-def default_client():
-    """
-    Return a bare bones client for use in places where we are only interested in general ClickHouse state
-    DO NOT USE THIS FOR QUERYING DATA
-    """
-    return SyncClient(
-        host=CLICKHOUSE_HOST,
-        # We set "system" here as we don't necessarily have a "default" database,
-        # which is what the clickhouse_driver would use by default. We are
-        # assuming that this exists and we have permissions to access it. This
-        # feels like a reasonably safe assumption as e.g. we already reference
-        # `system.numbers` in multiple places within queries. We also assume
-        # access to various other tables e.g. to handle async migrations.
-        database="system",
-        secure=CLICKHOUSE_SECURE,
-        user=CLICKHOUSE_USER,
-        password=CLICKHOUSE_PASSWORD,
-        ca_certs=CLICKHOUSE_CA,
-        verify=CLICKHOUSE_VERIFY,
-    )
-
-
-def make_ch_pool(**overrides) -> ChPool:
-    kwargs = {
-        "host": CLICKHOUSE_HOST,
-        "database": CLICKHOUSE_DATABASE,
-        "secure": CLICKHOUSE_SECURE,
-        "user": CLICKHOUSE_USER,
-        "password": CLICKHOUSE_PASSWORD,
-        "ca_certs": CLICKHOUSE_CA,
-        "verify": CLICKHOUSE_VERIFY,
-        "connections_min": CLICKHOUSE_CONN_POOL_MIN,
-        "connections_max": CLICKHOUSE_CONN_POOL_MAX,
-        "settings": {"mutations_sync": "1"} if TEST else {},
-        # Without this, OPTIMIZE table and other queries will regularly run into timeouts
-        "send_receive_timeout": 30 if TEST else 999_999_999,
-        **overrides,
-    }
-
-    return ChPool(**kwargs)
-
-
-ch_pool = make_ch_pool()
 
 
 def async_execute(query, args=None, settings=None, with_column_types=False):
