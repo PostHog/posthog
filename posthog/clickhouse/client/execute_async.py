@@ -13,7 +13,7 @@ from statshog.defaults.django import statsd
 
 from posthog import redis
 from posthog.celery import enqueue_clickhouse_execute_with_progress
-from posthog.client import _prepare_query
+from posthog.clickhouse.client.execute import _prepare_query
 from posthog.errors import wrap_query_error
 from posthog.settings import (
     CLICKHOUSE_CA,
