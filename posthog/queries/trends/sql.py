@@ -62,8 +62,7 @@ SELECT counts AS total, timestamp AS day_start FROM (
         SELECT
             toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
             {aggregator}
-        FROM ({event_query}) events
-        WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to}
+        {event_base_query}
         GROUP BY timestamp, {aggregator}
     ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp

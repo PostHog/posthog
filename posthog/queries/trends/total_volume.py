@@ -102,13 +102,14 @@ class TrendsTotalVolume:
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                event_query, _ = trend_event_query.get_base_query()
                 content_sql = ACTIVE_USERS_SQL.format(
-                    event_query=event_query,
-                    **content_sql_params,
+                    event_base_query=event_query,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
                     aggregator=determine_aggregator(entity, team),  # TODO: Support groups officialy and with tests
                     start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
             elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
