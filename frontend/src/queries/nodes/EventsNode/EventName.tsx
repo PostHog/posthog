@@ -3,7 +3,7 @@ import { LemonEventName } from 'scenes/actions/EventName'
 
 interface EventNameProps {
     query: EventsNode | EventsQuery
-    setQuery?: (node: EventsNode | EventsQuery) => void
+    setQuery?: (query: EventsNode | EventsQuery) => void
 }
 
 export function EventName({ query, setQuery }: EventNameProps): JSX.Element {

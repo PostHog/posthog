@@ -159,7 +159,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             # Result with selected columns
             if isinstance(query_result, EventsQueryResponse):
                 return response.Response(
-                    {"columns": select, "types": query_result.types, "results": query_result.results}
+                    {
+                        "columns": select,
+                        "types": query_result.types,
+                        "results": query_result.results,
+                        "hasMore": query_result.has_more,
+                    },
                 )
 
             result = ClickhouseEventSerializer(
