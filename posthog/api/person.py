@@ -172,7 +172,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 description="Filter persons by email (exact match)",
                 examples=[OpenApiExample(name="email", value="test@test.com")],
             ),
-            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            OpenApiParameter("distinct_id", OpenApiTypes.STR, description="Filter list by distinct id."),
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
@@ -208,6 +208,16 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "delete_events",
+                OpenApiTypes.BOOL,
+                description="If true, all events associated with this person will be deleted",
+                default=False,
+            ),
+        ],
+    )
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = self.get_object()
