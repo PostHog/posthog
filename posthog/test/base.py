@@ -553,7 +553,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 with patch.object(client, "execute", wraps=execute_wrapper) as _:
                     yield client
 
-        with patch("posthog.client.ch_pool.get_client", wraps=get_client) as _:
+        with patch("posthog.clickhouse.client.connection.ch_pool.get_client", wraps=get_client) as _:
             yield queries
 
 
