@@ -144,6 +144,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         _create_action(team=self.team, name="no events")
         sign_up_action = _create_action(team=self.team, name="sign up")
 
+        flush_persons_and_events()
+
         return sign_up_action, person
 
     def _create_breakdown_events(self):
@@ -332,6 +334,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][1], 1.0)
         self.assertEqual(response[0]["labels"][1], "2-Jan-2020")
 
+    @snapshot_clickhouse_queries
     def test_trends_per_day_cumulative(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -352,6 +355,32 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][4], 3.0)
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 4.0)
+
+    @snapshot_clickhouse_queries
+    def test_trends_groups_per_day_cumulative(self):
+        self._create_event_count_per_actor_events()
+        with freeze_time("2020-01-06T13:00:01Z"):
+
+            response = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [
+                            {
+                                "id": "viewed video",
+                                "math": "unique_group",
+                                "math_group_type_index": 0,
+                            }
+                        ],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "viewed video")
+        self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
 
     def test_trends_single_aggregate_dau(self):
         self._create_events()
