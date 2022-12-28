@@ -1,25 +1,14 @@
-import hashlib
 import json
 import types
 from functools import lru_cache
 from time import perf_counter
-from typing import (
-    Any,
-    Dict,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
-    Union,
-    cast,
-)
+from typing import Any, Dict, List, Optional, Sequence, Union, cast
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
-from posthog import redis
 from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
@@ -39,7 +28,6 @@ InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
 QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
 
-CACHE_TTL = 60  # seconds
 SLOW_QUERY_THRESHOLD_MS = 15000
 
 
@@ -57,19 +45,6 @@ def default_settings() -> Dict:
         return {}
     else:
         return {"optimize_move_to_prewhere": 0}
-
-
-def cache_sync_execute(query, args=None, redis_client=None, ttl=CACHE_TTL, settings=None, with_column_types=False):
-    if not redis_client:
-        redis_client = redis.get_client()
-    key = _key_hash(query, args)
-    if redis_client.exists(key):
-        result = _deserialize(redis_client.get(key))
-        return result
-    else:
-        result = sync_execute(query, args, settings=settings, with_column_types=with_column_types)
-        redis_client.set(key, _serialize(result), ex=ttl)
-        return result
 
 
 def validated_client_query_id() -> Optional[str]:
@@ -232,25 +207,6 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
         print(format_sql(formatted_sql))
 
     return annotated_sql, prepared_args, tags
-
-
-def _deserialize(result_bytes: bytes) -> List[Tuple]:
-    results = []
-    for x in json.loads(result_bytes):
-        results.append(tuple(x))
-    return results
-
-
-def _serialize(result: Any) -> bytes:
-    return json.dumps(result).encode("utf-8")
-
-
-def _key_hash(query: str, args: Any) -> bytes:
-    if args:
-        key = hashlib.md5(query.encode("utf-8") + json.dumps(args).encode("utf-8")).digest()
-    else:
-        key = hashlib.md5(query.encode("utf-8")).digest()
-    return key
 
 
 def _annotate_tagged_query(query, args):
