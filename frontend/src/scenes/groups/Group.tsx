@@ -20,6 +20,7 @@ import { Query } from '~/queries/Query/Query'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const { TabPane } = Tabs
 
@@ -80,15 +81,12 @@ export function Group(): JSX.Element {
                         <Query
                             query={{
                                 kind: NodeKind.DataTableNode,
+                                full: true,
                                 source: {
-                                    kind: NodeKind.EventsNode,
+                                    kind: NodeKind.EventsQuery,
+                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
                                     fixedProperties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
                                 },
-                                showReload: true,
-                                showColumnConfigurator: true,
-                                showExport: true,
-                                showEventFilter: true,
-                                showPropertyFilter: true,
                             }}
                         />
                     ) : (

@@ -18,6 +18,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_already_identified: 'Refused to merge an already identified user',
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
+    ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -56,6 +57,19 @@ const WARNING_TYPE_RENDERER = {
         return (
             <>
                 Refused to process event with invalid uuid: <code>{details.eventUuid}</code>.
+            </>
+        )
+    },
+    ignored_invalid_timestamp: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            field: string
+            value: string
+            reason: string
+        }
+        return (
+            <>
+                Used server timestamp when ingesting event due to invalid value <code>{details.value}</code> in field{' '}
+                <code>{details.field}</code>: {details.reason}
             </>
         )
     },

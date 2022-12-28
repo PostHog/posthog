@@ -27,6 +27,7 @@ class EventsQueryResponse:
     columns: List[str] = dataclasses.field(default_factory=list)
     types: List[str] = dataclasses.field(default_factory=list)
     results: List[List[Any]] = dataclasses.field(default_factory=list)
+    has_more: bool = False
 
 
 def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]]) -> Tuple[str, Dict]:
@@ -189,10 +190,13 @@ def query_events_list(
             results[index] = list(result)
             results[index][person] = convert_person_select_to_dict(result[person])
 
+    received_extra_row = len(results) == limit  # limit was +=1'd above
+
     return EventsQueryResponse(
-        results=results,
+        results=results[: limit - 1] if received_extra_row else results,
         columns=select,
         types=[type for _, type in types],
+        has_more=received_extra_row,
     )
 
 
