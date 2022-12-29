@@ -29,7 +29,7 @@ export function ExportWithConfirmation({
                         <>
                             <br />
                             The best way to export events is to use{' '}
-                            <Link to="https://posthog.com/apps">our app ecosystem</Link>.
+                            <Link to="https://posthog.com/apps?filter=type&value=data-out">our app ecosystem</Link>.
                         </>
                     )}
                     <br />
