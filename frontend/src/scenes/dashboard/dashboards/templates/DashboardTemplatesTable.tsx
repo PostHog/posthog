@@ -5,6 +5,8 @@ import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/t
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { CommunityTag } from 'scenes/plugins/plugin/CommunityTag'
 import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
+import { LemonButton } from 'lib/components/LemonButton'
+import { CloudDownloadOutlined } from '@ant-design/icons'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
@@ -39,13 +41,27 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                         sorter: (a, b) => (a.name ?? 'Untitled').localeCompare(b.name ?? 'Untitled'),
                     },
                     {
-                        title: 'Installed',
+                        title: 'Install',
                         dataIndex: 'installed',
                         width: '0',
-                        render: function Render(installed: boolean | undefined) {
+                        render: function Render(
+                            installed: boolean | undefined,
+                            record: DashboardTemplatesRepositoryEntry
+                        ) {
                             return (
                                 <div className="template-installed">
-                                    {installed && <LemonSnack>INSTALLED</LemonSnack>}
+                                    {installed ? (
+                                        <LemonSnack>INSTALLED</LemonSnack>
+                                    ) : (
+                                        <LemonButton
+                                            status={'primary'}
+                                            type={'primary'}
+                                            onClick={() => alert(record.url)}
+                                            icon={<CloudDownloadOutlined />}
+                                        >
+                                            Install
+                                        </LemonButton>
+                                    )}
                                 </div>
                             )
                         },
