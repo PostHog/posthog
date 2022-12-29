@@ -52,7 +52,7 @@ SELECT {aggregate_operation} as data FROM (
 # :TODO: Fix this!
 ACTIVE_USERS_SQL = """
 SELECT counts AS total, timestamp AS day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) AS counts FROM (
+    SELECT d.timestamp, COUNT(DISTINCT actor_id) AS counts FROM (
         /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
            and not `events`, because we cannot rely on there being an event for each period (this assumption previously
            caused active user counts to be off for sparse events). */
@@ -64,9 +64,9 @@ SELECT counts AS total, timestamp AS day_start FROM (
     CROSS JOIN (
         SELECT
             toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
-            {aggregator}
+            {aggregator} AS actor_id
         {event_query_base}
-        GROUP BY timestamp, {aggregator}
+        GROUP BY timestamp, actor_id
     ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
