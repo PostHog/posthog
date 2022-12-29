@@ -1,23 +1,24 @@
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from 'kea-test-utils'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
-import { RecordingWindowFilter } from '~/types'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const playerLogicProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
-describe('sharedListLogic', () => {
-    let logic: ReturnType<typeof sharedListLogic.build>
+describe('playerInspectorLogic', () => {
+    let logic: ReturnType<typeof playerInspectorLogic.build>
 
     beforeEach(() => {
         initKeaTests()
-        logic = sharedListLogic(playerLogicProps)
+        featureFlagLogic.mount()
+        logic = playerInspectorLogic(playerLogicProps)
         logic.mount()
     })
 
     describe('setWindowIdFilter', () => {
         it('happy case', async () => {
             await expectLogic(logic).toMatchValues({
-                windowIdFilter: RecordingWindowFilter.All,
+                windowIdFilter: null,
             })
             await expectLogic(logic, () => {
                 logic.actions.setWindowIdFilter('nightly')
@@ -33,7 +34,7 @@ describe('sharedListLogic', () => {
             })
                 .toDispatchActions(['setWindowIdFilter'])
                 .toMatchValues({
-                    windowIdFilter: RecordingWindowFilter.All,
+                    windowIdFilter: null,
                 })
         })
     })

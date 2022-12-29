@@ -71,16 +71,6 @@ export function SessionRecordingsPlaylist({
 
     const onRecordingClick = (recording: SessionRecordingType): void => {
         setSelectedRecordingId(recording.id)
-
-        const scrollToTop = playlistRef?.current?.offsetTop ? playlistRef.current.offsetTop - MARGIN_TOP : 0
-
-        if (window.scrollY > scrollToTop) {
-            window.scrollTo({
-                left: 0,
-                top: scrollToTop,
-                behavior: 'smooth',
-            })
-        }
     }
 
     const onPropertyClick = (property: string, value?: string): void => {

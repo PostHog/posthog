@@ -226,7 +226,10 @@ class InsightSerializer(InsightBasicSerializer):
         dashboards = validated_data.pop("dashboards", None)
 
         insight = Insight.objects.create(
-            team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+            team=team,
+            created_by=created_by,
+            last_modified_by=request.user,
+            **validated_data,
         )
 
         if dashboards is not None:
@@ -310,7 +313,11 @@ class InsightSerializer(InsightBasicSerializer):
         for dashboard in candidate_dashboards:
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
-            DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+            tile, _ = DashboardTile.objects.get_or_create(insight=instance, dashboard=dashboard)
+            if tile.deleted:
+                tile.deleted = False
+                tile.save()
+
         if ids_to_remove:
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
         # also update dashboards set so activity log can detect the change
@@ -376,11 +383,23 @@ class InsightSerializer(InsightBasicSerializer):
         return dashboard_tile
 
 
-class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class InsightViewSet(
+    TaggedItemViewSetMixin,
+    StructuredViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
     queryset = Insight.objects.all()
     serializer_class = InsightSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
+    throttle_classes = [
+        PassThroughClickHouseBurstRateThrottle,
+        PassThroughClickHouseSustainedRateThrottle,
+    ]
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
@@ -614,7 +633,9 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             stickiness_filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
+                request=request,
+                team=team,
+                get_earliest_timestamp=get_earliest_timestamp,
             )
             result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
@@ -663,12 +684,21 @@ Using the correct cache and enriching the response with dashboard specific confi
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run(), "timezone": team.timezone}
+            return {
+                "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
+                "timezone": team.timezone,
+            }
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(), "timezone": team.timezone}
+            return {
+                "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
+                "timezone": team.timezone,
+            }
         else:
             funnel_order_class = get_funnel_order_class(filter)
-            return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezone}
+            return {
+                "result": funnel_order_class(team=team, filter=filter).run(),
+                "timezone": team.timezone,
+            }
 
     # ******************************************
     # /projects/:id/insights/retention
@@ -730,7 +760,10 @@ Using the correct cache and enriching the response with dashboard specific confi
     @action(methods=["POST"], detail=True)
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
-            team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
+            team=self.team,
+            user=request.user,
+            insight=self.get_object(),
+            defaults={"last_viewed_at": now()},
         )
         return Response(status=status.HTTP_201_CREATED)
 
@@ -751,7 +784,13 @@ Using the correct cache and enriching the response with dashboard specific confi
         if not Insight.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
-        activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
+        activity_page = load_activity(
+            scope="Insight",
+            team_id=self.team_id,
+            item_id=item_id,
+            limit=limit,
+            page=page,
+        )
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["POST"], detail=False)

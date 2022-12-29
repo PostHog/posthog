@@ -7,30 +7,18 @@ import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { urls } from 'scenes/urls'
 import { objectsEqual } from 'lib/utils'
 import { lemonToast } from 'lib/components/lemonToast'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const getDefaultQuery = (): DataTableNode => ({
     kind: NodeKind.DataTableNode,
+    full: true,
     source: {
         kind: NodeKind.EventsQuery,
-        select: [
-            '*',
-            'event',
-            'person',
-            'coalesce(properties.$current_url, properties.$screen_name) # Url / Screen',
-            'properties.$lib',
-            'timestamp',
-        ],
+        select: defaultDataTableColumns(NodeKind.EventsQuery),
         orderBy: ['-timestamp'],
         limit: 100,
     },
-    hiddenColumns: ['*'],
     propertiesViaUrl: true,
-    showEventsBufferWarning: true,
-    showColumnConfigurator: true,
-    showEventFilter: true,
-    showExport: true,
-    showPropertyFilter: true,
-    showReload: true,
     allowSorting: false,
 })
 

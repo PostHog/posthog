@@ -1,5 +1,5 @@
 import { actions, connect, kea, key, listeners, path, reducers, selectors, props } from 'kea'
-import { PlayerPosition, RecordingEventsFilters, RecordingEventType, RecordingWindowFilter } from '~/types'
+import { PlayerPosition, RecordingEventsFilters, RecordingEventType } from '~/types'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 import type { eventsListLogicType } from './eventsListLogicType'
 import {
@@ -16,10 +16,10 @@ import {
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import List, { RenderedRows } from 'react-virtualized/dist/es/List'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import Fuse from 'fuse.js'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
-import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
+import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 
 export const DEFAULT_SCROLLING_RESET_TIME_INTERVAL = 150 * 5 // https://github.com/bvaughn/react-virtualized/blob/abe0530a512639c042e74009fbf647abdb52d661/source/Grid/Grid.js#L42
 
@@ -50,7 +50,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
             ['filters', 'sessionEventsData', 'sessionEventsDataLoading'],
             sessionRecordingPlayerLogic({ sessionRecordingId, playerKey }),
             ['currentPlayerTime', 'matchingEvents'],
-            sharedListLogic({ sessionRecordingId, playerKey }),
+            playerInspectorLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter', 'showOnlyMatching'],
         ],
     })),
@@ -149,8 +149,7 @@ export const eventsListLogic = kea<eventsListLogicType>([
                 return events
                     .filter(
                         (e) =>
-                            (windowIdFilter === RecordingWindowFilter.All ||
-                                e.playerPosition?.windowId === windowIdFilter) &&
+                            (!windowIdFilter || e.playerPosition?.windowId === windowIdFilter) &&
                             (!shouldShowOnlyMatching || matchingEventIds.has(String(e.id)))
                     )
                     .map((e) => ({

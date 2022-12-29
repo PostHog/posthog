@@ -6,7 +6,6 @@ import {
     RecordingConsoleLog,
     RecordingSegment,
     RRWebRecordingConsoleLogPayload,
-    RecordingWindowFilter,
     RecordingConsoleLogsFilters,
 } from '~/types'
 import { eventWithTime } from 'rrweb/typings/types'
@@ -15,11 +14,11 @@ import {
     getPlayerTimeFromPlayerPosition,
 } from 'scenes/session-recordings/player/playerUtils'
 import { colonDelimitedDuration } from 'lib/utils'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
+import { playerInspectorLogic } from 'scenes/session-recordings/player/inspector/playerInspectorLogic'
 import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
-import { parseConsoleLogPayload } from 'scenes/session-recordings/player/list/consoleLogsUtils'
+import { parseConsoleLogPayload } from 'scenes/session-recordings/player/inspector/v1/consoleLogsUtils'
 import Fuse from 'fuse.js'
-import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
+import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
 
 const CONSOLE_LOG_PLUGIN_NAME = 'rrweb/console@1'
 
@@ -32,7 +31,7 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
         values: [
             sessionRecordingDataLogic({ sessionRecordingId }),
             ['sessionPlayerData', 'filters'],
-            sharedListLogic({ sessionRecordingId, playerKey }),
+            playerInspectorLogic({ sessionRecordingId, playerKey }),
             ['windowIdFilter'],
         ],
         actions: [sessionRecordingDataLogic({ sessionRecordingId }), ['setFilters']],
@@ -75,10 +74,9 @@ export const consoleLogsListLogic = kea<consoleLogsListLogicType>([
                 const logs: RecordingConsoleLog[] = []
 
                 // Filter only snapshots from specified window
-                const filteredSnapshotsByWindowId =
-                    windowIdFilter === RecordingWindowFilter.All
-                        ? sessionPlayerData.snapshotsByWindowId
-                        : { [windowIdFilter]: sessionPlayerData.snapshotsByWindowId?.[windowIdFilter] }
+                const filteredSnapshotsByWindowId = windowIdFilter
+                    ? { [windowIdFilter]: sessionPlayerData.snapshotsByWindowId?.[windowIdFilter] }
+                    : sessionPlayerData.snapshotsByWindowId
 
                 sessionPlayerData.metadata.segments.forEach((segment: RecordingSegment) => {
                     filteredSnapshotsByWindowId[segment.windowId]?.forEach((snapshot: eventWithTime) => {
