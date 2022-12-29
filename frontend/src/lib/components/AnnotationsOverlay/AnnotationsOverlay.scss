@@ -22,7 +22,7 @@
     -webkit-appearance: none !important;
 
     > .LemonBadge {
-        transition: transform 150ms ease; // Same as LemonBadge's transition
+        transition: transform 200ms ease; // Same as LemonBadge's transition
         // Override .LemonBadge--position-self-centered
         transform: scale(var(--annotations-badge-scale));
         transform-origin: center;

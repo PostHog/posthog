@@ -154,7 +154,12 @@ def determine_aggregator(entity: Entity, team: Team) -> str:
     """Return the relevant actor column."""
     if entity.math_group_type_index is not None:
         return f'"$group_{entity.math_group_type_index}"'
-    return "distinct_id" if team.aggregate_users_by_distinct_id else "person_id"
+    elif team.aggregate_users_by_distinct_id:
+        return "e.distinct_id"
+    elif team.person_on_events_querying_enabled:
+        return "e.person_id"
+    else:
+        return "pdi.person_id"
 
 
 def is_series_group_based(entity: Entity) -> bool:

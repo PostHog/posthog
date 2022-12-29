@@ -1,5 +1,4 @@
 import { toId } from '../../helpers/storybook'
-
 import { test, expect } from '../../fixtures/storybook'
 
 test.describe('trends insight', () => {

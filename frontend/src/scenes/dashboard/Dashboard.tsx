@@ -51,10 +51,15 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
+        useActions(dashboardLogic)
 
     useEffect(() => {
         reportDashboardViewed()
+        return () => {
+            // request cancellation of any running queries when this component is no longer in the dom
+            abortAnyRunningQuery()
+        }
     }, [])
 
     useKeyboardHotkeys(

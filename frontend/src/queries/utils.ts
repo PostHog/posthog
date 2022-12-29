@@ -9,23 +9,19 @@ import {
     PathsQuery,
     StickinessQuery,
     LifecycleQuery,
+    UnimplementedQuery,
     Node,
     NodeKind,
     InsightQueryNode,
     PersonsNode,
+    InsightVizNode,
     EventsQuery,
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
 } from '~/queries/schema'
 
-export function isDataNode(node?: Node): node is EventsNode | ActionsNode | PersonsNode | TimeToSeeDataSessionsQuery {
-    return (
-        isEventsNode(node) ||
-        isEventsQuery(node) ||
-        isActionsNode(node) ||
-        isPersonsNode(node) ||
-        isTimeToSeeDataSessionsQuery(node)
-    )
+export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
+    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
@@ -46,6 +42,10 @@ export function isPersonsNode(node?: Node): node is PersonsNode {
 
 export function isDataTableNode(node?: Node): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
+}
+
+export function isInsightVizNode(node?: Node): node is InsightVizNode {
+    return node?.kind === NodeKind.InsightVizNode
 }
 
 export function isLegacyQuery(node?: Node): node is LegacyQuery {
@@ -88,6 +88,10 @@ export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
     return node?.kind === NodeKind.TimeToSeeDataQuery
 }
 
+export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {
+    return node?.kind === NodeKind.UnimplementedQuery
+}
+
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
@@ -95,6 +99,7 @@ export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node)
+        isLifecycleQuery(node) ||
+        isUnimplementedQuery(node)
     )
 }

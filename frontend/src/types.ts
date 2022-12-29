@@ -23,8 +23,9 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { BehavioralFilterKey, BehavioralFilterType } from 'scenes/cohorts/CohortFilters/types'
 import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
-import { RowStatus } from 'scenes/session-recordings/player/list/listLogic'
+import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { Layout } from 'react-grid-layout'
+import { InsightQueryNode } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -52,6 +53,7 @@ export enum AvailableFeature {
     RECORDINGS_PLAYLISTS = 'recordings_playlists',
     ROLE_BASED_ACCESS = 'role_based_access',
     RECORDINGS_FILE_EXPORT = 'recordings_file_export',
+    RECORDINGS_PERFORMANCE = 'recordings_performance',
 }
 
 export enum LicensePlan {
@@ -261,6 +263,8 @@ export interface TeamType extends TeamBasicType {
     slack_incoming_webhook: string
     session_recording_opt_in: boolean
     capture_console_log_opt_in: boolean
+
+    capture_performance_opt_in: boolean
     test_account_filters: AnyPropertyFilter[]
     test_account_filters_default_checked: boolean
     path_cleaning_filters: Record<string, any>[]
@@ -510,7 +514,7 @@ export interface RRWebRecordingConsoleLogPayload {
     trace: string[]
 }
 
-export interface RecordingConsoleLog extends RecordingTimeMixinType {
+export interface RecordingConsoleLogBase {
     parsedPayload: string
     hash?: string // md5() on parsedPayload. Used for deduping console logs.
     count?: number // Number of duplicate console logs
@@ -519,6 +523,18 @@ export interface RecordingConsoleLog extends RecordingTimeMixinType {
     traceContent?: React.ReactNode // Url content to show on right side
     rawString: string // Raw text used for fuzzy search
     level: LogLevel
+}
+
+export type RecordingConsoleLog = RecordingConsoleLogBase & RecordingTimeMixinType
+
+export type RecordingConsoleLogV2 = {
+    timestamp: number
+    windowId: string | undefined
+    level: LogLevel
+    content: string
+    lines: string[]
+    trace: string[]
+    count: number
 }
 
 export interface RecordingSegment {
@@ -564,8 +580,10 @@ export enum SessionRecordingUsageType {
 }
 
 export enum SessionRecordingPlayerTab {
+    ALL = 'all',
     EVENTS = 'events',
     CONSOLE = 'console',
+    PERFORMANCE = 'performance',
 }
 
 export enum SessionPlayerState {
@@ -629,7 +647,7 @@ export enum EntityTypes {
 export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
-    name: string | null
+    name?: string | null
     custom_name?: string
     index?: number
     order?: number
@@ -659,7 +677,7 @@ export interface PersonListParams {
     distinct_id?: string
 }
 
-export interface MatchedRecordingEvents {
+export interface MatchedRecordingEvent {
     uuid: string
     session_id: string
     window_id: string
@@ -668,7 +686,7 @@ export interface MatchedRecordingEvents {
 
 export interface MatchedRecording {
     session_id?: string
-    events: MatchedRecordingEvents[]
+    events: MatchedRecordingEvent[]
 }
 
 interface CommonActorType {
@@ -680,17 +698,19 @@ interface CommonActorType {
 }
 
 export interface PersonActorType extends CommonActorType {
-    id: number // person serial ID
     type: 'person'
-    uuid?: string
+    /** Serial ID (NOT UUID). */
+    id: number
+    uuid: string
     name?: string
     distinct_ids: string[]
     is_identified: boolean
 }
 
 export interface GroupActorType extends CommonActorType {
-    id: string // group key
     type: 'group'
+    /** Group key. */
+    id: string
     group_key: string
     group_type_index: number
 }
@@ -881,6 +901,64 @@ export interface SessionRecordingPropertiesType {
 export interface SessionRecordingEvents {
     next?: string
     events: RecordingEventType[]
+}
+
+export interface PerformanceEvent {
+    uuid: string
+    timestamp: string
+    distinct_id: string
+    session_id: string
+    window_id: string
+    pageview_id: string
+    current_url: string
+
+    // BASE_EVENT_COLUMNS
+    time_origin?: string
+    entry_type?: string
+    name?: string
+
+    // RESOURCE_EVENT_COLUMNS
+    start_time?: number
+    duration?: number
+    redirect_start?: number
+    redirect_end?: number
+    worker_start?: number
+    fetch_start?: number
+    domain_lookup_start?: number
+    domain_lookup_end?: number
+    connect_start?: number
+    secure_connection_start?: number
+    connect_end?: number
+    request_start?: number
+    response_start?: number
+    response_end?: number
+    decoded_body_size?: number
+    encoded_body_size?: number
+
+    initiator_type?: string
+    next_hop_protocol?: string
+    render_blocking_status?: string
+    response_status?: number
+    transfer_size?: number
+
+    // LARGEST_CONTENTFUL_PAINT_EVENT_COLUMNS
+    largest_contentful_paint_element?: string
+    largest_contentful_paint_render_time?: number
+    largest_contentful_paint_load_time?: number
+    largest_contentful_paint_size?: number
+    largest_contentful_paint_id?: string
+    largest_contentful_paint_url?: string
+
+    // NAVIGATION_EVENT_COLUMNS
+    dom_complete?: number
+    dom_content_loaded_event?: number
+    dom_interactive?: number
+    load_event_end?: number
+    load_event_start?: number
+    redirect_count?: number
+    navigation_type?: string
+    unload_event_end?: number
+    unload_event_start?: number
 }
 
 export interface CurrentBillCycleType {
@@ -1294,6 +1372,15 @@ export interface FilterType {
     aggregation_group_type_index?: number | undefined // Groups aggregation
 }
 
+export interface PropertiesTimelineFilterType {
+    date_from?: string | null // DateMixin
+    date_to?: string | null // DateMixin
+    properties?: AnyPropertyFilter[] | PropertyGroupFilter // PropertyMixin
+    events?: Record<string, any>[] // EntitiesMixin
+    actions?: Record<string, any>[] // EntitiesMixin
+    aggregation_group_type_index?: number | undefined // GroupsAggregationMixin
+}
+
 export interface TrendsFilterType extends FilterType {
     // Specifies that we want to smooth the aggregation over the specified
     // number of intervals, e.g. for a day interval, we may want to smooth over
@@ -1372,6 +1459,7 @@ export interface RetentionFilterType extends FilterType {
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
 }
+export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
 export type AnyFilterType =
     | TrendsFilterType
     | StickinessFilterType
@@ -1412,11 +1500,11 @@ export enum RecordingWindowFilter {
     All = 'all',
 }
 
-export type InsightEditorFilterGroup = {
+export type InsightEditorFilterGroup<T = InsightEditorFilter> = {
     title?: string
-    editorFilters: InsightEditorFilter[]
-    defaultExpanded?: boolean
     count?: number
+    editorFilters: T[]
+    defaultExpanded?: boolean
 }
 
 export interface EditorFilterProps {
@@ -1426,15 +1514,25 @@ export interface EditorFilterProps {
     value: any
 }
 
-export interface InsightEditorFilter {
+export interface QueryEditorFilterProps {
+    query: InsightQueryNode
+    setQuery: (node: InsightQueryNode) => void
+    insightProps: InsightLogicProps
+}
+
+export interface InsightEditorFilter<T = EditorFilterProps> {
     key: string
-    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
+    label?: string | ((props: T) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
-    component?: (props: EditorFilterProps) => JSX.Element | null
+    component?: (props: T) => JSX.Element | null
 }
+
+export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
+
+export type QueryInsightEditorFilterGroup = InsightEditorFilterGroup<QueryInsightEditorFilter>
 
 export interface SystemStatusSubrows {
     columns: string[]
