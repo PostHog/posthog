@@ -1174,7 +1174,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             await captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'dashboard',
-                dashboard_query_id: dashboardQueryId,
+                primary_interaction_id: dashboardQueryId,
                 query_id: queryId,
                 status: 'cancelled',
                 time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
