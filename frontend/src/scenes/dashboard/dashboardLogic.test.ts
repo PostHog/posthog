@@ -27,7 +27,7 @@ import api from 'lib/api'
 
 const dashboardJson = _dashboardJson as any as DashboardType
 
-function insightOnDashboard(
+export function insightOnDashboard(
     insightId: number,
     dashboardsRelation: number[],
     insight: Partial<InsightModel> = {}
@@ -54,7 +54,7 @@ const TEXT_TILE: DashboardTile = {
 }
 
 let tileId = 0
-const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
+export const tileFromInsight = (insight: InsightModel, id: number = tileId++): DashboardTile => ({
     id: id,
     layouts: {},
     color: null,
@@ -64,7 +64,7 @@ const tileFromInsight = (insight: InsightModel, id: number = tileId++): Dashboar
     refreshing: false,
 })
 
-const dashboardResult = (
+export const dashboardResult = (
     dashboardId: number,
     tiles: DashboardTile[],
     filters: Partial<Pick<FilterType, 'date_from' | 'date_to' | 'properties'>> = {}
@@ -79,12 +79,12 @@ const dashboardResult = (
 
 const uncached = (insight: InsightModel): InsightModel => ({ ...insight, result: null, last_refresh: null })
 
-const boxToString = (param: string | readonly string[]): string => {
+export const boxToString = (param: string | readonly string[]): string => {
     //path params from msw can be a string or an array
     if (typeof param === 'string') {
         return param
     } else {
-        throw new Error("this shouldn't be an arry")
+        throw new Error("this shouldn't be an array")
     }
 }
 
@@ -198,16 +198,18 @@ describe('dashboardLogic', () => {
                         throw new Error('the logic must always add this param')
                     }
                     const matched = insights[boxToString(req.params['id'])]
-                    if (matched) {
-                        return [200, matched]
-                    } else {
+                    if (!matched) {
                         return [404, null]
                     }
+                    return [200, matched]
                 },
+            },
+            post: {
+                '/api/projects/:team/insights/cancel/': [201],
             },
             patch: {
                 '/api/projects/:team/dashboards/:id/': async (req) => {
-                    const dashboardId = req.params['id'][0]
+                    const dashboardId = typeof req.params['id'] === 'string' ? req.params['id'] : req.params['id'][0]
                     const payload = await req.json()
                     return [200, { ...dashboards[dashboardId], ...payload }]
                 },

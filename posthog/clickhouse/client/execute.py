@@ -10,7 +10,7 @@ from clickhouse_driver.util.escape import escape_params
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
-from posthog.clickhouse.client.connection import ch_pool
+from posthog.clickhouse.client.connection import Workload, get_pool
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags
 from posthog.errors import wrap_query_error
 from posthog.settings import TEST
@@ -54,6 +54,8 @@ def sync_execute(
     settings=None,
     with_column_types=False,
     flush=True,
+    *,
+    workload: Workload = Workload.ONLINE,
 ):
     if TEST and flush:
         try:
@@ -63,10 +65,10 @@ def sync_execute(
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
 
-    with ch_pool.get_client() as client:
+    with get_pool(workload).get_client() as client:
         start_time = perf_counter()
 
-        prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args)
+        prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
 
         settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
 
@@ -98,12 +100,14 @@ def query_with_columns(
     args: Optional[QueryArgs] = None,
     columns_to_remove: Optional[Sequence[str]] = None,
     columns_to_rename: Optional[Dict[str, str]] = None,
+    *,
+    workload: Workload = Workload.ONLINE,
 ) -> List[Dict]:
     if columns_to_remove is None:
         columns_to_remove = []
     if columns_to_rename is None:
         columns_to_rename = {}
-    metrics, types = sync_execute(query, args, with_column_types=True)
+    metrics, types = sync_execute(query, args, with_column_types=True, workload=workload)
     type_names = [key for key, _type in types]
 
     rows = []
@@ -140,7 +144,7 @@ def substitute_params(query, params):
 
 
 @patchable
-def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
+def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.ONLINE):
     """
     Given a string query with placeholders we do one of two things:
 
@@ -181,7 +185,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
         prepared_args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
-    annotated_sql, tags = _annotate_tagged_query(formatted_sql, args)
+    annotated_sql, tags = _annotate_tagged_query(formatted_sql, workload)
 
     if app_settings.SHELL_PLUS_PRINT_SQL:
         print()  # noqa T201
@@ -190,12 +194,12 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs):
     return annotated_sql, prepared_args, tags
 
 
-def _annotate_tagged_query(query, args):
+def _annotate_tagged_query(query, workload):
     """
     Adds in a /* */ so we can look in clickhouses `system.query_log`
     to easily marry up to the generating code.
     """
-    tags = get_query_tags()
+    tags = {**get_query_tags(), "workload": str(workload)}
     # Annotate the query with information on the request/task
     if "kind" in tags:
         user_id = f" user_id:{tags['user_id']}" if "user_id" in tags else ""

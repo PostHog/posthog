@@ -170,6 +170,7 @@ export const insightLogic = kea<insightLogicType>([
         toggleVisibility: (index: number) => ({ index }),
         setHiddenById: (entry: Record<string, boolean | undefined>) => ({ entry }),
         highlightSeries: (seriesIndex: number | null) => ({ seriesIndex }),
+        abortAnyRunningQuery: true,
     }),
     loaders(({ actions, cache, values, props }) => ({
         insight: [
@@ -294,11 +295,11 @@ export const insightLogic = kea<insightLogicType>([
                     // fetch this now, as it might be different when we report below
                     const scene = sceneLogic.isMounted() ? sceneLogic.values.scene : null
 
-                    // If a query is in progress, kill that query
-                    if (cache.abortController) {
-                        cache.abortController.abort()
-                    }
+                    actions.abortAnyRunningQuery()
                     cache.abortController = new AbortController()
+                    const methodOptions: ApiMethodOptions = {
+                        signal: cache.abortController.signal,
+                    }
 
                     const { filters } = values
 
@@ -315,9 +316,6 @@ export const insightLogic = kea<insightLogicType>([
                     let apiUrl: string = ''
                     const { currentTeamId } = values
 
-                    const methodOptions: ApiMethodOptions = {
-                        signal: cache.abortController.signal,
-                    }
                     if (!currentTeamId) {
                         throw new Error("Can't load insight before current project is determined.")
                     }
@@ -354,7 +352,6 @@ export const insightLogic = kea<insightLogicType>([
                             })
                         }
                         breakpoint()
-                        cache.abortController = null
                         actions.endQuery({
                             queryId,
                             view: insight,
@@ -379,7 +376,6 @@ export const insightLogic = kea<insightLogicType>([
                     }
 
                     breakpoint()
-                    cache.abortController = null
                     actions.endQuery({
                         queryId,
                         view: (values.filters.insight as InsightType) || InsightType.TRENDS,
@@ -779,7 +775,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
     }),
-    listeners(({ actions, selectors, values }) => ({
+    listeners(({ actions, selectors, values, cache }) => ({
         setFiltersMerge: ({ filters }) => {
             actions.setFilters({ ...values.filters, ...filters })
         },
@@ -894,25 +890,29 @@ export const insightLogic = kea<insightLogicType>([
             )
             actions.setIsLoading(true)
         },
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+                cache.abortController = null
+            }
+        },
         abortQuery: async ({ queryId }) => {
             const { currentTeamId } = values
 
-            if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
-                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
+            await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: queryId })
 
-                const duration = performance.now() - values.queryStartTimes[queryId]
-                await captureTimeToSeeData(values.currentTeamId, {
-                    type: 'insight_load',
-                    context: 'insight',
-                    query_id: queryId,
-                    status: 'cancelled',
-                    time_to_see_data_ms: Math.floor(duration),
-                    insights_fetched: 0,
-                    insights_fetched_cached: 0,
-                    api_response_bytes: 0,
-                    insight: values.activeView,
-                })
-            }
+            const duration = performance.now() - values.queryStartTimes[queryId]
+            await captureTimeToSeeData(values.currentTeamId, {
+                type: 'insight_load',
+                context: 'insight',
+                query_id: queryId,
+                status: 'cancelled',
+                time_to_see_data_ms: Math.floor(duration),
+                insights_fetched: 0,
+                insights_fetched_cached: 0,
+                api_response_bytes: 0,
+                insight: values.activeView,
+            })
         },
         endQuery: ({ queryId, view, lastRefresh, scene, exception, response }) => {
             if (values.timeout) {
@@ -1097,7 +1097,7 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
     })),
-    events(({ props, cache, values, actions }) => ({
+    events(({ props, values, actions }) => ({
         afterMount: () => {
             const hasDashboardItemId =
                 !!props.dashboardItemId && props.dashboardItemId !== 'new' && !props.dashboardItemId.startsWith('new-')
@@ -1130,7 +1130,6 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
         beforeUnmount: () => {
-            cache.abortController?.abort()
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }

@@ -82,6 +82,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     POSTHOG_POSTGRES_HOST: string
     POSTHOG_POSTGRES_PORT: number
     CLICKHOUSE_HOST: string
+    CLICKHOUSE_OFFLINE_CLUSTER_HOST: string | null
     CLICKHOUSE_DATABASE: string
     CLICKHOUSE_USER: string
     CLICKHOUSE_PASSWORD: string | null

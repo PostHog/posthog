@@ -61,8 +61,16 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
+        showErrorMessage,
     } = useValues(logic)
-    const { saveInsight, setInsightMetadata, saveAs, reportInsightViewedForRecentInsights } = useActions(logic)
+    const {
+        saveInsight,
+        setInsightMetadata,
+        saveAs,
+        reportInsightViewedForRecentInsights,
+        abortAnyRunningQuery,
+        loadResults,
+    } = useActions(logic)
 
     // savedInsightsLogic
     const { duplicateInsight, loadInsights } = useActions(savedInsightsLogic)
@@ -85,6 +93,18 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     useEffect(() => {
         reportInsightViewedForRecentInsights()
     }, [insightId])
+
+    useEffect(() => {
+        // if users navigate away from insights then we may cancel an API call
+        // and when they come back they may see an error state, so clear it
+        if (showErrorMessage) {
+            loadResults()
+        }
+        return () => {
+            // request cancellation of any running queries when this component is no longer in the dom
+            abortAnyRunningQuery()
+        }
+    }, [])
 
     // feature flag insight-editor-panels
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
