@@ -53,6 +53,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'PARALLEL_DASHBOARD_ITEM_CACHE',
     'SENTRY_AUTH_TOKEN',
     'SENTRY_ORGANIZATION',
+    'CALCULATE_EVENT_PROPERTY_USAGE_LIMIT',
 ]
 
 // Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!

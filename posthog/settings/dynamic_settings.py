@@ -160,6 +160,11 @@ CONSTANCE_CONFIG = {
         "Used to enable Sentry error tracking in PostHog",
         str,
     ),
+    "CALCULATE_EVENT_PROPERTY_USAGE_LIMIT": (
+        get_from_env("CALCULATE_EVENT_PROPERTY_USAGE_LIMIT", default=30),
+        "How many teams to queue at once for background event property calculation",
+        int,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -191,6 +196,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "ALLOW_EXPERIMENTAL_ASYNC_MIGRATIONS",
     "SENTRY_AUTH_TOKEN",
     "SENTRY_ORGANIZATION",
+    "CALCULATE_EVENT_PROPERTY_USAGE_LIMIT",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

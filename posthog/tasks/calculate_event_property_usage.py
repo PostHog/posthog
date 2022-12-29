@@ -13,6 +13,7 @@ from posthog.celery import calculate_event_property_usage_for_team_task
 from posthog.logging.timing import timed
 from posthog.models import EventDefinition, EventProperty, Insight, PropertyDefinition, Team
 from posthog.models.filters.filter import Filter
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.property.property import PropertyIdentifier
 from posthog.models.property_definition import PropertyType
 from posthog.queries.column_optimizer.foss_column_optimizer import FOSSColumnOptimizer
@@ -67,12 +68,15 @@ def calculate_event_property_usage() -> None:
     And we only allow teams to be processed every three hours.
     This means we can schedule a chunk of teams to be processed without causing a thundering herd,
     """
+
+    limit: int = get_instance_setting("CALCULATE_EVENT_PROPERTY_USAGE_LIMIT")
+
     now_in_seconds_since_epoch = time.time()
     three_hours_ago = now_in_seconds_since_epoch - (3600 * 3)
     teams_to_exclude = recently_calculated_teams(
         now_in_seconds_since_epoch=now_in_seconds_since_epoch, limit_seconds=three_hours_ago
     )
-    next_teams = Team.objects.exclude(id__in=teams_to_exclude).values_list("id", flat=True)[:300]
+    next_teams = Team.objects.exclude(id__in=teams_to_exclude).values_list("id", flat=True)[:limit]
     for team in next_teams:
         calculate_event_property_usage_for_team_task.delay(team_id=team)
         get_client().zadd(name=CALCULATED_PROPERTIES_FOR_TEAMS_KEY, mapping={str(team): time.time()})
