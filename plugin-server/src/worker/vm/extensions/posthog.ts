@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { DateTime } from 'luxon'
 import { Hub, PluginConfig, RawEventMessage } from 'types'
 
+import { status } from '../../../utils/status'
 import { UUIDT } from '../../../utils/utils'
 import { ApiExtension, createApi } from './api'
 
@@ -27,21 +28,35 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     partitionKeyHash.update(`${data.team_id}:${data.distinct_id}`)
     const partitionKey = partitionKeyHash.digest('hex')
 
+    const message = JSON.stringify({
+        distinct_id: data.distinct_id,
+        ip: '',
+        site_url: '',
+        data: JSON.stringify(data),
+        team_id: pluginConfig.team_id,
+        now: data.timestamp,
+        sent_at: data.timestamp,
+        uuid: data.uuid,
+    } as RawEventMessage)
+
+    // We currently don't drop or truncate oversized events, although Kafka will reject the messages anyway.
+    // Log these messages so that we want dig into what even type triggers KafkaJSProtocolError when we see them.
+    const messageSize = Buffer.from(message).length
+    if (messageSize > 1_000_000) {
+        status.warn('⚠️', 'App captured a message over 1MB, writing it to Kafka will probably fail', {
+            team: pluginConfig.team_id,
+            plugin: pluginConfig.plugin?.name,
+            event: data.event,
+            estimatedSize: messageSize,
+        })
+    }
+
     await hub.kafkaProducer.queueMessage({
         topic: hub.KAFKA_CONSUMPTION_TOPIC!,
         messages: [
             {
                 key: partitionKey,
-                value: JSON.stringify({
-                    distinct_id: data.distinct_id,
-                    ip: '',
-                    site_url: '',
-                    data: JSON.stringify(data),
-                    team_id: pluginConfig.team_id,
-                    now: data.timestamp,
-                    sent_at: data.timestamp,
-                    uuid: data.uuid,
-                } as RawEventMessage),
+                value: message,
             },
         ],
     })
