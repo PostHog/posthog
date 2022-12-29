@@ -1,5 +1,3 @@
-from typing import Dict
-
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
 from django.db.models import UniqueConstraint
@@ -31,17 +29,16 @@ class DashboardTemplate(UUIDModel):
         ]
 
     @staticmethod
-    def original_template() -> Dict:
+    def original_template() -> "DashboardTemplate":
         """
         Must match the JSON at https://github.com/PostHog/templates-repository/blob/0b148dd021648d1ce4f0eeca5804cab5eae4253b/dashboards/posthog-product-analytics.json
         The system assumes this template is always present and doesn't wait to import it from the template repository
         """
-        return {
-            "template_name": "Product analytics",
-            "source_dashboard": None,
-            "dashboard_description": "",
-            "dashboard_filters": {},
-            "tiles": [
+        return DashboardTemplate(
+            template_name="Product analytics",
+            dashboard_description="",
+            dashboard_filters={},
+            tiles=[
                 {
                     "name": "Daily active users (DAUs)",
                     "type": "INSIGHT",
@@ -175,5 +172,5 @@ class DashboardTemplate(UUIDModel):
                     "description": "This example funnel shows how many of your users have completed 3 page views, broken down by browser.",
                 },
             ],
-            "tags": [],
-        }
+            tags=[],
+        )

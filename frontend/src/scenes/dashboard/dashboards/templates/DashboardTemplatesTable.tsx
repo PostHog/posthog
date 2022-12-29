@@ -1,5 +1,5 @@
 import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
@@ -10,7 +10,8 @@ import { CloudDownloadOutlined } from '@ant-design/icons'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
-    const { repository, repositoryLoading } = useValues(dashboardTemplatesLogic)
+    const { repository, repositoryLoading, templateLoading } = useValues(dashboardTemplatesLogic)
+    const { installTemplate } = useActions(dashboardTemplatesLogic)
 
     return (
         <LemonTable
@@ -56,8 +57,10 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                                         <LemonButton
                                             status={'primary'}
                                             type={'primary'}
-                                            onClick={() => alert(record.url)}
+                                            onClick={() => installTemplate({ name: record.name, url: record.url })}
                                             icon={<CloudDownloadOutlined />}
+                                            loading={templateLoading}
+                                            disabled={templateLoading}
                                         >
                                             Install
                                         </LemonButton>

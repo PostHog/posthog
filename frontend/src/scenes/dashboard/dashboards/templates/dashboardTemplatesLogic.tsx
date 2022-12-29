@@ -1,9 +1,10 @@
-import { afterMount, kea, path } from 'kea'
+import { afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 
 import type { dashboardTemplatesLogicType } from './dashboardTemplatesLogicType'
+import { LemonSelectOption } from 'lib/components/LemonSelect'
 
 export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
     path(['scenes', 'dashboard', 'dashboards', 'templates', 'dashboardTemplatesLogic']),
@@ -23,7 +24,32 @@ export const dashboardTemplatesLogic = kea<dashboardTemplatesLogicType>([
                 },
             },
         ],
+        template: [
+            null,
+            {
+                installTemplate: async (payload: { name: string; url: string }) => {
+                    return await api.create('api/projects/@current/dashboard_templates/', payload)
+                },
+            },
+        ],
     }),
+    reducers(() => ({
+        templatesList: [
+            [] as LemonSelectOption<string>[],
+            {
+                loadRepositorySuccess: (_, { repository }) => {
+                    return Object.values(repository).map((entry) => ({
+                        value: entry.name,
+                        label: entry.name,
+                        'data-attr': `dashboard-select-${entry.name.replace(' ', '-')}`,
+                    }))
+                },
+            },
+        ],
+    })),
+    listeners(({ actions }) => ({
+        installTemplateSuccess: () => actions.loadRepository(),
+    })),
     afterMount(({ actions }) => {
         actions.loadRepository()
     }),
