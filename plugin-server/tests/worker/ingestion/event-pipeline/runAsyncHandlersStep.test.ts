@@ -31,6 +31,7 @@ describe('runAsyncHandlersStep()', () => {
             get: jest.fn().mockResolvedValue(testPerson),
         }
         runner = {
+            fullyProcessEvent: true,
             nextStep: (...args: any[]) => args,
             hub: {
                 capabilities: {

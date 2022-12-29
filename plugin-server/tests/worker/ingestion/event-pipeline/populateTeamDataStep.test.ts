@@ -33,6 +33,7 @@ let runner: any
 
 beforeEach(() => {
     runner = {
+        fullyProcessEvent: true,
         nextStep: (...args: any[]) => args,
         hub: {
             teamManager: {

@@ -24,6 +24,28 @@ export async function emitToBufferStep(
         return runner.nextStep('processPersonsStep', event, personContainer)
     }
 
+    if (
+        process.env.DELAY_ALL_EVENTS_FOR_TEAMS === '*' ||
+        process.env.DELAY_ALL_EVENTS_FOR_TEAMS?.split(',').includes(event.team_id.toString())
+    ) {
+        // If we're delaying all events for this team, we don't want to run the
+        // complete pipeline on the event on the first pass, but rather just
+        // create a person and/or add new distinct_id, person_id pairs, then
+        // pass the event to the buffer for complete processing later.
+
+        // To communicate to the rest of the pipeline the difference of
+        // behavior we use the `fullyProcessEvent` flag on the runner, which
+        // should be available to all further steps.
+
+        // NOTE: we run in this step but we could have added a step, but I
+        // didn't want to add more steps then there already are.
+
+        // TODO: remove this conditional once we're confident that the new
+        // ingestion pipeline is working well for all teams.
+        runner.fullyProcessEvent = false
+        return runner.nextStep('pluginsProcessEventStep', event, personContainer)
+    }
+
     const person = await personContainer.get()
     if (shouldBuffer(runner.hub, event, person, event.team_id)) {
         const processEventAt = Date.now() + runner.hub.BUFFER_CONVERSION_SECONDS * 1000
@@ -96,8 +118,8 @@ export function shouldSendEventToBuffer(
 ): boolean {
     // Libraries by default create a unique id for this `type-name_value` for $groupidentify,
     // we don't want to buffer these to make group properties available asap
-    // identify and alias are identical and could merge the person - the sooner we update the person_id the better
-
+    // identify and alias are identical and could merge the person - the sooner
+    // we update the person_id the better
     const eventProperties = event.properties ?? {}
 
     const isGroupIdentifyEvent = event.event == '$groupidentify'

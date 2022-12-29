@@ -90,6 +90,12 @@ export class PersonState {
         return this.personContainer
     }
 
+    async updateExceptProperties(): Promise<LazyPersonContainer> {
+        await this.handleIdentifyOrAlias()
+        await this.createPersonIfDistinctIdIsNew()
+        return this.personContainer
+    }
+
     async updateProperties(): Promise<LazyPersonContainer> {
         const personCreated = await this.createPersonIfDistinctIdIsNew()
         if (
@@ -538,6 +544,12 @@ export class PersonState {
 // Helper functions to ease mocking in tests
 export function updatePersonState(...params: ConstructorParameters<typeof PersonState>): Promise<LazyPersonContainer> {
     return new PersonState(...params).update()
+}
+
+export function updatePersonStateExceptProperties(
+    ...params: ConstructorParameters<typeof PersonState>
+): Promise<LazyPersonContainer> {
+    return new PersonState(...params).updateExceptProperties()
 }
 
 export function updatePropertiesPersonState(

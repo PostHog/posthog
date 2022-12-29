@@ -149,8 +149,13 @@ jobs:
               run: cd plugin-server && pnpm test -- --runInBand --forceExit tests/ --shard=${{matrix.shard}}
 
     functional-tests:
-        name: Functional tests
+        name: Functional tests (DELAY_ALL_EVENTS_FOR_TEAMS=${{matrix.DELAY_ALL_EVENTS_FOR_TEAMS}})
         runs-on: ubuntu-20.04
+
+        strategy:
+            fail-fast: false
+            matrix:
+                DELAY_ALL_EVENTS_FOR_TEAMS: ['', '*']
 
         env:
             REDIS_URL: 'redis://localhost'
@@ -158,6 +163,7 @@ jobs:
             CLICKHOUSE_DATABASE: 'posthog_test'
             KAFKA_HOSTS: 'kafka:9092'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+            DELAY_ALL_EVENTS_FOR_TEAMS: ${{matrix.DELAY_ALL_EVENTS_FOR_TEAMS}}
 
         steps:
             - name: Code check out

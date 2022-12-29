@@ -26,11 +26,17 @@ describe('processPersonsStep()', () => {
 
     beforeEach(() => {
         runner = {
+            fullyProcessEvent: true,
             nextStep: (...args: any[]) => args,
             hub: {
                 db: 'hub.db',
                 statsd: 'hub.statsd',
                 personManager: 'hub.personManager',
+                kafkaProducer: {
+                    producer: {
+                        send: jest.fn(),
+                    },
+                },
             },
         }
         personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)

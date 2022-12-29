@@ -66,10 +66,12 @@ const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent | ProcessedPluginEvent
+    fullyProcessEvent: boolean
 
-    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent) {
+    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, fullyProcessEvent = true) {
         this.hub = hub
         this.originalEvent = originalEvent
+        this.fullyProcessEvent = fullyProcessEvent
     }
 
     // KLUDGE: This is a temporary entry point for the pipeline while we transition away from

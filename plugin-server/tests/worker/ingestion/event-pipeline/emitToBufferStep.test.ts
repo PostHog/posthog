@@ -47,6 +47,7 @@ let runner: any
 
 beforeEach(() => {
     runner = {
+        fullyProcessEvent: true,
         nextStep: (...args: any[]) => args,
         hub: {
             CONVERSION_BUFFER_ENABLED: true,

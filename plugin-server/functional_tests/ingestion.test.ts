@@ -5,7 +5,7 @@ import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchEvents, getMetric } from './api'
+import { capture, createOrganization, createTeam, fetchEvents, fetchPersons, getMetric } from './api'
 import { waitForExpect } from './expectations'
 
 let producer: Producer
@@ -261,6 +261,71 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
         expect(events[0].team_id).toBe(teamId)
     })
 })
+
+// We only want to run this test if we are running with the delay all events
+// feature enabled. See https://github.com/PostHog/product-internal/pull/405 for
+// details.
+;(process.env.DELAY_ALL_EVENTS_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip)(
+    `anonymous event recieves same person_id if $identify happenes shortly after, and there's already an anonymous person`,
+    async () => {
+        // NOTE: this test depends on there being a delay between the
+        // anonymouse event ingestion and the processing of this event.
+
+        const teamId = await createTeam(postgres, organizationId)
+        const initialDistinctId = new UUIDT().toString()
+        const secondDistinctId = new UUIDT().toString()
+        const personIdentifier = new UUIDT().toString()
+
+        // First we emit an anoymous event and wait for the person to be
+        // created.
+        const initialEventId = new UUIDT().toString()
+        await capture(producer, teamId, initialDistinctId, initialEventId, 'custom event')
+        await waitForExpect(async () => {
+            const persons = await fetchPersons(clickHouseClient, teamId)
+            expect(persons).toContainEqual(
+                expect.objectContaining({
+                    properties: expect.objectContaining({ $creator_event_uuid: initialEventId }),
+                })
+            )
+        }, 10000)
+
+        // We then have the user identify themselves, but on e.g. a different
+        // device and hence a different anonymous id.
+        const initialIdentifyEventId = new UUIDT().toString()
+        await capture(producer, teamId, personIdentifier, initialIdentifyEventId, '$identify', {
+            $anon_distinct_id: secondDistinctId,
+            distinct_id: personIdentifier,
+        })
+        await waitForExpect(async () => {
+            const persons = await fetchPersons(clickHouseClient, teamId)
+            expect(persons).toContainEqual(
+                expect.objectContaining({
+                    properties: expect.objectContaining({ $creator_event_uuid: initialIdentifyEventId }),
+                })
+            )
+        }, 10000)
+
+        // Then we create another event with the initial anonymous distinct id,
+        // shortly followed by another identify event but this time with the
+        // initial anonymous distinct id
+        const uuidOfEventThatShouldBeIdentified = new UUIDT().toString()
+        await capture(producer, teamId, initialDistinctId, uuidOfEventThatShouldBeIdentified, 'custom event')
+
+        const uuidOfIdentifyEvent = new UUIDT().toString()
+        await capture(producer, teamId, personIdentifier, uuidOfIdentifyEvent, '$identify', {
+            distinct_id: personIdentifier,
+            $anon_distinct_id: initialDistinctId,
+        })
+
+        await waitForExpect(async () => {
+            const [anonymousEvent] = await fetchEvents(clickHouseClient, teamId, uuidOfEventThatShouldBeIdentified)
+            const [identifyEvent] = await fetchEvents(clickHouseClient, teamId, uuidOfIdentifyEvent)
+            expect(anonymousEvent?.person_id).toBeDefined()
+            expect(identifyEvent?.person_id).toBeDefined()
+            expect(anonymousEvent.person_id).toEqual(identifyEvent.person_id)
+        }, 10000)
+    }
+)
 
 test.concurrent('consumer updates timestamp exported to prometheus', async () => {
     // NOTE: it may be another event other than the one we emit here that causes
