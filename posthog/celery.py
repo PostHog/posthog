@@ -536,7 +536,7 @@ def update_cache_task(caching_state_id: UUID):
 
 
 @app.task(ignore_result=True, bind=True)
-@single_executing_at_once("celery_update_cache_task")
+@single_executing_at_once("calculate_event_property_usage_for_team_task")
 def calculate_event_property_usage_for_team_task(self, team_id: int) -> None:
     from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
