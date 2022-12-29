@@ -40,7 +40,7 @@ async function queueEvent(hub: Hub, pluginConfig: PluginConfig, data: InternalDa
     } as RawEventMessage)
 
     // We currently don't drop or truncate oversized events, although Kafka will reject the messages anyway.
-    // Log these messages so that we want dig into what even type triggers KafkaJSProtocolError when we see them.
+    // Log these messages so that can dig into what event type triggers KafkaJSProtocolError when we see them.
     const messageSize = Buffer.from(message).length
     if (messageSize > 1_000_000) {
         status.warn('⚠️', 'App captured a message over 1MB, writing it to Kafka will probably fail', {
