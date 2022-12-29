@@ -1,6 +1,6 @@
 import json
-from dataclasses import asdict, dataclass
-from typing import List
+from dataclasses import asdict, dataclass, field
+from typing import Any, List
 from unittest import mock
 
 import pytest
@@ -18,6 +18,7 @@ from posthog.test.base import APIBaseTest
 @pytest.mark.usefixtures("unittest_snapshot")
 class TestTimeToSeeDataApi(APIBaseTest):
     maxDiff = None
+    snapshot: Any
 
     def setUp(self):
         super().setUp()
@@ -188,13 +189,13 @@ class QueryLogRow:
     query_time_range_days: int = 1
     has_joins: int = 0
     has_json_operations: int = 0
-    filter_by_type = []
-    breakdown_by = []
-    entity_math = []
+    filter_by_type: List[str] = field(default_factory=list)
+    breakdown_by: List[str] = field(default_factory=list)
+    entity_math: List[str] = field(default_factory=list)
     filter: str = ""
-    ProfileEvents = {}
-    tables = []
-    columns = []
+    ProfileEvents: dict = field(default_factory=dict)
+    tables: List[str] = field(default_factory=list)
+    columns: List[str] = field(default_factory=list)
     query: str = ""
     log_comment = ""
 
