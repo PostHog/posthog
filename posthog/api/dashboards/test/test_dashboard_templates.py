@@ -103,4 +103,5 @@ class TestDashboardTemplates(APIBaseTest):
         mock_response.status_code = 200
         mock_text = PropertyMock(return_value=json.dumps(json_response))
         type(mock_response).text = mock_text
+        mock_response.json.return_value = json_response
         patched_requests.return_value = mock_response
