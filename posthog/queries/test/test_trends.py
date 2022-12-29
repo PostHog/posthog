@@ -4550,7 +4550,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     @test_with_materialized_columns(["key"])
     def test_breakdown_weekly_active_users_daily(self):
-
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
@@ -4600,6 +4599,46 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
+
+    @test_with_materialized_columns(person_properties=["name"])
+    @snapshot_clickhouse_queries
+    def test_weekly_active_users_filtering(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "person-1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "person-2"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "person-3"})
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-10T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-11T12:00:00Z",
+        )
+
+        filter = Filter(
+            data={
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+                "properties": [
+                    {"key": "name", "operator": "exact", "value": ["person-1", "person-2"], "type": "person"}
+                ],
+            }
+        )
+
+        result = Trends().run(filter, self.team)
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0])
 
     @snapshot_clickhouse_queries
     def test_breakdown_weekly_active_users_daily_based_on_action(self):
