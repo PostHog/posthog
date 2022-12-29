@@ -1,9 +1,9 @@
 from typing import Dict
 
 from django.contrib.postgres.fields import ArrayField
+from django.db import models
 from django.db.models import UniqueConstraint
 
-from posthog import models
 from posthog.models.utils import UUIDModel
 
 
@@ -14,6 +14,10 @@ class DashboardTemplate(UUIDModel):
     dashboard_filters: models.JSONField = models.JSONField(null=True)
     tiles: models.JSONField = models.JSONField(default=list)
     tags: ArrayField = ArrayField(models.CharField(max_length=255), default=list)
+    # URL length for browsers can be as much as 64Kb
+    # see https://stackoverflow.com/questions/417142/what-is-the-maximum-length-of-a-url-in-different-browsers
+    # but GitHub apparently is more likely 8kb https://stackoverflow.com/a/64565317
+    github_url: models.CharField = models.CharField(max_length=8201, null=True)
 
     class Meta:
         constraints = [
@@ -28,6 +32,10 @@ class DashboardTemplate(UUIDModel):
 
     @staticmethod
     def original_template() -> Dict:
+        """
+        Must match the JSON at https://github.com/PostHog/templates-repository/blob/0b148dd021648d1ce4f0eeca5804cab5eae4253b/dashboards/posthog-product-analytics.json
+        The system assumes this template is always present and doesn't wait to import it from the template repository
+        """
         return {
             "template_name": "Product analytics",
             "source_dashboard": None,
@@ -168,5 +176,4 @@ class DashboardTemplate(UUIDModel):
                 },
             ],
             "tags": [],
-            "scope": "global",
         }

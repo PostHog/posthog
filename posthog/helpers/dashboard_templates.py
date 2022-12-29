@@ -1,43 +1,32 @@
 from typing import Callable, Dict, List, Optional
 
+import structlog
+
 from posthog.constants import (
     BREAKDOWN,
     BREAKDOWN_TYPE,
-    BREAKDOWNS,
     DATE_FROM,
     DISPLAY,
-    ENTITY_TYPE,
-    EXCLUSIONS,
-    FUNNEL_LAYOUT,
-    FUNNEL_VIZ_TYPE,
     INSIGHT,
-    INSIGHT_LIFECYCLE,
-    INSIGHT_RETENTION,
     INSIGHT_TRENDS,
     INTERVAL,
-    PERIOD,
     PROPERTIES,
-    RETENTION_FIRST_TIME,
-    RETENTION_TYPE,
-    RETURNING_ENTITY,
-    SHOWN_AS,
-    TARGET_ENTITY,
     TREND_FILTER_TYPE_EVENTS,
     TRENDS_BAR_VALUE,
     TRENDS_BOLD_NUMBER,
-    TRENDS_FUNNEL,
-    TRENDS_LIFECYCLE,
     TRENDS_WORLD_MAP,
     UNIQUE_USERS,
     AvailableFeature,
-    FunnelVizType,
 )
 from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_templates import DashboardTemplate
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
 from posthog.models.tag import Tag
 
 DASHBOARD_COLORS: List[str] = ["white", "blue", "green", "purple", "black"]
+
+logger = structlog.get_logger(__name__)
 
 
 def _create_website_dashboard(dashboard: Dashboard) -> None:
@@ -388,171 +377,33 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
 
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
+    template = DashboardTemplate.original_template()
 
-    _create_tile_for_insight(
-        dashboard,
-        name="Daily active users (DAUs)",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [
-                {
-                    "id": "$pageview",
-                    "math": UNIQUE_USERS,
-                    "type": TREND_FILTER_TYPE_EVENTS,
-                }
-            ],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DATE_FROM: "-30d",
-            DISPLAY: TRENDS_BOLD_NUMBER,
-        },
-        description="Shows the number of unique users that use your app every day.",
-        color="blue",
-        layouts={
-            "sm": {"h": 5, "w": 6, "x": 0, "y": 0, "minH": 5, "minW": 3},
-            "xs": {
-                "h": 5,
-                "w": 1,
-                "x": 0,
-                "y": 0,
-                "minH": 5,
-                "minW": 3,
-            },
-        },
-    )
+    dashboard.filters = template.get("dashboard_filters")
+    dashboard.description = template.get("dashboard_description")
+    if dashboard.team.organization.is_feature_available(AvailableFeature.TAGGING):
+        for template_tag in template.get("tags", []):
+            tag, _ = Tag.objects.get_or_create(
+                name=template_tag, team_id=dashboard.team_id, defaults={"team_id": dashboard.team_id}
+            )
+            dashboard.tagged_items.create(tag_id=tag.id)
+    dashboard.save(update_fields=["filters", "description"])
 
-    _create_tile_for_insight(
-        dashboard,
-        name="Weekly active users (WAUs)",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": "weekly_active", "type": TREND_FILTER_TYPE_EVENTS}],
-            INTERVAL: "week",
-            INSIGHT: INSIGHT_TRENDS,
-        },
-        description="Shows the number of unique users that use your app every week.",
-        color="green",
-        layouts={
-            "sm": {"h": 5, "w": 6, "x": 6, "y": 0, "minH": 5, "minW": 3},
-            "xs": {
-                "h": 5,
-                "w": 1,
-                "x": 0,
-                "y": 5,
-                "minH": 5,
-                "minW": 3,
-            },
-        },
-    )
-
-    _create_tile_for_insight(
-        dashboard,
-        name="Retention",
-        filters={
-            TARGET_ENTITY: {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
-            RETURNING_ENTITY: {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS},
-            PERIOD: "Week",
-            RETENTION_TYPE: RETENTION_FIRST_TIME,
-            INSIGHT: INSIGHT_RETENTION,
-        },
-        description="Weekly retention of your users.",
-        color="blue",
-        layouts={
-            "sm": {"h": 5, "w": 6, "x": 6, "y": 5, "minH": 5, "minW": 3},
-            "xs": {
-                "h": 5,
-                "w": 1,
-                "x": 0,
-                "y": 10,
-                "minH": 5,
-                "minW": 3,
-            },
-        },
-    )
-
-    _create_tile_for_insight(
-        dashboard,
-        name="Growth accounting",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS}],
-            ENTITY_TYPE: TREND_FILTER_TYPE_EVENTS,
-            INTERVAL: "week",
-            SHOWN_AS: TRENDS_LIFECYCLE,
-            INSIGHT: INSIGHT_LIFECYCLE,
-            DATE_FROM: "-30d",
-        },
-        description="How many of your users are new, returning, resurrecting, or dormant each week.",
-        color="purple",
-        layouts={
-            "sm": {"h": 5, "w": 6, "x": 0, "y": 5, "minH": 5, "minW": 3},
-            "xs": {
-                "h": 5,
-                "w": 1,
-                "x": 0,
-                "y": 15,
-                "minH": 5,
-                "minW": 3,
-            },
-        },
-    )
-
-    _create_tile_for_insight(
-        dashboard,
-        name="Referring domain (last 14 days)",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [{"id": "$pageview", "math": UNIQUE_USERS, "type": TREND_FILTER_TYPE_EVENTS}],
-            INTERVAL: "day",
-            INSIGHT: INSIGHT_TRENDS,
-            DISPLAY: TRENDS_BAR_VALUE,
-            BREAKDOWN: "$referring_domain",
-            DATE_FROM: "-14d",
-            BREAKDOWN_TYPE: "event",
-        },
-        description="Shows the most common referring domains for your users over the past 14 days.",
-        color="black",
-        layouts={
-            "sm": {"h": 5, "w": 6, "x": 0, "y": 10, "minH": 5, "minW": 3},
-            "xs": {
-                "h": 5,
-                "w": 1,
-                "x": 0,
-                "y": 20,
-                "minH": 5,
-                "minW": 3,
-            },
-        },
-    )
-
-    _create_tile_for_insight(
-        dashboard,
-        name="Pageview funnel, by browser",
-        filters={
-            TREND_FILTER_TYPE_EVENTS: [
-                {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 0, "custom_name": "First page view"},
-                {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 1, "custom_name": "Second page view"},
-                {"id": "$pageview", "type": TREND_FILTER_TYPE_EVENTS, "order": 2, "custom_name": "Third page view"},
-            ],
-            INSIGHT: "FUNNELS",
-            FUNNEL_LAYOUT: "horizontal",
-            INTERVAL: "day",
-            BREAKDOWN_TYPE: "event",
-            BREAKDOWNS: [{"property": "$browser", "type": "event"}],
-            FUNNEL_VIZ_TYPE: FunnelVizType.STEPS,
-            DISPLAY: TRENDS_FUNNEL,
-            EXCLUSIONS: [],
-        },
-        description="This example funnel shows how many of your users have completed 3 page views, broken down by browser.",
-        layouts={
-            "sm": {"h": 5, "w": 6, "x": 6, "y": 10, "minH": 5, "minW": 3},
-            "xs": {
-                "h": 5,
-                "w": 1,
-                "x": 0,
-                "y": 25,
-                "minH": 5,
-                "minW": 3,
-            },
-        },
-        color="green",
-    )
+    for template_tile in template.get("tiles"):
+        if template_tile["type"] == "INSIGHT":
+            _create_tile_for_insight(
+                dashboard,
+                name=template_tile.get("name"),
+                filters=template_tile.get("filters"),
+                description=template_tile.get("description"),
+                color=template_tile.get("color"),
+                layouts=template_tile.get("layouts"),
+            )
+        elif template_tile["type"] == "TEXT":
+            # TODO support text tiles
+            pass
+        else:
+            logger.error("dashboard_templates.creation.unknown_type", template=template)
 
 
 def _create_tile_for_insight(

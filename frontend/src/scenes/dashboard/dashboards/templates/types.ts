@@ -3,4 +3,6 @@ export interface DashboardTemplatesRepositoryEntry {
     url: string
     description: string
     maintainer?: string
+    verified?: boolean
+    installed?: boolean
 }
