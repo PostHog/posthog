@@ -342,7 +342,7 @@
         UNION ALL SELECT COUNT(DISTINCT actor_id) as data,
                          toStartOfDay(toTimeZone(toDateTime(first_seen_timestamp, 'UTC'), 'UTC')) as date
         FROM
-          (SELECT e.person_id AS actor_id,
+          (SELECT pdi.person_id AS actor_id,
                   min(timestamp) AS first_seen_timestamp
            FROM events e
            INNER JOIN
