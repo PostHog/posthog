@@ -1,4 +1,5 @@
 import { Popconfirm } from 'antd'
+import { Link } from 'lib/components/Link'
 
 interface ExportWithConfirmationProps {
     placement: 'topRight' | 'bottomRight'
@@ -24,11 +25,13 @@ export function ExportWithConfirmation({
                     <br />
                     {actor === 'events' && (
                         <>
-                            The best way to export is to use <a href="https://posthog.com/apps">our app ecosystem</a>.
+                            The best way to export is to use{' '}
+                            <Link to="https://posthog.com/apps">our app ecosystem</Link>.
                             <br />
                         </>
                     )}
-                    For larger, infrequent exports you can use <a href="https://posthog.com/docs/api/events">the API</a>
+                    For larger, infrequent exports you can use{' '}
+                    <Link to="https://posthog.com/docs/api/events">the API</Link>
                     .
                     <br />
                     Do you want to export by CSV?
