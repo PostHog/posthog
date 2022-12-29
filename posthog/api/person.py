@@ -213,7 +213,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             OpenApiParameter(
                 "delete_events",
                 OpenApiTypes.BOOL,
-                description="If true, all events associated with this person will be deleted",
+                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately but is processed on the cron pattern set by CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON",
                 default=False,
             ),
         ],
