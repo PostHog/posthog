@@ -38,14 +38,14 @@ export const insight = {
         cy.url().should('not.include', '/new')
     },
     addInsightToDashboard: (dashboardName) => {
-        cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
+        cy.intercept('POST', /api\/projects\/\d+\/dashboard_tiles\//).as('postTile')
 
         cy.get('[data-attr="save-to-dashboard-button"]').click()
         cy.get('[data-attr="dashboard-searchfield"]').type(dashboardName)
         cy.contains('[data-attr="dashboard-list-item"]', dashboardName).within(() => {
             // force clicks rather than mess around scrolling rows that exist into view
             cy.contains('button', 'Add to dashboard').click({ force: true })
-            cy.wait('@patchInsight').then(() => {
+            cy.wait('@postTile').then(() => {
                 cy.contains('a', dashboardName).click({ force: true })
             })
         })
