@@ -114,10 +114,17 @@ class PerformanceEvents:
 
 
 class ListPerformanceEventQuerySerializer(serializers.Serializer):
-    session_id = serializers.CharField(required=False)
+    session_id = serializers.CharField(required=True)
     pageview_id = serializers.CharField(required=False)
-    date_from = serializers.DateTimeField()
-    date_to = serializers.DateTimeField()
+    date_from = serializers.DateTimeField(required=True)
+    date_to = serializers.DateTimeField(required=True)
+
+    def validate(self, data: Dict) -> Dict:
+        if data["date_to"] - data["date_from"] > timedelta(days=7):
+            # NOTE: We currently don't have a use case outside of recordings and pageviews
+            raise serializers.ValidationError("Date range cannot be more than 7 days")
+
+        return data
 
 
 class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
@@ -137,13 +144,6 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         params_serializer = ListPerformanceEventQuerySerializer(data=request.GET)
         params_serializer.is_valid(raise_exception=True)
         params = params_serializer.validated_data
-
-        if params["date_to"] - params["date_from"] > timedelta(days=7):
-            # NOTE: We currently don't have a use case out side of recordings and pageviews
-            raise serializers.ValidationError("Date range cannot be more than 7 days")
-
-        if not params["session_id"] and not params["pageview_id"]:
-            raise serializers.ValidationError("Either 'session_id' or 'pageview_id' is required")
 
         results = PerformanceEvents.query(
             self.team_id,

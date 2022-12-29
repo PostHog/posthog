@@ -9,11 +9,23 @@ from posthog.test.base import APIBaseTest
 
 
 class TestLicensedPerformanceEvents(APILicensedTest):
-    def test_performance_errors_if_missing_params(self):
-        res = self.client.get(f"/api/projects/@current/performance_events")
+    def test_performance_errors_if_missing_date_from_params(self):
+        res = self.client.get(f"/api/projects/@current/performance_events?session_id=1234")
         assert res.status_code == 400
         assert res.json() == {
             "attr": "date_from",
+            "code": "required",
+            "detail": "This field is required.",
+            "type": "validation_error",
+        }
+
+    def test_performance_errors_if_missing_session_id_params(self):
+        res = self.client.get(
+            f"/api/projects/@current/performance_events?&date_from=2021-01-01T00:00:00Z&date_to=2021-01-02T00:00:00Z"
+        )
+        assert res.status_code == 400
+        assert res.json() == {
+            "attr": "session_id",
             "code": "required",
             "detail": "This field is required.",
             "type": "validation_error",
