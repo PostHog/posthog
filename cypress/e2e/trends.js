@@ -2,7 +2,11 @@ import { urls } from 'scenes/urls'
 
 describe('Trends', () => {
     beforeEach(() => {
+        cy.intercept('GET', /api\/projects\/\d+\/insights\/trend\/\?insight=TREND/).as('loadNewInsight')
+
+        cy.wait('getInsights') // let the UI settle
         cy.visit(urls.insightNew())
+        cy.wait('loadNewInsight') // let the UI settle after load
     })
 
     it('Can load a graph from a URL directly', () => {
