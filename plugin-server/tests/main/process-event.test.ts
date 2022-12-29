@@ -1037,7 +1037,7 @@ test('performance event stored as performance_event', async () => {
         'some-id',
         '',
         {
-            event: '$perfomance_event',
+            event: '$performance_event',
             properties: {
                 // Taken from a real event from the JS
                 '0': 'resource',
@@ -1075,6 +1075,7 @@ test('performance event stored as performance_event', async () => {
         now,
         new UUIDT().toString()
     )
+
     await delayUntilEventIngested(() => hub.db.fetchPerformanceEvents())
 
     const events = await hub.db.fetchEvents()
@@ -1084,8 +1085,61 @@ test('performance event stored as performance_event', async () => {
     expect(sessionRecordingEvents.length).toBe(1)
 
     const [event] = sessionRecordingEvents
-    console.log(event)
-    expect(event).toEqual({})
+
+    expect(event).toEqual({
+        _offset: expect.any(Number),
+        _partition: 0,
+        _timestamp: expect.stringMatching(/^\d{4}-\d{2}-\d{2}[\d\s:]+/),
+        connect_end: 10737.89999999106,
+        connect_start: 10737.89999999106,
+        current_url: 'http://localhost:8000/recordings/recent',
+        decoded_body_size: 73374,
+        distinct_id: 'some-id',
+        dom_complete: 0,
+        dom_content_loaded_event: 0,
+        dom_interactive: 0,
+        domain_lookup_end: 10737.89999999106,
+        domain_lookup_start: 10737.89999999106,
+        duration: 384.30000001192093,
+        encoded_body_size: 1767,
+        entry_type: 'resource',
+        fetch_start: 10737.89999999106,
+        initiator_type: 'fetch',
+        largest_contentful_paint_element: '',
+        largest_contentful_paint_id: '',
+        largest_contentful_paint_load_time: 0,
+        largest_contentful_paint_render_time: 0,
+        largest_contentful_paint_size: 0,
+        largest_contentful_paint_url: '',
+        load_event_end: 0,
+        load_event_start: 0,
+        name: 'http://localhost:8000/api/projects/1/session_recordings',
+        navigation_type: '',
+        next_hop_protocol: 'http/1.1',
+        pageview_id: '',
+        redirect_count: 0,
+        redirect_end: 0,
+        redirect_start: 0,
+        render_blocking_status: 'non-blocking',
+        request_start: 10745.09999999404,
+        response_end: 11122.20000000298,
+        response_start: 11121.70000000298,
+        response_status: 0,
+        secure_connection_start: 0,
+        session_id: '1853a793ad26c1-0eea05631cbeff-17525635-384000-1853a793ad31dd2',
+        start_time: 10737.89999999106,
+        team_id: 2,
+        time_origin: '2022-12-22 15:34:55.836',
+        timestamp: '2022-12-22 15:35:06.573',
+        transfer_size: 2067,
+        unload_event_end: 0,
+        unload_event_start: 0,
+        uuid: expect.stringMatching(
+            /^[0-9a-fA-F-]{36}$/ // a uuid
+        ),
+        window_id: '1853a793ad424a5-017f7473b057f1-17525635-384000-1853a793ad524dc',
+        worker_start: 0,
+    })
 })
 
 test('identify set', async () => {

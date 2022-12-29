@@ -1250,8 +1250,7 @@ export class DB {
     // PerformanceEvent
 
     public async fetchPerformanceEvents(): Promise<RawPerformanceEvent[]> {
-        const events = (await this.clickhouseQuery<RawPerformanceEvent>(`SELECT * FROM performance_events`)).data
-        return events
+        return (await this.clickhouseQuery<RawPerformanceEvent>(`SELECT * FROM performance_events`)).data
     }
 
     // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)
