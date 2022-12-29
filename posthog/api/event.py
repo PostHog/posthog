@@ -9,7 +9,6 @@ from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -53,7 +52,6 @@ class ElementSerializer(serializers.ModelSerializer):
 class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
-    pagination_class = LimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
 
@@ -98,6 +96,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             OpenApiParameter(
                 "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
             ),
+            OpenApiParameter("limit", OpenApiTypes.INT, description="The maximum number of results to return"),
             PropertiesSerializer(required=False),
         ]
     )
@@ -160,7 +159,12 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             # Result with selected columns
             if isinstance(query_result, EventsQueryResponse):
                 return response.Response(
-                    {"columns": select, "types": query_result.types, "results": query_result.results}
+                    {
+                        "columns": select,
+                        "types": query_result.types,
+                        "results": query_result.results,
+                        "hasMore": query_result.has_more,
+                    },
                 )
 
             result = ClickhouseEventSerializer(

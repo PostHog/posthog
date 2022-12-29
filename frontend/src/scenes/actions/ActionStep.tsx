@@ -11,6 +11,8 @@ import { LemonDialog } from 'lib/components/LemonDialog'
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { useState } from 'react'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -114,6 +116,19 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
     )
 }
 
+/**
+ * There are several issues with how autocapture actions are matched. See https://github.com/PostHog/posthog/issues/7333
+ *
+ * Until they are fixed this validator can be used to guide users to working solutions
+ */
+const validateSelector = (val: string, selectorPrompts: (s: string | null) => void): void => {
+    if (val.includes('#')) {
+        selectorPrompts('The ID selector "#example" does not match in PostHog actions. Use `[id="example"]` instead')
+    } else {
+        selectorPrompts(null)
+    }
+}
+
 function Option(props: {
     step: ActionStepType
     sendStep: (stepToSend: ActionStepType) => void
@@ -129,6 +144,8 @@ function Option(props: {
             [props.item]: val || null, // "" is a valid filter, we don't want it
         })
 
+    const [selectorPrompt, setSelectorPrompt] = useState(null as string | null)
+
     return (
         <div className="space-y-1">
             <LemonLabel>
@@ -136,11 +153,19 @@ function Option(props: {
             </LemonLabel>
             {props.caption && <div className="action-step-caption">{props.caption}</div>}
             {props.item === 'selector' ? (
-                <LemonTextArea
-                    onChange={onOptionChange}
-                    value={props.step[props.item] || ''}
-                    placeholder={props.placeholder}
-                />
+                <>
+                    <LemonTextArea
+                        onChange={(val: string) => {
+                            validateSelector(val, setSelectorPrompt)
+                            onOptionChange(val)
+                        }}
+                        value={props.step[props.item] || ''}
+                        placeholder={props.placeholder}
+                    />
+                    <div className={selectorPrompt ? 'visible' : 'hidden'}>
+                        <AlertMessage type="warning">{selectorPrompt}</AlertMessage>
+                    </div>
+                </>
             ) : (
                 <LemonInput
                     data-attr="edit-action-url-input"

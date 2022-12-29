@@ -9,7 +9,7 @@ import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 
 interface DataNodeProps {
     query: DataNodeType
-    setQuery?: (node: DataTableNode) => void
+    setQuery?: (query: DataTableNode) => void
 }
 
 let uniqueNode = 0

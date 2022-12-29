@@ -528,7 +528,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.models.event.query_event_list.query_with_columns")
+    @patch("posthog.models.event.query_event_list.insight_query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
@@ -712,6 +712,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 response,
                 {
                     "columns": ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"],
+                    "hasMore": False,
                     "types": ["String", "String", "String", "String"],
                     "results": [
                         ["sign out", "4", "test_val3", "sign out test_val3"],
@@ -737,6 +738,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 response,
                 {
                     "columns": ["total()", "event"],
+                    "hasMore": False,
                     "types": ["UInt64", "String"],
                     "results": [[3, "sign out"], [1, "sign up"]],
                 },
@@ -752,6 +754,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 response,
                 {
                     "columns": ["total()", "event"],
+                    "hasMore": False,
                     "types": ["UInt64", "String"],
                     "results": [[2, "sign out"], [1, "sign up"]],
                 },

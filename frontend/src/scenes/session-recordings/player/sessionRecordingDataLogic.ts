@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { sum, toParams } from 'lib/utils'
 import {
     EventType,
+    PerformanceEvent,
     PlayerPosition,
     RecordingEventsFilters,
     RecordingEventType,
@@ -28,6 +29,8 @@ import {
 } from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -130,7 +133,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     }),
     defaults({
         sessionPlayerMetaData: {
@@ -159,6 +162,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setRecordingMeta: (metadata: Partial<SessionPlayerMetaData>) => ({ metadata }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
+        loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
     }),
     reducers(({ cache }) => ({
         filters: [
@@ -224,6 +228,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
+            actions.loadPerformanceEvents()
         },
         loadRecordingSnapshotsSuccess: () => {
             // If there is more data to poll for load the next batch.
@@ -398,6 +403,28 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                         next: response?.next,
                         events: allEvents,
                     }
+                },
+            },
+        ],
+
+        performanceEvents: [
+            null as null | PerformanceEvent[],
+            {
+                loadPerformanceEvents: async ({}, breakpoint) => {
+                    if (!values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]) {
+                        return null
+                    }
+
+                    // Use `nextUrl` if there is a `next` url to fetch
+                    const response = await api.performanceEvents.list({
+                        session_id: props.sessionRecordingId,
+                    })
+
+                    breakpoint()
+
+                    console.log(response)
+
+                    return response.results ?? []
                 },
             },
         ],

@@ -1,4 +1,5 @@
 import re
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
@@ -15,6 +16,7 @@ from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
@@ -112,6 +114,7 @@ class Team(UUIDClassicModel):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
@@ -253,7 +256,7 @@ class Team(UUIDClassicModel):
         filter = Filter(data={"full": "true"})
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
-        total_count = sync_execute(
+        return sync_execute(
             f"""
             SELECT count(1) FROM (
                 {person_query}
@@ -262,7 +265,20 @@ class Team(UUIDClassicModel):
             person_query_params,
         )[0][0]
 
-        return total_count
+    @lru_cache(maxsize=5)
+    def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
+
+        from posthog.client import sync_execute
+
+        return sync_execute(
+            f"""
+            SELECT
+                count(DISTINCT group_key)
+            FROM groups
+            WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
+        """,
+            {"team_id": self.pk, "group_type_index": group_type_index},
+        )[0][0]
 
     def __str__(self):
         if self.name:

@@ -71,6 +71,37 @@ class TestTeamAPI(APIBaseTest):
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(Team.objects.count(), 1)
 
+    def test_cant_create_a_second_project_without_license(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": False})
+
+        self.assertEqual(Team.objects.count(), 1)
+        self.assertEqual(response.status_code, 403)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects.",
+            },
+            response_data,
+        )
+
+        # another request without the is_demo parameter
+        response = self.client.post("/api/projects/", {"name": "Hedgebox"})
+        self.assertEqual(Team.objects.count(), 1)
+        self.assertEqual(response.status_code, 403)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects.",
+            },
+            response_data,
+        )
+
     def test_update_project_timezone(self):
 
         response = self.client.patch("/api/projects/@current/", {"timezone": "Europe/Istanbul"})

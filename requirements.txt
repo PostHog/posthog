@@ -92,7 +92,6 @@ django==3.2.16
     #   django-filter
     #   django-picklefield
     #   django-redis
-    #   django-rest-hooks
     #   django-structlog
     #   djangorestframework
     #   djangorestframework-dataclasses
@@ -118,8 +117,6 @@ django-picklefield==3.0.1
 django-prometheus==2.2.0
     # via -r requirements.in
 django-redis==5.2.0
-    # via -r requirements.in
-django-rest-hooks @ git+https://github.com/zapier/django-rest-hooks.git@v1.6.0
     # via -r requirements.in
 django-statsd==2.5.2
     # via -r requirements.in
@@ -291,7 +288,6 @@ redis==4.3.4
 requests==2.28.1
     # via
     #   -r requirements.in
-    #   django-rest-hooks
     #   geoip2
     #   infi-clickhouse-orm
     #   posthoganalytics

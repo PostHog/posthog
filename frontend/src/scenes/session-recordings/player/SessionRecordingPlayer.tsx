@@ -10,8 +10,7 @@ import {
 import { PlayerFrame } from 'scenes/session-recordings/player/PlayerFrame'
 import { PlayerController } from 'scenes/session-recordings/player/PlayerController'
 import { LemonDivider } from 'lib/components/LemonDivider'
-import { PlayerInspector, PlayerInspectorPicker } from 'scenes/session-recordings/player/PlayerInspector'
-import { PlayerFilter } from 'scenes/session-recordings/player/list/PlayerFilter'
+import { PlayerInspector } from 'scenes/session-recordings/player/inspector/PlayerInspector'
 import { PlayerMeta } from './PlayerMeta'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
 import clsx from 'clsx'
@@ -155,22 +154,11 @@ export function SessionRecordingPlayer(props: SessionRecordingPlayerProps): JSX.
                     />
                 </div>
                 <LemonDivider className="my-0" />
-                <PlayerController
-                    sessionRecordingId={sessionRecordingId}
-                    playerKey={playerKey}
-                    hideInspectorPicker={size !== 'small'}
-                />
+                <PlayerController sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
             </div>
             {!isFullScreen && (
                 <div className="SessionRecordingPlayer__inspector">
-                    {size !== 'small' && (
-                        <div className="border-b p-2">
-                            <PlayerInspectorPicker sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                        </div>
-                    )}
-                    <PlayerFilter sessionRecordingId={sessionRecordingId} playerKey={playerKey} matching={matching} />
-                    <LemonDivider className="my-0" />
-                    <PlayerInspector sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+                    <PlayerInspector {...logicProps} />
                 </div>
             )}
         </div>
