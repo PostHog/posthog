@@ -237,6 +237,37 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v3
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+
+            - name: Get pnpm cache directory path
+              id: pnpm-cache-dir
+              run: echo "PNPM_STORE_PATH=$(pnpm store path)" >> $GITHUB_OUTPUT
+
+            - name: Get cypress cache directory path
+              id: cypress-cache-dir
+              run: echo "CYPRESS_BIN_PATH=$(npx cypress cache path)" >> $GITHUB_OUTPUT
+
+            - uses: actions/cache@v3
+              id: pnpm-cache
+              with:
+                  path: |
+                      ${{ steps.pnpm-cache-dir.outputs.PNPM_STORE_PATH }}
+                      ${{ steps.cypress-cache-dir.outputs.CYPRESS_BIN_PATH }}
+                  key: ${{ runner.os }}-pnpm-cypress-${{ hashFiles('**/pnpm-lock.yaml') }}
+                  restore-keys: |
+                      ${{ runner.os }}-pnpm-cypress-
+
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
+
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
@@ -288,11 +319,12 @@ jobs:
                   $DOCKER_RUN ./bin/docker-server &> /tmp/logs/server.txt &
 
             - name: Cypress run
-              uses: cypress-io/github-action@v2
+              uses: cypress-io/github-action@v5
               with:
                   config-file: cypress.e2e.config.ts
                   config: retries=2
                   spec: ${{ matrix.specs }}
+                  install: false
 
             - name: Archive test screenshots
               uses: actions/upload-artifact@v3

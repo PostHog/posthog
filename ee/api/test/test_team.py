@@ -53,7 +53,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_create_demo_project(self, *args):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.post("/api/projects/", {"name": "Demo", "is_demo": True})
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         self.assertEqual(Team.objects.count(), 3)
         self.assertEqual(response.status_code, 201)
         response_data = response.json()
@@ -72,7 +72,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
     def test_create_two_demo_projects(self, *args):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        response = self.client.post("/api/projects/", {"name": "Demo", "is_demo": True})
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         self.assertEqual(Team.objects.count(), 3)
         self.assertEqual(response.status_code, 201)
         response_data = response.json()
@@ -84,7 +84,7 @@ class TestProjectEnterpriseAPI(APILicensedTest):
             },
             response_data,
         )
-        response_2 = self.client.post("/api/projects/", {"name": "Demo2", "is_demo": True})
+        response_2 = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         self.assertEqual(Team.objects.count(), 3)
         response_2_data = response_2.json()
         self.assertDictContainsSubset(

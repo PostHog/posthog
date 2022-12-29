@@ -1,6 +1,7 @@
 import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
 import { Producer } from 'kafkajs'
+import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { Pool } from 'pg'
 
 import {
@@ -15,7 +16,6 @@ import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
 import { insertRow } from '../tests/helpers/sql'
-// import { beforeAll, afterAll, test, expect } from 'vitest'
 
 export const capture = async (
     producer: Producer,
@@ -222,4 +222,30 @@ export const createUser = async (pgClient: Pool, teamId: number, email: string) 
 export const getPropertyDefinitions = async (pgClient: Pool, teamId: number) => {
     const { rows } = await pgClient.query(`SELECT * FROM posthog_propertydefinition WHERE team_id = $1`, [teamId])
     return rows
+}
+
+export const getMetric = async ({ name, type, labels }: Record<string, any>) => {
+    // Requests `/_metrics` and extracts the value of the first metric we find
+    // that matches name, type, and labels.
+    //
+    // Returns 0 if no metric is found.
+    const openMetrics = await (await fetch('http://localhost:6738/_metrics')).text()
+    return Number.parseFloat(
+        parsePrometheusTextFormat(openMetrics)
+            .filter((metric) => deepObjectContains(metric, { name, type }))[0]
+            ?.metrics.filter((values) => deepObjectContains(values, { labels }))[0]?.value ?? 0
+    )
+}
+
+const deepObjectContains = (obj: Record<string, any>, other: Record<string, any>): boolean => {
+    // Returns true if `obj` contains all the keys in `other` and their values
+    // are equal. If the values are objects, recursively checks if they contain
+    // the keys in `other`.
+
+    return Object.keys(other).every((key) => {
+        if (typeof other[key] === 'object') {
+            return deepObjectContains(obj[key], other[key])
+        }
+        return obj[key] === other[key]
+    })
 }

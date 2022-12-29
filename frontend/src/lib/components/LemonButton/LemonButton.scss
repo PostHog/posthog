@@ -94,6 +94,10 @@
         height: auto;
         width: auto;
         padding: 0;
+
+        &.LemonButton--full-width {
+            width: 100%;
+        }
     }
 
     .LemonButton__icon {
@@ -145,7 +149,7 @@
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt', 'orange') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 

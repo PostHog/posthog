@@ -1258,16 +1258,31 @@
         "DataTableNode": {
             "additionalProperties": false,
             "properties": {
+                "allowSorting": {
+                    "description": "Can the user click on column headers to sort the table? (default: true)",
+                    "type": "boolean"
+                },
                 "columns": {
-                    "description": "Columns shown in the table",
+                    "description": "Columns shown in the table, unless the `source` provides them.",
                     "items": {
-                        "$ref": "#/definitions/DataTableStringColumn"
+                        "$ref": "#/definitions/HogQLExpression"
                     },
                     "type": "array"
                 },
                 "expandable": {
                     "description": "Can expand row to show raw event data (default: true)",
                     "type": "boolean"
+                },
+                "full": {
+                    "description": "Show with most visual options enabled. Used in scenes.",
+                    "type": "boolean"
+                },
+                "hiddenColumns": {
+                    "description": "Columns that aren't shown in the table, even if in columns or returned data",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
                 },
                 "kind": {
                     "const": "DataTableNode",
@@ -1282,11 +1297,15 @@
                     "type": "boolean"
                 },
                 "showColumnConfigurator": {
-                    "description": "Show a button to configure the table's columns",
+                    "description": "Show a button to configure the table's columns if possible",
+                    "type": "boolean"
+                },
+                "showElapsedTime": {
+                    "description": "Show the time it takes to run a query",
                     "type": "boolean"
                 },
                 "showEventFilter": {
-                    "description": "Include an event filter above the table (default: true)",
+                    "description": "Include an event filter above the table (EventsNode only)",
                     "type": "boolean"
                 },
                 "showEventsBufferWarning": {
@@ -1298,23 +1317,34 @@
                     "type": "boolean"
                 },
                 "showPropertyFilter": {
-                    "description": "Include a property filter above the table (default: true)",
+                    "description": "Include a property filter above the table",
                     "type": "boolean"
                 },
                 "showReload": {
                     "description": "Show a reload button",
                     "type": "boolean"
                 },
+                "showSearch": {
+                    "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
                 "source": {
-                    "$ref": "#/definitions/EventsNode",
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/EventsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PersonsNode"
+                        }
+                    ],
                     "description": "Source of the events"
                 }
             },
             "required": ["kind", "source"],
             "type": "object"
-        },
-        "DataTableStringColumn": {
-            "type": "string"
         },
         "DateRange": {
             "additionalProperties": false,
@@ -1365,7 +1395,7 @@
                     "type": "string"
                 }
             },
-            "required": ["attributes", "href", "nth_child", "nth_of_type", "order", "tag_name"],
+            "required": ["attributes", "tag_name"],
             "type": "object"
         },
         "EntityType": {
@@ -1429,18 +1459,6 @@
         "EventsNode": {
             "additionalProperties": false,
             "properties": {
-                "actionId": {
-                    "description": "Show events matching a given action",
-                    "type": "number"
-                },
-                "after": {
-                    "description": "Only fetch events that happened after this timestamp",
-                    "type": "string"
-                },
-                "before": {
-                    "description": "Only fetch events that happened before this timestamp",
-                    "type": "string"
-                },
                 "custom_name": {
                     "type": "string"
                 },
@@ -1484,9 +1502,12 @@
                 "name": {
                     "type": "string"
                 },
-                "personId": {
-                    "description": "Show events for a given person",
-                    "type": "string"
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "properties": {
                     "description": "Properties configurable in the interface",
@@ -1497,7 +1518,7 @@
                 },
                 "response": {
                     "additionalProperties": false,
-                    "description": "Cached query response",
+                    "description": "Return a limited set of data",
                     "properties": {
                         "next": {
                             "type": "string"
@@ -1514,6 +1535,106 @@
                 }
             },
             "required": ["kind"],
+            "type": "object"
+        },
+        "EventsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "description": "Show events matching a given action",
+                    "type": "number"
+                },
+                "after": {
+                    "description": "Only fetch events that happened after this timestamp",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch events that happened before this timestamp",
+                    "type": "string"
+                },
+                "event": {
+                    "description": "Limit to events matching this string",
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EventsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "description": "Number of rows to return",
+                    "type": "number"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "personId": {
+                    "description": "Show events for a given person",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "additionalProperties": false,
+                    "description": "Cached query response",
+                    "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "results": {
+                            "items": {
+                                "items": {},
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["columns", "types", "results"],
+                    "type": "object"
+                },
+                "select": {
+                    "description": "Return a limited set of data. Required.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "where": {
+                    "description": "HogQL filters to apply on returned data",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "select"],
             "type": "object"
         },
         "FilterLogicalOperator": {
@@ -1716,9 +1837,51 @@
             "required": ["kind", "series"],
             "type": "object"
         },
+        "HogQLExpression": {
+            "type": "string"
+        },
+        "InsightQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/UnimplementedQuery"
+                }
+            ]
+        },
         "InsightType": {
             "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],
             "type": "string"
+        },
+        "InsightVizNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightVizNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
         },
         "IntervalType": {
             "enum": ["hour", "day", "week", "month"],
@@ -1749,6 +1912,10 @@
                     "description": "Exclude internal and test users by applying the respective filters",
                     "type": "boolean"
                 },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
                 "kind": {
                     "const": "LifecycleQuery",
                     "type": "string"
@@ -1759,6 +1926,13 @@
                     "properties": {
                         "shown_as": {
                             "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "toggledLifecycles": {
+                            "description": "Lifecycles that have been removed from display",
+                            "items": {
+                                "$ref": "#/definitions/LifecycleToggle"
+                            },
+                            "type": "array"
                         }
                     },
                     "type": "object"
@@ -1794,6 +1968,10 @@
             },
             "required": ["kind", "series"],
             "type": "object"
+        },
+        "LifecycleToggle": {
+            "enum": ["new", "resurrecting", "returning", "dormant"],
+            "type": "string"
         },
         "PathType": {
             "enum": ["$pageview", "$screen", "custom_event"],
@@ -1902,6 +2080,50 @@
             "required": ["kind"],
             "type": "object"
         },
+        "PersonsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "cohort": {
+                    "type": "number"
+                },
+                "distinctId": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "PersonsNode",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "number"
+                },
+                "offset": {
+                    "type": "number"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "search": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
         "PropertyFilterValue": {
             "anyOf": [
                 {
@@ -1995,10 +2217,19 @@
                     "$ref": "#/definitions/EventsNode"
                 },
                 {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
                     "$ref": "#/definitions/ActionsNode"
                 },
                 {
+                    "$ref": "#/definitions/PersonsNode"
+                },
+                {
                     "$ref": "#/definitions/DataTableNode"
+                },
+                {
+                    "$ref": "#/definitions/InsightVizNode"
                 },
                 {
                     "$ref": "#/definitions/LegacyQuery"
@@ -2281,6 +2512,40 @@
                 }
             },
             "required": ["kind", "series"],
+            "type": "object"
+        },
+        "UnimplementedQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "UnimplementedQuery",
+                    "description": "Used for insights that haven't been converted to the new query format yet",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                }
+            },
+            "required": ["kind"],
             "type": "object"
         }
     }

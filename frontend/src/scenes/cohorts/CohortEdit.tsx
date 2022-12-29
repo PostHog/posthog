@@ -12,7 +12,7 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortTypeEnum } from 'lib/constants'
+import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { AvailableFeature } from '~/types'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import Dragger from 'antd/lib/upload/Dragger'
@@ -25,6 +25,9 @@ import { Persons } from 'scenes/persons/Persons'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
 import { pluralize } from 'lib/utils'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
@@ -34,6 +37,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const { cohort, cohortLoading, cohortMissing } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -194,7 +199,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </>
                 )}
 
-                {!isNewCohort && (
+                {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
+                {typeof cohort.id === 'number' && (
                     <>
                         <Divider />
                         <div>
@@ -216,6 +222,18 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                     We're recalculating who belongs to this cohort. This could take up to a couple of
                                     minutes.
                                 </div>
+                            ) : featureDataExploration ? (
+                                <Query
+                                    query={{
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.PersonsNode,
+                                            cohort: cohort.id,
+                                        },
+                                        columns: undefined,
+                                        full: true,
+                                    }}
+                                />
                             ) : (
                                 <Persons cohort={cohort.id} />
                             )}

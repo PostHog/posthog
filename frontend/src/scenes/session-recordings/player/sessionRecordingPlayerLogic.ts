@@ -22,7 +22,6 @@ import {
     getSegmentFromPlayerPosition,
 } from './playerUtils'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { sharedListLogic } from 'scenes/session-recordings/player/list/sharedListLogic'
 import equal from 'fast-deep-equal'
 import { downloadFile, fromParamsGivenUrl } from 'lib/utils'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -42,6 +41,7 @@ export interface Player {
 export interface SessionRecordingPlayerLogicProps {
     sessionRecordingId: SessionRecordingId
     sessionRecordingData?: SessionPlayerData
+    playlistShortId?: string
     playerKey: string
     matching?: MatchedRecording[]
     recordingStartTime?: string
@@ -51,49 +51,38 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
     path((key) => ['scenes', 'session-recordings', 'player', 'sessionRecordingPlayerLogic', key]),
     props({} as SessionRecordingPlayerLogicProps),
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
-    connect(
-        ({
-            sessionRecordingId,
-            sessionRecordingData,
-            playerKey,
-            recordingStartTime,
-        }: SessionRecordingPlayerLogicProps) => ({
-            values: [
-                sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, sessionRecordingData }),
-                [
-                    'sessionRecordingId',
-                    'sessionPlayerData',
-                    'sessionPlayerSnapshotDataLoading',
-                    'sessionPlayerMetaDataLoading',
-                    'loadMetaTimeMs',
-                    'loadFirstSnapshotTimeMs',
-                    'loadAllSnapshotsTimeMs',
-                ],
-                sharedListLogic({ sessionRecordingId, playerKey }),
-                ['tab'],
-                playerSettingsLogic,
-                ['speed', 'skipInactivitySetting', 'isFullScreen'],
-                userLogic,
-                ['hasAvailableFeature'],
+    connect((props: SessionRecordingPlayerLogicProps) => ({
+        values: [
+            sessionRecordingDataLogic(props),
+            [
+                'sessionRecordingId',
+                'sessionPlayerData',
+                'sessionPlayerSnapshotDataLoading',
+                'sessionPlayerMetaDataLoading',
+                'loadMetaTimeMs',
+                'loadFirstSnapshotTimeMs',
+                'loadAllSnapshotsTimeMs',
             ],
-            actions: [
-                sessionRecordingDataLogic({ sessionRecordingId, recordingStartTime, sessionRecordingData }),
-                ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
-                sharedListLogic({ sessionRecordingId, playerKey }),
-                ['setTab'],
-                playerSettingsLogic,
-                ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
-                eventUsageLogic,
-                [
-                    'reportNextRecordingTriggered',
-                    'reportRecordingPlayerSkipInactivityToggled',
-                    'reportRecordingPlayerSpeedChanged',
-                    'reportRecordingViewedSummary',
-                    'reportRecordingExportedToFile',
-                ],
+            playerSettingsLogic,
+            ['speed', 'skipInactivitySetting', 'isFullScreen'],
+            userLogic,
+            ['hasAvailableFeature'],
+        ],
+        actions: [
+            sessionRecordingDataLogic(props),
+            ['loadRecordingSnapshotsSuccess', 'loadRecordingSnapshotsFailure', 'loadRecordingMetaSuccess'],
+            playerSettingsLogic,
+            ['setSpeed', 'setSkipInactivitySetting', 'setIsFullScreen'],
+            eventUsageLogic,
+            [
+                'reportNextRecordingTriggered',
+                'reportRecordingPlayerSkipInactivityToggled',
+                'reportRecordingPlayerSpeedChanged',
+                'reportRecordingViewedSummary',
+                'reportRecordingExportedToFile',
             ],
-        })
-    ),
+        ],
+    })),
     propsChanged(({ actions, props: { matching } }, { matching: oldMatching }) => {
         // Ensures that if filter results change, then matching results in this player logic will also change
         if (!equal(matching, oldMatching)) {
@@ -119,6 +108,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         seek: (playerPosition: PlayerPosition | null, forcePlay: boolean = false) => ({ playerPosition, forcePlay }),
         seekForward: (amount?: number) => ({ amount }),
         seekBackward: (amount?: number) => ({ amount }),
+        seekToTime: (timeInMilliseconds: number) => ({ timeInMilliseconds }),
         resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
@@ -501,28 +491,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             breakpoint()
         },
         seekForward: ({ amount = values.jumpTimeMs }) => {
-            if (!values.currentPlayerPosition) {
-                return
-            }
-            const currentPlayerTime = getPlayerTimeFromPlayerPosition(
-                values.currentPlayerPosition,
-                values.sessionPlayerData.metadata.segments
-            )
-            if (currentPlayerTime !== null) {
-                const nextPlayerTime = currentPlayerTime + amount
-                let nextPlayerPosition = getPlayerPositionFromPlayerTime(
-                    nextPlayerTime,
-                    values.sessionPlayerData.metadata.segments
-                )
-                if (!nextPlayerPosition) {
-                    // At the end of the recording. Pause the player and set to the end of the recording
-                    actions.setEndReached()
-                    nextPlayerPosition = values.sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition
-                }
-                actions.seek(nextPlayerPosition)
-            }
+            actions.seekToTime((values.currentPlayerTime || 0) + amount)
         },
         seekBackward: ({ amount = values.jumpTimeMs }) => {
+            actions.seekToTime((values.currentPlayerTime || 0) - amount)
+        },
+
+        seekToTime: ({ timeInMilliseconds }) => {
             if (!values.currentPlayerPosition) {
                 return
             }
@@ -533,13 +508,19 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 values.currentPlayerPosition,
                 values.sessionPlayerData.metadata.segments
             )
-            if (currentPlayerTime !== null) {
-                const nextPlayerTime = Math.max(currentPlayerTime - amount, 0)
-                const nextPlayerPosition = getPlayerPositionFromPlayerTime(
-                    nextPlayerTime,
-                    values.sessionPlayerData.metadata.segments
-                )
+            let nextPlayerPosition = getPlayerPositionFromPlayerTime(
+                Math.max(0, timeInMilliseconds),
+                values.sessionPlayerData.metadata.segments
+            )
 
+            if (!nextPlayerPosition) {
+                if ((currentPlayerTime || 0) < timeInMilliseconds) {
+                    actions.setEndReached()
+                    nextPlayerPosition = values.sessionPlayerData.metadata.segments.slice(-1)[0].endPlayerPosition
+                }
+            }
+
+            if (nextPlayerPosition) {
                 actions.seek(nextPlayerPosition)
             }
         },

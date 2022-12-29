@@ -328,4 +328,17 @@ describe('infiniteListLogic', () => {
                 })
         })
     })
+
+    it('searches autocapture elements using posthog property', async () => {
+        const logicWithProps = infiniteListLogic({
+            taxonomicFilterLogicKey: 'test-element-list',
+            listGroupType: TaxonomicFilterGroupType.Elements,
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.Elements],
+        })
+        logicWithProps.mount()
+
+        await expectLogic(logicWithProps, () => logicWithProps.actions.setSearchQuery('css')).toMatchValues({
+            localItems: { count: 1, results: [{ name: 'selector' }], searchQuery: 'css' },
+        })
+    })
 })

@@ -9,25 +9,41 @@ import {
     PathsQuery,
     StickinessQuery,
     LifecycleQuery,
+    UnimplementedQuery,
     Node,
     NodeKind,
     InsightQueryNode,
+    PersonsNode,
+    InsightVizNode,
+    EventsQuery,
 } from '~/queries/schema'
 
-export function isDataNode(node?: Node): node is EventsNode | ActionsNode {
-    return isEventsNode(node)
+export function isDataNode(node?: Node): node is EventsQuery | PersonsNode {
+    return isEventsQuery(node) || isPersonsNode(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
     return node?.kind === NodeKind.EventsNode
 }
 
+export function isEventsQuery(node?: Node): node is EventsQuery {
+    return node?.kind === NodeKind.EventsQuery
+}
+
 export function isActionsNode(node?: Node): node is ActionsNode {
     return node?.kind === NodeKind.ActionsNode
 }
 
+export function isPersonsNode(node?: Node): node is PersonsNode {
+    return node?.kind === NodeKind.PersonsNode
+}
+
 export function isDataTableNode(node?: Node): node is DataTableNode {
     return node?.kind === NodeKind.DataTableNode
+}
+
+export function isInsightVizNode(node?: Node): node is InsightVizNode {
+    return node?.kind === NodeKind.InsightVizNode
 }
 
 export function isLegacyQuery(node?: Node): node is LegacyQuery {
@@ -62,6 +78,10 @@ export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
+export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {
+    return node?.kind === NodeKind.UnimplementedQuery
+}
+
 export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
     return (
         isTrendsQuery(node) ||
@@ -69,6 +89,7 @@ export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
         isRetentionQuery(node) ||
         isPathsQuery(node) ||
         isStickinessQuery(node) ||
-        isLifecycleQuery(node)
+        isLifecycleQuery(node) ||
+        isUnimplementedQuery(node)
     )
 }

@@ -107,7 +107,7 @@ class SignupSerializer(serializers.Serializer):
         # In the demo env, social signups gets staff privileges
         # - grep SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS for more info
         is_staff = self.is_social_signup
-        matrix = HedgeboxMatrix(n_clusters=settings.DEMO_MATRIX_N_CLUSTERS)
+        matrix = HedgeboxMatrix()
         manager = MatrixManager(matrix, use_pre_save=True)
         with transaction.atomic():
             self._organization, self._team, self._user = manager.ensure_account_and_save(

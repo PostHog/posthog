@@ -52,7 +52,7 @@ def get_postgres_version() -> Version:
 
 
 def get_clickhouse_version() -> Version:
-    from posthog.client import default_client
+    from posthog.clickhouse.client.connection import default_client
 
     client = default_client()
     rows = client.execute("SELECT version()")

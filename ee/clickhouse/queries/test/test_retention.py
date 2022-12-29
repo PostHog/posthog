@@ -250,7 +250,7 @@ class TestClickhouseRetention(ClickhouseTestMixin, APIBaseTest):
     def test_groups_in_period_person_on_events(self):
         from posthog.models.team import util
 
-        util.can_enable_person_on_events = True
+        util.can_enable_actor_on_events = True
         self._create_groups_and_events()
 
         filter = RetentionFilter(

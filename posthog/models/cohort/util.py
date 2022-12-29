@@ -261,6 +261,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
     sync_execute(
         recalcluate_cohortpeople_sql,
         {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
+        settings={"optimize_on_insert": 0},
     )
 
     count = get_cohort_size(cohort.pk, cohort.team_id)
@@ -319,11 +320,25 @@ def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=F
             )
 
         elif property.type == "cohort":
+            # If entire cohort is negated, just return the negated cohort.
+            if is_negated:
+                return PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[Property(type="cohort", key="id", value=cohort.pk, negation=is_negated)],
+                )
             # :TRICKY: We need to ensure we don't have infinite loops in here
             # guaranteed during cohort creation
             return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
 
-    return cohort.properties
+    # We have person properties only
+    # TODO: Handle negating a complete property group
+    if is_negated:
+        return PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[Property(type="cohort", key="id", value=cohort.pk, negation=is_negated)],
+        )
+    else:
+        return cohort.properties
 
 
 def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> List[int]:

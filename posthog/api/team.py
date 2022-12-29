@@ -1,24 +1,19 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
-from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
-from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
-from sentry_sdk import capture_exception
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
-from posthog.demo.matrix.manager import MatrixManager
-from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Insight, Organization, Team, User
+from posthog.models import InsightCachingState, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -29,6 +24,7 @@ from posthog.permissions import (
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
+from posthog.tasks.demo_create_data import create_data_for_demo_team
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -38,31 +34,40 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
     def has_permission(self, request: request.Request, view) -> bool:
         user = cast(User, request.user)
-        if request.method in CREATE_METHODS and (
-            (user.organization is None)
-            or (
-                # if we're not requesting to make a demo project
-                # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
-                # and the org isn't allowed to make multiple projects
-                "is_demo" not in request.data
+        if request.method in CREATE_METHODS:
+
+            if user.organization is None:
+                return False
+
+            # if we're not requesting to make a demo project
+            # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
+            # and the org isn't allowed to make multiple projects
+            if (
+                ("is_demo" not in request.data or not request.data["is_demo"])
                 and user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
-            )
-            or (
-                # if we ARE requesting to make a demo project
-                # but the org already has a demo project
+            ):
+                return False
+
+            # if we ARE requesting to make a demo project
+            # but the org already has a demo project
+            if (
                 "is_demo" in request.data
                 and request.data["is_demo"]
                 and user.organization.teams.exclude(is_demo=False).count() > 0
-            )
-        ):
-            return False
-        return True
+            ):
+                return False
+
+            # in any other case, we're good to go
+            return True
+        else:
+            return True
 
 
 class TeamSerializer(serializers.ModelSerializer):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
+    groups_on_events_querying_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -89,12 +94,15 @@ class TeamSerializer(serializers.ModelSerializer):
             "correlation_config",
             "session_recording_opt_in",
             "capture_console_log_opt_in",
+            "capture_performance_opt_in",
             "effective_membership_level",
             "access_control",
             "has_group_types",
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
+            "person_on_events_querying_enabled",
+            "groups_on_events_querying_enabled",
         )
         read_only_fields = (
             "id",
@@ -106,6 +114,8 @@ class TeamSerializer(serializers.ModelSerializer):
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "person_on_events_querying_enabled",
+            "groups_on_events_querying_enabled",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -113,6 +123,9 @@ class TeamSerializer(serializers.ModelSerializer):
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
+
+    def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
+        return groups_on_events_querying_enabled()
 
     def validate(self, attrs: Any) -> Any:
         if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
@@ -135,34 +148,26 @@ class TeamSerializer(serializers.ModelSerializer):
         return super().validate(attrs)
 
     def create(self, validated_data: Dict[str, Any], **kwargs) -> Team:
-        try:
-            serializers.raise_errors_on_nested_writes("create", self, validated_data)
-            request = self.context["request"]
-            organization = self.context["view"].organization  # Use the org we used to validate permissions
-            with transaction.atomic():
-                team = Team.objects.create_with_data(**validated_data, organization=organization)
-                request.user.current_team = team
-                request.user.save()
-                if validated_data.get("is_demo", False):
-                    MatrixManager(HedgeboxMatrix(), use_pre_save=True).run_on_team(team, request.user)
-        except Exception as e:  # TODO: Remove this after 2022-12-07, the except is just temporary for debugging
-            capture_exception()
-            raise e
+        serializers.raise_errors_on_nested_writes("create", self, validated_data)
+        request = self.context["request"]
+        organization = self.context["view"].organization  # Use the org we used to validate permissions
+        if validated_data.get("is_demo", False):
+            team = Team.objects.create(**validated_data, organization=organization)
+            create_data_for_demo_team.delay(team.pk, request.user.pk)
+        else:
+            team = Team.objects.create_with_data(**validated_data, organization=organization)
+        request.user.current_team = team
+        request.user.save()
         return team
 
-    def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
-        hashes = (
-            Insight.objects.filter(team=team, last_refresh__gt=now() - relativedelta(days=7))
-            .exclude(filters_hash=None)
-            .values_list("filters_hash", flat=True)
-        )
+    def _handle_timezone_update(self, team: Team) -> None:
+        # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
+        hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
-
-        return
 
     def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance, validated_data["timezone"])
+            self._handle_timezone_update(instance)
 
         return super().update(instance, validated_data)
 

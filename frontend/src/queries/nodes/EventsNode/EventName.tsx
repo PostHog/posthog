@@ -1,9 +1,9 @@
-import { EventsNode } from '~/queries/schema'
+import { EventsNode, EventsQuery } from '~/queries/schema'
 import { LemonEventName } from 'scenes/actions/EventName'
 
 interface EventNameProps {
-    query: EventsNode
-    setQuery?: (node: EventsNode) => void
+    query: EventsNode | EventsQuery
+    setQuery?: (query: EventsNode | EventsQuery) => void
 }
 
 export function EventName({ query, setQuery }: EventNameProps): JSX.Element {

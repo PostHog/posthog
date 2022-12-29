@@ -39,7 +39,9 @@ export function NotificationBell(): JSX.Element {
                     </p>
                     <LemonDivider />
                     {hasImportantChanges ? (
-                        importantChanges.map((logItem, index) => <ActivityLogRow logItem={logItem} key={index} />)
+                        importantChanges.map((logItem, index) => (
+                            <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
+                        ))
                     ) : (
                         <h5>You're all caught up</h5>
                     )}

@@ -30,9 +30,8 @@ RUN apt-get update \
     "postgresql-client=13+*" \
     && rm -rf /var/lib/apt/lists/*
 
-# Install node
-# [Choice] Node.js version: none, lts/*, 16, 14, 12, 10
-ARG NODE_VERSION="16"
+# Install node via NVM (https://github.com/nvm-sh/nvm)
+ARG NODE_VERSION="18"
 RUN if [ "${NODE_VERSION}" != "none" ]; then su vscode -c "umask 0002 && . /usr/local/share/nvm/nvm.sh && nvm install ${NODE_VERSION} 2>&1"; fi
 
 WORKDIR /workspace
@@ -49,4 +48,3 @@ WORKDIR /workspace
 COPY requirements.txt requirements-dev.txt ./
 RUN pip install -r requirements-dev.txt --compile --no-cache-dir && \
     pip install -r requirements.txt --compile --no-cache-dir
-

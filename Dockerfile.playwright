@@ -6,8 +6,10 @@
 
 FROM mcr.microsoft.com/playwright:v1.28.0-focal
 
+RUN curl -f https://get.pnpm.io/v6.16.js | node - add --global pnpm
+
 WORKDIR /work
 
-RUN npm install -D @playwright/test
+RUN pnpm install -D @playwright/test
 
 COPY playwright.config.ts ./

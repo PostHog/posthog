@@ -36,8 +36,6 @@ import { SortableDragIcon } from 'lib/components/icons'
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
 import { useState } from 'react'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
 const DragHandle = sortableHandle(() => (
@@ -323,6 +321,7 @@ export function ActionFilterRow({
                                         mathGroupTypeIndex={mathGroupTypeIndex}
                                         index={index}
                                         onMathSelect={onMathSelect}
+                                        disabled={readOnly}
                                         style={{ maxWidth: '100%', width: 'initial' }}
                                         mathAvailability={mathAvailability}
                                     />
@@ -410,6 +409,7 @@ interface MathSelectorProps {
     mathGroupTypeIndex?: number | null
     mathAvailability: MathAvailability
     index: number
+    disabled?: boolean
     onMathSelect: (index: number, value: any) => any
     style?: React.CSSProperties
 }
@@ -430,7 +430,6 @@ function useMathSelectorOptions({
 }: MathSelectorProps): LemonSelectOptions<string> {
     const { needsUpgradeForGroups, canStartUsingGroups, staticMathDefinitions, staticActorsOnlyMathDefinitions } =
         useValues(mathsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const [propertyMathTypeShown, setPropertyMathTypeShown] = useState<PropertyMathType>(
         isPropertyValueMath(math) ? math : PropertyMathType.Average
@@ -449,35 +448,33 @@ function useMathSelectorOptions({
     }))
 
     if (mathAvailability !== MathAvailability.ActorsOnly) {
-        if (featureFlags[FEATURE_FLAGS.EVENT_COUNT_PER_ACTOR]) {
-            options.splice(1, 0, {
-                value: countPerActorMathTypeShown,
-                label: (
-                    <div className="flex items-center gap-2">
-                        <span>Count per user</span>
-                        <LemonSelect
-                            value={countPerActorMathTypeShown}
-                            onSelect={(value) => {
-                                setCountPerActorMathTypeShown(value as CountPerActorMathType)
-                                onMathSelect(index, value)
-                            }}
-                            options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
-                                value: key,
-                                label: definition.shortName,
-                                tooltip: definition.description,
-                                'data-attr': `math-${key}-${index}`,
-                            }))}
-                            onClick={(e) => e.stopPropagation()}
-                            size="small"
-                            dropdownMatchSelectWidth={false}
-                            optionTooltipPlacement="right"
-                        />
-                    </div>
-                ),
-                tooltip: 'Statistical analysis of event count per user.',
-                'data-attr': `math-node-count-per-actor-${index}`,
-            })
-        }
+        options.splice(1, 0, {
+            value: countPerActorMathTypeShown,
+            label: (
+                <div className="flex items-center gap-2">
+                    <span>Count per user</span>
+                    <LemonSelect
+                        value={countPerActorMathTypeShown}
+                        onSelect={(value) => {
+                            setCountPerActorMathTypeShown(value as CountPerActorMathType)
+                            onMathSelect(index, value)
+                        }}
+                        options={Object.entries(COUNT_PER_ACTOR_MATH_DEFINITIONS).map(([key, definition]) => ({
+                            value: key,
+                            label: definition.shortName,
+                            tooltip: definition.description,
+                            'data-attr': `math-${key}-${index}`,
+                        }))}
+                        onClick={(e) => e.stopPropagation()}
+                        size="small"
+                        dropdownMatchSelectWidth={false}
+                        optionTooltipPlacement="right"
+                    />
+                </div>
+            ),
+            tooltip: 'Statistical analysis of event count per user.',
+            'data-attr': `math-node-count-per-actor-${index}`,
+        })
         options.push({
             value: propertyMathTypeShown,
             label: (
@@ -519,7 +516,7 @@ function useMathSelectorOptions({
 
 function MathSelector(props: MathSelectorProps): JSX.Element {
     const options = useMathSelectorOptions(props)
-    const { math, mathGroupTypeIndex, index, onMathSelect } = props
+    const { math, mathGroupTypeIndex, index, onMathSelect, disabled } = props
 
     const mathType = apiValueToMathType(math, mathGroupTypeIndex)
 
@@ -529,6 +526,7 @@ function MathSelector(props: MathSelectorProps): JSX.Element {
             options={options}
             onChange={(value) => onMathSelect(index, value)}
             data-attr={`math-selector-${index}`}
+            disabled={disabled}
             optionTooltipPlacement="right"
             dropdownMatchSelectWidth={false}
             dropdownPlacement="bottom-start"

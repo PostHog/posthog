@@ -21,7 +21,7 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { PlayerMetaLinks } from './PlayerMetaLinks'
 
-export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const {
         sessionPerson,
         resolution,
@@ -31,7 +31,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
         recordingStartTime,
         sessionPlayerMetaDataLoading,
         windowIds,
-    } = useValues(playerMetaLogic({ sessionRecordingId, playerKey }))
+    } = useValues(playerMetaLogic(props))
 
     const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
     const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
@@ -73,7 +73,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                         <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xxl' : 'md'} />
                     )}
                 </div>
-                <div className="overflow-hidden ph-no-capture">
+                <div className="overflow-hidden ph-no-capture flex-1">
                     <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -144,11 +144,7 @@ export function PlayerMeta({ sessionRecordingId, playerKey }: SessionRecordingPl
                     tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
                 />
 
-                <div className="flex-1">
-                    {sessionRecordingId ? (
-                        <PlayerMetaLinks sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
-                    ) : null}
-                </div>
+                {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
             </div>
             {sessionPerson && (
                 <CSSTransition

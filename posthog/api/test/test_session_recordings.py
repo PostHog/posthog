@@ -8,7 +8,7 @@ from freezegun import freeze_time
 from rest_framework import status
 
 from posthog.api.session_recording import DEFAULT_RECORDING_CHUNK_LIMIT
-from posthog.models import Organization, Person, SessionRecordingPlaylist
+from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.session_recordings.test.test_factory import create_session_recording_events
@@ -32,9 +32,20 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         source=0,
         has_full_snapshot=True,
         type=2,
+        snapshot_data=None,
     ):
         if team_id is None:
             team_id = self.team.pk
+
+        snapshot = {
+            "timestamp": timestamp.timestamp() * 1000,
+            "has_full_snapshot": has_full_snapshot,
+            "type": type,
+            "data": {"source": source},
+        }
+
+        if snapshot_data:
+            snapshot.update(snapshot_data)
 
         create_session_recording_events(
             team_id=team_id,
@@ -42,14 +53,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             timestamp=timestamp,
             session_id=session_id,
             window_id=window_id,
-            snapshots=[
-                {
-                    "timestamp": timestamp.timestamp() * 1000,
-                    "has_full_snapshot": has_full_snapshot,
-                    "type": type,
-                    "data": {"source": source},
-                }
-            ],
+            snapshots=[snapshot],
         )
 
     def create_chunked_snapshots(
@@ -354,7 +358,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             )
             self.assertEqual(response_data["result"]["session_recording"]["viewed"], False)
             self.assertEqual(response_data["result"]["session_recording"]["session_id"], chunked_session_id)
-            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [])
 
     def test_single_session_recording_doesnt_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
@@ -384,36 +387,6 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         self.create_snapshot("user", "id_no_team_leaking", now() - relativedelta(days=1), team_id=another_team.pk)
         response = self.client.get(f"/api/projects/{another_team.pk}/session_recordings/id_no_team_leaking")
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-
-    def test_adding_and_removing_recording_from_static_playlists(self):
-        with freeze_time("2020-09-13T12:26:40.000Z"):
-            Person.objects.create(
-                team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
-            )
-            self.create_snapshot("user", "1", now() - relativedelta(days=1))
-            playlist1 = SessionRecordingPlaylist.objects.create(
-                team=self.team, name="playlist1", created_by=self.user, is_static=True
-            )
-            playlist2 = SessionRecordingPlaylist.objects.create(
-                team=self.team, name="playlist2", created_by=self.user, is_static=True
-            )
-
-            # Add to playlists 1 and 2
-            response_data = self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/1",
-                {"playlists": [playlist1.id, playlist2.id]},
-            ).json()
-            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [playlist1.id, playlist2.id])
-
-            playlist3 = SessionRecordingPlaylist.objects.create(
-                team=self.team, name="playlist3", created_by=self.user, is_static=True
-            )
-
-            # Remove from playlist 1 and add to playlist 3
-            response_data = self.client.patch(
-                f"/api/projects/{self.team.id}/session_recordings/1", {"playlists": [playlist2.id, playlist3.id]}
-            ).json()
-            self.assertEqual(response_data["result"]["session_recording"]["playlists"], [playlist2.id, playlist3.id])
 
     def test_static_recordings_filter(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -451,3 +424,38 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
             response_data = response.json()
 
             self.assertEqual(len(response_data["results"]), 0)
+
+    def test_regression_encoded_emojis_dont_crash(self):
+
+        Person.objects.create(
+            team=self.team, distinct_ids=["user"], properties={"$some_prop": "something", "email": "bob@bob.com"}
+        )
+        with freeze_time("2022-01-01T12:00:00.000Z"):
+
+            self.create_snapshot(
+                "user",
+                "1",
+                now() - relativedelta(days=1),
+                snapshot_data={"texts": ["\\ud83d\udc83\\ud83c\\udffb"]},  # This is an invalid encoded emoji
+            )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/1/snapshots")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+
+        assert response_data == {
+            "result": {
+                "next": None,
+                "snapshot_data_by_window_id": {
+                    "": [
+                        {
+                            "texts": ["\\ud83d\udc83\\ud83c\\udffb"],
+                            "timestamp": 1640952000000.0,
+                            "has_full_snapshot": True,
+                            "type": 2,
+                            "data": {"source": 0},
+                        }
+                    ]
+                },
+            }
+        }

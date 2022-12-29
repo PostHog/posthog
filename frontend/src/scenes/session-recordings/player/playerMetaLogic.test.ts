@@ -7,6 +7,7 @@ import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
 import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import { useMocks } from '~/mocks/jest'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const playerProps = { sessionRecordingId: '1', playerKey: 'playlist' }
 
@@ -22,6 +23,7 @@ describe('playerMetaLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
         logic = playerMetaLogic(playerProps)
         logic.mount()
     })

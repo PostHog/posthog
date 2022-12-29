@@ -290,6 +290,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 className="mb-4"
                 title="Or sign in with"
                 caption={`Remember to log in with ${invite?.target_email}`}
+                captionLocation="bottom"
                 topDivider
                 queryString={invite ? `?invite_id=${invite.id}` : ''}
             />

@@ -16,6 +16,18 @@ from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team
 
 from .auth import PersonalAPIKeyAuthentication
 
+ALWAYS_ALLOWED_ENDPOINTS = [
+    "decide",
+    "engage",
+    "track",
+    "capture",
+    "batch",
+    "e",
+    "s",
+    "static",
+    "_health",
+]
+
 
 class AllowIPMiddleware:
     trusted_proxies: List[str] = []
@@ -54,7 +66,7 @@ class AllowIPMiddleware:
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
-        if request.path.split("/")[1] in ["decide", "engage", "track", "capture", "batch", "e", "static", "_health"]:
+        if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return response
         ip = self.extract_client_ip(request)
         if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
@@ -170,6 +182,9 @@ class CHQueries:
             kind="request",
             id=request.path,
             route_id=route.route,
+            client_query_id=self._get_param(request, "client_query_id"),
+            session_id=self._get_param(request, "session_id"),
+            container_hostname=settings.CONTAINER_HOSTNAME,
         )
 
         if hasattr(user, "current_team_id") and user.current_team_id:
@@ -184,6 +199,13 @@ class CHQueries:
             return response
         finally:
             reset_query_tags()
+
+    def _get_param(self, request: HttpRequest, name: str):
+        if name in request.GET:
+            return request.GET[name]
+        if name in request.POST:
+            return request.POST[name]
+        return None
 
 
 def shortcircuitmiddleware(f):
@@ -202,6 +224,16 @@ class ShortCircuitMiddleware:
 
     def __call__(self, request: HttpRequest):
         if request.path == "/decide/" or request.path == "/decide":
-            return get_decide(request)
+            try:
+                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
+                tag_queries(
+                    kind="request",
+                    id=request.path,
+                    route_id=resolve(request.path).route,
+                    container_hostname=settings.CONTAINER_HOSTNAME,
+                )
+                return get_decide(request)
+            finally:
+                reset_query_tags()
         response: HttpResponse = self.get_response(request)
         return response

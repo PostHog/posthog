@@ -13,35 +13,31 @@ jobs:
         steps:
             - uses: actions/checkout@v3
 
-            - name: Set up Node 16
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
               uses: actions/setup-node@v3
               with:
-                  node-version: 16
+                  node-version: 18
+                  cache: pnpm
 
-            - uses: actions/cache@v3
-              id: node-modules-cache
-              with:
-                  path: |
-                      node_modules
-                  key: ${{ runner.os }}-node-modules-${{ hashFiles('**/yarn.lock') }}
-                  restore-keys: |
-                      ${{ runner.os }}-node-modules
-
-            - name: Install package.json dependencies with Yarn
-              if: steps.node-modules-cache.outputs.cache-hit != 'true'
-              run: yarn install --frozen-lockfile
+            - name: Install package.json dependencies with pnpm
+              run: pnpm install --frozen-lockfile
 
             - name: Build Storybook
-              run: yarn build-storybook --quiet
+              run: pnpm build-storybook --quiet
 
             - name: Install Playwright Browsers
-              run: npx playwright install --with-deps
+              run: pnpm exec playwright install --with-deps
 
             - name: Serve Storybook and run tests
               run: |
-                  npx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
-                    "npx http-server storybook-static --port 6006 --silent" \
-                    "npx wait-on tcp:6006 && npx playwright test"
+                  pnpm dlx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
+                    "pnpm dlx http-server storybook-static --port 6006" \
+                    "pnpm dlx wait-on http://127.0.0.1:6006 --timeout 60 && pnpm exec playwright test"
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3

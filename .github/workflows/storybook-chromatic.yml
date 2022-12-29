@@ -11,6 +11,17 @@ jobs:
               with:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
             # there's no need to run chromatic on every commit,
             # so we only run it if the frontend has changed
             - uses: dorny/paths-filter@v2
@@ -23,7 +34,7 @@ jobs:
 
             - name: Install dependencies and chromatic
               if: steps.changes.outputs.frontend == 'true'
-              run: yarn add --dev chromatic
+              run: pnpm i -D chromatic
 
             - name: Publish to Chromatic
               if: steps.changes.outputs.frontend == 'true'

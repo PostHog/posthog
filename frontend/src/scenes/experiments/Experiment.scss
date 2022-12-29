@@ -116,8 +116,7 @@
         .feature-flag-variant {
             display: flex;
             align-items: center;
-            height: 3.5rem;
-            padding: 0 0.5rem;
+            padding: 0.5rem 0.5rem;
             background: #ffffff;
             border-width: 1px;
             border-color: var(--border);
@@ -125,13 +124,8 @@
             border-left-style: solid;
             border-right-style: solid;
 
-            .ant-form-item-explain-error {
-                margin-top: 0.5rem;
-                color: var(--danger);
-            }
-
-            .ant-form-item-label {
-                padding: 0;
+            .extend-variant-fully {
+                flex: 1;
             }
         }
 

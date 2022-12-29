@@ -32,7 +32,7 @@ cd plugin-server
 
 if [[ -n $DEBUG ]]; then
   echo "🧐 Verifying installed packages..."
-  yarn --frozen-lockfile
+  pnpm i --frozen-lockfile
 fi
 
 if [ $? -ne 0 ]; then
@@ -40,7 +40,7 @@ if [ $? -ne 0 ]; then
   exit 1
 fi
 
-[[ -n $DEBUG ]] && cmd="yarn start:dev" || cmd="node dist/index.js"
+[[ -n $DEBUG ]] && cmd="pnpm start:dev" || cmd="node dist/index.js"
 
 if [[ -n $NO_RESTART_LOOP ]]; then
   echo "▶️ Starting plugin server..."

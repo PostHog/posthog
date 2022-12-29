@@ -1,9 +1,12 @@
+import json
 from uuid import UUID
 
 import structlog
 from django.core.management.base import BaseCommand
 
 from posthog.client import sync_execute
+from posthog.models.group.group import Group
+from posthog.models.group.util import raw_create_group_ch
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.person import Person
 from posthog.models.person.util import _delete_ch_distinct_id, create_person, create_person_distinct_id
@@ -22,6 +25,7 @@ class Command(BaseCommand):
         parser.add_argument("--team-id", default=None, type=int, help="Specify a team to fix data for.")
         parser.add_argument("--person", action="store_true", help="Sync persons")
         parser.add_argument("--person-distinct-id", action="store_true", help="Sync person distinct IDs")
+        parser.add_argument("--group", action="store_true", help="Sync groups")
         parser.add_argument(
             "--deletes", action="store_true", help="process deletes for data in ClickHouse but not Postgres"
         )
@@ -46,6 +50,9 @@ def run(options, sync: bool = False):  # sync used for unittests
 
     if options["person_distinct_id"]:
         run_distinct_id_sync(team_id, live_run, deletes, sync)
+
+    if options["group"]:
+        run_group_sync(team_id, live_run, sync)
 
 
 def run_person_sync(team_id: int, live_run: bool, deletes: bool, sync: bool):
@@ -139,9 +146,51 @@ def run_distinct_id_sync(team_id: int, live_run: bool, deletes: bool, sync: bool
             continue
 
     if deletes:
+        logger.info("Processing distinct id deletions")
         postgres_distinct_ids = {person_distinct_id.distinct_id for person_distinct_id in person_distinct_ids}
         for distinct_id, version in ch_distinct_id_to_version.items():
             if distinct_id not in postgres_distinct_ids:
                 logger.info(f"Deleting distinct ID {distinct_id}")
                 if live_run:
                     _delete_ch_distinct_id(team_id, UUID(int=0), distinct_id, version, sync=sync)
+
+
+def run_group_sync(team_id: int, live_run: bool, sync: bool):
+    logger.info("Running group table sync")
+    # lookup what needs to be updated in ClickHouse and send kafka messages for only those
+    pg_groups = Group.objects.filter(team_id=team_id).values(
+        "group_type_index", "group_key", "group_properties", "created_at"
+    )
+    # unfortunately we don't have version column for groups table
+    rows = sync_execute(
+        """
+            SELECT group_type_index, group_key, group_properties, created_at FROM groups WHERE team_id = %(team_id)s ORDER BY _timestamp DESC LIMIT 1 BY group_type_index, group_key
+        """,
+        {
+            "team_id": team_id,
+        },
+    )
+    ch_groups = {(row[0], row[1]): {"properties": row[2], "created_at": row[3]} for row in rows}
+
+    for pg_group in pg_groups:
+        ch_group = ch_groups.get((pg_group["group_type_index"], pg_group["group_key"]), None)
+        if ch_group is None or should_update_group(ch_group, pg_group):
+            logger.info(
+                f"Updating {pg_group['group_type_index']} - {pg_group['group_key']} with properties {pg_group['group_properties']} and created_at {pg_group['created_at']}"
+            )
+            if live_run:
+                # Update ClickHouse via Kafka message
+                raw_create_group_ch(
+                    team_id=team_id,
+                    group_type_index=pg_group["group_type_index"],  # type: ignore
+                    group_key=pg_group["group_key"],
+                    properties=pg_group["group_properties"],  # type: ignore
+                    created_at=pg_group["created_at"],
+                    sync=sync,
+                )
+
+
+def should_update_group(ch_group, pg_group) -> bool:
+    return json.dumps(pg_group["group_properties"]) != ch_group["properties"] or pg_group["created_at"].strftime(
+        "%Y-%m-%d %H:%M:%S"
+    ) != ch_group["created_at"].strftime("%Y-%m-%d %H:%M:%S")

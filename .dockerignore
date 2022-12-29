@@ -10,7 +10,7 @@
 !babel.config.js
 !posthog.json
 !package.json
-!yarn.lock
+!pnpm-lock.yaml
 !webpack.config.js
 !postcss.config.js
 !playwright.config.ts
@@ -24,7 +24,7 @@
 !ee
 !.devcontainer
 !plugin-server/package.json
-!plugin-server/yarn.lock
+!plugin-server/pnpm-lock.yaml
 !plugin-server/tsconfig.json
 !plugin-server/tsconfig.eslint.json
 !plugin-server/src

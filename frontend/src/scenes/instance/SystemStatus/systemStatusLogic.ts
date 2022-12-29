@@ -55,6 +55,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'SENTRY_ORGANIZATION',
 ]
 
+// Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!
 export const systemStatusLogic = kea<systemStatusLogicType>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
     actions: {

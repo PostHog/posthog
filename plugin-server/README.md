@@ -11,16 +11,16 @@ Let's get you developing the plugin server in no time:
 
 1. Have virtual environment from the main PostHog repo active.
 
-1. Install dependencies and prepare for takeoff by running command `yarn`.
+1. Install dependencies and prepare for takeoff by running command `pnpm i`.
 
 1. Start a development instance of [PostHog](/PostHog/posthog) - [instructions here](https://posthog.com/docs/developing-locally). After all, this is the _PostHog_ Plugin Server, and it works in conjuction with the main server.
 
 1. Make sure that the plugin server is configured correctly (see [Configuration](#Configuration)). The following settings need to be the same for the plugin server and the main server: `DATABASE_URL`, `REDIS_URL`, `KAFKA_HOSTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, and `CLICKHOUSE_PASSWORD`. Their default values should work just fine in local development though.
 
-1. Start the plugin server in autoreload mode with `yarn start:dev`, or in compiled mode with `yarn build && yarn start:dist`, and develop away!
+1. Start the plugin server in autoreload mode with `pnpm start:dev`, or in compiled mode with `pnpm build && pnpm start:dist`, and develop away!
 
-1. Prepare for running tests with `yarn setup:test`, which will run the
-   necessary migrations. Run the tests themselves with `yarn test:{1,2}`.
+1. Prepare for running tests with `pnpm setup:test`, which will run the
+   necessary migrations. Run the tests themselves with `pnpm test:{1,2}`.
 
 1. Prepare for running functional tests. See notes below.
 
@@ -46,9 +46,9 @@ See `bin/ci_functional_tests.sh` for how these tests are run in CI. For local
 testing:
 
 1. run docker `docker compose -f docker-compose.dev.yml up` (in posthog folder)
-1. setup the test DBs `yarn setup:test`
-1. start the plugin-server with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog yarn start:dev`
-1. run the tests with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog yarn functional_tests --watch`
+1. setup the test DBs `pnpm setup:test`
+1. start the plugin-server with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm start:dev`
+1. run the tests with `CLICKHOUSE_DATABASE='default' DATABASE_URL=postgres://posthog:posthog@localhost:5432/test_posthog pnpm functional_tests --watch`
 
 ## CLI flags
 
@@ -97,6 +97,7 @@ There's a multitude of settings you can use to control the plugin server. Use th
 | SCHEDULE_LOCK_TTL                      | how many seconds to hold the lock for the schedule                                                                                                                                                             | `60`                                  |
 | PLUGINS_RELOAD_PUBSUB_CHANNEL          | Redis channel for reload events                                                                                                                                                                                | `'reload-plugins'`                    |
 | CLICKHOUSE_HOST                        | ClickHouse host                                                                                                                                                                                                | `'localhost'`                         |
+| CLICKHOUSE_OFFLINE_CLUSTER_HOST        | ClickHouse host to use for offline workloads. Falls back to CLICKHOUSE_HOST                                                                                                                                    | `null`                                |
 | CLICKHOUSE_DATABASE                    | ClickHouse database                                                                                                                                                                                            | `'default'`                           |
 | CLICKHOUSE_USER                        | ClickHouse username                                                                                                                                                                                            | `'default'`                           |
 | CLICKHOUSE_PASSWORD                    | ClickHouse password                                                                                                                                                                                            | `null`                                |

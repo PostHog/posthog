@@ -3,7 +3,7 @@ import os
 import random
 import time
 from random import randrange
-from typing import Any, Dict, List, Optional
+from typing import Optional
 from uuid import UUID
 
 from celery import Celery
@@ -95,17 +95,24 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
     if is_cloud() or settings.DEMO:
-        # Reset master project data every day at 5 AM UTC
-        sender.add_periodic_task(crontab(hour=5, minute=0), demo_reset_master_team.s())
+        # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
+        # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
+        sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
     # Sync all Organization.available_features every hour
     sender.add_periodic_task(crontab(minute=30, hour="*"), sync_all_organization_available_features.s())
 
+    sync_insight_cache_states_schedule = get_crontab(settings.SYNC_INSIGHT_CACHE_STATES_SCHEDULE)
+    if sync_insight_cache_states_schedule:
+        sender.add_periodic_task(
+            sync_insight_cache_states_schedule, sync_insight_cache_states_task.s(), name="sync insight cache states"
+        )
+
     sender.add_periodic_task(
         settings.UPDATE_CACHED_DASHBOARD_ITEMS_INTERVAL_SECONDS,
-        check_cached_items.s(),
+        schedule_cache_updates_task.s(),
         name="check dashboard items",
     )
 
@@ -311,10 +318,7 @@ def pg_plugin_server_query_timing():
             pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "person_distinct_id2", "session_recording_events"]
-
-if settings.CLICKHOUSE_REPLICATION:
-    CLICKHOUSE_TABLES.extend(["sharded_events", "sharded_session_recording_events"])
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
 
 
 @app.task(ignore_result=True)
@@ -348,15 +352,28 @@ def ingestion_lag():
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
-    for event, metric in HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.items():
-        try:
-            query = """
-                SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
-                FROM events WHERE team_id IN %(team_ids)s AND _timestamp > yesterday() AND event = %(event)s;"""
-            lag = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})[0][0]
+    query = """
+    SELECT event, date_diff('second', max(timestamp), now())
+    FROM events
+    WHERE team_id IN %(team_ids)s
+        AND event IN %(events)s
+        AND timestamp > yesterday() AND timestamp < now() + toIntervalMinute(3)
+    GROUP BY event
+    """
+
+    try:
+        results = sync_execute(
+            query,
+            {
+                "team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS,
+                "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
+            },
+        )
+        for event, lag in results:
+            metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
             statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
-        except:
-            pass
+    except:
+        pass
 
 
 @app.task(ignore_result=True)
@@ -495,24 +512,6 @@ def calculate_cohort():
     from posthog.tasks.calculate_cohort import calculate_cohorts
 
     calculate_cohorts()
-
-
-@app.task(ignore_result=True)
-def check_cached_items():
-    from posthog.caching.update_cache import update_cached_items
-
-    update_cached_items()
-
-
-@app.task(ignore_result=False)
-def update_cache_item_task(key: str, cache_type, payload: dict) -> List[Dict[str, Any]]:
-    """
-    Tasks used in a group (as this is) must not ignore their results
-    https://docs.celeryq.dev/en/latest/userguide/canvas.html#groups:~:text=Similarly%20to%20chords%2C%20tasks%20used%20in%20a%20group%20must%20not%20ignore%20their%20results.
-    """
-    from posthog.caching.update_cache import update_cache_item
-
-    return update_cache_item(key, cache_type, payload)
 
 
 @app.task(ignore_result=True)

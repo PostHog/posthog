@@ -31,6 +31,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "https://app.posthog.com",
         ],
         "capture_console_log_opt_in": true,
+        "capture_performance_opt_in": true,
         "completed_snippet_onboarding": true,
         "correlation_config": {
           "excluded_event_names": [
@@ -52,6 +53,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "data-attr",
         ],
         "effective_membership_level": 8,
+        "groups_on_events_querying_enabled": true,
         "has_group_types": true,
         "id": 997,
         "ingested_event": true,
@@ -65,6 +67,7 @@ exports[`verifiedDomainsLogic values has proper defaults 1`] = `
           "name",
           "username",
         ],
+        "person_on_events_querying_enabled": true,
         "primary_dashboard": 1,
         "recording_domains": [
           "https://recordings.posthog.com/",
