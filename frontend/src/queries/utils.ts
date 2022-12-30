@@ -16,10 +16,12 @@ import {
     PersonsNode,
     InsightVizNode,
     EventsQuery,
+    TimeToSeeDataSessionsQuery,
+    TimeToSeeDataQuery,
 } from '~/queries/schema'
 
-export function isDataNode(node?: Node): node is EventsQuery | PersonsNode {
-    return isEventsQuery(node) || isPersonsNode(node)
+export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
+    return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node)
 }
 
 export function isEventsNode(node?: Node): node is EventsNode {
@@ -76,6 +78,14 @@ export function isStickinessQuery(node?: Node): node is StickinessQuery {
 
 export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
+}
+
+export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {
+    return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
+}
+
+export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
+    return node?.kind === NodeKind.TimeToSeeDataQuery
 }
 
 export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {

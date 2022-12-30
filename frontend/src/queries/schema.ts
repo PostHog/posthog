@@ -39,6 +39,11 @@ export enum NodeKind {
     PathsQuery = 'PathsQuery',
     StickinessQuery = 'StickinessQuery',
     LifecycleQuery = 'LifecycleQuery',
+
+    // Time to see data
+    TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
+    TimeToSeeDataQuery = 'TimeToSeeDataQuery',
+
     /** Used for insights that haven't been converted to the new query format yet */
     UnimplementedQuery = 'UnimplementedQuery',
 }
@@ -62,6 +67,9 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+    // Misc
+    | TimeToSeeDataSessionsQuery
 
 /** Node base class, everything else inherits from here */
 export interface Node {
@@ -267,6 +275,30 @@ export interface LifecycleQuery extends InsightsQueryBase {
 }
 export interface UnimplementedQuery extends InsightsQueryBase {
     kind: NodeKind.UnimplementedQuery
+}
+
+export interface TimeToSeeDataSessionsQuery extends DataNode {
+    kind: NodeKind.TimeToSeeDataSessionsQuery
+
+    /** Date range for the query */
+    dateRange?: DateRange
+
+    /** Project to filter on. Defaults to current project */
+    teamId?: number
+}
+
+export interface TimeToSeeDataQuery extends DataNode {
+    kind: NodeKind.TimeToSeeDataQuery
+
+    /** Project to filter on. Defaults to current project */
+    teamId?: number
+
+    /** Project to filter on. Defaults to current session */
+    sessionId?: string
+
+    /** Session start time. Defaults to current time - 2 hours */
+    sessionStart?: string
+    sessionEnd?: string
 }
 
 export type InsightQueryNode =

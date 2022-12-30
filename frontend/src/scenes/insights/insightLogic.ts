@@ -15,7 +15,7 @@ import {
     SetInsightOptions,
     TrendsFilterType,
 } from '~/types'
-import { captureTimeToSeeData } from 'lib/internalMetrics'
+import { captureTimeToSeeData, currentSessionId } from 'lib/internalMetrics'
 import { router } from 'kea-router'
 import api, { ApiMethodOptions, getJSONOrThrow } from 'lib/api'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -333,6 +333,7 @@ export const insightLogic = kea<insightLogicType>([
                                 ...filters,
                                 ...(refresh ? { refresh: true } : {}),
                                 client_query_id: queryId,
+                                session_id: currentSessionId(),
                             }
                             ;[fetchResponse, apiUrl] = await legacyInsightQuery({
                                 filters: params,
@@ -887,6 +888,7 @@ export const insightLogic = kea<insightLogicType>([
             await captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'insight',
+                primary_interaction_id: queryId,
                 query_id: queryId,
                 status: 'cancelled',
                 time_to_see_data_ms: Math.floor(duration),
@@ -919,6 +921,7 @@ export const insightLogic = kea<insightLogicType>([
                 captureTimeToSeeData(values.currentTeamId, {
                     type: 'insight_load',
                     context: 'insight',
+                    primary_interaction_id: queryId,
                     query_id: queryId,
                     status: exception ? 'failure' : 'success',
                     time_to_see_data_ms: Math.floor(duration),
@@ -927,6 +930,7 @@ export const insightLogic = kea<insightLogicType>([
                     api_response_bytes: response?.apiResponseBytes,
                     api_url: response?.apiUrl,
                     insight: values.activeView,
+                    is_primary_interaction: true,
                 })
                 if (values.maybeShowErrorMessage) {
                     posthog.capture('insight error message shown', { ...tags, duration })
