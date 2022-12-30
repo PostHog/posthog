@@ -1,7 +1,7 @@
 import json
 import urllib
 from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union, cast
 
 from dateutil import parser
 from django.db.models.query import Prefetch
@@ -77,11 +77,17 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 params["before"] = timestamp
                 # if the after and before params are mutually exclusive (we called next then previous then again next)
                 # we pop the existing parameter
-                if params.get("after") and parser.parse(params["after"]) >= last_event_timestamp:
+                if (
+                    params.get("after")
+                    and parser.parse(cast(str, params["after"])).astimezone() >= last_event_timestamp
+                ):
                     params.pop("after")
             else:
                 params["after"] = timestamp
-                if params.get("before") and parser.parse(params["before"]) <= last_event_timestamp:
+                if (
+                    params.get("before")
+                    and parser.parse(cast(str, params["before"])).astimezone() <= last_event_timestamp
+                ):
                     params.pop("before")
         elif direction == "previous":
             if reverse:
