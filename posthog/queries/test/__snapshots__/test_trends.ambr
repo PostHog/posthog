@@ -2508,7 +2508,7 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toStartOfWeek(toDateTime('2019-12-28 00:00:00', 'UTC'), 0)
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY $session_id)
+     GROUP BY sessions.$session_id)
   '
 ---
 # name: TestTrends.test_trends_with_session_property_single_aggregate_math.1
@@ -2531,7 +2531,7 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-     GROUP BY $session_id)
+     GROUP BY sessions.$session_id)
   '
 ---
 # name: TestTrends.test_trends_with_session_property_total_volume_math
