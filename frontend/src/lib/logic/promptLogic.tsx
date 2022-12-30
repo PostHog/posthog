@@ -1,6 +1,6 @@
 import ReactDOM from 'react-dom'
 import { kea, props, path, key, actions, events, listeners } from 'kea'
-import { Modal, ModalProps, Input, InputProps, Form, FormItemProps, Store } from 'antd'
+import { Modal, ModalProps, Input, InputProps, Form, FormItemProps } from 'antd'
 
 import type { promptLogicType } from './promptLogicType'
 
@@ -85,7 +85,7 @@ function Prompt({
     placeholder,
 }: PromptProps): JSX.Element {
     const [form] = Form.useForm()
-    const onFinish = (values: Store): void => {
+    const onFinish = (values: Record<string, any>): void => {
         close && close(values.field)
     }
 
