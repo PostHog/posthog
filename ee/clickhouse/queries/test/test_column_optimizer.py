@@ -163,9 +163,9 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
             {("$current_url", "event", None): 1, ("$browser", "person", None): 1},
         )
 
-        filter = RetentionFilter(data={"target_entity": {"id": action.id, "type": "actions"}})
+        retention_filter = RetentionFilter(data={"target_entity": {"id": action.id, "type": "actions"}})
         self.assertEqual(
-            EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter,
+            EnterpriseColumnOptimizer(retention_filter, self.team.id).properties_used_in_filter,
             {("$current_url", "event", None): 2, ("$browser", "person", None): 2},
         )
 
