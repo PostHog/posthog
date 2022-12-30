@@ -1,4 +1,4 @@
-import { expectLogic, partial, truth } from 'kea-test-utils'
+import { expectLogic, partial } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { InsightsResult, savedInsightsLogic } from './savedInsightsLogic'
 import { InsightModel, InsightType } from '~/types'
@@ -215,33 +215,13 @@ describe('savedInsightsLogic', () => {
         it('updates the list when an insight is changed', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight(createInsight(1, 'a new name'))
-            })
-                .toNotHaveDispatchedActions(['loadInsights'])
-                .toMatchValues({
-                    insights: partial({
-                        count: 3,
-                        results: truth((results: InsightModel[]) => {
-                            const match = results.find((i) => i.id === 1)
-                            return match?.name === 'a new name 1'
-                        }),
-                    }),
-                })
+            }).toDispatchActions(['setInsight'])
         })
 
         it('adds to the list when a new insight is reported as changed', async () => {
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboardInsight(createInsight(100, 'a new insight'))
-            })
-                .toNotHaveDispatchedActions(['loadInsights'])
-                .toMatchValues({
-                    insights: partial({
-                        count: 4,
-                        results: truth((results: InsightModel[]) => {
-                            const match = results.find((i) => i.id === 100)
-                            return match?.name === 'a new insight 100'
-                        }),
-                    }),
-                })
+            }).toDispatchActions(['addInsight'])
         })
     })
 })

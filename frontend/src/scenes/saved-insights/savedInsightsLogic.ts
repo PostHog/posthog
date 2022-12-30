@@ -124,8 +124,17 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 return { ...values.insights, results: updatedInsights }
             },
             setInsight: (insight: InsightModel) => {
-                const results = values.insights.results.map((i) => (i.short_id === insight.short_id ? insight : i))
-                return { ...values.insights, results }
+                return {
+                    ...values.insights,
+                    results: values.insights.results.map((i) => (i.short_id === insight.short_id ? insight : i)),
+                }
+            },
+            addInsight: (insight: InsightModel) => {
+                return {
+                    ...values.insights,
+                    count: values.insights.count + 1,
+                    results: [insight, ...values.insights.results],
+                }
             },
         },
     }),
@@ -264,22 +273,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
             const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
             if (matchingInsightIndex >= 0) {
-                // saved insights should only care about a subset of Insight fields
-                values.insights.results[matchingInsightIndex] = {
-                    ...values.insights.results[matchingInsightIndex],
-                    name: insight.name,
-                    filters: insight.filters,
-                    description: insight.description,
-                    tags: insight.tags,
-                    last_modified_at: insight.last_modified_at,
-                    favorited: insight.favorited,
-                }
+                actions.setInsight(insight)
             } else {
-                // possibly out of sync with table ordering
-                // but better for new item to be front and center
-                // than hidden at bottom of list
-                values.insights.results.unshift(insight)
-                values.insights.count += 1
+                actions.addInsight(insight)
             }
         },
         [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
