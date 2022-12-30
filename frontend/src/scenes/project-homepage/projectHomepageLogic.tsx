@@ -30,7 +30,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             {
                 loadRecentInsights: async () => {
                     const response = await api.get(
-                        `api/projects/${values.currentTeamId}/insights/?my_last_viewed=true&order=-my_last_viewed_at`
+                        `api/projects/${values.currentTeamId}/insights/?my_last_viewed=true&order=-my_last_viewed_at&basic=true`
                     )
                     return response.results
                 },
