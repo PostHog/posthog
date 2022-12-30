@@ -77,11 +77,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 params["before"] = timestamp
                 # we can only keep both after and before params if we're moving to next
                 # if we go back to previous, we don't have anymore information about initial time boundary
-                if (
-                    direction == "next"
-                    and params.get("after")
-                    and parser.parse(params["after"]) >= last_event_timestamp
-                ):
+                if params.get("after") and parser.parse(params["after"]) >= last_event_timestamp:
                     params.pop("after")
             else:
                 params["after"] = timestamp
