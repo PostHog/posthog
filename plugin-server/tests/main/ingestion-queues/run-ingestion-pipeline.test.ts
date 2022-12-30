@@ -76,6 +76,9 @@ describe('workerTasks.runEventPipeline()', () => {
             return Promise.reject(new KafkaJSError(errorMessage))
         })
 
+        // TODO: remove once event delays is rolled out. See
+        // https://github.com/PostHog/product-internal/pull/405/files for
+        // context.
         process.env.DELAY_ALL_EVENTS_FOR_TEAMS = '*'
 
         await expect(
