@@ -72,7 +72,7 @@ describe('workerTasks.runEventPipeline()', () => {
         const organizationId = await createOrganization(hub.postgres)
         const teamId = await createTeam(hub.postgres, organizationId)
 
-        jest.spyOn(hub.db.postgres, 'query').mockImplementationOnce(() => {
+        jest.spyOn(hub.db.kafkaProducer.producer, 'send').mockImplementationOnce(() => {
             return Promise.reject(new KafkaJSError(errorMessage))
         })
 
@@ -95,6 +95,8 @@ describe('workerTasks.runEventPipeline()', () => {
                     },
                 },
             })
-        ).rejects.toEqual(new DependencyUnavailableError(errorMessage, 'Kafka', new KafkaJSError(errorMessage)))
+        ).rejects.toEqual(
+            new DependencyUnavailableError('Kafka buffer topic is unavailable', 'Kafka', new KafkaJSError(errorMessage))
+        )
     })
 })
