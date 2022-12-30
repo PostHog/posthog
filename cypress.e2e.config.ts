@@ -30,6 +30,12 @@ export default defineConfig({
     viewportWidth: 1200,
     viewportHeight: 1080,
     trashAssetsBeforeRuns: true,
+    // Cypress tries to scroll elements to top of their container.
+    // Sometimes their container is "the page"
+    // this means they are behind the header when you try (and fail) to click them
+    // Instead try and scroll to the center, not the default of "top"
+    // https://docs.cypress.io/guides/references/configuration#Actionability
+    scrollBehavior: 'center',
     e2e: {
         // We've imported your old cypress plugins here.
         // You may want to clean this up later by importing these.
