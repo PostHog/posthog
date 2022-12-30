@@ -44,7 +44,7 @@ SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
     SELECT any(session_duration) as session_duration
     {event_query_base}
-    GROUP BY $session_id
+    GROUP BY sessions.$session_id
 )
 """
 

@@ -7,7 +7,7 @@ import { ActivityLogItem, humanize, HumanizedActivityLogItem } from 'lib/compone
 import type { notificationsLogicType } from './notificationsLogicType'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 
-const POLL_TIMEOUT = 10000
+const POLL_TIMEOUT = 45000
 const MARK_READ_TIMEOUT = 7500
 
 export const notificationsLogic = kea<notificationsLogicType>([
@@ -107,7 +107,11 @@ export const notificationsLogic = kea<notificationsLogicType>([
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
         hasImportantChanges: [(s) => [s.importantChanges], (importantChanges) => (importantChanges || []).length > 0],
     }),
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => actions.loadImportantChanges(null),
+        beforeUnmount: () => {
+            clearTimeout(values.pollTimeout)
+            clearTimeout(values.markReadTimeout)
+        },
     })),
 ])

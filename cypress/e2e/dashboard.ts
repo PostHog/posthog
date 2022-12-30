@@ -1,6 +1,6 @@
-import { randomString } from 'cypress/support/random'
 import { urls } from 'scenes/urls'
-import { insight, savedInsights, dashboards, dashboard, duplicateDashboardFromMenu } from 'cypress/productAnalytics'
+import { randomString } from '../support/random'
+import { insight, savedInsights, dashboards, dashboard, duplicateDashboardFromMenu } from '../productAnalytics'
 
 describe('Dashboard', () => {
     beforeEach(() => {
