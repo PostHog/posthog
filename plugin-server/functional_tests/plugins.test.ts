@@ -64,6 +64,7 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
                 event.properties.processed = 'hell yes'
                 event.properties.upperUuid = event.properties.uuid?.toUpperCase()
                 event.properties['$snapshot_data'] = 'no way'
+                event.properties.runCount = (event.properties.runCount || 0) + 1
                 return event
             }
     
@@ -90,15 +91,17 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
 
     await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-    const events = await waitForExpect(async () => {
+    await waitForExpect(async () => {
         const events = await fetchEvents(clickHouseClient, teamId)
         expect(events.length).toBe(1)
-        return events
+        expect(events[0].properties).toEqual(
+            expect.objectContaining({
+                processed: 'hell yes',
+                upperUuid: uuid.toUpperCase(),
+                runCount: 1,
+            })
+        )
     })
-
-    // processEvent ran and modified
-    expect(events[0].properties.processed).toEqual('hell yes')
-    expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
 
     // onEvent ran
     await waitForExpect(async () => {
@@ -108,6 +111,48 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
         const onEventEvent = onEvent[0].message[1]
         expect(onEventEvent.event).toEqual('custom event')
         expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
+    })
+})
+
+test.concurrent(`plugin method tests: can update person properties via processEvent`, async () => {
+    // Prior to introducing
+    // https://github.com/PostHog/product-internal/pull/405/files this was
+    // possible so I'm including a test here to explicitly check for it.
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'test plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
+            export async function processEvent(event) {
+                return {
+                    ...event,
+                    properties: {
+                        ...event.properties,
+                        $set: { 
+                            property: 'hell yes',
+                            distinct_id: event.distinct_id
+                        }
+                    }
+                }
+            }
+        `,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
+
+    await capture(producer, teamId, distinctId, uuid, 'custom event')
+
+    await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId, uuid)
+        expect(events.length).toBe(1)
+        expect(events[0]).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({ property: 'hell yes' }),
+            })
+        )
     })
 })
 
