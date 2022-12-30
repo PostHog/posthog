@@ -1647,15 +1647,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.client.post(f"/api/projects/{self.team.id}/insights/{insight.id}/viewed")
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         # No results if no insights have been viewed
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data["results"]), 1)
-        self.assertEqual(response_data["results"][0]["id"], insight.id)
+        assert [r["id"] for r in response_data] == [insight.id]
 
     def test_get_recently_viewed_insights_when_no_insights_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -1666,13 +1663,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             short_id="12345678",
         )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
         # No results if no insights have been viewed
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data["results"]), 0)
+        self.assertEqual(len(response_data), 0)
 
     def test_recently_viewed_insights_ordered_by_view_date(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -1691,29 +1686,21 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1.id}/viewed")
         self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2.id}/viewed")
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         # Insights are ordered by most recently viewed
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data["results"]), 2)
-        self.assertEqual(response_data["results"][0]["id"], insight_2.id)
-        self.assertEqual(response_data["results"][1]["id"], insight_1.id)
+        assert [r["id"] for r in response_data] == [insight_2.id, insight_1.id]
 
         self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1.id}/viewed")
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         # Order updates when an insight is viewed again
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data["results"]), 2)
-        self.assertEqual(response_data["results"][0]["id"], insight_1.id)
-        self.assertEqual(response_data["results"][1]["id"], insight_2.id)
+        assert [r["id"] for r in response_data] == [insight_1.id, insight_2.id]
 
     def test_another_user_viewing_an_insight_does_not_impact_the_list(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
@@ -1731,14 +1718,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             last_viewed_at=timezone.now(),
         )
 
-        response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/?my_last_viewed=true&order=-my_last_viewed_at"
-        )
+        response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         # Insights are ordered by most recently viewed
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(len(response_data["results"]), 0)
+        self.assertEqual(len(response_data), 0)
 
     def test_get_recent_insights_with_feature_flag(self) -> None:
         filter_dict = {

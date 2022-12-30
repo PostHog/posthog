@@ -1,9 +1,9 @@
 import json
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, cast
 
 import structlog
-from django.db.models import Count, OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import Count, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -11,7 +11,7 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
-from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -443,22 +443,26 @@ class InsightViewSet(
 
         order = self.request.GET.get("order", None)
         if order:
-            if order == "-my_last_viewed_at":
-                queryset = self._annotate_with_my_last_viewed_at(queryset).order_by("-my_last_viewed_at")
-            else:
-                queryset = queryset.order_by(order)
+            queryset = queryset.order_by(order)
         else:
             queryset = queryset.order_by("order")
 
         return queryset
 
-    def _annotate_with_my_last_viewed_at(self, queryset: QuerySet) -> QuerySet:
-        if self.request.user.is_authenticated:
-            insight_viewed = InsightViewed.objects.filter(
-                team=self.team, user=self.request.user, insight_id=OuterRef("id")
-            )
-            return queryset.annotate(my_last_viewed_at=Subquery(insight_viewed.values("last_viewed_at")[:1]))
-        raise exceptions.NotAuthenticated()
+    @action(methods=["GET"], detail=False)
+    def my_last_viewed(self, request: request.Request, *args, **kwargs) -> Response:
+        """
+        Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
+        """
+        recently_viewed = (
+            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
+            .select_related("insight")
+            .only("insight")
+            .order_by("-last_viewed_at")[:5]
+        )
+
+        response = InsightBasicSerializer([rv.insight for rv in recently_viewed], many=True)
+        return Response(data=response.data, status=status.HTTP_200_OK)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -470,10 +474,6 @@ class InsightViewSet(
                     queryset = queryset.filter(Q(saved=True) | Q(dashboards_count__gte=1))
                 else:
                     queryset = queryset.filter(Q(saved=False))
-
-            elif key == "my_last_viewed":
-                if str_to_bool(request.GET["my_last_viewed"]):
-                    queryset = self._annotate_with_my_last_viewed_at(queryset).filter(my_last_viewed_at__isnull=False)
             elif key == "feature_flag":
                 feature_flag = request.GET["feature_flag"]
                 queryset = queryset.filter(
