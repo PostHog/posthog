@@ -417,3 +417,42 @@ testIfDelayEnabled(`events reference same person_id if two people merged shortly
         expect(secondEvent.person_id).toEqual(initialEvent.person_id)
     }, 10000)
 })
+
+testIfDelayEnabled(`person properties are ordered even for identify events`, async () => {
+    // This test is specifically to validate that for the case where we set
+    // properties via a custom event, then via an identify event, the properties
+    // are ordered correctly. This is important because with the initial
+    // implementation of the delay for Person-on-Events we would treat identify
+    // events specially, and it would fail with that implementation.
+
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+    const personIdentifier = new UUIDT().toString()
+
+    const firstUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, firstUuid, 'custom event', {
+        distinct_id: distinctId,
+        $set: {
+            prop: 'value', // This value should be included in the $identify event.
+        },
+    })
+
+    const identifyUuid = new UUIDT().toString()
+    await capture(producer, teamId, personIdentifier, identifyUuid, '$identify', {
+        distinct_id: personIdentifier,
+        $anon_distinct_id: distinctId,
+    })
+
+    await waitForExpect(async () => {
+        const [identify] = await fetchEvents(clickHouseClient, teamId, identifyUuid)
+        const [customEvent] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        expect(identify).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'value',
+                }),
+            })
+        )
+        expect(identify.person_id).toEqual(customEvent.person_id)
+    })
+})
