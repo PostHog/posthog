@@ -1,6 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 
-const interceptPropertyDefinitions = () => {
+const interceptPropertyDefinitions = (): void => {
     cy.intercept('api/projects/@current/property_definitions/?limit=5000', {
         fixture: 'api/event/property_definitions',
     })
@@ -22,14 +22,14 @@ const interceptPropertyDefinitions = () => {
     })
 }
 
-const selectNewTimestampPropertyFilter = () => {
+const selectNewTimestampPropertyFilter = (): void => {
     cy.get('[data-attr=new-prop-filter-EventsTable]').click()
     cy.get('[data-attr=taxonomic-filter-searchfield]').type('$time')
     cy.get('.taxonomic-list-row').should('have.length', 1)
     cy.get('[data-attr=prop-filter-event_properties-0]').click({ force: true })
 }
 
-const selectOperator = (operator, openPopUp) => {
+const selectOperator = (operator: string, openPopUp: boolean): void => {
     if (openPopUp) {
         cy.get('[data-attr="property-filter-0"] .property-filter .property-filter-button-label').click()
     }
@@ -42,7 +42,7 @@ const selectOperator = (operator, openPopUp) => {
     cy.get('.operator-value-option').contains(operator).click()
 }
 
-const changeSecondPropertyFilterToDateAfter = () => {
+const changeSecondPropertyFilterToDateAfter = (): void => {
     selectOperator('> after', true)
 }
 
