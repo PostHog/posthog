@@ -28,8 +28,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         recentInsights: [
             [] as InsightModel[],
             {
-                loadRecentInsights: async (_, breakpoint) => {
-                    await breakpoint(100)
+                loadRecentInsights: async () => {
                     const response = await api.get(
                         `api/projects/${values.currentTeamId}/insights/?my_last_viewed=true&order=-my_last_viewed_at&basic=true`
                     )
@@ -49,7 +48,6 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
     })),
 
     afterMount(({ actions }) => {
-        actions.loadRecentInsights()
         actions.loadPersons()
     }),
 ])
