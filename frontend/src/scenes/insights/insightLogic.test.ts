@@ -802,7 +802,7 @@ describe('insightLogic', () => {
         }).toDispatchActions(['setFilters', 'saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
     })
 
-    test('saveInsight and updateInsight reload the saved insights list', async () => {
+    test('saveInsight and updateInsight update the saved insights list', async () => {
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: Insight42,
@@ -815,10 +815,10 @@ describe('insightLogic', () => {
         logic.mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.loadInsights])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
 
         logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.loadInsights])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.setInsight])
     })
 
     test('saveInsight updates dashboards', async () => {

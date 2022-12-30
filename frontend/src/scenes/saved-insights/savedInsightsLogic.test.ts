@@ -10,6 +10,7 @@ import api from 'lib/api'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
+import { dashboardsModel } from '~/models/dashboardsModel'
 
 jest.spyOn(api, 'create')
 
@@ -181,17 +182,33 @@ describe('savedInsightsLogic', () => {
         )
     })
 
-    it('loads insights when a dashboard is duplicated', async () => {
-        await expectLogic(logic, () => {
-            duplicateDashboardLogic.actions.submitDuplicateDashboardSuccess({
-                duplicateTiles: true,
-            } as DuplicateDashboardForm)
-        }).toDispatchActions(['loadInsights'])
-    })
+    describe('reacts to external updates', () => {
+        it('loads insights when a dashboard is duplicated', async () => {
+            await expectLogic(logic, () => {
+                duplicateDashboardLogic.actions.submitDuplicateDashboardSuccess({
+                    duplicateTiles: true,
+                } as DuplicateDashboardForm)
+            }).toDispatchActions(['loadInsights'])
+        })
 
-    it('loads insights when a dashboard is deleted', async () => {
-        await expectLogic(logic, () => {
-            deleteDashboardLogic.actions.submitDeleteDashboardSuccess({ deleteInsights: true } as DeleteDashboardForm)
-        }).toDispatchActions(['loadInsights'])
+        it('loads insights when a dashboard is deleted', async () => {
+            await expectLogic(logic, () => {
+                deleteDashboardLogic.actions.submitDeleteDashboardSuccess({
+                    deleteInsights: true,
+                } as DeleteDashboardForm)
+            }).toDispatchActions(['loadInsights'])
+        })
+
+        it('updates the list when an insight is changed', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight(createInsight(1, 'a new name'))
+            }).toDispatchActions(['setInsight'])
+        })
+
+        it('adds to the list when a new insight is reported as changed', async () => {
+            await expectLogic(logic, () => {
+                dashboardsModel.actions.updateDashboardInsight(createInsight(100, 'a new insight'))
+            }).toDispatchActions(['addInsight'])
+        })
     })
 })

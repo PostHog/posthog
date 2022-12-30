@@ -1,5 +1,7 @@
 import json
+import threading
 import types
+from contextlib import contextmanager
 from functools import lru_cache
 from time import perf_counter
 from typing import Any, Dict, List, Optional, Sequence, Union
@@ -19,6 +21,8 @@ from posthog.utils import generate_short_id, patchable
 InsertParams = Union[list, tuple, types.GeneratorType]
 NonInsertParams = Dict[str, Any]
 QueryArgs = Optional[Union[InsertParams, NonInsertParams]]
+
+thread_local_storage = threading.local()
 
 
 @lru_cache(maxsize=1)
@@ -89,6 +93,9 @@ def sync_execute(
             execution_time = perf_counter() - start_time
 
             statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
+
+            if query_counter := getattr(thread_local_storage, "query_counter", None):
+                query_counter.total_query_time += execution_time
 
             if app_settings.SHELL_PLUS_PRINT_SQL:
                 print("Execution time: %.6fs" % (execution_time,))  # noqa T201
@@ -220,3 +227,10 @@ def format_sql(rendered_sql, colorize=True):
             pass
 
     return formatted_sql
+
+
+@contextmanager
+def clickhouse_query_counter(query_counter):
+    thread_local_storage.query_counter = query_counter
+    yield
+    thread_local_storage.query_counter = None
