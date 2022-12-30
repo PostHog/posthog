@@ -454,14 +454,18 @@ class InsightViewSet(
         """
         Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
         """
-        recently_viewed = (
-            InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
-            .select_related("insight")
-            .only("insight")
-            .order_by("-last_viewed_at")[:5]
-        )
+        recently_viewed = [
+            rv.insight
+            for rv in (
+                InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
+                .select_related("insight")
+                .exclude(insight__deleted=True)
+                .only("insight")
+                .order_by("-last_viewed_at")[:5]
+            )
+        ]
 
-        response = InsightBasicSerializer([rv.insight for rv in recently_viewed], many=True)
+        response = InsightBasicSerializer(recently_viewed, many=True)
         return Response(data=response.data, status=status.HTTP_200_OK)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:

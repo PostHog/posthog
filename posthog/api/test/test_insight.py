@@ -1670,37 +1670,31 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         self.assertEqual(len(response_data), 0)
 
     def test_recently_viewed_insights_ordered_by_view_date(self) -> None:
-        filter_dict = {"events": [{"id": "$pageview"}]}
+        insight_1_id, _ = self.dashboard_api.create_insight({"short_id": "12345678"})
+        insight_2_id, _ = self.dashboard_api.create_insight({"short_id": "98765432"})
+        insight_3_id, _ = self.dashboard_api.create_insight({"short_id": "43219876"})
 
-        insight_1 = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
-            team=self.team,
-            short_id="12345678",
-        )
-        insight_2 = Insight.objects.create(
-            filters=Filter(data=filter_dict).to_dict(),
-            team=self.team,
-            short_id="98765432",
-        )
+        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
+        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2_id}/viewed")
+        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_3_id}/viewed")
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1.id}/viewed")
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_2.id}/viewed")
+        self.dashboard_api.soft_delete(insight_3_id, "insights")
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         # Insights are ordered by most recently viewed
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert [r["id"] for r in response_data] == [insight_2.id, insight_1.id]
+        assert [r["id"] for r in response_data] == [insight_2_id, insight_1_id]
 
-        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1.id}/viewed")
+        self.client.post(f"/api/projects/{self.team.id}/insights/{insight_1_id}/viewed")
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/my_last_viewed")
         response_data = response.json()
 
         # Order updates when an insight is viewed again
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        assert [r["id"] for r in response_data] == [insight_1.id, insight_2.id]
+        assert [r["id"] for r in response_data] == [insight_1_id, insight_2_id]
 
     def test_another_user_viewing_an_insight_does_not_impact_the_list(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
