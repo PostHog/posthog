@@ -131,7 +131,6 @@ test.concurrent(`plugin method tests: can update person properties via processEv
                         ...event.properties,
                         $set: { 
                             property: 'hell yes',
-                            distinct_id: event.distinct_id
                         }
                     }
                 }
