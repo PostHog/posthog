@@ -86,7 +86,7 @@ function Prompt({
 }: PromptProps): JSX.Element {
     const [form] = Form.useForm()
     const onFinish = (values: Record<string, any>): void => {
-        close && close(values.field)
+        close?.(values.field)
     }
 
     return (
