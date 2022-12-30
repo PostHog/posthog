@@ -107,9 +107,8 @@ test.concurrent(`event ingestion: can set and update group properties`, async ()
 test.concurrent(`event ingestion: can $set and update person properties`, async () => {
     const teamId = await createTeam(postgres, organizationId)
     const distinctId = new UUIDT().toString()
-    const personEventUuid = new UUIDT().toString()
 
-    await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), '$identify', {
         distinct_id: distinctId,
         $set: { prop: 'value' },
     })
@@ -120,15 +119,14 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
         const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
         expect(event).toEqual(
             expect.objectContaining({
-                person_properties: {
-                    $creator_event_uuid: personEventUuid,
+                person_properties: expect.objectContaining({
                     prop: 'value',
-                },
+                }),
             })
         )
     })
 
-    await capture(producer, teamId, distinctId, personEventUuid, '$identify', {
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), '$identify', {
         distinct_id: distinctId,
         $set: { prop: 'updated value' },
     })
@@ -139,10 +137,40 @@ test.concurrent(`event ingestion: can $set and update person properties`, async 
         const [event] = await fetchEvents(clickHouseClient, teamId, secondUuid)
         expect(event).toEqual(
             expect.objectContaining({
-                person_properties: {
-                    $creator_event_uuid: personEventUuid,
+                person_properties: expect.objectContaining({
                     prop: 'updated value',
-                },
+                }),
+            })
+        )
+    })
+})
+
+test.concurrent(`event ingestion: person properties are point in event time`, async () => {
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), '$identify', {
+        distinct_id: distinctId,
+        $set: { prop: 'value' },
+    })
+
+    const firstUuid = new UUIDT().toString()
+    await capture(producer, teamId, distinctId, firstUuid, 'custom event', {})
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), 'custom event', {
+        distinct_id: distinctId,
+        $set: {
+            prop: 'updated value', // This value should not be reflected in the first event
+            new_prop: 'new value', // This new value should be reflected in the first event
+        },
+    })
+
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        expect(event).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'value',
+                }),
             })
         )
     })
@@ -262,15 +290,40 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
     })
 })
 
-// We only want to run this test if we are running with the delay all events
+test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+    // NOTE: it may be another event other than the one we emit here that causes
+    // the gauge to increase, but pushing this event through should at least
+    // ensure that the gauge is updated.
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+
+    const metricBefore = await getMetric({
+        name: 'latest_processed_timestamp_ms',
+        type: 'GAUGE',
+        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+    })
+
+    await capture(producer, teamId, distinctId, new UUIDT().toString(), 'custom event', {})
+
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+        expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
+        expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
+    }, 10_000)
+})
+
+// We only want to run these test if we are running with the delay all events
 // feature enabled. See https://github.com/PostHog/product-internal/pull/405 for
 // details.
-;(process.env.DELAY_ALL_EVENTS_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip)(
+const testIfDelayEnabled = process.env.DELAY_ALL_EVENTS_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip
+testIfDelayEnabled(
     `anonymous event recieves same person_id if $identify happenes shortly after, and there's already an anonymous person`,
     async () => {
-        // NOTE: this test depends on there being a delay between the
-        // anonymouse event ingestion and the processing of this event.
-
         const teamId = await createTeam(postgres, organizationId)
         const initialDistinctId = new UUIDT().toString()
         const secondDistinctId = new UUIDT().toString()
@@ -327,29 +380,40 @@ test.concurrent(`event ingestion: events without a team_id get processed correct
     }
 )
 
-test.concurrent('consumer updates timestamp exported to prometheus', async () => {
-    // NOTE: it may be another event other than the one we emit here that causes
-    // the gauge to increase, but pushing this event through should at least
-    // ensure that the gauge is updated.
+testIfDelayEnabled(`events reference same person_id if two people merged shortly after`, async () => {
     const teamId = await createTeam(postgres, organizationId)
-    const distinctId = new UUIDT().toString()
+    const firstDistinctId = new UUIDT().toString()
+    const secondDistinctId = new UUIDT().toString()
+    const firstPersonIdentity = new UUIDT().toString()
+    const secondPersonIdentity = new UUIDT().toString()
 
-    const metricBefore = await getMetric({
-        name: 'latest_processed_timestamp_ms',
-        type: 'GAUGE',
-        labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
+    const initialEventId = new UUIDT().toString()
+    await capture(producer, teamId, firstDistinctId, initialEventId, 'custom event')
+
+    const secondEventId = new UUIDT().toString()
+    await capture(producer, teamId, secondDistinctId, secondEventId, 'custom event')
+
+    // First create two people with nothing in common
+    await capture(producer, teamId, firstPersonIdentity, new UUIDT().toString(), '$identify', {
+        $anon_distinct_id: firstDistinctId,
+        distinct_id: firstPersonIdentity,
     })
 
-    await capture(producer, teamId, distinctId, new UUIDT().toString(), 'custom event', {})
+    await capture(producer, teamId, secondPersonIdentity, new UUIDT().toString(), '$identify', {
+        $anon_distinct_id: secondDistinctId,
+        distinct_id: firstPersonIdentity,
+    })
+
+    // Then merge them together immediately such that this event is within the
+    // delay window.
+    await capture(producer, teamId, firstPersonIdentity, new UUIDT().toString(), '$create_alias', {
+        alias: secondPersonIdentity,
+    })
 
     await waitForExpect(async () => {
-        const metricAfter = await getMetric({
-            name: 'latest_processed_timestamp_ms',
-            type: 'GAUGE',
-            labels: { topic: 'events_plugin_ingestion', partition: '0', groupId: 'ingestion' },
-        })
-        expect(metricAfter).toBeGreaterThan(metricBefore)
-        expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
-        expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
-    }, 10_000)
+        const [secondEvent] = await fetchEvents(clickHouseClient, teamId, secondEventId)
+        const [initialEvent] = await fetchEvents(clickHouseClient, teamId, initialEventId)
+        expect(secondEvent?.person_id).toBeDefined()
+        expect(secondEvent.person_id).toEqual(initialEvent.person_id)
+    }, 10000)
 })
