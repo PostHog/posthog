@@ -20,6 +20,7 @@ import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { RateLimiter } from '../../utils/rate-limiter'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
@@ -34,6 +35,7 @@ export class EventsProcessor {
     clickhouse: ClickHouse
     kafkaProducer: KafkaProducerWrapper
     teamManager: TeamManager
+    rateLimiter: RateLimiter
     groupTypeManager: GroupTypeManager
 
     constructor(pluginsServer: Hub) {
@@ -42,6 +44,7 @@ export class EventsProcessor {
         this.clickhouse = pluginsServer.clickhouse
         this.kafkaProducer = pluginsServer.kafkaProducer
         this.teamManager = pluginsServer.teamManager
+        this.rateLimiter = pluginsServer.rateLimiter
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
     }
 
@@ -73,9 +76,17 @@ export class EventsProcessor {
             if (!team) {
                 throw new Error(`No team found with ID ${teamId}. Can't ingest event.`)
             }
-
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
+                    if (await this.rateLimiter.checkLimited('recordings', team.organization_id)) {
+                        this.pluginsServer.statsd?.increment('kafka_queue.single_save.snapshot.rate_limited', {
+                            team_id: teamId.toString(),
+                            resource: 'recordings',
+                        })
+
+                        // LATER: Uncomment below and we will actually start dropping events
+                        // return null
+                    }
                     const timeout2 = timeoutGuard(
                         'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
                         { eventUuid }
@@ -98,6 +109,15 @@ export class EventsProcessor {
                     }
                 }
             } else {
+                if (await this.rateLimiter.checkLimited('events', team.organization_id)) {
+                    this.pluginsServer.statsd?.increment('kafka_queue.single_save.snapshot.rate_limited', {
+                        team_id: teamId.toString(),
+                        resource: 'events',
+                    })
+
+                    // LATER: Uncomment below and we will actually start dropping events
+                    // return null
+                }
                 const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
                     result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
