@@ -1,14 +1,16 @@
 import json
 import urllib
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Literal, Optional, Union
 
+from dateutil import parser
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
+from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.settings import api_settings
 from rest_framework_csv import renderers as csvrenderers
@@ -52,6 +54,7 @@ class ElementSerializer(serializers.ModelSerializer):
 class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.ListModelMixin, viewsets.GenericViewSet):
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     serializer_class = ClickhouseEventSerializer
+    pagination_class = LimitOffsetPagination
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
 
@@ -59,14 +62,39 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
     CSV_EXPORT_DEFAULT_LIMIT = 3_500
     CSV_EXPORT_MAXIMUM_LIMIT = 100_000
 
-    def _build_next_url(self, request: request.Request, last_event_timestamp: datetime, order_by: List[str]) -> str:
+    def _build_pagination_url(
+        self,
+        request: request.Request,
+        direction: Literal["next", "previous"],
+        last_event_timestamp: datetime,
+        order_by: List[str],
+    ) -> str:
         params = request.GET.dict()
         reverse = "-timestamp" in order_by
         timestamp = last_event_timestamp.astimezone().isoformat()
-        if reverse:
-            params["before"] = timestamp
-        else:
-            params["after"] = timestamp
+        if direction == "next":
+            if reverse:
+                params["before"] = timestamp
+                # we can only keep both after and before params if we're moving to next
+                # if we go back to previous, we don't have anymore information about initial time boundary
+                if (
+                    direction == "next"
+                    and params.get("after")
+                    and parser.parse(params["after"]) >= last_event_timestamp
+                ):
+                    params.pop("after")
+            else:
+                params["after"] = timestamp
+                if params.get("before") and parser.parse(params["before"]) <= last_event_timestamp:
+                    params.pop("before")
+        elif direction == "previous":
+            if reverse:
+                params["after"] = timestamp
+                params.pop("before", None)
+            else:
+                params["before"] = timestamp
+                params.pop("after", None)
+
         return request.build_absolute_uri(f"{request.path}?{urllib.parse.urlencode(params)}")
 
     @extend_schema(
@@ -96,7 +124,6 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             OpenApiParameter(
                 "after", OpenApiTypes.DATETIME, description="Only return events with a timestamp after this time."
             ),
-            OpenApiParameter("limit", OpenApiTypes.INT, description="The maximum number of results to return"),
             PropertiesSerializer(required=False),
         ]
     )
@@ -159,12 +186,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             # Result with selected columns
             if isinstance(query_result, EventsQueryResponse):
                 return response.Response(
-                    {
-                        "columns": select,
-                        "types": query_result.types,
-                        "results": query_result.results,
-                        "hasMore": query_result.has_more,
-                    },
+                    {"columns": select, "types": query_result.types, "results": query_result.results}
                 )
 
             result = ClickhouseEventSerializer(
@@ -172,9 +194,27 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             ).data
 
             next_url: Optional[str] = None
-            if not is_csv_request and len(query_result) > limit:
-                next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
-            return response.Response({"next": next_url, "results": result})
+            previous_url: Optional[str] = None
+            is_request_paginated = request.GET.get("after") or request.GET.get("before")
+            if not is_csv_request and len(query_result) > 0:
+                if len(query_result) > limit:
+                    next_url = self._build_pagination_url(
+                        request, "next", query_result[limit - 1]["timestamp"], order_by
+                    )
+
+                if is_request_paginated:
+                    previous_url = self._build_pagination_url(
+                        request, "previous", query_result[0]["timestamp"], order_by
+                    )
+
+            return response.Response(
+                {
+                    "next": next_url,
+                    "previous": previous_url,
+                    "results": result,
+                    "count": len(result),
+                }
+            )
 
         except Exception as ex:
             capture_exception(ex)

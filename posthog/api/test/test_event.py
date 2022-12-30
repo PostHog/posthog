@@ -297,6 +297,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=",
                 unquote(response["next"]),
             )
+            self.assertEqual(response["previous"], None)
 
             page2 = self.client.get(response["next"]).json()
 
@@ -314,10 +315,18 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 unquote(page2["next"]),
                 f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&before=2020-12-30T12:03:53.829294+00:00",
             )
+            self.assertEqual(
+                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&after=2021-04-08T12:05:32.829294+00:00",
+                unquote(page2["previous"]),
+            )
 
             page3 = self.client.get(page2["next"]).json()
             self.assertEqual(len(page3["results"]), 50)
             self.assertIsNone(page3["next"])
+            self.assertEqual(
+                f"http://testserver/api/projects/{self.team.id}/events/?distinct_id=1&after=2020-12-29T12:03:52.829294+00:00",
+                unquote(page3["previous"]),
+            )
 
     def test_pagination_bounded_date_range(self):
         with freeze_time("2021-10-10T12:03:03.829294Z"):
@@ -365,6 +374,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             page3 = self.client.get(page2["next"]).json()
             self.assertEqual(len(page3["results"]), 3)
             self.assertIsNone(page3["next"])
+            self.assertIsNotNone(page3["previous"])
 
     def test_ascending_order_timestamp(self):
         for idx in range(20):
