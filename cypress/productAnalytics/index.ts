@@ -1,15 +1,15 @@
 import { urls } from 'scenes/urls'
 
 export const savedInsights = {
-    checkInsightIsInListView: (insightName) => {
+    checkInsightIsInListView: (insightName: string): void => {
         cy.visit(urls.savedInsights())
         cy.contains('.saved-insights table tr', insightName).should('exist')
     },
-    checkInsightIsNotInListView: (insightName) => {
+    checkInsightIsNotInListView: (insightName: string): void => {
         cy.visit(urls.savedInsights())
         cy.contains('.saved-insights table tr', insightName).should('not.exist')
     },
-    createNewInsightOfType: (insightType) => {
+    createNewInsightOfType: (insightType: string): void => {
         cy.visit('/saved_insights/') // Should work with trailing slash just like without it
         cy.get('[data-attr=saved-insights-new-insight-dropdown]').click()
         cy.get(`[data-attr-insight-type="${insightType || 'TRENDS'}"`).click()
@@ -17,7 +17,7 @@ export const savedInsights = {
 }
 
 export const insight = {
-    applyFilter: () => {
+    applyFilter: (): void => {
         cy.get('[data-attr=insight-filters-add-filter-group]').click()
         cy.get('[data-attr=property-select-toggle-0]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click()
@@ -25,19 +25,19 @@ export const insight = {
         cy.get('[data-attr=prop-val]').click()
         cy.get('[data-attr=prop-val-0]').click({ force: true })
     },
-    editName: (insightName) => {
+    editName: (insightName: string): void => {
         if (insightName) {
             cy.get('[data-attr="insight-name"] [data-attr="edit-prop-name"]').click()
             cy.get('[data-attr="insight-name"] input').type(insightName)
             cy.get('[data-attr="insight-name"] [title="Save"]').click()
         }
     },
-    save: () => {
+    save: (): void => {
         cy.get('[data-attr="insight-save-button"]').click()
         // wait for save to complete and URL to change and include short id
         cy.url().should('not.include', '/new')
     },
-    addInsightToDashboard: (dashboardName) => {
+    addInsightToDashboard: (dashboardName: string): void => {
         cy.intercept('POST', /api\/projects\/\d+\/dashboard_tiles\//).as('postTile')
 
         cy.get('[data-attr="save-to-dashboard-button"]').click()
@@ -53,7 +53,7 @@ export const insight = {
 }
 
 export const dashboards = {
-    createDashboardFromDefaultTemplate: (dashboardName) => {
+    createDashboardFromDefaultTemplate: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
         cy.get('[data-attr=copy-from-template]').click()
@@ -63,12 +63,12 @@ export const dashboards = {
 
         cy.contains(dashboardName).should('exist')
     },
-    createAndGoToEmptyDashboard: (dashboardName) => {
+    createAndGoToEmptyDashboard: (dashboardName: string): void => {
         cy.get('[data-attr="new-dashboard"]').click()
         cy.get('[data-attr=dashboard-name-input]').clear().type(dashboardName)
         cy.get('button[data-attr="dashboard-submit-and-go"]').click()
     },
-    visitDashboard: (dashboardName) => {
+    visitDashboard: (dashboardName: string): void => {
         cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
 
         cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
@@ -78,7 +78,7 @@ export const dashboards = {
 }
 
 export const dashboard = {
-    addInsightToEmptyDashboard: (insightName) => {
+    addInsightToEmptyDashboard: (insightName: string): void => {
         cy.intercept('POST', /api\/projects\/\d+\/insights\//).as('postInsight')
         cy.intercept('POST', /api\/projects\/\d+\/dashboard_tiles\//).as('postTile')
 
@@ -98,14 +98,14 @@ export const dashboard = {
     },
 }
 
-export function createInsight(insightName) {
+export function createInsight(insightName: string): void {
     savedInsights.createNewInsightOfType('TRENDS')
     insight.applyFilter()
     insight.editName(insightName)
     insight.save()
 }
 
-export function duplicateDashboardFromMenu(duplicateTiles) {
+export function duplicateDashboardFromMenu(duplicateTiles = false): void {
     cy.contains('.LemonButton', 'Duplicate').click()
     if (duplicateTiles) {
         cy.contains('.LemonCheckbox', "Duplicate this dashboard's tiles").click()

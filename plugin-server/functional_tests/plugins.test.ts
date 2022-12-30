@@ -6,7 +6,6 @@ import { Pool } from 'pg'
 import { defaultConfig } from '../src/config/config'
 import { ONE_HOUR } from '../src/config/constants'
 import { UUIDT } from '../src/utils/utils'
-import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
 import {
     capture,
     createAndReloadPluginConfig,
@@ -16,6 +15,7 @@ import {
     fetchEvents,
     fetchPluginLogEntries,
 } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -90,30 +90,25 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
 
     await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-    await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
-    const events = await fetchEvents(clickHouseClient, teamId)
-    expect(events.length).toBe(1)
+    const events = await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(1)
+        return events
+    })
 
     // processEvent ran and modified
     expect(events[0].properties.processed).toEqual('hell yes')
     expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
 
     // onEvent ran
-    const onEvent = await delayUntilEventIngested(
-        async () =>
-            (
-                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-            ).filter(({ message: [method] }) => method === 'onEvent'),
-        1,
-        500,
-        40
-    )
-
-    expect(onEvent.length).toBeGreaterThan(0)
-
-    const onEventEvent = onEvent[0].message[1]
-    expect(onEventEvent.event).toEqual('custom event')
-    expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
+    await waitForExpect(async () => {
+        const logEntries = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+        const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
+        expect(onEvent.length).toBeGreaterThan(0)
+        const onEventEvent = onEvent[0].message[1]
+        expect(onEventEvent.event).toEqual('custom event')
+        expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
+    })
 })
 
 test.concurrent(
@@ -164,28 +159,22 @@ test.concurrent(
 
         await capture(producer, teamId, distinctId, uuid, event.event, event.properties)
 
-        const onEvent = await delayUntilEventIngested(
-            async () =>
-                (
-                    await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                ).filter(({ message: [method] }) => method === 'onEvent'),
-            1,
-            500,
-            40
-        )
+        await waitForExpect(async () => {
+            const logEntries = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+            const onEvent = logEntries.filter(({ message: [method] }) => method === 'onEvent')
+            expect(onEvent.length).toBeGreaterThan(0)
 
-        expect(onEvent.length).toBeGreaterThan(0)
-
-        const onEventEvent = onEvent[0].message[1]
-        expect(onEventEvent.elements).toEqual([
-            expect.objectContaining({
-                attributes: {},
-                nth_child: 1,
-                nth_of_type: 2,
-                tag_name: 'div',
-                text: '💻',
-            }),
-        ])
+            const onEventEvent = onEvent[0].message[1]
+            expect(onEventEvent.elements).toEqual([
+                expect.objectContaining({
+                    attributes: {},
+                    nth_child: 1,
+                    nth_of_type: 2,
+                    tag_name: 'div',
+                    text: '💻',
+                }),
+            ])
+        })
     },
     20000
 )
@@ -222,23 +211,17 @@ test.concurrent(`plugin jobs: can call runNow from onEvent`, async () => {
         uuid: new UUIDT().toString(),
     })
 
-    await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+    await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(1)
+    })
 
-    const events = await fetchEvents(clickHouseClient, teamId)
-    expect(events.length).toBe(1)
-
-    // Then check that the runNow function was called
-    const runNow = await delayUntilEventIngested(
-        async () =>
-            (
-                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-            ).filter(({ message: [method] }) => method === 'runMeAsync'),
-        1,
-        500,
-        40
-    )
-
-    expect(runNow.length).toBeGreaterThan(0)
+    // Then check that the runMeAsync function was called
+    await waitForExpect(async () => {
+        const logEntries = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+        const runMeAsync = logEntries.filter(({ message: [method] }) => method === 'runMeAsync')
+        expect(runMeAsync.length).toBeGreaterThan(0)
+    })
 })
 
 test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
@@ -274,23 +257,17 @@ test.concurrent(`plugin jobs: can call runNow from processEvent`, async () => {
         uuid: new UUIDT().toString(),
     })
 
-    await delayUntilEventIngested(() => fetchEvents(clickHouseClient, teamId), 1, 500, 40)
+    await waitForExpect(async () => {
+        const events = await fetchEvents(clickHouseClient, teamId)
+        expect(events.length).toBe(1)
+    })
 
-    const events = await fetchEvents(clickHouseClient, teamId)
-    expect(events.length).toBe(1)
-
-    // Then check that the runNow function was called
-    const runNow = await delayUntilEventIngested(
-        async () =>
-            (
-                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-            ).filter(({ message: [method] }) => method === 'runMeAsync'),
-        1,
-        500,
-        40
-    )
-
-    expect(runNow.length).toBeGreaterThan(0)
+    // Then check that the runMeAsync function was called
+    await waitForExpect(async () => {
+        const logEntries = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+        const runMeAsync = logEntries.filter(({ message: [method] }) => method === 'runMeAsync')
+        expect(runMeAsync.length).toBeGreaterThan(0)
+    })
 })
 
 test.concurrent(
@@ -318,17 +295,16 @@ test.concurrent(
         const teamId = await createTeam(postgres, organizationId)
         const pluginConfig = await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
 
-        const runNow = await delayUntilEventIngested(
-            async () =>
-                (
-                    await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-                ).filter(({ message: [method] }) => method === 'runEveryMinute'),
-            1,
-            1000,
-            60
+        await waitForExpect(
+            async () => {
+                const logEntries = await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
+                expect(
+                    logEntries.filter(({ message: [method] }) => method === 'runEveryMinute').length
+                ).toBeGreaterThan(0)
+            },
+            120_000,
+            1000
         )
-
-        expect(runNow.length).toBeGreaterThan(0)
     },
     120000
 )
