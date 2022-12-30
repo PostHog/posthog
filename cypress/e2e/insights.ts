@@ -1,6 +1,6 @@
 import { urls } from 'scenes/urls'
 import { randomString } from '../support/random'
-import { savedInsights, createInsight } from 'cypress/productAnalytics'
+import { savedInsights, createInsight } from '../productAnalytics'
 
 // For tests related to trends please check trendsElements.js
 describe('Insights', () => {
