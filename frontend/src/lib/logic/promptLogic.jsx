@@ -1,6 +1,8 @@
 import ReactDOM from 'react-dom'
-import { kea } from 'kea'
+import { kea, path, key, actions, events, listeners } from 'kea'
 import { Modal, Input, Form } from 'antd'
+
+import type { promptType } from './promptLogicType'
 
 // This logic creates a modal to ask for an input. It's unique in that when the logic is unmounted,
 // for example when changing the URL, the modal is also closed. That would normally happen with the antd prompt.
@@ -10,53 +12,56 @@ import { Modal, Input, Form } from 'antd'
 //
 // actions:
 // - prompt({ title, placeholder, value, error, success, failure })
-export const prompt = kea({
-    path: (key) => ['lib', 'logic', 'prompt', key],
-    key: (props) => props.key,
+export const promptLogic =
+    kea <
+    promptType >
+    [
+        path((key) => ['lib', 'logic', 'prompt', key]),
+        key((props) => props.key),
 
-    actions: () => ({
-        prompt: ({ title, placeholder, value, error, success, failure }) => ({
-            title,
-            placeholder,
-            value,
-            error,
-            success,
-            failure,
-        }),
-    }),
-
-    events: ({ cache }) => ({
-        beforeUnmount: [
-            () => {
-                cache.runOnClose && cache.runOnClose()
-            },
-        ],
-    }),
-
-    listeners: ({ cache }) => ({
-        prompt: async ({ title, placeholder, value, error, success, failure }) => {
-            const { cancel, promise } = cancellablePrompt({
+        actions({
+            prompt: ({ title, placeholder, value, error, success, failure }) => ({
                 title,
                 placeholder,
                 value,
-                rules: [
-                    {
-                        required: true,
-                        message: error,
-                    },
-                ],
-            })
-            cache.runOnClose = cancel
+                error,
+                success,
+                failure,
+            }),
+        }),
 
-            try {
-                const response = await promise
-                success && success(response)
-            } catch (err) {
-                failure && failure(err)
-            }
-        },
-    }),
-})
+        events(({ cache }) => ({
+            beforeUnmount: [
+                () => {
+                    cache.runOnClose && cache.runOnClose()
+                },
+            ],
+        })),
+
+        listeners(({ cache }) => ({
+            prompt: async ({ title, placeholder, value, error, success, failure }) => {
+                const { cancel, promise } = cancellablePrompt({
+                    title,
+                    placeholder,
+                    value,
+                    rules: [
+                        {
+                            required: true,
+                            message: error,
+                        },
+                    ],
+                })
+                cache.runOnClose = cancel
+
+                try {
+                    const response = await promise
+                    success && success(response)
+                } catch (err) {
+                    failure && failure(err)
+                }
+            },
+        })),
+    ]
 
 // Based on https://github.com/wangsijie/antd-prompt/blob/master/src/index.js
 // Adapted for ant.design v4 and added cancellation support
