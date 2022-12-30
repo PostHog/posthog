@@ -1,5 +1,5 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { promptLogic } from 'lib/logic/LogicLogic'
+import { promptLogic } from 'lib/logic/promptLogic'
 import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
