@@ -59,7 +59,7 @@ describe('Insights', () => {
 
         cy.get('[data-attr="insight-edit-button"]').click()
 
-        cy.url().should('match', /insights\/[\w\d]+\/edit/)
+        cy.url().should('match', /insights\/\w+\/edit/)
 
         cy.get('.page-title').then(($pageTitle) => {
             const pageTitle = $pageTitle.text()
