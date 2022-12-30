@@ -30,3 +30,22 @@ def tag_queries(**kwargs):
 
 def reset_query_tags():
     thread_local_storage.query_tags = {}
+
+
+class QueryCounter:
+    def __init__(self):
+        self.total_query_time = 0.0
+
+    @property
+    def query_time_ms(self):
+        return self.total_query_time * 1000
+
+    def __call__(self, execute, *args, **kwargs):
+        import time
+
+        start_time = time.perf_counter()
+
+        try:
+            return execute(*args, **kwargs)
+        finally:
+            self.total_query_time += time.perf_counter() - start_time
