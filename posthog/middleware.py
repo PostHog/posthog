@@ -211,7 +211,7 @@ class CHQueries:
 
 
 class QueryTimeCountingMiddleware:
-    WHITELISTED_ROUTES = ["dashboard", "insight"]
+    ALLOW_LIST_ROUTES = ["dashboard", "insight"]
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -220,7 +220,7 @@ class QueryTimeCountingMiddleware:
         if not (
             settings.CAPTURE_TIME_TO_SEE_DATA
             and "api" in request.path
-            and any(key in request.path for key in self.WHITELISTED_ROUTES)
+            and any(key in request.path for key in self.ALLOW_LIST_ROUTES)
         ):
             return self.get_response(request)
 
