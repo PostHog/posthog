@@ -258,10 +258,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            insight.name = (insight.name || insight.derived_name) + ' (copy)'
-            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
-            values.insights.results.push(newInsight)
-            values.insights.count += 1
+            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, {
+                ...insight,
+                name: (insight.name || insight.derived_name) + ' (copy)',
+            })
+            actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
         setDates: () => {
