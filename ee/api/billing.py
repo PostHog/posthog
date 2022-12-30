@@ -291,12 +291,12 @@ class BillingManager:
             organization.customer_id = data["customer_id"]
             org_modified = True
 
-        org_usage = None
+        org_usage: Optional[Dict[str, OrganizationUsageInfo]] = None
         # when updating usage reports, we immediately return an organization_usage object
         if data.get("organization_usage"):
             org_usage = data["organization_usage"]
         else:
-            org_usage: Dict[str, OrganizationUsageInfo] = {
+            org_usage = {
                 "events": {
                     "usage": None,
                     "limit": None,
