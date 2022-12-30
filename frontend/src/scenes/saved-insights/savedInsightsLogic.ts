@@ -251,7 +251,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         duplicateInsight: async ({ insight, redirectToInsight }) => {
             insight.name = (insight.name || insight.derived_name) + ' (copy)'
             const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
-            actions.loadInsights()
+            values.insights.results.push(newInsight)
+            values.insights.count += 1
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
         setDates: () => {
@@ -260,7 +261,27 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
+            const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
+            if (matchingInsightIndex >= 0) {
+                // saved insights should only care about a subset of Insight fields
+                values.insights.results[matchingInsightIndex] = {
+                    ...values.insights.results[matchingInsightIndex],
+                    name: insight.name,
+                    filters: insight.filters,
+                    description: insight.description,
+                    tags: insight.tags,
+                    last_modified_at: insight.last_modified_at,
+                    favorited: insight.favorited,
+                }
+            } else {
+                // possibly out of sync with table ordering
+                // but better for new item to be front and center
+                // than hidden at bottom of list
+                values.insights.results.unshift(insight)
+                values.insights.count += 1
+            }
+        },
         [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
             if (deleteDashboard.deleteInsights) {
                 actions.loadInsights()
