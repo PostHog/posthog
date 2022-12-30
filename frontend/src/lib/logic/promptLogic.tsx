@@ -119,7 +119,6 @@ export function cancellablePrompt(config: Pick<PromptProps, 'title' | 'placehold
     const promise = new Promise((resolve, reject) => {
         const div = document.createElement('div')
         document.body.appendChild(div)
-        // eslint-disable-next-line no-use-before-define
         let currentConfig: PromptProps = { ...config, close, visible: true } as any
 
         function destroy(value: unknown): void {
