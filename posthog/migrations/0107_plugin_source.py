@@ -37,5 +37,5 @@ class Migration(migrations.Migration):
             name="source",
             field=models.TextField(blank=True, null=True),
         ),
-        migrations.RunPython(add_plugin_types, backwards),
+        migrations.RunPython(add_plugin_types, backwards, elidable=True),
     ]

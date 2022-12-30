@@ -23,5 +23,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(adjust_teams_for_stricter_requirements, migrations.RunPython.noop),
+        migrations.RunPython(adjust_teams_for_stricter_requirements, migrations.RunPython.noop, elidable=True),
     ]

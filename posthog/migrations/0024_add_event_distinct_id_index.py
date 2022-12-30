@@ -13,5 +13,6 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             "CREATE INDEX CONCURRENTLY idx_distinct_id ON posthog_event(distinct_id);",
             reverse_sql='DROP INDEX "idx_distinct_id";',
+            elidable=True,  # This table no longer exists
         ),
     ]

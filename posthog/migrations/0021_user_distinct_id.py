@@ -29,5 +29,5 @@ class Migration(migrations.Migration):
             name="distinct_id",
             field=models.CharField(blank=True, max_length=200, null=True),
         ),
-        migrations.RunPython(forwards_func, reverse_func),
+        migrations.RunPython(forwards_func, reverse_func, elidable=True),
     ]

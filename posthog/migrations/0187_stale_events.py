@@ -48,5 +48,5 @@ class Migration(migrations.Migration):
             name="last_seen_at",
             field=models.DateTimeField(default=None, null=True),
         ),
-        migrations.RunPython(set_created_at, migrations.RunPython.noop),
+        migrations.RunPython(set_created_at, migrations.RunPython.noop, elidable=True),
     ]

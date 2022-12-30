@@ -20,4 +20,4 @@ class Migration(migrations.Migration):
         ("posthog", "0051_precalculate_cohorts"),
     ]
 
-    operations = [migrations.RunPython(migrate_calculate_cohorts, backwards)]
+    operations = [migrations.RunPython(migrate_calculate_cohorts, backwards, elidable=True)]

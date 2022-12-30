@@ -22,5 +22,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(reset_insight_refreshing_status, reverse),
+        migrations.RunPython(reset_insight_refreshing_status, reverse, elidable=True),
     ]

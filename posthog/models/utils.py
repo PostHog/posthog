@@ -258,9 +258,5 @@ class UniqueConstraintByExpression(BaseConstraint):
 
     def __eq__(self, other):
         if isinstance(other, UniqueConstraintByExpression):
-            return (
-                self.name == other.name
-                and self.expression == other.expression
-                and self.concurrently == other.concurrently
-            )
+            return self.name == other.name and self.expression == other.expression
         return super().__eq__(other)

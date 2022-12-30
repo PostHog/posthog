@@ -70,4 +70,4 @@ class Migration(migrations.Migration):
         ("posthog", "0221_add_activity_log_model"),
     ]
 
-    operations = [migrations.RunPython(fix_for_deleted_primary_dashboards, reverse)]
+    operations = [migrations.RunPython(fix_for_deleted_primary_dashboards, reverse, elidable=True)]

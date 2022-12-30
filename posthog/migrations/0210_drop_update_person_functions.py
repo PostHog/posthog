@@ -10,5 +10,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunSQL("DROP FUNCTION IF EXISTS update_person_props, should_update_person_props"),
+        migrations.RunSQL(
+            "DROP FUNCTION IF EXISTS update_person_props, should_update_person_props",
+            elidable=True,  # Removed from previous migration 0173_should_update_person_props_function.py
+        ),
     ]

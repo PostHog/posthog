@@ -73,5 +73,5 @@ class Migration(migrations.Migration):
             name="test_account_filters",
             field=django.contrib.postgres.fields.jsonb.JSONField(default=list),
         ),
-        migrations.RunPython(forward, reverse),
+        migrations.RunPython(forward, reverse, elidable=True),
     ]

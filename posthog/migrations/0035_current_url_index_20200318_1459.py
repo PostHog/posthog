@@ -10,5 +10,9 @@ class Migration(migrations.Migration):
 
     operations = [
         # We used to create an index here, but realised that made things slower rather than faster
-        migrations.RunSQL("SELECT 1;", "DROP INDEX IF EXISTS posthog_event_properties_current_url_gin")
+        migrations.RunSQL(
+            "SELECT 1;",
+            "DROP INDEX IF EXISTS posthog_event_properties_current_url_gin",
+            elidable=True,  # This table no longer exists
+        )
     ]

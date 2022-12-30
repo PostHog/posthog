@@ -15,5 +15,6 @@ class Migration(migrations.Migration):
             WHERE ip IS NOT NULL;
             """,
             "",
+            elidable=True,  # This table no longer exists
         )
     ]

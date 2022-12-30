@@ -33,5 +33,5 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(migrate_plugin_source, migrations.RunPython.noop),
+        migrations.RunPython(migrate_plugin_source, migrations.RunPython.noop, elidable=True),
     ]

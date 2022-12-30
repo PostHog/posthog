@@ -36,5 +36,5 @@ class Migration(migrations.Migration):
             name="value",
             field=models.CharField(blank=True, editable=False, max_length=50, null=True, unique=True),
         ),
-        migrations.RunPython(hash_all_keys, migrations.RunPython.noop),
+        migrations.RunPython(hash_all_keys, migrations.RunPython.noop, elidable=True),
     ]
