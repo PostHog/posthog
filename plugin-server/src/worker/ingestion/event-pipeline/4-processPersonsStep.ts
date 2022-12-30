@@ -1,6 +1,8 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
+import { KafkaJSError } from 'kafkajs'
 
 import { KAFKA_BUFFER } from '../../../config/kafka-topics'
+import { DependencyUnavailableError } from '../../../utils/db/error'
 import { normalizeEvent } from '../../../utils/event'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { updatePersonState, updatePersonStateExceptProperties } from '../person-state'
@@ -71,16 +73,30 @@ export async function processPersonsStep(
         //
         // TODO: if throughput is an issue here, we can consider batching these
         // messages.
-        await runner.hub.kafkaProducer.producer.send({
-            topic: KAFKA_BUFFER,
-            messages: [
-                {
-                    key: event.distinct_id,
-                    value: JSON.stringify(event),
-                    headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
-                },
-            ],
-        })
+        try {
+            await runner.hub.kafkaProducer.producer.send({
+                topic: KAFKA_BUFFER,
+                messages: [
+                    {
+                        key: event.distinct_id,
+                        value: JSON.stringify(event),
+                        headers: { processEventAt: processEventAt.toString(), eventId: event.uuid },
+                    },
+                ],
+            })
+        } catch (error) {
+            runner.hub.statsd?.increment('kafka_buffer_produce_error', 1, [`error: ${error.name}`])
+            if (error instanceof KafkaJSError) {
+                // If the error is retriable, we want to raise it up to the
+                // KafkaJS library, which will retry processing the message and
+                // importantly not commit the offsets.
+                if (error.retriable) {
+                    throw new DependencyUnavailableError('Kafka buffer topic is unavailable', 'kafka', error)
+                }
+            }
+
+            throw error
+        }
 
         return null // Make sure we don't continue processing in this case.
     }
