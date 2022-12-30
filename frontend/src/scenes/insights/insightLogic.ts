@@ -1,5 +1,5 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { prompt } from 'lib/logic/prompt'
+import { promptLogic } from 'lib/logic/promptLogic'
 import { getEventNamesForAction, objectsEqual, sum, toParams, uuid } from 'lib/utils'
 import posthog from 'posthog-js'
 import { eventUsageLogic, InsightEventSource } from 'lib/utils/eventUsageLogic'
@@ -106,7 +106,7 @@ export const insightLogic = kea<insightLogicType>([
             ['mathDefinitions'],
         ],
         actions: [tagsModel, ['loadTags']],
-        logic: [eventUsageLogic, dashboardsModel, prompt({ key: `save-as-insight` })],
+        logic: [eventUsageLogic, dashboardsModel, promptLogic({ key: `save-as-insight` })],
     }),
 
     actions({
@@ -1008,7 +1008,7 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
         saveAs: async () => {
-            prompt({ key: `save-as-insight` }).actions.prompt({
+            promptLogic({ key: `save-as-insight` }).actions.prompt({
                 title: 'Save as new insight',
                 placeholder: 'Please enter the new name',
                 value: `${values.insight.name || values.insight.derived_name} (copy)`,
