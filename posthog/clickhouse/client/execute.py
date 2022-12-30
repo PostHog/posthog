@@ -95,7 +95,6 @@ def sync_execute(
             statsd.timing("clickhouse_sync_execution_time", execution_time * 1000.0)
 
             if query_counter := getattr(thread_local_storage, "query_counter", None):
-                query_counter.query_count += 1
                 query_counter.total_query_time += execution_time
 
             if app_settings.SHELL_PLUS_PRINT_SQL:

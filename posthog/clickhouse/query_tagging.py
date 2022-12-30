@@ -34,7 +34,6 @@ def reset_query_tags():
 
 class QueryCounter:
     def __init__(self):
-        self.query_count = 0
         self.total_query_time = 0.0
 
     @property
@@ -44,7 +43,6 @@ class QueryCounter:
     def __call__(self, execute, *args, **kwargs):
         import time
 
-        self.query_count += 1
         start_time = time.perf_counter()
 
         try:

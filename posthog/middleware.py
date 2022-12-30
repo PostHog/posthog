@@ -227,10 +227,9 @@ class QueryTimeCountingMiddleware:
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
         with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
             response: HttpResponse = self.get_response(request)
-            response.headers["PH-PG-Query-Count"] = str(pg_query_counter.query_count)
-            response.headers["PH-PG-Query-Time"] = str(round(pg_query_counter.query_time_ms))
-            response.headers["PH-CH-Query-Count"] = str(ch_query_counter.query_count)
-            response.headers["PH-CH-Query-Time"] = str(round(ch_query_counter.query_time_ms))
+            response.headers[
+                "Server-Timing"
+            ] = f"pg;dur={round(pg_query_counter.query_time_ms)}, ch;dur={round(ch_query_counter.query_time_ms)}"
         return response
 
 
