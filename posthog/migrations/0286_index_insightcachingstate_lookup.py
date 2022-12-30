@@ -13,6 +13,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.RunSQL(
             sql="""
+            -- not-null-ignore
             CREATE INDEX CONCURRENTLY posthog_insightcachingstate_lookup ON posthog_insightcachingstate (
                 last_refresh DESC NULLS LAST,
                 last_refresh_queued_at DESC NULLS LAST,
