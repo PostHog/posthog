@@ -2,7 +2,7 @@ import { kea, path, actions, connect, reducers, afterMount, selectors, listeners
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import type { billingLogicType } from './billingLogicType'
-import { BillingProductV2Type, BillingV2Type, BillingVersion } from '~/types'
+import { BillingV2Type, BillingVersion } from '~/types'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urlToAction } from 'kea-router'
@@ -79,15 +79,6 @@ export const billingLogic = kea<billingLogicType>([
 
                     lemonToast.success('Billing limits updated')
                     return parseBillingResponse(response)
-                },
-            },
-        ],
-        products: [
-            [] as BillingProductV2Type[],
-            {
-                loadProducts: async () => {
-                    const response = await api.get('api/billing-v2/available_products')
-                    return response
                 },
             },
         ],

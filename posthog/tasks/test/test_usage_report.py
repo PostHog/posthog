@@ -384,7 +384,7 @@ class UsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesMixin
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
-        mockresponse.json = lambda: {"ok": True}
+        mockresponse.json = lambda: {}
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
@@ -439,7 +439,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
         mockresponse = Mock()
         mock_post.return_value = mockresponse
         mockresponse.status_code = 200
-        mockresponse.json = lambda: {"ok": True}
+        mockresponse.json = lambda: {}
         mock_posthog = MagicMock()
         mock_client.return_value = mock_posthog
 
@@ -467,7 +467,7 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             mockresponse = Mock()
             mock_post.return_value = mockresponse
             mockresponse.status_code = 200
-            mockresponse.json = lambda: {"ok": True}
+            mockresponse.json = lambda: {}
             mock_posthog = MagicMock()
             mock_client.return_value = mock_posthog
 
@@ -509,6 +509,33 @@ class SendUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIBaseTest
             groups={"instance": ANY},
             timestamp=None,
         )
+
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthog.tasks.usage_report.Client")
+    @patch("requests.post")
+    def test_org_usage_updated_correctly(self, mock_post: MagicMock, mock_client: MagicMock) -> None:
+
+        mockresponse = Mock()
+        mock_post.return_value = mockresponse
+        mockresponse.status_code = 200
+        usage = {
+            "events": {"usage": 10000, "limit": None},
+            "recordings": {
+                "usage": 1000,
+                "limit": None,
+            },
+        }
+        mockresponse.json = lambda: {"organization_usage": usage}
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        mock_posthog = MagicMock()
+        mock_client.return_value = mock_posthog
+
+        send_all_org_usage_reports(dry_run=False)
+
+        self.team.organization.refresh_from_db()
+        assert self.team.organization.usage == usage
 
 
 class SendUsageNoLicenseTest(APIBaseTest):
