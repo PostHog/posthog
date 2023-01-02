@@ -231,10 +231,7 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                             cohort: cohort.id,
                                         },
                                         columns: undefined,
-                                        showSearch: true,
-                                        showPropertyFilter: true,
-                                        showExport: true,
-                                        showReload: true,
+                                        full: true,
                                     }}
                                 />
                             ) : (

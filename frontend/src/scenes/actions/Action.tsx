@@ -12,6 +12,7 @@ import { Query } from '~/queries/Query/Query'
 import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export const scene: SceneExport = {
     logic: actionLogic,
@@ -64,10 +65,14 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                             <Query
                                 query={{
                                     kind: NodeKind.DataTableNode,
-                                    source: { kind: NodeKind.EventsNode, actionId: id },
-                                    showReload: true,
-                                    showColumnConfigurator: true,
-                                    showExport: true,
+                                    source: {
+                                        kind: NodeKind.EventsQuery,
+                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                        actionId: id,
+                                    },
+                                    full: true,
+                                    showEventFilter: false,
+                                    showPropertyFilter: false,
                                 }}
                             />
                         ) : (

@@ -31,6 +31,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -212,10 +213,13 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     <Query
                                         query={{
                                             kind: NodeKind.DataTableNode,
-                                            source: { kind: NodeKind.EventsNode, event: definition.name },
-                                            showReload: true,
-                                            showColumnConfigurator: true,
-                                            showExport: true,
+                                            source: {
+                                                kind: NodeKind.EventsQuery,
+                                                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                                event: definition.name,
+                                            },
+                                            full: true,
+                                            showEventFilter: false,
                                         }}
                                     />
                                 ) : (

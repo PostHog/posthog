@@ -712,6 +712,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 response,
                 {
                     "columns": ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"],
+                    "hasMore": False,
                     "types": ["String", "String", "String", "String"],
                     "results": [
                         ["sign out", "4", "test_val3", "sign out test_val3"],
@@ -737,6 +738,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 response,
                 {
                     "columns": ["total()", "event"],
+                    "hasMore": False,
                     "types": ["UInt64", "String"],
                     "results": [[3, "sign out"], [1, "sign up"]],
                 },
@@ -752,6 +754,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                 response,
                 {
                     "columns": ["total()", "event"],
+                    "hasMore": False,
                     "types": ["UInt64", "String"],
                     "results": [[2, "sign out"], [1, "sign up"]],
                 },

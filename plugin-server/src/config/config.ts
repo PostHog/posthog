@@ -23,6 +23,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         POSTHOG_POSTGRES_HOST: 'localhost',
         POSTHOG_POSTGRES_PORT: 5432,
         CLICKHOUSE_HOST: 'localhost',
+        CLICKHOUSE_OFFLINE_CLUSTER_HOST: null,
         CLICKHOUSE_DATABASE: isTestEnv() ? 'posthog_test' : 'default',
         CLICKHOUSE_USER: 'default',
         CLICKHOUSE_PASSWORD: null,
