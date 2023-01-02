@@ -36,7 +36,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "email_service_available": False,
             "slack_service": {"available": False, "client_id": None},
             "object_storage": False,
-            "instance_tag": "default",
+            "instance_tag": "none",
             **options,
         }
 
@@ -52,7 +52,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
-            "instance_tag": "default",
+            "instance_tag": "none",
             **options,
         }
 
