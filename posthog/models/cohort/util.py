@@ -291,7 +291,8 @@ def clear_stale_cohortpeople(cohort: Cohort, current_version: int) -> None:
     if stale_count_result and len(stale_count_result) and len(stale_count_result[0]):
         stale_count = stale_count_result[0][0]
         if stale_count > 0:
-            AsyncDeletion.objects.create(
+            # Don't do anyhting if it already exists
+            AsyncDeletion.objects.get_or_create(
                 deletion_type=DeletionType.Cohort_stale, team_id=cohort.team.pk, key=f"{cohort.pk}_{cohort.version}"
             )
 
