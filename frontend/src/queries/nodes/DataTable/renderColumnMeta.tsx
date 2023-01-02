@@ -1,13 +1,15 @@
 import { PropertyFilterType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { QueryContext } from '~/queries/schema'
+import { QueryContext, DataTableNode } from '~/queries/schema'
+import { isEventsQuery } from '~/queries/utils'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export interface ColumnMeta {
     title?: JSX.Element | string
     width?: number
 }
 
-export function renderColumnMeta(key: string, context?: QueryContext): ColumnMeta {
+export function renderColumnMeta(key: string, query: DataTableNode, context?: QueryContext): ColumnMeta {
     if (key === 'timestamp') {
         return { title: 'Time' }
     } else if (key === 'created_at') {
@@ -28,6 +30,6 @@ export function renderColumnMeta(key: string, context?: QueryContext): ColumnMet
         // NOTE: PropertyFilterType.Event is not a mistake. PropertyKeyInfo only knows events vs elements ¯\_(ツ)_/¯
         return { title: <PropertyKeyInfo value={key.substring(18)} type={PropertyFilterType.Event} disableIcon /> }
     } else {
-        return { title: key }
+        return { title: isEventsQuery(query.source) ? extractExpressionComment(key) : key }
     }
 }

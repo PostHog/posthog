@@ -300,9 +300,10 @@ def get_event(request):
                         event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid, token
                     )  # type: ignore
                 )
-            except Exception as e:
-                capture_exception(e, {"data": data})
+            except Exception as exc:
+                capture_exception(exc, {"data": data})
                 statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
+                logger.error("kafka_produce_failure", exc_info=exc)
                 return cors_response(
                     request,
                     generate_exception_response(

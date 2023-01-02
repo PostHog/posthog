@@ -188,6 +188,7 @@
             width: 100vw;
             display: flex;
             flex-direction: row;
+            z-index:9999;
             align-items: center;
         }
 
@@ -351,7 +352,7 @@
 <body>
 <main class="px-4 pb-4" role="main">
     <div class="left column">
-        <div>This year, I'm {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
+        <div>This year, I'm {% if badge == "astronaut" %}an{% else %}a{% endif %}</div>
 
         <picture class="badge my-8">
             <source type="image/webp" srcset="{% static image_webp %}" width="326" height="326">

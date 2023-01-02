@@ -1,6 +1,6 @@
-from typing import Type
+from typing import Literal, Tuple, Type
 
-from django.db.models import Prefetch
+from django.db.models import Manager, Prefetch
 from rest_framework import mixins, permissions, serializers, viewsets
 
 from posthog.api.routing import StructuredViewSetMixin
@@ -62,10 +62,16 @@ class EventDefinitionViewSet(
     viewsets.GenericViewSet,
 ):
     serializer_class = EventDefinitionSerializer
-    permission_classes = [permissions.IsAuthenticated, OrganizationMemberPermissions, TeamMemberAccessPermission]
+    permission_classes = [
+        permissions.IsAuthenticated,
+        OrganizationMemberPermissions,
+        TeamMemberAccessPermission,
+    ]
     lookup_field = "id"
     filter_backends = [TermSearchFilterBackend]
+
     search_fields = ["name"]
+    ordering_fields = ["volume_30_day", "query_usage_30_day", "name"]
 
     def get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
@@ -76,24 +82,51 @@ class EventDefinitionViewSet(
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
 
         params = {"team_id": self.team_id, "is_posthog_event": "$%", **search_kwargs}
+        order, order_direction = self._ordering_params_from_request()
 
-        if EE_AVAILABLE and self.request.user.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY):  # type: ignore
+        ingestion_taxonomy_is_available = self.organization.is_feature_available(AvailableFeature.INGESTION_TAXONOMY)
+        is_enterprise = EE_AVAILABLE and ingestion_taxonomy_is_available
+
+        event_definition_object_manager: Manager
+        if is_enterprise:
             from ee.models.event_definition import EnterpriseEventDefinition
 
-            # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-            sql = create_event_definitions_sql(event_type, is_enterprise=True, conditions=search_query)
-
-            ee_event_definitions = EnterpriseEventDefinition.objects.raw(sql, params=params)
-            ee_event_definitions_list = ee_event_definitions.prefetch_related(
-                Prefetch("tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags")
+            event_definition_object_manager = EnterpriseEventDefinition.objects.prefetch_related(
+                Prefetch(
+                    "tagged_items",
+                    queryset=TaggedItem.objects.select_related("tag"),
+                    to_attr="prefetched_tags",
+                )
             )
+        else:
+            event_definition_object_manager = EventDefinition.objects
 
-            return ee_event_definitions_list
+        sql = create_event_definitions_sql(
+            event_type,
+            is_enterprise=is_enterprise,
+            conditions=search_query,
+            order_expr=order,
+            order_direction=order_direction,
+        )
+        return event_definition_object_manager.raw(sql, params=params)
 
-        sql = create_event_definitions_sql(event_type, is_enterprise=False, conditions=search_query)
-        event_definitions_list = EventDefinition.objects.raw(sql, params=params)
+    def _ordering_params_from_request(
+        self,
+    ) -> Tuple[str, Literal["ASC", "DESC"]]:
+        order_direction: Literal["ASC", "DESC"]
+        ordering = self.request.GET.get("ordering")
 
-        return event_definitions_list
+        if ordering and ordering.replace("-", "") in self.ordering_fields:
+            order = ordering.replace("-", "")
+            if "-" in ordering:
+                order_direction = "DESC"
+            else:
+                order_direction = "ASC"
+        else:
+            order = "volume_30_day"
+            order_direction = "DESC"
+
+        return order, order_direction
 
     def get_object(self):
         id = self.kwargs["id"]

@@ -3,6 +3,7 @@ import {
     ActionsNode,
     DataTableNode,
     EventsNode,
+    EventsQuery,
     FunnelsQuery,
     LegacyQuery,
     LifecycleQuery,
@@ -12,6 +13,8 @@ import {
     PersonsNode,
     RetentionQuery,
     StickinessQuery,
+    TimeToSeeDataQuery,
+    TimeToSeeDataSessionsQuery,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -23,11 +26,12 @@ import {
     PropertyOperator,
     StepOrderValue,
 } from '~/types'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { ShownAsValue } from '~/lib/constants'
 
-const Events: EventsNode = {
-    kind: NodeKind.EventsNode,
+const Events: EventsQuery = {
+    kind: NodeKind.EventsQuery,
+    select: defaultDataTableColumns(NodeKind.EventsQuery),
     properties: [
         { type: PropertyFilterType.Event, key: '$browser', operator: PropertyOperator.Exact, value: 'Chrome' },
     ],
@@ -36,17 +40,56 @@ const Events: EventsNode = {
 
 const EventsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    columns: defaultDataTableColumns({ kind: NodeKind.EventsNode }),
     source: Events,
 }
 const EventsTableFull: DataTableNode = {
-    ...EventsTable,
-    showPropertyFilter: true,
-    showEventFilter: true,
-    showExport: true,
-    showReload: true,
-    showColumnConfigurator: true,
-    showEventsBufferWarning: true,
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: Events,
+}
+
+const TotalEvents: EventsQuery = {
+    kind: NodeKind.EventsQuery,
+    select: ['total()'],
+}
+
+const TotalEventsTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: TotalEvents,
+}
+
+const PropertyFormulas: EventsQuery = {
+    kind: NodeKind.EventsQuery,
+    select: [
+        '1 + 2 + 3',
+        'event',
+        'person.created_at',
+        "concat(properties['$browser'], ' 💚 ', properties['$geoip_city_name']) # Browser 💚 City",
+        "'random string'",
+    ],
+    limit: 100,
+}
+
+const PropertyFormulasTable: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: PropertyFormulas,
+}
+
+const EventAggregations: DataTableNode = {
+    kind: NodeKind.DataTableNode,
+    full: true,
+    source: {
+        kind: NodeKind.EventsQuery,
+        select: [
+            "concat(properties['$geoip_city_name'], ' ', 'Rocks') # City",
+            'event',
+            'total() + 100000 # Inflamed total',
+            '1 + 2',
+        ],
+        orderBy: ['-total()'],
+    },
 }
 
 const Persons: PersonsNode = {
@@ -58,16 +101,15 @@ const Persons: PersonsNode = {
 
 const PersonsTable: DataTableNode = {
     kind: NodeKind.DataTableNode,
-    columns: defaultDataTableColumns({ kind: NodeKind.PersonsNode }),
+    columns: defaultDataTableColumns(NodeKind.PersonsNode),
     source: Persons,
 }
 
 const PersonsTableFull: DataTableNode = {
-    ...PersonsTable,
-    showSearch: true,
-    showPropertyFilter: true,
-    showExport: true,
-    showReload: true,
+    kind: NodeKind.DataTableNode,
+    full: true,
+    columns: defaultDataTableColumns(NodeKind.PersonsNode),
+    source: Persons,
 }
 
 const LegacyTrendsQuery: LegacyQuery = {
@@ -223,10 +265,21 @@ const InsightLifecycleQuery: LifecycleQuery = {
     },
 }
 
+const TimeToSeeDataSessions: TimeToSeeDataSessionsQuery = {
+    kind: NodeKind.TimeToSeeDataSessionsQuery,
+}
+
+const TimeToSeeData: TimeToSeeDataQuery = {
+    kind: NodeKind.TimeToSeeDataQuery,
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
     EventsTableFull,
+    TotalEventsTable,
+    PropertyFormulasTable,
+    EventAggregations,
     Persons,
     PersonsTable,
     PersonsTableFull,
@@ -237,6 +290,8 @@ export const examples: Record<string, Node> = {
     InsightPathsQuery,
     InsightStickinessQuery,
     InsightLifecycleQuery,
+    TimeToSeeDataSessions,
+    TimeToSeeData,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(

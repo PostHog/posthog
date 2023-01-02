@@ -1,18 +1,18 @@
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { IconExport } from 'lib/components/icons'
-import { Popconfirm } from 'antd'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import { DataNode, DataTableNode } from '~/queries/schema'
-import { defaultDataTableColumns } from '~/queries/nodes/DataTable/defaults'
-import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
+import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 
 const EXPORT_LIMIT_EVENTS = 3500
 const EXPORT_LIMIT_PERSONS = 10000
 
 function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void {
-    const exportContext = isEventsNode(query.source)
+    const exportContext = isEventsQuery(query.source)
         ? {
               path: getEventsEndpoint({ ...query.source, limit: EXPORT_LIMIT_EVENTS }),
               max_limit: query.source.limit ?? EXPORT_LIMIT_EVENTS,
@@ -35,7 +35,7 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
     }
 
     if (onlySelectedColumns) {
-        exportContext['columns'] = (query.columns ?? defaultDataTableColumns(query.source))
+        exportContext['columns'] = (query.columns ?? defaultDataTableColumns(query.source.kind))
             ?.flatMap((c) => columnMapping[c] || c)
             .filter((c) => c !== 'person.$delete')
     }
@@ -47,14 +47,14 @@ function startDownload(query: DataTableNode, onlySelectedColumns: boolean): void
 
 interface DataTableExportProps {
     query: DataTableNode
-    setQuery?: (node: DataTableNode) => void
+    setQuery?: (query: DataTableNode) => void
 }
 
 export function DataTableExport({ query }: DataTableExportProps): JSX.Element | null {
     const source: DataNode = query.source
     const filterCount =
-        (isEventsNode(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
-        (isEventsNode(source) && source.event ? 1 : 0) +
+        (isEventsQuery(source) || isPersonsNode(source) ? source.properties?.length || 0 : 0) +
+        (isEventsQuery(source) && source.event ? 1 : 0) +
         (isPersonsNode(source) && source.search ? 1 : 0)
 
     return (
@@ -66,10 +66,11 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     <ExportWithConfirmation
                         key={1}
                         placement={'topRight'}
-                        query={query}
                         onConfirm={() => {
                             startDownload(query, true)
                         }}
+                        actor={isPersonsNode(query.source) ? 'persons' : 'events'}
+                        limit={isPersonsNode(query.source) ? EXPORT_LIMIT_PERSONS : EXPORT_LIMIT_EVENTS}
                     >
                         <LemonButton fullWidth status="stealth">
                             Export current columns
@@ -78,8 +79,9 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     <ExportWithConfirmation
                         key={0}
                         placement={'bottomRight'}
-                        query={query}
                         onConfirm={() => startDownload(query, false)}
+                        actor={isPersonsNode(query.source) ? 'persons' : 'events'}
+                        limit={isPersonsNode(query.source) ? EXPORT_LIMIT_PERSONS : EXPORT_LIMIT_EVENTS}
                     >
                         <LemonButton fullWidth status="stealth">
                             Export all columns
@@ -92,33 +94,5 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
         >
             Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
         </LemonButtonWithPopup>
-    )
-}
-
-interface ExportWithConfirmationProps {
-    placement: 'topRight' | 'bottomRight'
-    onConfirm: (e?: React.MouseEvent<HTMLElement>) => void
-    query: DataTableNode
-    children: React.ReactNode
-}
-
-function ExportWithConfirmation({ query, placement, onConfirm, children }: ExportWithConfirmationProps): JSX.Element {
-    const actor = isPersonsNode(query.source) ? 'events' : 'persons'
-    const limit = isPersonsNode(query.source) ? EXPORT_LIMIT_EVENTS : EXPORT_LIMIT_PERSONS
-    return (
-        <Popconfirm
-            placement={placement}
-            title={
-                <>
-                    Exporting by csv is limited to {limit} {actor}.
-                    <br />
-                    To return more, please use <a href={`https://posthog.com/docs/api/{actor}`}>the API</a>. Do you want
-                    to export by CSV?
-                </>
-            }
-            onConfirm={onConfirm}
-        >
-            {children}
-        </Popconfirm>
     )
 }

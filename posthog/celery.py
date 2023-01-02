@@ -92,8 +92,9 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(hour=4, minute=0), verify_persons_data_in_sync.s())
 
     if is_cloud() or settings.DEMO:
-        # Reset master project data every day at 5 AM UTC
-        sender.add_periodic_task(crontab(hour=5, minute=0), demo_reset_master_team.s())
+        # Reset master project data every Monday at Thursday at 5 AM UTC. Mon and Thu because doing this every day
+        # would be too hard on ClickHouse, and those days ensure most users will have data at most 3 days old.
+        sender.add_periodic_task(crontab(day_of_week="mon,thu", hour=5, minute=0), demo_reset_master_team.s())
 
     sender.add_periodic_task(crontab(day_of_week="fri", hour=0, minute=0), clean_stale_partials.s())
 
@@ -292,10 +293,7 @@ def pg_plugin_server_query_timing():
             pass
 
 
-CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id", "person_distinct_id2", "session_recording_events"]
-
-if settings.CLICKHOUSE_REPLICATION:
-    CLICKHOUSE_TABLES.extend(["sharded_events", "sharded_session_recording_events"])
+CLICKHOUSE_TABLES = ["events", "person", "person_distinct_id2", "session_recording_events"]
 
 
 @app.task(ignore_result=True)
@@ -329,15 +327,28 @@ def ingestion_lag():
 
     # Requires https://github.com/PostHog/posthog-heartbeat-plugin to be enabled on team 2
     # Note that it runs every minute and we compare it with now(), so there's up to 60s delay
-    for event, metric in HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.items():
-        try:
-            query = """
-                SELECT now() - max(parseDateTimeBestEffortOrNull(JSONExtractString(properties, '$timestamp')))
-                FROM events WHERE team_id IN %(team_ids)s AND _timestamp > yesterday() AND event = %(event)s;"""
-            lag = sync_execute(query, {"team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS, "event": event})[0][0]
+    query = """
+    SELECT event, date_diff('second', max(timestamp), now())
+    FROM events
+    WHERE team_id IN %(team_ids)s
+        AND event IN %(events)s
+        AND timestamp > yesterday() AND timestamp < now() + toIntervalMinute(3)
+    GROUP BY event
+    """
+
+    try:
+        results = sync_execute(
+            query,
+            {
+                "team_ids": settings.INGESTION_LAG_METRIC_TEAM_IDS,
+                "events": list(HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC.keys()),
+            },
+        )
+        for event, lag in results:
+            metric = HEARTBEAT_EVENT_TO_INGESTION_LAG_METRIC[event]
             statsd.gauge(f"posthog_celery_{metric}_lag_seconds_rough_minute_precision", lag)
-        except:
-            pass
+    except:
+        pass
 
 
 @app.task(ignore_result=True)

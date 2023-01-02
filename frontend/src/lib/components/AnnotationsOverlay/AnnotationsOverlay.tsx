@@ -154,17 +154,9 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({ index, date }
             }
         >
             {annotations.length ? (
-                <LemonBadge.Number
-                    count={annotations.length}
-                    size="small"
-                    style={active && isDateLocked ? { outline: '0.125rem solid var(--primary)' } : undefined}
-                />
+                <LemonBadge.Number count={annotations.length} size="small" active={active && isDateLocked} />
             ) : (
-                <LemonBadge
-                    content={<IconPlusMini />}
-                    size="small"
-                    style={active && isDateLocked ? { outline: '0.125rem solid var(--primary)' } : undefined}
-                />
+                <LemonBadge content={<IconPlusMini />} size="small" active={active && isDateLocked} />
             )}
         </button>
     )

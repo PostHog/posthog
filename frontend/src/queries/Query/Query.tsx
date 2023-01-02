@@ -1,17 +1,26 @@
-import { isDataNode, isDataTableNode, isLegacyQuery, isInsightQueryNode } from '../utils'
+import {
+    isDataNode,
+    isDataTableNode,
+    isLegacyQuery,
+    isInsightQueryNode,
+    isTimeToSeeDataQuery,
+    isInsightVizNode,
+} from '../utils'
 import { DataTable } from '~/queries/nodes/DataTable/DataTable'
 import { DataNode } from '~/queries/nodes/DataNode/DataNode'
+import { InsightViz } from '~/queries/nodes/InsightViz/InsightViz'
 import { Node, QueryContext, QuerySchema } from '~/queries/schema'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { LegacyInsightQuery } from '~/queries/nodes/LegacyInsightQuery/LegacyInsightQuery'
 import { InsightQuery } from '~/queries/nodes/InsightQuery/InsightQuery'
 import { useEffect, useState } from 'react'
+import { TimeToSeeData } from '../nodes/TimeToSeeData/TimeToSeeData'
 
 export interface QueryProps<T extends Node = QuerySchema | Node> {
     /** The query to render */
     query: T | string
     /** Set this if you're controlling the query parameter */
-    setQuery?: (node: T) => void
+    setQuery?: (query: T) => void
     /** Does not call setQuery, not even locally */
     readOnly?: boolean
     /** Custom components passed down to a few query nodes (e.g. custom table columns) */
@@ -19,15 +28,16 @@ export interface QueryProps<T extends Node = QuerySchema | Node> {
 }
 
 export function Query(props: QueryProps): JSX.Element {
-    const { query: globalQuery, setQuery: globalSetQuery, readOnly, context } = props
-    const [localQuery, localSetQuery] = useState(globalQuery)
+    const { query: propsQuery, setQuery: propsSetQuery, readOnly, context } = props
+    const [localQuery, localSetQuery] = useState(propsQuery)
     useEffect(() => {
-        if (globalQuery !== localQuery) {
-            localSetQuery(globalQuery)
+        if (propsQuery !== localQuery) {
+            localSetQuery(propsQuery)
         }
-    }, [globalQuery])
-    const query = readOnly ? globalQuery : localQuery
-    const setQuery = readOnly ? undefined : globalSetQuery ?? localSetQuery
+    }, [propsQuery])
+
+    const query = readOnly ? propsQuery : localQuery
+    const setQuery = readOnly ? undefined : propsSetQuery ?? localSetQuery
 
     if (typeof query === 'string') {
         try {
@@ -36,6 +46,7 @@ export function Query(props: QueryProps): JSX.Element {
             return <div className="border border-danger p-4 text-danger">Error parsing JSON: {e.message}</div>
         }
     }
+
     let component
     if (isLegacyQuery(query)) {
         component = <LegacyInsightQuery query={query} />
@@ -43,8 +54,12 @@ export function Query(props: QueryProps): JSX.Element {
         component = <DataTable query={query} setQuery={setQuery} context={context} />
     } else if (isDataNode(query)) {
         component = <DataNode query={query} />
+    } else if (isInsightVizNode(query)) {
+        component = <InsightViz query={query} setQuery={setQuery} />
     } else if (isInsightQueryNode(query)) {
         component = <InsightQuery query={query} />
+    } else if (isTimeToSeeDataQuery(query)) {
+        component = <TimeToSeeData query={query} />
     }
 
     if (component) {

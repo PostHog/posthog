@@ -51,3 +51,6 @@ Clearable.args = { allowClear: true }
 
 export const Numeric = Template.bind({})
 Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }
+
+export const Small = Template.bind({})
+Small.args = { allowClear: true, size: 'small' }

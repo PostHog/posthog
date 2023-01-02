@@ -101,6 +101,16 @@
                 padding-left: 1rem;
                 overflow: hidden;
                 text-overflow: ellipsis;
+                .LemonTable--inset & {
+                    padding-left: 0.5rem;
+                }
+                &.LemonTable__boundary,
+                &:last-child {
+                    padding-right: 1rem;
+                    .LemonTable--inset & {
+                        padding-right: 0.5rem;
+                    }
+                }
                 &[colspan='0'] {
                     // Hidden cells should not affect the width of the table
                     padding-left: 0 !important;
@@ -111,10 +121,6 @@
                 }
                 &.LemonTable__boundary:not(:last-child) {
                     border-right: 1px solid var(--border);
-                }
-                &.LemonTable__boundary,
-                &:last-child {
-                    padding-right: 1rem;
                 }
             }
         }

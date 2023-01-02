@@ -1,19 +1,17 @@
 import { Col, Row } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Form } from 'kea-forms'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightShortId, InsightType } from '~/types'
+import { InsightType } from '~/types'
 import './Experiment.scss'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { IconDelete, IconEdit } from 'lib/components/icons'
-import { LemonInput, LemonModal, LemonSelect } from '@posthog/lemon-ui'
+import { LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { Field } from 'lib/forms/Field'
+import { MetricSelector } from './MetricSelector'
 
 export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics })
@@ -27,16 +25,9 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
         openModalToEditSecondaryMetric,
         closeModal,
         saveSecondaryMetric,
+        createPreviewInsight,
     } = useActions(logic)
 
-    const { insightProps } = useValues(
-        insightLogic({
-            dashboardItemId: previewInsightId as InsightShortId,
-            syncWithUrl: false,
-        })
-    )
-
-    const { isStepsEmpty, filterSteps } = useValues(funnelLogic(insightProps))
     return (
         <>
             <LemonModal
@@ -72,83 +63,18 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                     </Field>
                     <Field name="filters" label="Query">
                         {({ value, onChange }) => (
-                            <>
-                                <LemonSelect
-                                    value={value.insight}
-                                    onChange={(val) => {
-                                        setFilters({ ...value, ...{ insight: val } })
-                                        onChange({ ...value, ...{ insight: val } })
-                                    }}
-                                    options={[
-                                        { value: InsightType.TRENDS, label: <b>Trends</b> },
-                                        { value: InsightType.FUNNELS, label: <b>Funnels</b> },
-                                    ]}
-                                />
-                                {value.insight === InsightType.FUNNELS && (
-                                    <ActionFilter
-                                        bordered
-                                        filters={value}
-                                        setFilters={(payload) => {
-                                            const newFilters = {
-                                                ...value,
-                                                insight: InsightType.FUNNELS,
-                                                ...payload,
-                                            }
-                                            setFilters(newFilters)
-                                            onChange(newFilters)
-                                        }}
-                                        typeKey={'funnel-preview-metric'}
-                                        mathAvailability={MathAvailability.None}
-                                        hideDeleteBtn={filterSteps.length === 1}
-                                        buttonCopy="Add funnel step"
-                                        showSeriesIndicator={!isStepsEmpty}
-                                        seriesIndicatorType="numeric"
-                                        sortable
-                                        showNestedArrow={true}
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.EventFeatureFlags,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                    />
-                                )}
-                                {value.insight === InsightType.TRENDS && (
-                                    <ActionFilter
-                                        bordered
-                                        entitiesLimit={1}
-                                        filters={value}
-                                        setFilters={(payload) => {
-                                            const newFilters = {
-                                                ...value,
-                                                insight: InsightType.TRENDS,
-                                                ...payload,
-                                            }
-                                            setFilters(newFilters)
-                                            onChange(newFilters)
-                                        }}
-                                        typeKey={'trend-preview-metric'}
-                                        buttonCopy="Add graph series"
-                                        showSeriesIndicator
-                                        propertiesTaxonomicGroupTypes={[
-                                            TaxonomicFilterGroupType.EventProperties,
-                                            TaxonomicFilterGroupType.PersonProperties,
-                                            TaxonomicFilterGroupType.EventFeatureFlags,
-                                            TaxonomicFilterGroupType.Cohorts,
-                                            TaxonomicFilterGroupType.Elements,
-                                        ]}
-                                    />
-                                )}
-                            </>
+                            <MetricSelector
+                                createPreviewInsight={createPreviewInsight}
+                                setFilters={(payload) => {
+                                    setFilters(payload)
+                                    onChange(payload)
+                                }}
+                                previewInsightId={previewInsightId}
+                                filters={value}
+                            />
                         )}
                     </Field>
                 </Form>
-                <div className="mt-4">
-                    <BindLogic logic={insightLogic} props={insightProps}>
-                        <InsightContainer disableHeader={true} disableTable={true} disableCorrelationTable={true} />
-                    </BindLogic>
-                </div>
             </LemonModal>
             <Row>
                 <Col>
@@ -180,9 +106,7 @@ export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryM
                                     setFilters={() => {}}
                                     typeKey={`funnel-preview-${idx}`}
                                     mathAvailability={MathAvailability.None}
-                                    hideDeleteBtn={filterSteps.length === 1}
                                     buttonCopy="Add funnel step"
-                                    showSeriesIndicator={!isStepsEmpty}
                                     seriesIndicatorType="numeric"
                                     sortable
                                     showNestedArrow={true}

@@ -7,20 +7,19 @@ import { DataTableNode, Node, NodeKind } from '~/queries/schema'
 import { urls } from 'scenes/urls'
 import { objectsEqual } from 'lib/utils'
 import { lemonToast } from 'lib/components/lemonToast'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const getDefaultQuery = (): DataTableNode => ({
     kind: NodeKind.DataTableNode,
+    full: true,
     source: {
-        kind: NodeKind.EventsNode,
+        kind: NodeKind.EventsQuery,
+        select: defaultDataTableColumns(NodeKind.EventsQuery),
+        orderBy: ['-timestamp'],
         limit: 100,
     },
     propertiesViaUrl: true,
-    showEventsBufferWarning: true,
-    showColumnConfigurator: true,
-    showEventFilter: true,
-    showExport: true,
-    showPropertyFilter: true,
-    showReload: true,
+    allowSorting: false,
 })
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([

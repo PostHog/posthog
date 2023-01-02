@@ -1,6 +1,6 @@
 import './DataTable.scss'
-import { DataTableNode, EventsNode, Node, PersonsNode, QueryContext } from '~/queries/schema'
-import { useState } from 'react'
+import { DataTableNode, EventsNode, EventsQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
+import { useCallback, useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
@@ -17,20 +17,20 @@ import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
 import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
-import { teamLogic } from 'scenes/teamLogic'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
-import { isEventsNode, isPersonsNode } from '~/queries/utils'
+import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 
 interface DataTableProps {
     query: DataTableNode
-    setQuery?: (node: DataTableNode) => void
+    setQuery?: (query: DataTableNode) => void
     /** Custom table columns */
     context?: QueryContext
 }
@@ -51,11 +51,13 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         highlightedRows,
     } = useValues(dataNodeLogic(dataNodeLogicProps))
 
-    const { currentTeam } = useValues(teamLogic)
-    const defaultEventsColumns = currentTeam?.live_events_columns ?? undefined
-
-    const dataTableLogicProps: DataTableLogicProps = { query, key, defaultEventsColumns }
-    const { columns, queryWithDefaults } = useValues(dataTableLogic(dataTableLogicProps))
+    const dataTableLogicProps: DataTableLogicProps = { query, key }
+    const {
+        columns: columnsFromQuery,
+        queryWithDefaults,
+        canSort,
+        sorting,
+    } = useValues(dataTableLogic(dataTableLogicProps))
 
     const {
         showActions,
@@ -64,115 +66,187 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         showPropertyFilter,
         showReload,
         showExport,
+        showElapsedTime,
         showColumnConfigurator,
         showEventsBufferWarning,
         expandable,
     } = queryWithDefaults
 
+    const columnsInResponse: string[] | null =
+        response?.columns && Array.isArray(response.columns) && !response.columns.find((c) => typeof c !== 'string')
+            ? (response?.columns as string[])
+            : null
+
+    const columns: string[] = columnsInResponse ?? columnsFromQuery
     const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
-        ...columns.map((key) => ({
+        ...columns.map((key, index) => ({
             dataIndex: key as any,
-            ...renderColumnMeta(key, context),
+            ...renderColumnMeta(key, query, context),
             render: function RenderDataTableColumn(_: any, record: EventType) {
-                return renderColumn(key, record, query, setQuery, context)
+                if (isEventsQuery(query.source)) {
+                    return renderColumn(key, record[index], record, query, setQuery, context)
+                }
+                return renderColumn(key, record[key], record, query, setQuery, context)
             },
+            sorter: canSort || undefined, // we sort on the backend
         })),
-        ...(showActions && isEventsNode(query.source)
+        ...(showActions && isEventsQuery(query.source) && columns.includes('*')
             ? [
                   {
-                      dataIndex: 'more' as any,
+                      dataIndex: '__more' as any,
                       title: '',
-                      render: function RenderMore(_: any, record: EventType) {
-                          return <EventRowActions event={record} />
+                      render: function RenderMore(_: any, record: EventType | any[]) {
+                          if (isEventsQuery(query.source) && columns.includes('*')) {
+                              return <EventRowActions event={record[columns.indexOf('*')]} />
+                          }
+                          return <EventRowActions event={record as EventType} />
                       },
                       width: 0,
                   },
               ]
             : []),
-    ]
-    const dataSource = (response as null | EventsNode['response'])?.results ?? []
-    const setQuerySource = (source: EventsNode | PersonsNode): void => setQuery?.({ ...query, source })
+    ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
-    const showFilters = showSearch || showEventFilter || showPropertyFilter
-    const showTools = showReload || showExport || showColumnConfigurator
-    const inlineRow = showFilters ? 1 : showTools ? 2 : 0
+    const dataSource =
+        (response as null | EventsNode['response'] | EventsQuery['response'] | PersonsNode['response'])?.results ?? []
+    const setQuerySource = useCallback(
+        (source: EventsNode | EventsQuery | PersonsNode) => setQuery?.({ ...query, source }),
+        [setQuery]
+    )
+
+    const firstRow = [
+        showEventFilter && isEventsQuery(query.source) ? (
+            <EventName query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showSearch && isPersonsNode(query.source) ? (
+            <PersonsSearch query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showPropertyFilter && isEventsQuery(query.source) ? (
+            <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
+        ) : null,
+        showPropertyFilter && isPersonsNode(query.source) ? (
+            <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
+        ) : null,
+    ].filter((x) => !!x)
+
+    const secondRowLeft = [
+        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
+        showElapsedTime ? <ElapsedTime /> : null,
+    ].filter((x) => !!x)
+
+    const secondRowRight = [
+        showColumnConfigurator && isEventsQuery(query.source) ? (
+            <ColumnConfigurator query={query} setQuery={setQuery} />
+        ) : null,
+        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
+    ].filter((x) => !!x)
+
+    const showFirstRow = firstRow.length > 0
+    const showSecondRow = secondRowLeft.length > 0 || secondRowRight.length > 0
+    const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
     return (
         <BindLogic logic={dataTableLogic} props={dataTableLogicProps}>
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="space-y-4 relative">
-                    {showFilters && (
+                    {showFirstRow && (
                         <div className="flex gap-4">
-                            {showEventFilter && isEventsNode(query.source) && (
-                                <EventName query={query.source} setQuery={setQuerySource} />
-                            )}
-                            {showSearch && isPersonsNode(query.source) && (
-                                <PersonsSearch query={query.source} setQuery={setQuerySource} />
-                            )}
-                            {showPropertyFilter && isEventsNode(query.source) && (
-                                <EventPropertyFilters query={query.source} setQuery={setQuerySource} />
-                            )}
-                            {showPropertyFilter && isPersonsNode(query.source) && (
-                                <PersonPropertyFilters query={query.source} setQuery={setQuerySource} />
-                            )}
-                            {inlineRow === 1 ? (
+                            {firstRow}
+                            {inlineEditorButtonOnRow === 1 ? (
                                 <>
                                     <div className="flex-1" />
-                                    <InlineEditorButton
-                                        query={queryWithDefaults}
-                                        setQuery={setQuery as (node: Node) => void}
-                                    />
+                                    <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                                 </>
                             ) : null}
                         </div>
                     )}
-                    {showFilters && showTools && <LemonDivider />}
-                    {showTools && (
-                        <div className="flex gap-4">
-                            <div className="flex-1">{showReload && (canLoadNewData ? <AutoLoad /> : <Reload />)}</div>
-                            {showColumnConfigurator && isEventsNode(query.source) && (
-                                <ColumnConfigurator query={query} setQuery={setQuery} />
-                            )}
-                            {showExport && <DataTableExport query={query} setQuery={setQuery} />}
-                            {inlineRow === 2 ? (
-                                <InlineEditorButton
-                                    query={queryWithDefaults}
-                                    setQuery={setQuery as (node: Node) => void}
-                                />
+                    {showFirstRow && showSecondRow && <LemonDivider />}
+                    {showSecondRow && (
+                        <div className="flex gap-4 items-center">
+                            {secondRowLeft}
+                            <div className="flex-1" />
+                            {secondRowRight}
+                            {inlineEditorButtonOnRow === 2 ? (
+                                <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
                         </div>
                     )}
-                    {showEventsBufferWarning && isEventsNode(query.source) && (
+                    {showEventsBufferWarning && isEventsQuery(query.source) && (
                         <EventBufferNotice additionalInfo=" - this helps ensure accuracy of insights grouped by unique users" />
                     )}
-                    {inlineRow === 0 ? (
+                    {inlineEditorButtonOnRow === 0 ? (
                         <div className="absolute right-0 z-10 p-1">
-                            <InlineEditorButton query={queryWithDefaults} setQuery={setQuery as (node: Node) => void} />
+                            <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>
                     ) : null}
                     <LemonTable
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
-                        key={lemonColumns.join('::') /* Bust the LemonTable cache when columns change */}
+                        key={columns.join('::') /* Bust the LemonTable cache when columns change */}
                         dataSource={dataSource}
+                        rowKey={(record) => {
+                            if (isEventsQuery(query.source)) {
+                                if (columns.includes('*')) {
+                                    return record[columns.indexOf('*')].uuid
+                                } else if (columns.includes('uuid')) {
+                                    return record[columns.indexOf('uuid')]
+                                } else if (columns.includes('id')) {
+                                    return record[columns.indexOf('id')]
+                                }
+                                return JSON.stringify(record)
+                            } else {
+                                return (
+                                    ('uuid' in record ? (record as any).uuid : null) ??
+                                    record.id ??
+                                    JSON.stringify(record)
+                                )
+                            }
+                        }}
+                        sorting={canSort && setQuery ? sorting : undefined}
+                        useURLForSorting={false}
+                        onSort={
+                            canSort && setQuery
+                                ? (newSorting) =>
+                                      setQuery?.({
+                                          ...query,
+                                          source: {
+                                              ...query.source,
+                                              orderBy: newSorting
+                                                  ? [(newSorting.order === -1 ? '-' : '') + newSorting.columnKey]
+                                                  : undefined,
+                                          } as EventsNode,
+                                      } as DataTableNode)
+                                : undefined
+                        }
                         expandable={
-                            expandable
+                            expandable && isEventsQuery(query.source) && columns.includes('*')
                                 ? {
                                       expandedRowRender: function renderExpand(event) {
-                                          return event && <EventDetails event={event} />
+                                          if (isEventsQuery(query.source) && Array.isArray(event)) {
+                                              return (
+                                                  <EventDetails
+                                                      event={event[columns.indexOf('*')] ?? {}}
+                                                      useReactJsonView
+                                                  />
+                                              )
+                                          }
+                                          return event ? <EventDetails event={event} useReactJsonView /> : null
                                       },
                                       rowExpandable: () => true,
                                       noIndent: true,
                                   }
                                 : undefined
                         }
-                        rowKey={(row) => row.id ?? undefined}
                         rowClassName={(row) =>
-                            clsx('DataTable__row', { 'DataTable__row--highlight_once': highlightedRows[row?.id] })
+                            clsx('DataTable__row', {
+                                'DataTable__row--highlight_once': row && highlightedRows.has(row),
+                            })
                         }
                     />
-                    {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && <LoadNext />}
+                    {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
+                        <LoadNext query={query.source} />
+                    )}
                     {/* TODO: this doesn't seem like the right solution... */}
                     <SessionPlayerModal />
                     <PersonDeleteModal />

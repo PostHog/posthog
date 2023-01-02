@@ -1,11 +1,11 @@
-import { EventsNode } from '~/queries/schema'
+import { EventsNode, EventsQuery } from '~/queries/schema'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { AnyPropertyFilter } from '~/types'
 import { useState } from 'react'
 
 interface EventPropertyFiltersProps {
-    query: EventsNode
-    setQuery?: (node: EventsNode) => void
+    query: EventsNode | EventsQuery
+    setQuery?: (query: EventsNode | EventsQuery) => void
 }
 
 let uniqueNode = 0

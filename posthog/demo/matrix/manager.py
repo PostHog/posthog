@@ -194,13 +194,14 @@ class MatrixManager:
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
+        GroupTypeMapping.objects.filter(team_id=target_team.pk).delete()
         GroupTypeMapping.objects.bulk_create(
             (
                 GroupTypeMapping(team=target_team, **record)
                 for record in GroupTypeMapping.objects.filter(team_id=self.MASTER_TEAM_ID).values(
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )
-            )
+            ),
         )
 
     @classmethod

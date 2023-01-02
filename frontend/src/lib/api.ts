@@ -35,6 +35,7 @@ import {
     RolesListParams,
     FeatureFlagAssociatedRoleType,
     SessionRecordingType,
+    PerformanceEvent,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -409,6 +410,11 @@ class ApiRequest {
         return this.featureFlagAccessPermissions(flagId).addPathComponent(id)
     }
 
+    // Performance events
+    public performanceEvents(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('performance_events')
+    }
+
     // Request finalization
 
     public async get(options?: ApiMethodOptions): Promise<any> {
@@ -557,7 +563,7 @@ const api = {
             limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<EventType[]>> {
-            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit, orderBy: filters.orderBy ?? ['-timestamp'] }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).get()
         },
         determineListEndpoint(
@@ -565,7 +571,7 @@ const api = {
             limit: number = 100,
             teamId: TeamType['id'] = getCurrentTeamId()
         ): string {
-            const params: EventsListQueryParams = { ...filters, limit, orderBy: ['-timestamp'] }
+            const params: EventsListQueryParams = { ...filters, limit }
             return new ApiRequest().events(teamId).withQueryString(toParams(params)).assembleFullUrl()
         },
     },
@@ -773,18 +779,14 @@ const api = {
         async delete(roleId: RoleType['id']): Promise<void> {
             return await new ApiRequest().rolesDetail(roleId).delete()
         },
-        async create(
-            roleName: RoleType['name'],
-            featureFlagAccessLevel: RoleType['feature_flags_access_level']
-        ): Promise<RoleType> {
+        async create(roleName: RoleType['name']): Promise<RoleType> {
             return await new ApiRequest().roles().create({
                 data: {
                     name: roleName,
-                    feature_flags_access_level: featureFlagAccessLevel,
                 },
             })
         },
-        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<ActionType> {
+        async update(roleId: RoleType['id'], roleData: Partial<RoleType>): Promise<RoleType> {
             return await new ApiRequest().rolesDetail(roleId).update({ data: roleData })
         },
         members: {
@@ -1077,6 +1079,15 @@ const api = {
     media: {
         async upload(data: FormData): Promise<MediaUploadResponse> {
             return await new ApiRequest().media().create({ data })
+        },
+    },
+
+    performanceEvents: {
+        async list(
+            params: any,
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<PerformanceEvent>> {
+            return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
         },
     },
 
