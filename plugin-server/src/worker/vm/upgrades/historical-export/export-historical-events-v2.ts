@@ -158,10 +158,21 @@ export function addHistoricalEventsExportCapabilityV2(
     hub: Hub,
     pluginConfig: PluginConfig,
     response: PluginConfigVMInternalResponse<PluginMeta<ExportHistoricalEventsUpgradeV2>>
-): void {
+) {
     const { methods, tasks, meta } = response
 
     const currentPublicJobs = pluginConfig.plugin?.public_jobs || {}
+
+    // Set the number of events to fetch per chunk, defaulting to 10000
+    // if the plugin is PostHog S3 Export plugin, otherwise we detault to
+    // 500. This is to avoid writting lots of small files to S3.
+    //
+    // It also has the other benefit of using fewer requests to ClickHouse. In
+    // it's current implementation the querying logic for pulling pages of
+    // events from ClickHouse will read a much larger amount of data from disk
+    // than is required, due to us trying to order the dataset by `timestamp`
+    // and this not being included in the `sharded_events` table sort key.
+    const eventsPerRun = pluginConfig.plugin?.name === 'S3 Export Plugin' ? 10000 : EVENTS_PER_RUN
 
     // If public job hasn't been registered or has changed, update it!
     if (
@@ -407,7 +418,7 @@ export function addHistoricalEventsExportCapabilityV2(
                 new Date(payload.timestampCursor),
                 payload.offset,
                 payload.fetchTimeInterval,
-                EVENTS_PER_RUN
+                eventsPerRun
             )
         } catch (error) {
             Sentry.captureException(error)
@@ -589,25 +600,25 @@ export function addHistoricalEventsExportCapabilityV2(
 
     function nextCursor(payload: ExportHistoricalEventsJobPayload, eventCount: number): OffsetParams {
         // More on the same time window
-        if (eventCount === EVENTS_PER_RUN) {
+        if (eventCount === eventsPerRun) {
             return {
                 timestampCursor: payload.timestampCursor,
                 fetchTimeInterval: payload.fetchTimeInterval,
-                offset: payload.offset + EVENTS_PER_RUN,
+                offset: payload.offset + eventsPerRun,
             }
         }
 
         const nextCursor = payload.timestampCursor + payload.fetchTimeInterval
         let nextFetchInterval = payload.fetchTimeInterval
         // If we're fetching too small of a window at a time, increase window to fetch
-        if (payload.offset === 0 && eventCount < EVENTS_PER_RUN * 0.5) {
+        if (payload.offset === 0 && eventCount < eventsPerRun * 0.5) {
             nextFetchInterval = Math.min(
                 Math.floor(payload.fetchTimeInterval * hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER),
                 TWELVE_HOURS
             )
         }
         // If time window seems too large, reduce it
-        if (payload.offset > 2 * EVENTS_PER_RUN) {
+        if (payload.offset > 2 * eventsPerRun) {
             nextFetchInterval = Math.max(
                 Math.floor(payload.fetchTimeInterval / hub.HISTORICAL_EXPORTS_FETCH_WINDOW_MULTIPLIER),
                 TEN_MINUTES
@@ -688,4 +699,7 @@ export function addHistoricalEventsExportCapabilityV2(
             shouldResume,
         }
     }
+
+    // NOTE: we return the eventsPerRun, purely for testing purposes
+    return { eventsPerRun }
 }

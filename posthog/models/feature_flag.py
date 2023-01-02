@@ -10,10 +10,11 @@ from django.db.models.fields import BooleanField
 from django.db.models.query import QuerySet
 from django.db.models.signals import pre_delete
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from sentry_sdk.api import capture_exception
 
 from posthog.client import sync_execute
-from posthog.constants import PropertyOperatorType
+from posthog.constants import AvailableFeature, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.experiment import Experiment
 from posthog.models.filters.mixins.utils import cached_property
@@ -310,8 +311,8 @@ class FeatureFlagMatcher:
         groups: Dict[GroupTypeName, str] = {},
         cache: Optional[FlagsMatcherCache] = None,
         hash_key_overrides: Dict[str, str] = {},
-        property_value_overrides: Dict[str, str] = {},
-        group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+        property_value_overrides: Dict[str, Union[str, int]] = {},
+        group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     ):
         self.feature_flags = feature_flags
         self.distinct_id = distinct_id
@@ -431,6 +432,7 @@ class FeatureFlagMatcher:
 
     @cached_property
     def query_conditions(self) -> Dict[str, bool]:
+
         team_id = self.feature_flags[0].team_id
         person_query: QuerySet = Person.objects.filter(
             team_id=team_id, persondistinctid__distinct_id=self.distinct_id, persondistinctid__team_id=team_id
@@ -578,8 +580,8 @@ def _get_active_feature_flags(
     distinct_id: str,
     person_id: Optional[int] = None,
     groups: Dict[GroupTypeName, str] = {},
-    property_value_overrides: Dict[str, str] = {},
-    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+    property_value_overrides: Dict[str, Union[str, int]] = {},
+    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
     cache = FlagsMatcherCache(team_id)
 
@@ -608,8 +610,8 @@ def get_active_feature_flags(
     distinct_id: str,
     groups: Dict[GroupTypeName, str] = {},
     hash_key_override: Optional[str] = None,
-    property_value_overrides: Dict[str, str] = {},
-    group_property_value_overrides: Dict[str, Dict[str, str]] = {},
+    property_value_overrides: Dict[str, Union[str, int]] = {},
+    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
 
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
@@ -695,17 +697,64 @@ def set_feature_flag_hash_key_overrides(
         FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
 
 
-def get_user_blast_radius(feature_flag_condition: dict, team: Team):
+def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_index: Optional[GroupTypeIndex] = None):
 
     from posthog.queries.person_query import PersonQuery
 
+    # No rollout % calculations here, since it makes more sense to compute that on the frontend
     properties = feature_flag_condition.get("properties") or []
 
-    # Removed rollout % from here, since it makes more sense to do that on the frontend
+    if group_type_index is not None:
+
+        try:
+            from ee.clickhouse.queries.groups_join_query import GroupsJoinQuery
+        except Exception:
+            return 0, 0
+
+        if len(properties) > 0:
+            filter = Filter(data=feature_flag_condition, team=team)
+
+            for property in filter.property_groups.flat:
+                if property.group_type_index is None or (property.group_type_index != group_type_index):
+                    raise ValidationError("Invalid group type index for feature flag condition.")
+
+            groups_query, groups_query_params = GroupsJoinQuery(filter, team.id).get_filter_query(
+                group_type_index=group_type_index
+            )
+
+            total_affected_count = sync_execute(
+                f"""
+                SELECT count(1) FROM (
+                    {groups_query}
+                )
+            """,
+                groups_query_params,
+            )[0][0]
+        else:
+            total_affected_count = team.groups_seen_so_far(group_type_index)
+
+        return total_affected_count, team.groups_seen_so_far(group_type_index)
 
     if len(properties) > 0:
-        filter = Filter(data=feature_flag_condition)
-        person_query, person_query_params = PersonQuery(filter, team.id).get_query()
+        filter = Filter(data=feature_flag_condition, team=team)
+        cohort_filters = []
+        for property in filter.property_groups.flat:
+            if property.type in ["cohort", "precalculated-cohort", "static-cohort"]:
+                cohort_filters.append(property)
+
+        target_cohort = None
+
+        if len(cohort_filters) == 1:
+            try:
+                target_cohort = Cohort.objects.get(id=cohort_filters[0].value, team=team)
+            except Cohort.DoesNotExist:
+                pass
+            finally:
+                cohort_filters = []
+
+        person_query, person_query_params = PersonQuery(
+            filter, team.id, cohort=target_cohort, cohort_filters=cohort_filters
+        ).get_query()
 
         total_count = sync_execute(
             f"""
@@ -726,12 +775,15 @@ def get_user_blast_radius(feature_flag_condition: dict, team: Team):
 
 
 def can_user_edit_feature_flag(request, feature_flag):
+    # self hosted check for enterprise models that may not exist
     try:
         from ee.models.feature_flag_role_access import FeatureFlagRoleAccess
         from ee.models.organization_resource_access import OrganizationResourceAccess
     except:
         return True
     else:
+        if not request.user.organization.is_feature_available(AvailableFeature.ROLE_BASED_ACCESS):
+            return True
         if feature_flag.created_by == request.user:
             return True
         if (
@@ -742,8 +794,10 @@ def can_user_edit_feature_flag(request, feature_flag):
         all_role_memberships = request.user.role_memberships.select_related("role").all()
         try:
             feature_flag_resource_access = OrganizationResourceAccess.objects.get(
-                resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
+                organization=request.user.organization, resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS
             )
+            if feature_flag_resource_access.access_level >= OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT:
+                return True
             org_level = feature_flag_resource_access.access_level
         except OrganizationResourceAccess.DoesNotExist:
             org_level = OrganizationResourceAccess.AccessLevel.CAN_ALWAYS_EDIT
@@ -754,7 +808,6 @@ def can_user_edit_feature_flag(request, feature_flag):
             final_level = org_level
         else:
             final_level = role_level
-
         if final_level == OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW:
             can_edit = FeatureFlagRoleAccess.objects.filter(
                 feature_flag__id=feature_flag.pk,

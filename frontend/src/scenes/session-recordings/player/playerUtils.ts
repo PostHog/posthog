@@ -1,6 +1,16 @@
 import { MouseEvent as ReactMouseEvent, TouchEvent as ReactTouchEvent } from 'react'
-import { PlayerPosition, RecordingSegment, RecordingStartAndEndTime } from '~/types'
+import {
+    PlayerPosition,
+    RecordingSegment,
+    RecordingStartAndEndTime,
+    SessionRecordingPlaylistType,
+    SessionRecordingType,
+} from '~/types'
 import { ExpandableConfig } from 'lib/components/LemonTable'
+import api from 'lib/api'
+import { lemonToast } from 'lib/components/lemonToast'
+import { router } from 'kea-router'
+import { urls } from 'scenes/urls'
 
 export const THUMB_SIZE = 15
 export const THUMB_OFFSET = THUMB_SIZE / 2
@@ -135,8 +145,13 @@ export function getPlayerPositionFromEpochTime(
         const windowStartTime = startAndEndTimesByWindowId[windowId].startTimeEpochMs
         const windowEndTime = startAndEndTimesByWindowId[windowId].endTimeEpochMs
 
-        if (windowStartTime > epochTime || windowEndTime < epochTime) {
-            return null
+        // We clamp the events to always be within the window range
+        // This way events that are offset by a few seconds don't get lost
+        if (windowStartTime > epochTime) {
+            epochTime = windowStartTime
+        }
+        if (windowEndTime < epochTime) {
+            epochTime = windowEndTime
         }
 
         return {
@@ -195,4 +210,31 @@ export function getRowExpandedState<T extends Record<string, any>>(
             ? isRowExpandedLocal
             : !!expandable?.isRowExpanded?.(record, recordIndex))
     )
+}
+
+export async function addRecordingToPlaylist(
+    playlistId: SessionRecordingPlaylistType['short_id'],
+    sessionRecordingId: SessionRecordingType['id'],
+    silent = false
+): Promise<void> {
+    await api.recordings.addRecordingToPlaylist(playlistId, sessionRecordingId)
+    if (!silent) {
+        lemonToast.success('Recording added to playlist', {
+            button: {
+                label: 'View playlist',
+                action: () => router.actions.push(urls.sessionRecordingPlaylist(playlistId)),
+            },
+        })
+    }
+}
+
+export async function removeRecordingFromPlaylist(
+    playlistId: SessionRecordingPlaylistType['short_id'],
+    sessionRecordingId: SessionRecordingType['id'],
+    silent = false
+): Promise<void> {
+    await api.recordings.removeRecordingFromPlaylist(playlistId, sessionRecordingId)
+    if (!silent) {
+        lemonToast.success('Recording removed from playlist')
+    }
 }

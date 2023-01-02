@@ -90,7 +90,15 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
                 style={{ height: `${rowItemHeight}px` }}
             >
                 {!disabled && <DragHandle />}
-                <PropertyKeyInfo value={column} />
+                <PropertyKeyInfo
+                    value={
+                        column.startsWith('properties.')
+                            ? column.substring(11)
+                            : column.startsWith('person.properties.')
+                            ? column.substring(18)
+                            : column
+                    }
+                />
                 <div className="text-right" style={{ flex: 1 }}>
                     <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
                         {disabled ? (

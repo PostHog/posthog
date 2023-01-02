@@ -4,6 +4,7 @@ import api from 'lib/api'
 import { sum, toParams } from 'lib/utils'
 import {
     EventType,
+    PerformanceEvent,
     PlayerPosition,
     RecordingEventsFilters,
     RecordingEventType,
@@ -28,6 +29,8 @@ import {
 } from './playerUtils'
 import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -130,7 +133,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     }),
     defaults({
         sessionPlayerMetaData: {
@@ -159,6 +162,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setRecordingMeta: (metadata: Partial<SessionPlayerMetaData>) => ({ metadata }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
+        loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
     }),
     reducers(({ cache }) => ({
         filters: [
@@ -224,6 +228,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
+            actions.loadPerformanceEvents()
         },
         loadRecordingSnapshotsSuccess: () => {
             // If there is more data to poll for load the next batch.
@@ -341,40 +346,31 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     // If the recording uses window_ids, then we only show events that map to the segments
                     const eventsWithPlayerData: RecordingEventType[] = []
                     const events = response.results ?? []
+
                     events.forEach((event: EventType) => {
-                        // If possible, place the event 1s before the actual event
-                        const timesToAttemptToPlaceEvent = [+dayjs(event.timestamp) - 1000, +dayjs(event.timestamp)]
-                        let eventPlayerPosition = null
-                        let isOutOfBand = false
-                        for (const eventEpochTimeToAttempt of timesToAttemptToPlaceEvent) {
-                            if (
-                                !event.properties.$window_id &&
-                                !values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId['']
-                            ) {
-                                // Handle the case where the event is 'out of band' for the recording (it has no window_id and
-                                // the recording has window_ids). This is the case where the event came from
-                                // outside the recording (e.g. a server side event) But it happens to overlap in time with the recording
-                                eventPlayerPosition = guessPlayerPositionFromEpochTimeWithoutWindowId(
-                                    eventEpochTimeToAttempt,
-                                    values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId,
-                                    values.sessionPlayerData?.metadata?.segments
-                                )
-                                if (eventPlayerPosition) {
-                                    isOutOfBand = true
-                                    break
-                                }
-                            } else {
-                                // Handle the normal events that fit within the recording
-                                eventPlayerPosition = getPlayerPositionFromEpochTime(
-                                    eventEpochTimeToAttempt,
-                                    event.properties?.$window_id ?? '', // If there is no window_id on the event to match the recording metadata
-                                    values.sessionPlayerData.metadata.startAndEndTimesByWindowId
-                                )
-                            }
-                            if (eventPlayerPosition !== null) {
-                                break
-                            }
+                        // Events from other $session_ids should already be filtered out here so we don't need to worry about that
+                        const eventEpochTimeOfEvent = +dayjs(event.timestamp)
+                        let eventPlayerPosition: PlayerPosition | null = null
+
+                        // 1. If it doesn't have a $window_id, then it is likely server side - include it on any window where the time overlaps
+                        if (!event.properties.$window_id) {
+                            // Handle the case where the event is 'out of band' for the recording (it has no window_id).
+                            // This is the case where the event came from outside the recording (e.g. a server side event)
+                            // But it happens to overlap in time with the recording
+                            eventPlayerPosition = guessPlayerPositionFromEpochTimeWithoutWindowId(
+                                eventEpochTimeOfEvent,
+                                values.sessionPlayerData?.metadata?.startAndEndTimesByWindowId,
+                                values.sessionPlayerData?.metadata?.segments
+                            )
+                        } else {
+                            // 2. If it does have a $window_id, then link it to the window in question
+                            eventPlayerPosition = getPlayerPositionFromEpochTime(
+                                eventEpochTimeOfEvent,
+                                event.properties.$window_id, // If there is no window_id on the event to match the recording metadata
+                                values.sessionPlayerData.metadata.startAndEndTimesByWindowId
+                            )
                         }
+
                         if (eventPlayerPosition !== null) {
                             const eventPlayerTime = getPlayerTimeFromPlayerPosition(
                                 eventPlayerPosition,
@@ -385,7 +381,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                                     ...event,
                                     playerTime: eventPlayerTime,
                                     playerPosition: eventPlayerPosition,
-                                    isOutOfBand,
+                                    capturedInWindow: !!event.properties.$window_id,
                                     percentageOfRecordingDuration: values.sessionPlayerData.metadata.recordingDurationMs
                                         ? (100 * eventPlayerTime) /
                                           values.sessionPlayerData.metadata.recordingDurationMs
@@ -410,6 +406,28 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 },
             },
         ],
+
+        performanceEvents: [
+            null as null | PerformanceEvent[],
+            {
+                loadPerformanceEvents: async ({}, breakpoint) => {
+                    if (!values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]) {
+                        return null
+                    }
+
+                    // Use `nextUrl` if there is a `next` url to fetch
+                    const response = await api.performanceEvents.list({
+                        session_id: props.sessionRecordingId,
+                    })
+
+                    breakpoint()
+
+                    console.log(response)
+
+                    return response.results ?? []
+                },
+            },
+        ],
     })),
     selectors({
         sessionPlayerData: [
@@ -426,8 +444,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         ],
 
         eventsApiParams: [
-            (selectors) => [selectors.sessionPlayerData],
-            (sessionPlayerData) => {
+            (selectors) => [selectors.sessionPlayerData, (_, props) => props.sessionRecordingId],
+            (sessionPlayerData, sessionRecordingId) => {
                 const recordingStartTime = sessionPlayerData.metadata.segments.slice(0, 1).pop()?.startTimeEpochMs
                 const recordingEndTime = sessionPlayerData.metadata.segments.slice(-1).pop()?.endTimeEpochMs
                 if (!sessionPlayerData.person?.id || !recordingStartTime || !recordingEndTime) {
@@ -435,11 +453,34 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                 }
 
                 const buffer_ms = 60000 // +- before and after start and end of a recording to query for.
+
                 return {
                     person_id: sessionPlayerData.person.id,
                     after: dayjs.utc(recordingStartTime).subtract(buffer_ms, 'ms').format(),
                     before: dayjs.utc(recordingEndTime).add(buffer_ms, 'ms').format(),
                     orderBy: ['timestamp'],
+                    properties: {
+                        type: 'OR',
+                        values: [
+                            {
+                                type: 'AND',
+                                values: [
+                                    { key: '$session_id', value: 'is_not_set', operator: 'is_not_set', type: 'event' },
+                                ],
+                            },
+                            {
+                                type: 'AND',
+                                values: [
+                                    {
+                                        key: '$session_id',
+                                        value: [sessionRecordingId],
+                                        operator: 'exact',
+                                        type: 'event',
+                                    },
+                                ],
+                            },
+                        ],
+                    },
                 }
             },
         ],

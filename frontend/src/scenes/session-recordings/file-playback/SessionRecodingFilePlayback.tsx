@@ -11,7 +11,7 @@ import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 
 export function SessionRecordingFilePlayback(): JSX.Element {
     const { loadFromFile, resetSessionRecording } = useActions(sessionRecodingFilePlaybackLogic)
-    const { sessionRecording, sessionRecordingLoading } = useValues(sessionRecodingFilePlaybackLogic)
+    const { sessionRecording, sessionRecordingLoading, playerKey } = useValues(sessionRecodingFilePlaybackLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const filePlaybackEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
 
@@ -49,7 +49,7 @@ export function SessionRecordingFilePlayback(): JSX.Element {
                     <SessionRecordingPlayer
                         sessionRecordingId=""
                         sessionRecordingData={sessionRecording}
-                        playerKey="file-playback"
+                        playerKey={playerKey}
                     />
                 </div>
             ) : (

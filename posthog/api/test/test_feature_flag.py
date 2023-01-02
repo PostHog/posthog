@@ -3,11 +3,14 @@ import json
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
+from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
+from posthog.models.group.util import create_group
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -892,7 +895,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -903,7 +906,7 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/my_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -914,7 +917,7 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -925,7 +928,7 @@ class TestFeatureFlag(APIBaseTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(7):
+        with self.assertNumQueries(8):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -1735,6 +1738,14 @@ class TestFeatureFlag(APIBaseTest):
 
         self.assertEqual(len(feature_flag["rollback_conditions"]), 1)
 
+    def test_feature_flag_can_edit(self):
+        self.assertEqual((AvailableFeature.ROLE_BASED_ACCESS in self.organization.available_features), False)
+        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
+        FeatureFlag.objects.create(team=self.team, created_by=user_a, key="blue_button")
+        res = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
+        self.assertEqual(res.json()["results"][0]["can_edit"], True)
+        self.assertEqual(res.json()["results"][1]["can_edit"], True)
+
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
     @snapshot_clickhouse_queries
@@ -1809,3 +1820,368 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertDictContainsSubset({"users_affected": 5, "total_users": 5}, response_json)
+
+    @snapshot_clickhouse_queries
+    def test_user_blast_radius_with_single_cohort(self):
+
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "group", "value": "none", "type": "person"},
+                                {"key": "group", "value": [1, 2, 3], "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [{"key": "id", "type": "cohort", "value": cohort1.pk}],
+                    "rollout_percentage": 50,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
+
+        # test the same with precalculated cohort. Snapshots shouldn't have group property filter
+        cohort1.calculate_people_ch(pending_version=0)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                {
+                    "condition": {
+                        "properties": [{"key": "id", "type": "cohort", "value": cohort1.pk}],
+                        "rollout_percentage": 50,
+                    }
+                },
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_json = response.json()
+            self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
+
+    @snapshot_clickhouse_queries
+    def test_user_blast_radius_with_multiple_precalculated_cohorts(self):
+
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        cohort1 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "group", "value": "none", "type": "person"},
+                                {"key": "group", "value": [1, 2, 3], "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort1",
+        )
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "group", "value": [1, 2, 4, 5, 6], "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        # converts to precalculated-cohort due to simplify filters
+        cohort1.calculate_people_ch(pending_version=0)
+        cohort2.calculate_people_ch(pending_version=0)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                {
+                    "condition": {
+                        "properties": [
+                            {"key": "id", "type": "cohort", "value": cohort1.pk},
+                            {"key": "id", "type": "cohort", "value": cohort2.pk},
+                        ],
+                        "rollout_percentage": 50,
+                    }
+                },
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_json = response.json()
+            self.assertDictContainsSubset({"users_affected": 2, "total_users": 10}, response_json)
+
+    @snapshot_clickhouse_queries
+    def test_user_blast_radius_with_multiple_static_cohorts(self):
+
+        for i in range(10):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+
+        cohort1 = Cohort.objects.create(team=self.team, groups=[], is_static=True, last_calculation=timezone.now())
+        cohort1.insert_users_by_list(["person0", "person1", "person2"])
+
+        cohort2 = Cohort.objects.create(
+            team=self.team,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "group", "value": [1, 2, 4, 5, 6], "type": "person"},
+                            ],
+                        }
+                    ],
+                }
+            },
+            name="cohort2",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": "id", "type": "cohort", "value": cohort1.pk},
+                        {"key": "id", "type": "cohort", "value": cohort2.pk},
+                    ],
+                    "rollout_percentage": 50,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 2, "total_users": 10}, response_json)
+
+        cohort1.calculate_people_ch(pending_version=0)
+        # converts to precalculated-cohort due to simplify filters
+        cohort2.calculate_people_ch(pending_version=0)
+
+        with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+                {
+                    "condition": {
+                        "properties": [
+                            {"key": "id", "type": "cohort", "value": cohort1.pk},
+                            {"key": "id", "type": "cohort", "value": cohort2.pk},
+                        ],
+                        "rollout_percentage": 50,
+                    }
+                },
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            response_json = response.json()
+            self.assertDictContainsSubset({"users_affected": 2, "total_users": 10}, response_json)
+
+    @snapshot_clickhouse_queries
+    def test_user_blast_radius_with_groups(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": f"{i}"}
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "industry",
+                            "type": "group",
+                            "value": [0, 1, 2, 3],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        }
+                    ],
+                    "rollout_percentage": 25,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 4, "total_users": 10}, response_json)
+
+    def test_user_blast_radius_with_groups_zero_selected(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        for i in range(5):
+            create_group(
+                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": f"{i}"}
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {"key": "industry", "type": "group", "value": [8], "operator": "exact", "group_type_index": 0}
+                    ],
+                    "rollout_percentage": 25,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 0, "total_users": 5}, response_json)
+
+    def test_user_blast_radius_with_groups_all_selected(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        for i in range(5):
+            create_group(
+                team_id=self.team.pk, group_type_index=1, group_key=f"org:{i}", properties={"industry": f"{i}"}
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [],
+                    "rollout_percentage": 25,
+                },
+                "group_type_index": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 5, "total_users": 5}, response_json)
+
+    @snapshot_clickhouse_queries
+    def test_user_blast_radius_with_groups_multiple_queries(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": f"{i}"}
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "industry",
+                            "type": "group",
+                            "value": [0, 1, 2, 3, 4],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                        {
+                            "key": "industry",
+                            "type": "group",
+                            "value": [2, 3, 4, 5, 6],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 25,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        response_json = response.json()
+        self.assertDictContainsSubset({"users_affected": 3, "total_users": 10}, response_json)
+
+    def test_user_blast_radius_with_groups_incorrect_group_type(self):
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+        GroupTypeMapping.objects.create(team=self.team, group_type="company", group_type_index=1)
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i}", properties={"industry": f"{i}"}
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": "industry",
+                            "type": "group",
+                            "value": [0, 1, 2, 3, 4],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                        {
+                            "key": "industry",
+                            "type": "group",
+                            "value": [2, 3, 4, 5, 6],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 25,
+                },
+                "group_type_index": 1,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        response_json = response.json()
+        self.assertDictContainsSubset(
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Invalid group type index for feature flag condition.",
+            },
+            response_json,
+        )

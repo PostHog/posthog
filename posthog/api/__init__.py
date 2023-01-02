@@ -9,7 +9,6 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
-    dashboard,
     dead_letter_queue,
     event_definition,
     exports,
@@ -35,6 +34,7 @@ from . import (
     uploaded_media,
     user,
 )
+from .dashboards import dashboard
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -52,7 +52,7 @@ router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be dele
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"prompts", prompt.PromptSequenceStateViewSet, "user_prompts")  # User prompts
+router.register(r"prompts", prompt.PromptSequenceViewSet, "user_prompts")  # User prompts
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)

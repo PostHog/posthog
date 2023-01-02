@@ -144,6 +144,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         _create_action(team=self.team, name="no events")
         sign_up_action = _create_action(team=self.team, name="sign up")
 
+        flush_persons_and_events()
+
         return sign_up_action, person
 
     def _create_breakdown_events(self):
@@ -154,37 +156,63 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 _create_event(team=self.team, event="sign up", distinct_id="blabla", properties={"$some_property": i})
         _create_action(team=self.team, name="sign up")
 
-    def _create_event_count_per_user_events(self):
+    def _create_event_count_per_actor_events(self):
         _create_person(team_id=self.team.pk, distinct_ids=["blabla", "anonymous_id"], properties={"fruit": "mango"})
         _create_person(team_id=self.team.pk, distinct_ids=["tintin"], properties={"fruit": "mango"})
         _create_person(team_id=self.team.pk, distinct_ids=["murmur"], properties={})  # No fruit here
         _create_person(team_id=self.team.pk, distinct_ids=["reeree"], properties={"fruit": "tomato"})
 
         with freeze_time("2020-01-01 00:06:02"):
-            _create_event(team=self.team, event="viewed video", distinct_id="anonymous_id", properties={"color": "red"})
-            _create_event(team=self.team, event="viewed video", distinct_id="blabla", properties={})  # No color here
-            _create_event(team=self.team, event="viewed video", distinct_id="reeree", properties={"color": "blue"})
             _create_event(
                 team=self.team,
-                event="sign up",
-                distinct_id="tintin",
+                event="viewed video",
+                distinct_id="anonymous_id",
+                properties={"color": "red", "$group_0": "bouba"},
             )
+            _create_event(
+                team=self.team, event="viewed video", distinct_id="blabla", properties={"$group_0": "bouba"}
+            )  # No color here
+            _create_event(
+                team=self.team,
+                event="viewed video",
+                distinct_id="reeree",
+                properties={"color": "blue", "$group_0": "bouba"},
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="tintin", properties={"$group_0": "kiki"})
 
         with freeze_time("2020-01-03 19:06:34"):
-            _create_event(
-                team=self.team,
-                event="sign up",
-                distinct_id="murmur",
-            )
+            _create_event(team=self.team, event="sign up", distinct_id="murmur", properties={"$group_0": "kiki"})
 
         with freeze_time("2020-01-04 23:17:00"):
-            _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
+            _create_event(
+                team=self.team,
+                event="viewed video",
+                distinct_id="tintin",
+                properties={"color": "red", "$group_0": "kiki"},
+            )
 
         with freeze_time("2020-01-05 19:06:34"):
-            _create_event(team=self.team, event="viewed video", distinct_id="blabla", properties={"color": "blue"})
-            _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
-            _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"})
-            _create_event(team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "blue"})
+            _create_event(
+                team=self.team,
+                event="viewed video",
+                distinct_id="blabla",
+                properties={"color": "blue", "$group_0": "bouba"},
+            )
+            _create_event(
+                team=self.team, event="viewed video", distinct_id="tintin", properties={"color": "red"}
+            )  # No group here
+            _create_event(
+                team=self.team,
+                event="viewed video",
+                distinct_id="tintin",
+                properties={"color": "red", "$group_0": "bouba"},
+            )
+            _create_event(
+                team=self.team,
+                event="viewed video",
+                distinct_id="tintin",
+                properties={"color": "blue", "$group_0": "kiki"},
+            )
 
     def test_trends_per_day(self):
         self._create_events()
@@ -241,7 +269,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
                 from posthog.models.team import util
 
-                util.can_enable_person_on_events = True
+                util.can_enable_actor_on_events = True
 
                 response = Trends().run(Filter(data=data), self.team)
                 self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 10.0])
@@ -306,6 +334,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][1], 1.0)
         self.assertEqual(response[0]["labels"][1], "2-Jan-2020")
 
+    @snapshot_clickhouse_queries
     def test_trends_per_day_cumulative(self):
         self._create_events()
         with freeze_time("2020-01-04T13:00:01Z"):
@@ -326,6 +355,32 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][4], 3.0)
         self.assertEqual(response[0]["labels"][5], "2-Jan-2020")
         self.assertEqual(response[0]["data"][5], 4.0)
+
+    @snapshot_clickhouse_queries
+    def test_trends_groups_per_day_cumulative(self):
+        self._create_event_count_per_actor_events()
+        with freeze_time("2020-01-06T13:00:01Z"):
+
+            response = Trends().run(
+                Filter(
+                    data={
+                        "date_from": "-7d",
+                        "display": "ActionsLineGraphCumulative",
+                        "events": [
+                            {
+                                "id": "viewed video",
+                                "math": "unique_group",
+                                "math_group_type_index": 0,
+                            }
+                        ],
+                    }
+                ),
+                self.team,
+            )
+
+        self.assertEqual(response[0]["label"], "viewed video")
+        self.assertEqual(response[0]["labels"][-1], "6-Jan-2020")
+        self.assertEqual(response[0]["data"], [0.0, 0.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0])
 
     def test_trends_single_aggregate_dau(self):
         self._create_events()
@@ -4219,6 +4274,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             event="$pageview",
             distinct_id="p0",
+            timestamp="2020-01-03T11:00:00Z",
+            properties={"key": "val"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p0",
             timestamp="2020-01-03T12:00:00Z",
             properties={"key": "val"},
         )
@@ -4228,7 +4290,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p1",
             timestamp="2020-01-09T12:00:00Z",
-            properties={"key": "val"},
+            properties={"key": "bor"},
         )
         _create_event(
             team=self.team,
@@ -4243,7 +4305,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p1",
             timestamp="2020-01-10T12:00:00Z",
-            properties={"key": "val"},
+            properties={"key": "bor"},
         )
 
         _create_event(
@@ -4258,7 +4320,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             event="$pageview",
             distinct_id="p2",
             timestamp="2020-01-11T12:00:00Z",
-            properties={"key": "val"},
+            properties={"key": "bor"},
         )
 
         _create_event(
@@ -4268,6 +4330,38 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-12T12:00:00Z",
             properties={"key": "val"},
         )
+
+    @snapshot_clickhouse_queries
+    def test_weekly_active_users_aggregated_range_wider_than_week(self):
+        self._create_active_users_events()
+
+        data = {
+            "date_from": "2020-01-01",
+            "date_to": "2020-01-08",
+            "display": TRENDS_TABLE,
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = Trends().run(filter, self.team)
+        # Only p0 was active on 2020-01-08 or in the preceding 6 days
+        self.assertEqual(result[0]["aggregated_value"], 1)
+
+    @snapshot_clickhouse_queries
+    def test_weekly_active_users_aggregated_range_narrower_than_week(self):
+        self._create_active_users_events()
+
+        data = {
+            "date_from": "2020-01-11",
+            "date_to": "2020-01-12",
+            "display": TRENDS_TABLE,
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+        }
+
+        filter = Filter(data=data)
+        result = Trends().run(filter, self.team)
+        # All were active on 2020-01-12 or in the preceding 6 days
+        self.assertEqual(result[0]["aggregated_value"], 3)
 
     @snapshot_clickhouse_queries
     def test_weekly_active_users_monthly(self):
@@ -4455,8 +4549,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["data"], [1.0, 3.0, 2.0, 2.0, 3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 1.0, 0.0])
 
     @test_with_materialized_columns(["key"])
-    def test_breakdown_weekly_active_users(self):
-
+    def test_breakdown_weekly_active_users_daily(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
@@ -4507,8 +4600,48 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
 
+    @test_with_materialized_columns(person_properties=["name"])
     @snapshot_clickhouse_queries
-    def test_breakdown_weekly_active_users_based_on_action(self):
+    def test_weekly_active_users_filtering(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "person-1"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "person-2"})
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "person-3"})
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-09T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p2",
+            timestamp="2020-01-10T12:00:00Z",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p3",
+            timestamp="2020-01-11T12:00:00Z",
+        )
+
+        filter = Filter(
+            data={
+                "date_from": "2020-01-01T00:00:00Z",
+                "date_to": "2020-01-12T00:00:00Z",
+                "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+                "properties": [
+                    {"key": "name", "operator": "exact", "value": ["person-1", "person-2"], "type": "person"}
+                ],
+            }
+        )
+
+        result = Trends().run(filter, self.team)
+        self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 2.0, 2.0, 2.0])
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_weekly_active_users_daily_based_on_action(self):
         _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
         _create_event(
             team=self.team,
@@ -4588,6 +4721,28 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 0.0])
+
+    @test_with_materialized_columns(["key"])
+    @snapshot_clickhouse_queries
+    def test_breakdown_weekly_active_users_aggregated(self):
+        self._create_active_users_events()
+
+        data = {
+            "date_from": "2020-01-11",
+            "date_to": "2020-01-11",
+            "display": TRENDS_TABLE,
+            "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
+            "breakdown": "key",
+        }
+
+        filter = Filter(data=data)
+        result = Trends().run(filter, self.team)
+        # All were active on 2020-01-12 or in the preceding 6 days
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["breakdown_value"], "bor")
+        self.assertEqual(result[0]["aggregated_value"], 2)
+        self.assertEqual(result[1]["breakdown_value"], "val")
+        self.assertEqual(result[1]["aggregated_value"], 2)
 
     @test_with_materialized_columns(event_properties=["key"], person_properties=["name"])
     def test_filter_test_accounts(self):
@@ -5200,8 +5355,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 self.team,
             )
 
-    def test_trends_volume_per_user_average(self):
-        self._create_event_count_per_user_events()
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_user_average_daily(self):
+        self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
             Filter(
@@ -5227,9 +5383,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         ]
         assert daily_response[0]["data"] == [1.5, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]
 
-    def test_trends_volume_per_user_average_weekly(self):
+    def test_trends_count_per_user_average_weekly(self):
         # Weekly aggregation uses "start_of_week_fix"
-        self._create_event_count_per_user_events()
+        self._create_event_count_per_actor_events()
 
         weekly_response = Trends().run(
             Filter(
@@ -5248,8 +5404,9 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert weekly_response[0]["days"] == ["2019-12-29", "2020-01-05"]
         assert weekly_response[0]["data"] == [1.3333333333333333, 2.0]
 
-    def test_trends_volume_per_user_average_aggregated(self):
-        self._create_event_count_per_user_events()
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_user_average_aggregated(self):
+        self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
             Filter(
@@ -5266,8 +5423,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert len(daily_response) == 1
         assert daily_response[0]["aggregated_value"] == 2.6666666666666665  # 8 events divided by 3 users
 
-    def test_trends_volume_per_user_maximum(self):
-        self._create_event_count_per_user_events()
+    def test_trends_count_per_user_maximum(self):
+        self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
             Filter(
@@ -5293,38 +5450,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         ]
         assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 3.0, 0.0, 0.0]
 
-    def test_trends_breakdown_timezone(self):
-        self.team.timezone = "US/Pacific"
-        self.team.save()
-        self._create_event_count_per_user_events()
-
-        with freeze_time("2020-01-03 19:06:34"):
-            _create_person(team_id=self.team.pk, distinct_ids=["another_user"])
-            _create_event(
-                team=self.team, event="viewed video", distinct_id="another_user", properties={"color": "orange"}
-            )
-
-        daily_response = Trends().run(
-            Filter(
-                data={
-                    "display": TRENDS_LINEAR,
-                    "events": [{"id": "viewed video", "math": "dau"}],
-                    "breakdown": "color",
-                    "date_from": "2020-01-01",
-                    "date_to": "2020-03-07",
-                    "interval": "month",
-                }
-            ),
-            self.team,
-        )
-
-        # assert len(daily_response) == 4
-        assert daily_response[0]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
-        assert daily_response[1]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
-        assert daily_response[2]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
-
-    def test_trends_volume_per_user_average_with_event_property_breakdown(self):
-        self._create_event_count_per_user_events()
+    def test_trends_count_per_user_average_with_event_property_breakdown(self):
+        self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
             Filter(
@@ -5358,8 +5485,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]  # blue
         assert daily_response[2]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # none
 
-    def test_trends_volume_per_user_average_with_person_property_breakdown(self):
-        self._create_event_count_per_user_events()
+    def test_trends_count_per_user_average_with_person_property_breakdown(self):
+        self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
             Filter(
@@ -5391,8 +5518,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[0]["data"] == [2.0, 0.0, 0.0, 1.0, 2.0, 0.0, 0.0]  # red
         assert daily_response[1]["data"] == [1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # blue
 
-    def test_trends_volume_per_user_average_aggregated_with_event_property_breakdown(self):
-        self._create_event_count_per_user_events()
+    def test_trends_count_per_user_average_aggregated_with_event_property_breakdown(self):
+        self._create_event_count_per_actor_events()
 
         daily_response = Trends().run(
             Filter(
@@ -5414,6 +5541,98 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         assert daily_response[0]["aggregated_value"] == 2.0  # red
         assert daily_response[1]["aggregated_value"] == 1.0  # blue
         assert daily_response[2]["aggregated_value"] == 1.0  # none
+
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_group_average_daily(self):
+        self._create_event_count_per_actor_events()
+        GroupTypeMapping.objects.create(team=self.team, group_type="shape", group_type_index=0)
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="kiki")
+
+        daily_response = Trends().run(
+            Filter(
+                data={
+                    "display": TRENDS_LINEAR,
+                    "events": [{"id": "viewed video", "math": "avg_count_per_actor", "math_group_type_index": 0}],
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                }
+            ),
+            self.team,
+        )
+
+        assert len(daily_response) == 1
+        assert daily_response[0]["days"] == [
+            "2020-01-01",
+            "2020-01-02",
+            "2020-01-03",
+            "2020-01-04",
+            "2020-01-05",
+            "2020-01-06",
+            "2020-01-07",
+        ]
+        assert daily_response[0]["data"] == [
+            3.0,  # 3 group-assigned "viewed video" events by 2 persons / 1 group (bouba)
+            0.0,  # No events at all
+            0.0,  # No "viewed video" events
+            1.0,  # 1 group-assigned "viewed video" event by 1 person / 1 group (kiki)
+            1.5,  # 3 group-assigned "viewed video" events by 1 person / 2 groups (bouba, kiki)
+            # The group-less event is ignored!
+            0.0,  # No events at all
+            0.0,  # No events at all
+        ]
+
+    @snapshot_clickhouse_queries
+    def test_trends_count_per_group_average_aggregated(self):
+        self._create_event_count_per_actor_events()
+        GroupTypeMapping.objects.create(team=self.team, group_type="shape", group_type_index=0)
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="bouba")
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="kiki")
+
+        daily_response = Trends().run(
+            Filter(
+                data={
+                    "display": TRENDS_TABLE,
+                    "events": [{"id": "viewed video", "math": "avg_count_per_actor", "math_group_type_index": 0}],
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-01-07",
+                }
+            ),
+            self.team,
+        )
+
+        assert len(daily_response) == 1
+        assert daily_response[0]["aggregated_value"] == 3.5  # 7 relevant events divided by 2 groups
+
+    def test_trends_breakdown_timezone(self):
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+        self._create_event_count_per_actor_events()
+
+        with freeze_time("2020-01-03 19:06:34"):
+            _create_person(team_id=self.team.pk, distinct_ids=["another_user"])
+            _create_event(
+                team=self.team, event="viewed video", distinct_id="another_user", properties={"color": "orange"}
+            )
+
+        daily_response = Trends().run(
+            Filter(
+                data={
+                    "display": TRENDS_LINEAR,
+                    "events": [{"id": "viewed video", "math": "dau"}],
+                    "breakdown": "color",
+                    "date_from": "2020-01-01",
+                    "date_to": "2020-03-07",
+                    "interval": "month",
+                }
+            ),
+            self.team,
+        )
+
+        # assert len(daily_response) == 4
+        assert daily_response[0]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
+        assert daily_response[1]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
+        assert daily_response[2]["days"] == ["2020-01-01", "2020-02-01", "2020-03-01"]
 
     def _create_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)

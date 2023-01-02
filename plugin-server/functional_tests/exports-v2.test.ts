@@ -1,26 +1,20 @@
-import ClickHouse from '@posthog/clickhouse'
+import { createServer, Server } from 'http'
 import Redis from 'ioredis'
 import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
-import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
-import {
-    capture,
-    createAndReloadPluginConfig,
-    createOrganization,
-    createPlugin,
-    createTeam,
-    fetchPluginLogEntries,
-} from './api'
+import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam, getMetric } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
-let clickHouseClient: ClickHouse
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let kafka: Kafka
 let redis: Redis.Redis
 let organizationId: string
+let server: Server
+const webHookCalledWith: any = {}
 
 beforeAll(async () => {
     // Setup connections to kafka, clickhouse, and postgres
@@ -30,25 +24,31 @@ beforeAll(async () => {
         // so set max connections to 1.
         max: 1,
     })
-    clickHouseClient = new ClickHouse({
-        host: defaultConfig.CLICKHOUSE_HOST,
-        port: 8123,
-        dataObjects: true,
-        queryOptions: {
-            database: defaultConfig.CLICKHOUSE_DATABASE,
-            output_format_json_quote_64bit_integers: false,
-        },
-    })
     kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
     producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
     await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)
 
     organizationId = await createOrganization(postgres)
+
+    server = createServer((req, res) => {
+        let body = ''
+        req.on('data', (chunk) => {
+            body += chunk
+        })
+        req.on('end', () => {
+            webHookCalledWith[req.url!] = webHookCalledWith[req.url!] ?? []
+            webHookCalledWith[req.url!].push(JSON.parse(body))
+            res.writeHead(200, { 'Content-Type': 'text/plain' })
+            res.end()
+        })
+    })
+    server.listen()
 })
 
 afterAll(async () => {
     await Promise.all([producer.disconnect(), postgres.end(), redis.disconnect()])
+    server.close()
 })
 
 test.concurrent(`exports: historical exports v2`, async () => {
@@ -63,7 +63,10 @@ test.concurrent(`exports: historical exports v2`, async () => {
         is_global: false,
         source__index_ts: `
             export const exportEvents = async (events, { global, config }) => {
-                console.info(JSON.stringify(['exportEvents', events]))
+                await fetch(
+                    "http://localhost:${server.address()?.port}/${teamId}", 
+                    {method: "POST", body: JSON.stringify(events)}
+                )
             }
         `,
     })
@@ -79,18 +82,11 @@ test.concurrent(`exports: historical exports v2`, async () => {
     })
 
     // Then check that the exportEvents function was called
-    const exportEvents = await delayUntilEventIngested(
-        async () =>
-            (
-                await fetchPluginLogEntries(clickHouseClient, pluginConfig.id)
-            ).filter(({ message: [method] }) => method === 'exportEvents'),
-        1,
-        500,
-        40
-    )
-
-    expect(exportEvents.length).toBeGreaterThan(0)
-    const [exportedEvent] = exportEvents[0].message[1]
+    const [exportedEvent] = await waitForExpect(() => {
+        const exportEvents = webHookCalledWith[`/${teamId}`]
+        expect(exportEvents.length).toBeGreaterThan(0)
+        return exportEvents[0]
+    }, 20_000)
 
     // NOTE: the frontend doesn't actually push to this queue but rather
     // adds directly to PostgreSQL using the graphile-worker stored
@@ -118,31 +114,60 @@ test.concurrent(`exports: historical exports v2`, async () => {
     // Then check that the exportEvents function was called with the
     // same data that was used with the non-historical export, with the
     // additions of details related to the historical export.
-    const historicallyExportedEvents = await delayUntilEventIngested(
-        async () =>
-            (await fetchPluginLogEntries(clickHouseClient, pluginConfig.id))
-                .filter(({ message: [method] }) => method === 'exportEvents')
-                .filter(({ message: [, events] }) =>
-                    events.some((event) => event.properties['$$is_historical_export_event'])
-                ),
-        1,
-        500,
-        40
+    await waitForExpect(
+        () => {
+            const historicallyExportedEvents = webHookCalledWith[`/${teamId}`].filter((events) =>
+                events.some((event) => event.properties['$$is_historical_export_event'])
+            )
+            expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+
+            const historicallyExportedEvent = historicallyExportedEvents[0]
+            expect(historicallyExportedEvent).toEqual([
+                expect.objectContaining({
+                    ...exportedEvent,
+                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+                    properties: {
+                        ...exportedEvent.properties,
+                        $$is_historical_export_event: true,
+                        $$historical_export_timestamp: expect.any(String),
+                        $$historical_export_source_db: 'clickhouse',
+                    },
+                }),
+            ])
+        },
+        20_000,
+        1_000
     )
+})
 
-    expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+    // NOTE: it may be another event other than the one we emit here that causes
+    // the gauge to increase, but pushing this event through should at least
+    // ensure that the gauge is updated.
+    const teamId = await createTeam(postgres, organizationId)
+    const distinctId = new UUIDT().toString()
+    const uuid = new UUIDT().toString()
 
-    const historicallyExportedEvent = historicallyExportedEvents[0].message[1]
-    expect(historicallyExportedEvent).toEqual([
-        expect.objectContaining({
-            ...exportedEvent,
-            ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
-            properties: {
-                ...exportedEvent.properties,
-                $$is_historical_export_event: true,
-                $$historical_export_timestamp: expect.any(String),
-                $$historical_export_source_db: 'clickhouse',
-            },
-        }),
-    ])
+    const metricBefore = await getMetric({
+        name: 'latest_processed_timestamp_ms',
+        type: 'GAUGE',
+        labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
+    })
+
+    await capture(producer, teamId, distinctId, uuid, '$autocapture', {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    })
+
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'clickhouse_events_json', partition: '0', groupId: 'async_handlers' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+        expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
+        expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
+    }, 10_000)
 })

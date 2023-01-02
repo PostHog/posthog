@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import structlog
@@ -142,7 +142,10 @@ def get_decide(request: HttpRequest):
                 )
 
             property_overrides = get_geoip_properties(get_ip_address(request))
-            all_property_overrides = {**property_overrides, **(data.get("person_properties") or {})}
+            all_property_overrides: Dict[str, Union[str, int]] = {
+                **property_overrides,
+                **(data.get("person_properties") or {}),
+            }
 
             feature_flags, _ = get_active_feature_flags(
                 team.pk,
@@ -153,12 +156,16 @@ def get_decide(request: HttpRequest):
                 group_property_value_overrides=(data.get("group_properties") or {}),
             )
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
+            response["capturePerformance"] = True if team.capture_performance_opt_in else False
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
-                response["sessionRecording"] = {"endpoint": "/s/", "consoleLogRecordingEnabled": capture_console_logs}
+                response["sessionRecording"] = {
+                    "endpoint": "/s/",
+                    "consoleLogRecordingEnabled": capture_console_logs,
+                }
 
             response["siteApps"] = get_decide_site_apps(team) if team.inject_web_apps else []
 

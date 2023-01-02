@@ -8,6 +8,11 @@ import { dayjs } from 'lib/dayjs'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { actionLogic, ActionLogicProps } from 'scenes/actions/actionLogic'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export const scene: SceneExport = {
     logic: actionLogic,
@@ -22,6 +27,9 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
 
     const { action, isComplete } = useValues(actionLogic)
     const { loadAction } = useActions(actionLogic)
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     return (
         <>
@@ -53,13 +61,29 @@ export function Action({ id }: { id?: ActionType['id'] } = {}): JSX.Element {
                             )}
                         </p>
                         <div className="pt-4 border-t" />
-                        <EventsTable
-                            fixedFilters={fixedFilters}
-                            sceneUrl={urls.action(id)}
-                            fetchMonths={3}
-                            pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
-                            showEventFilter={false}
-                        />
+                        {featureDataExploration ? (
+                            <Query
+                                query={{
+                                    kind: NodeKind.DataTableNode,
+                                    source: {
+                                        kind: NodeKind.EventsQuery,
+                                        select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                        actionId: id,
+                                    },
+                                    full: true,
+                                    showEventFilter: false,
+                                    showPropertyFilter: false,
+                                }}
+                            />
+                        ) : (
+                            <EventsTable
+                                fixedFilters={fixedFilters}
+                                sceneUrl={urls.action(id)}
+                                fetchMonths={3}
+                                pageKey={`action-${id}-${JSON.stringify(fixedFilters)}`}
+                                showEventFilter={false}
+                            />
+                        )}
                     </div>
                 ) : (
                     <div>

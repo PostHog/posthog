@@ -1,44 +1,58 @@
 VOLUME_SQL = """
-SELECT {aggregate_operation} as data, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date FROM ({event_query}) GROUP BY date
+SELECT
+    {aggregate_operation} as data,
+    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s) {start_of_week_fix}) as date
+{event_query_base}
+GROUP BY date
 """
 
 VOLUME_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data FROM ({event_query}) events
+SELECT {aggregate_operation} as data
+{event_query_base}
 """
 
 VOLUME_PER_ACTOR_SQL = """
 SELECT {aggregate_operation} AS data, date FROM (
-    SELECT COUNT(*) AS intermediate_count, {aggregator}, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS date
-    FROM ({event_query})
+    SELECT
+        count() AS intermediate_count,
+        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS date
+    {event_query_base}
     GROUP BY {aggregator}, date
 ) GROUP BY date
 """
 
 VOLUME_PER_ACTOR_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
-    SELECT COUNT(*) AS intermediate_count, {aggregator}
-    FROM ({event_query})
+    SELECT
+        count() AS intermediate_count
+    {event_query_base}
     GROUP BY {aggregator}
 ) events
 """
 
 SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} as data, date FROM (
-    SELECT {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date, any(session_duration) as session_duration
-    FROM ({event_query})
-    GROUP BY $session_id, date
+    SELECT
+        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date,
+        any(sessions.session_duration) as session_duration
+    {event_query_base}
+    GROUP BY sessions.$session_id, date
 ) GROUP BY date
 """
 
 SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
-    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
+    SELECT any(session_duration) as session_duration
+    {event_query_base}
+    GROUP BY sessions.$session_id
 )
 """
 
+# This query performs poorly due to aggregation happening outside of subqueries.
+# :TODO: Fix this!
 ACTIVE_USERS_SQL = """
 SELECT counts AS total, timestamp AS day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) AS counts FROM (
+    SELECT d.timestamp, COUNT(DISTINCT actor_id) AS counts FROM (
         /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
            and not `events`, because we cannot rely on there being an event for each period (this assumption previously
            caused active user counts to be off for sparse events). */
@@ -50,33 +64,39 @@ SELECT counts AS total, timestamp AS day_start FROM (
     CROSS JOIN (
         SELECT
             toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
-            {aggregator}
-        FROM ({event_query}) events
-        WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to}
-        GROUP BY timestamp, {aggregator}
+            {aggregator} AS actor_id
+        {event_query_base}
+        GROUP BY timestamp, actor_id
     ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
 """
 
-AGGREGATE_SQL = """
+ACTIVE_USERS_AGGREGATE_SQL = """
+SELECT
+    {aggregate_operation} AS total
+{event_query_base}
+"""
+
+FINAL_TIME_SERIES_SQL = """
 SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     SELECT {smoothing_operation} AS count, day_start
-    from (
+    FROM (
         {null_sql}
         UNION ALL
         {content_sql}
     )
-    group by day_start
-    order by day_start
+    GROUP BY day_start
+    ORDER BY day_start
 )
 SETTINGS timeout_before_checking_execution_speed = 60
 """
 
 CUMULATIVE_SQL = """
-SELECT person_id, min(timestamp) as timestamp
-FROM ({event_query}) GROUP BY person_id
+SELECT {actor_expression} AS actor_id, min(timestamp) AS first_seen_timestamp
+{event_query_base}
+GROUP BY actor_id
 """
 
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """
@@ -274,13 +294,16 @@ GROUP BY day_start, breakdown_value
 """
 
 BREAKDOWN_ACTIVE_USER_INNER_SQL = """
-SELECT counts as total, timestamp as day_start, breakdown_value
+SELECT counts AS total, timestamp AS day_start, breakdown_value
 FROM (
     SELECT d.timestamp, COUNT(DISTINCT person_id) counts, breakdown_value FROM (
-        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
+        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp FROM events e WHERE team_id = %(team_id)s {parsed_date_from_prev_range} {parsed_date_to} GROUP BY timestamp
     ) d
     CROSS JOIN (
-        SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) as timestamp, {person_id_alias}.person_id AS person_id, {breakdown_value} as breakdown_value
+        SELECT
+            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp,
+            {person_id_alias}.person_id AS person_id,
+            {breakdown_value} AS breakdown_value
         FROM events e
         {person_join}
         {groups_join}
@@ -295,6 +318,19 @@ FROM (
 ) WHERE 11111 = 11111 {parsed_date_from} {parsed_date_to}
 """
 
+BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL = """
+SELECT
+    {aggregate_operation} AS total, {breakdown_value} as breakdown_value
+FROM events AS e
+{person_join}
+{groups_join}
+{sessions_join}
+{conditions}
+{null_person_filter}
+{parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+GROUP BY breakdown_value
+ORDER BY breakdown_value
+"""
 
 BREAKDOWN_AGGREGATE_QUERY_SQL = """
 SELECT {aggregate_operation} AS total, {breakdown_value} AS breakdown_value
@@ -308,7 +344,7 @@ ORDER BY breakdown_value
 """
 
 
-SESSION_DURATION_BREAKDOWN_AGGREGATE_QUERY_SQL = """
+SESSION_DURATION_BREAKDOWN_AGGREGATE_SQL = """
 SELECT {aggregate_operation} AS total, breakdown_value
 FROM (
     SELECT any(session_duration) as session_duration, breakdown_value FROM (

@@ -4,7 +4,8 @@ import { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
-import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
+import { getMetric } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
@@ -51,7 +52,7 @@ afterAll(async () => {
     await dlqConsumer.disconnect()
 })
 
-test.concurrent(`jobs-consumer: handles empty messages`, async () => {
+test.concurrent(`handles empty messages`, async () => {
     const key = uuidv4()
 
     await producer.send({
@@ -64,11 +65,13 @@ test.concurrent(`jobs-consumer: handles empty messages`, async () => {
         ],
     })
 
-    const messages = await delayUntilEventIngested(() => dlq.filter((message) => message.key?.toString() === key))
-    expect(messages.length).toBe(1)
+    await waitForExpect(() => {
+        const messages = dlq.filter((message) => message.key?.toString() === key)
+        expect(messages.length).toBe(1)
+    })
 })
 
-test.concurrent(`jobs-consumer: handles invalid JSON`, async () => {
+test.concurrent(`handles invalid JSON`, async () => {
     const key = uuidv4()
 
     await producer.send({
@@ -81,6 +84,37 @@ test.concurrent(`jobs-consumer: handles invalid JSON`, async () => {
         ],
     })
 
-    const messages = await delayUntilEventIngested(() => dlq.filter((message) => message.key?.toString() === key))
-    expect(messages.length).toBe(1)
+    await waitForExpect(() => {
+        const messages = dlq.filter((message) => message.key?.toString() === key)
+        expect(messages.length).toBe(1)
+    })
+})
+
+test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+    // NOTE: it may be another event other than the one we emit here that causes
+    // the gauge to increase, but pushing this event through should at least
+    // ensure that the gauge is updated.
+    const metricBefore = await getMetric({
+        name: 'latest_processed_timestamp_ms',
+        type: 'GAUGE',
+        labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
+    })
+
+    await producer.send({
+        topic: 'jobs',
+        // NOTE: we don't actually care too much about the contents of the
+        // message, just that it triggeres the consumer to try to process it.
+        messages: [{ key: '', value: '' }],
+    })
+
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'jobs', partition: '0', groupId: 'jobs-inserter' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+        expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
+        expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
+    }, 10_000)
 })

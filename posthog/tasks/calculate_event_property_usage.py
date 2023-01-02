@@ -1,7 +1,9 @@
 import json
 import time
+from collections import Counter
 from datetime import datetime
-from typing import Counter, Dict, List, Optional, Set, Tuple
+from typing import Counter as TCounter
+from typing import Dict, List, Optional, Set, Tuple
 
 import structlog
 from django.utils import timezone
@@ -259,9 +261,9 @@ def _get_event_properties(team_id: int, since: timezone.datetime) -> List[Tuple[
     return sync_execute(GET_EVENT_PROPERTIES, {"team_id": team_id, "timestamp": since})
 
 
-def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], Counter[PropertyIdentifier]]:
+def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], TCounter[PropertyIdentifier]]:
     event_usage: List[str] = []
-    counted_properties: Counter[PropertyIdentifier] = Counter()
+    counted_properties: TCounter[PropertyIdentifier] = Counter()
 
     insight_filters = [
         (id, Filter(data=filters) if filters else None)
@@ -269,6 +271,13 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
         .values_list("id", "filters")
         .all()
     ]
+
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.insight_filters_to_process",
+        value=len(insight_filters),
+        tags={"team": team_id},
+    )
+
     for id, item_filters in insight_filters:
         if item_filters is None:
             logger.info(
@@ -281,6 +290,21 @@ def _get_insight_query_usage(team_id: int, since: datetime) -> Tuple[List[str], 
         for item_filter_event in item_filters.events:
             event_usage.append(str(item_filter_event.id))
 
+        for item_filter_action in item_filters.actions:
+            action = item_filter_action.get_action()
+            event_usage.extend(action.get_step_events())
+
         counted_properties.update(FOSSColumnOptimizer(item_filters, team_id).used_properties_with_type("event"))
+
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.counted_events_for_team_insights",
+        value=len(event_usage),
+        tags={"team": team_id},
+    )
+    statsd.gauge(
+        "calculate_event_property_usage_for_team.counted_properties_for_team_insights",
+        value=sum(counted_properties.values()),
+        tags={"team": team_id},
+    )
 
     return event_usage, counted_properties

@@ -155,7 +155,7 @@ class Paths:
             team=self._team,
             extra_fields=self._extra_event_fields,
             extra_event_properties=self._extra_event_properties,
-            using_person_on_events=self._team.actor_on_events_querying_enabled,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
         ).get_query()
         self.params.update(params)
 

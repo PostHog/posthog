@@ -24,6 +24,7 @@ export interface BillingAlertConfig {
     status: 'info' | 'warning' | 'error'
     title: string
     message: string
+    contactSupport?: boolean
 }
 
 const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
@@ -49,6 +50,7 @@ export const billingLogic = kea<billingLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingV2Shown: true,
+        lockIfNecessary: true,
     }),
     connect({
         values: [featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
@@ -120,6 +122,15 @@ export const billingLogic = kea<billingLogicType>([
                     }
                 }
 
+                if (billing.deactivated) {
+                    return {
+                        status: 'error',
+                        title: 'Your organization has been temporarily suspended.',
+                        message: 'Please contact support to reactivate it.',
+                        contactSupport: true,
+                    }
+                }
+
                 const productOverLimit = billing.products.find((x) => {
                     return x.percentage_usage > 1
                 })
@@ -153,12 +164,16 @@ export const billingLogic = kea<billingLogicType>([
                 if (!billing || !preflight?.cloud) {
                     return false
                 }
-                // lock cloud users out if they are above the usage limit on any product
+                // lock cloud users without a subscription out if they are above the usage limit on any product
+
                 return Boolean(
-                    billingVersion === 'v2' &&
+                    ((billingVersion === 'v2' &&
+                        !billing.has_active_subscription &&
+                        !billing.free_trial_until &&
                         billing.products.find((x) => {
                             return x.percentage_usage > ALLOCATION_THRESHOLD_BLOCK
-                        }) &&
+                        })) ||
+                        billing.deactivated) &&
                         featureFlags[FEATURE_FLAGS.BILLING_LOCK_EVERYTHING]
                 )
             },
@@ -192,7 +207,7 @@ export const billingLogic = kea<billingLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         reportBillingV2Shown: () => {
             posthog.capture('billing v2 shown')
         },
@@ -209,6 +224,51 @@ export const billingLogic = kea<billingLogicType>([
                 // if the activation is successful, we reload the user to get the updated billing info on the organization
                 actions.loadUser()
                 router.actions.replace('/organization/billing')
+            } else {
+                actions.lockIfNecessary()
+            }
+        },
+
+        lockIfNecessary: () => {
+            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
+                posthog.capture('billing locked screen shown')
+                router.actions.replace(urls.billingLocked())
+            }
+        },
+        registerInstrumentationProps: async (_, breakpoint) => {
+            await breakpoint(100)
+            if (posthog && values.billing) {
+                const payload = {
+                    has_billing_plan: !!values.billing.has_active_subscription,
+                    free_trial_until: values.billing.free_trial_until?.toISOString(),
+                    customer_deactivated: values.billing.deactivated,
+                    current_total_amount_usd: values.billing.current_total_amount_usd,
+                }
+                if (values.billing.custom_limits_usd) {
+                    for (const product of Object.keys(values.billing.custom_limits_usd)) {
+                        payload[`custom_limits_usd.${product}`] = values.billing.custom_limits_usd[product]
+                    }
+                }
+                if (values.billing.products) {
+                    for (const product of values.billing.products) {
+                        const type = product.type.toLowerCase()
+                        payload[`percentage_usage.${type}`] = product.percentage_usage
+                        payload[`current_amount_usd.${type}`] = product.current_amount_usd
+                        payload[`unit_amount_usd.${type}`] = product.unit_amount_usd
+                        payload[`usage_limit.${type}`] = product.usage_limit
+                        payload[`current_usage.${type}`] = product.current_usage
+                        payload[`projected_usage.${type}`] = product.projected_usage
+                        payload[`free_allocation.${type}`] = product.free_allocation
+                    }
+                }
+                if (values.billing.billing_period) {
+                    payload['billing_period_start'] = values.billing.billing_period.current_period_start
+                    payload['billing_period_end'] = values.billing.billing_period.current_period_end
+                }
+                if (values.billing.license) {
+                    payload['license_plan'] = values.billing.license.plan
+                }
+                posthog.register(payload)
             }
         },
     })),
@@ -217,7 +277,7 @@ export const billingLogic = kea<billingLogicType>([
         actions.loadBilling()
     }),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions }) => ({
         // IMPORTANT: This needs to be above the "*" so it takes precedence
         '/organization/billing': (_params, _search, hash) => {
             if (hash.license) {
@@ -227,10 +287,7 @@ export const billingLogic = kea<billingLogicType>([
             }
         },
         '*': () => {
-            if (values.isUserLocked && router.values.location.pathname !== '/organization/billing/locked') {
-                posthog.capture('billing locked screen shown')
-                router.actions.replace(urls.billingLocked())
-            }
+            actions.lockIfNecessary()
         },
     })),
 ])

@@ -12,7 +12,7 @@ $screens: (
     'xxl': $xxl,
 );
 
-$spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 100, 120;
+$spaces: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 40, 60, 80, 100, 120, 200;
 $leadings: 3, 4, 5, 6, 7, 8, 9, 10;
 $sides: 'top', 'right', 'bottom', 'left';
 // CSS cursors from https://tailwindcss.com/docs/cursor
@@ -60,6 +60,12 @@ $list_style_types: 'none', 'disc', 'decimal';
 // See https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=2028%3A841
 // NOTE: Currently this has to be manually synced wit `tailwind.config.j` to allow IDE auto-completion
 $colors: (
+    // orange is a temporary variable only for year in posthog
+    'orange-highlight': #f4e7de,
+    'orange-extralight': #ff9647,
+    'orange-light': #ff8434,
+    'orange': #f54e00,
+    'orange-dark': #e43c00,
     'primary-highlight': #e8edff,
     'primary-extralight': #d2dbff,
     'primary-light': #345cff,
@@ -99,7 +105,7 @@ $colors: (
     'border-light': rgba(0, 0, 0, 0.08),
     'border-dark': rgba(0, 0, 0, 0.24),
     'border-active': rgba(0, 0, 0, 0.36),
-    'transparent': transparent,
+    'transparent': transparent
 );
 
 // These vars are modified via SCSS for legacy reasons (e.g. darken/lighten), so keeping as SCSS vars for now.

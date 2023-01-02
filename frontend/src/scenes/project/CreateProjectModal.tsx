@@ -37,14 +37,26 @@ export function CreateProjectModal({
 
     return (
         <LemonModal
-            title={currentOrganization ? `Create a project in ${currentOrganization.name}` : 'Create a project'}
+            title={currentOrganization ? `Create a project within ${currentOrganization.name}` : 'Create a project'}
             description={
-                <p>
-                    Safely silo data by using multiple projects.{' '}
-                    <Link to="https://posthog.com/manual/organizations-and-projects#projects" target="_blank">
-                        Learn more in Docs.
-                    </Link>
-                </p>
+                <>
+                    <p>
+                        Use Projects to organize your data into separate collections – for example, to create
+                        separate environments for production / staging / local development.
+                    </p>
+                    <p>
+                        <strong>Tip:</strong> We recommend using the same project for both your website and app to track
+                        conversion fully.{' '}
+                        <Link to="https://posthog.com/manual/organizations-and-projects#projects" target="_blank">
+                            Learn more in PostHog Docs.
+                        </Link>
+                    </p>
+                    {currentOrganization?.teams?.some((team) => team.name === 'Default Project') && (
+                        <p>
+                            <strong>Bonus tip:</strong> You can always rename your "Default Project".
+                        </p>
+                    )}
+                </>
             }
             footer={
                 <>
@@ -64,7 +76,7 @@ export function CreateProjectModal({
         >
             <PureField label="Project name">
                 <LemonInput
-                    placeholder="The Next Big Thing"
+                    placeholder="Production / Staging / Admin App"
                     maxLength={64}
                     autoFocus
                     value={name}

@@ -1,20 +1,24 @@
 import re
+from functools import lru_cache
 from typing import TYPE_CHECKING, Any, List, Optional
 
 import posthoganalytics
 import pytz
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MinLengthValidator
 from django.db import models
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
 from posthog.helpers.dashboard_templates import create_dashboard_from_template
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.team.util import person_on_events_ready
+from posthog.models.team.util import actor_on_events_ready
 from posthog.models.utils import UUIDClassicModel, generate_random_token_project, sane_repr
 from posthog.settings.utils import get_list
 from posthog.utils import GenericEmails
@@ -37,6 +41,9 @@ DEPRECATED_ATTRS = (
 
 
 class TeamManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().defer(*DEPRECATED_ATTRS)
+
     def set_test_account_filters(self, organization: Optional[Any]) -> List:
         filters = [
             {
@@ -79,7 +86,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.defer(*DEPRECATED_ATTRS).get(api_token=token)
+            return Team.objects.get(api_token=token)
         except Team.DoesNotExist:
             return None
 
@@ -110,6 +117,7 @@ class Team(UUIDClassicModel):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)
@@ -208,7 +216,16 @@ class Team(UUIDClassicModel):
         return self.get_effective_membership_level_for_parent_membership(requesting_parent_membership)
 
     @property
-    def actor_on_events_querying_enabled(self) -> bool:
+    def person_on_events_querying_enabled(self) -> bool:
+        result = self._person_on_events_querying_enabled
+        tag_queries(person_on_events_enabled=result)
+        return result
+
+    @property
+    def _person_on_events_querying_enabled(self) -> bool:
+        if settings.PERSON_ON_EVENTS_OVERRIDE is not None:
+            return settings.PERSON_ON_EVENTS_OVERRIDE
+
         # on PostHog Cloud, use the feature flag
         if is_cloud():
             return posthoganalytics.feature_enabled(
@@ -222,7 +239,7 @@ class Team(UUIDClassicModel):
             )
 
         # If the async migration is not complete, don't enable actor on events querying.
-        if not person_on_events_ready():
+        if not actor_on_events_ready():
             return False
 
         # on self-hosted, use the instance setting
@@ -242,7 +259,7 @@ class Team(UUIDClassicModel):
         filter = Filter(data={"full": "true"})
         person_query, person_query_params = PersonQuery(filter, self.id).get_query()
 
-        total_count = sync_execute(
+        return sync_execute(
             f"""
             SELECT count(1) FROM (
                 {person_query}
@@ -251,7 +268,20 @@ class Team(UUIDClassicModel):
             person_query_params,
         )[0][0]
 
-        return total_count
+    @lru_cache(maxsize=5)
+    def groups_seen_so_far(self, group_type_index: GroupTypeIndex) -> int:
+
+        from posthog.client import sync_execute
+
+        return sync_execute(
+            f"""
+            SELECT
+                count(DISTINCT group_key)
+            FROM groups
+            WHERE team_id = %(team_id)s AND group_type_index = %(group_type_index)s
+        """,
+            {"team_id": self.pk, "group_type_index": group_type_index},
+        )[0][0]
 
     def __str__(self):
         if self.name:
@@ -269,7 +299,7 @@ def groups_on_events_querying_enabled():
 
     Remove all usages of this when the feature is released to everyone.
     """
-    return person_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
+    return actor_on_events_ready() and get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
 
 
 def get_available_features_for_team(team_id: int):

@@ -4,10 +4,13 @@ import { useEffect, useState } from 'react'
 import schema from '~/queries/schema.json'
 import { LemonButton } from 'lib/components/LemonButton'
 import { queryEditorLogic } from '~/queries/QueryEditor/queryEditorLogic'
+import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
+import clsx from 'clsx'
 
 export interface QueryEditorProps {
     query: string
     setQuery?: (query: string) => void
+    className?: string
 }
 
 let i = 0
@@ -34,30 +37,39 @@ export function QueryEditor(props: QueryEditorProps): JSX.Element {
     }, [monaco])
 
     return (
-        <div className="flex flex-col space-y-2">
-            <MonacoEditor
-                theme="vs-light"
-                className="border"
-                language="json"
-                value={queryInput}
-                onChange={(v) => setQueryInput(v ?? '')}
-                height={300}
-            />
-            <div className="flex flex-row items-center space-x-2">
-                <LemonButton
-                    onClick={() => saveQuery()}
-                    type="primary"
-                    status={error ? 'danger' : 'primary'}
-                    disabled={!props.setQuery || !!error || !inputChanged}
-                >
-                    Update
-                </LemonButton>
-                {error ? (
-                    <div className="text-danger">
-                        <strong>Error parsing JSON:</strong> {error}
-                    </div>
-                ) : null}
+        <div
+            style={{ height: 300 }}
+            className={clsx('flex flex-col p-2 bg-border space-y-2 h-full resize-y overflow-auto', props.className)}
+        >
+            <div className="flex-1">
+                <AutoSizer disableWidth>
+                    {({ height }) => (
+                        <MonacoEditor
+                            theme="vs-light"
+                            className="border"
+                            language="json"
+                            value={queryInput}
+                            onChange={(v) => setQueryInput(v ?? '')}
+                            height={height}
+                        />
+                    )}
+                </AutoSizer>
             </div>
+            {error ? (
+                <div className="bg-danger text-white p-2">
+                    <strong>Error parsing JSON:</strong> {error}
+                </div>
+            ) : null}
+            <LemonButton
+                onClick={saveQuery}
+                type="primary"
+                status={error ? 'danger' : 'muted-alt'}
+                disabled={!props.setQuery || !!error || !inputChanged}
+                fullWidth
+                center
+            >
+                {!props.setQuery ? 'No permission to update' : 'Update'}
+            </LemonButton>
         </div>
     )
 }

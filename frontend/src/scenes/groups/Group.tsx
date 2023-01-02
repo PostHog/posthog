@@ -16,6 +16,11 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
+import { Query } from '~/queries/Query/Query'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { NodeKind } from '~/queries/schema'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 const { TabPane } = Tabs
 
@@ -50,6 +55,8 @@ function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTy
 
 export function Group(): JSX.Element {
     const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex, groupType } = useValues(groupLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (!groupData) {
         return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />
@@ -70,14 +77,28 @@ export function Group(): JSX.Element {
                     <PropertiesTable properties={groupData.group_properties || {}} embedded={false} searchable />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    <EventsTable
-                        pageKey={`${groupTypeIndex}::${groupKey}`}
-                        fixedFilters={{
-                            properties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
-                        }}
-                        sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
-                        showCustomizeColumns={false}
-                    />
+                    {featureDataExploration ? (
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                full: true,
+                                source: {
+                                    kind: NodeKind.EventsQuery,
+                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                    fixedProperties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
+                                },
+                            }}
+                        />
+                    ) : (
+                        <EventsTable
+                            pageKey={`${groupTypeIndex}::${groupKey}`}
+                            fixedFilters={{
+                                properties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
+                            }}
+                            sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
+                            showCustomizeColumns={false}
+                        />
+                    )}
                 </TabPane>
 
                 <TabPane

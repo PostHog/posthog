@@ -1,16 +1,16 @@
 import datetime
 from datetime import timedelta
 from math import isinf, isnan
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 import structlog
 from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception, push_scope
 
-from posthog.constants import UNIQUE_USERS, WEEKLY_ACTIVE
+from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNIQUE_GROUPS, UNIQUE_USERS, WEEKLY_ACTIVE
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
-from posthog.models.filters import Filter, PathFilter
+from posthog.models.filters import Filter
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
@@ -47,7 +47,7 @@ def process_math(
     join_condition = ""
     params: Dict[str, Any] = {}
 
-    if entity.math == UNIQUE_USERS:
+    if entity.math in (UNIQUE_USERS, WEEKLY_ACTIVE, MONTHLY_ACTIVE):
         if team.aggregate_users_by_distinct_id:
             join_condition = ""
             aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
@@ -91,9 +91,7 @@ def parse_response(stats: Dict, filter: Filter, additional_values: Dict = {}) ->
     }
 
 
-def get_active_user_params(
-    filter: Union[Filter, PathFilter], entity: Entity, team_id: int
-) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     diff = timedelta(days=7 if entity.math == WEEKLY_ACTIVE else 30)
 
     date_from: datetime.datetime
@@ -104,13 +102,21 @@ def get_active_user_params(
             date_from = get_earliest_timestamp(team_id)
         except IndexError:
             raise ValidationError("Active User queries require a lower date bound")
+    date_to = filter.date_to
 
     format_params = {
         # Not 7 and 30 because the day of the date marker is included already in the query (`+ INTERVAL 1 DAY`)
         "prev_interval": "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY",
         "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)",
     }
-    query_params = {"date_from_active_users_adjusted": (date_from - diff).strftime("%Y-%m-%d %H:%M:%S")}
+    # For time-series display types, we need to adjust date_from to be 7/30 days earlier.
+    # This is because each data point effectively has its own range, which starts 6/29 days before its date marker,
+    # and ends on that particular date marker.
+    # In case of aggregate display modes (NON_TIME_SERIES_DISPLAY_TYPES), the query is much simpler – with only one
+    # global range – and is basically distinct persons who have an event in the 7/30 days before date_to.
+    # Why use date_to in this case? We don't have thorough research to back this, but it felt a bit more intuitive.
+    relevant_start_date = date_from if filter.display not in NON_TIME_SERIES_DISPLAY_TYPES else date_to
+    query_params = {"date_from_active_users_adjusted": (relevant_start_date - diff).strftime("%Y-%m-%d %H:%M:%S")}
 
     return format_params, query_params
 
@@ -142,3 +148,21 @@ def ensure_value_is_json_serializable(value: Any) -> Optional[float]:
             capture_exception(exception)
         return None
     return value
+
+
+def determine_aggregator(entity: Entity, team: Team) -> str:
+    """Return the relevant actor column."""
+    if entity.math_group_type_index is not None:
+        return f'"$group_{entity.math_group_type_index}"'
+    elif team.aggregate_users_by_distinct_id:
+        return "e.distinct_id"
+    elif team.person_on_events_querying_enabled:
+        return "e.person_id"
+    else:
+        return "pdi.person_id"
+
+
+def is_series_group_based(entity: Entity) -> bool:
+    return entity.math == UNIQUE_GROUPS or (
+        entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS and entity.math_group_type_index is not None
+    )

@@ -6,6 +6,7 @@ from posthog.constants import (
     MONTHLY_ACTIVE,
     NON_TIME_SERIES_DISPLAY_TYPES,
     TRENDS_CUMULATIVE,
+    UNIQUE_GROUPS,
     UNIQUE_USERS,
     WEEKLY_ACTIVE,
 )
@@ -14,9 +15,10 @@ from posthog.models.event.sql import NULL_SQL
 from posthog.models.filters import Filter
 from posthog.models.team import Team
 from posthog.queries.trends.sql import (
+    ACTIVE_USERS_AGGREGATE_SQL,
     ACTIVE_USERS_SQL,
-    AGGREGATE_SQL,
     CUMULATIVE_SQL,
+    FINAL_TIME_SERIES_SQL,
     SESSION_DURATION_AGGREGATE_SQL,
     SESSION_DURATION_SQL,
     VOLUME_AGGREGATE_SQL,
@@ -28,6 +30,7 @@ from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
     PROPERTY_MATH_FUNCTIONS,
+    determine_aggregator,
     ensure_value_is_json_serializable,
     enumerate_time_range,
     parse_response,
@@ -42,7 +45,12 @@ class TrendsTotalVolume:
 
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
-        aggregate_operation, join_condition, math_params = process_math(entity, team, person_id_alias="person_id")
+        aggregate_operation, join_condition, math_params = process_math(
+            entity,
+            team,
+            event_table_alias=TrendsEventQuery.EVENT_TABLE_ALIAS,
+            person_id_alias=f"person_id" if team.person_on_events_querying_enabled else "pdi.person_id",
+        )
 
         trend_event_query = TrendsEventQuery(
             filter=filter,
@@ -52,9 +60,9 @@ class TrendsTotalVolume:
             if join_condition != ""
             or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
-            using_person_on_events=team.actor_on_events_querying_enabled,
+            using_person_on_events=team.person_on_events_querying_enabled,
         )
-        event_query, event_query_params = trend_event_query.get_query()
+        event_query_base, event_query_params = trend_event_query.get_query_base()
 
         content_sql_params = {
             "aggregate_operation": aggregate_operation,
@@ -66,37 +74,52 @@ class TrendsTotalVolume:
         params = {**params, **math_params, **event_query_params}
 
         if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-            if entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
+            if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                content_sql = ACTIVE_USERS_AGGREGATE_SQL.format(
+                    event_query_base=event_query_base,
+                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
+                    **trend_event_query.active_user_params,
+                )
+            elif entity.math in PROPERTY_MATH_FUNCTIONS and entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_DURATION_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+                content_sql = SESSION_DURATION_AGGREGATE_SQL.format(
+                    event_query_base=event_query_base, **content_sql_params
+                )
             elif entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
                 content_sql = VOLUME_PER_ACTOR_AGGREGATE_SQL.format(
-                    event_query=event_query,
+                    event_query_base=event_query_base,
                     **content_sql_params,
-                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    aggregator=determine_aggregator(entity, team),
                 )
             else:
-                content_sql = VOLUME_AGGREGATE_SQL.format(event_query=event_query, **content_sql_params)
+                content_sql = VOLUME_AGGREGATE_SQL.format(event_query_base=event_query_base, **content_sql_params)
 
             return (content_sql, params, self._parse_aggregate_volume_result(filter, entity, team.id))
         else:
 
             if entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
                 content_sql = ACTIVE_USERS_SQL.format(
-                    event_query=event_query,
-                    **content_sql_params,
+                    event_query_base=event_query_base,
                     parsed_date_to=trend_event_query.parsed_date_to,
                     parsed_date_from=trend_event_query.parsed_date_from,
-                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
+                    aggregator=determine_aggregator(entity, team),  # TODO: Support groups officialy and with tests
                     start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
                     **trend_event_query.active_user_params,
                 )
-            elif filter.display == TRENDS_CUMULATIVE and entity.math == UNIQUE_USERS:
-                # TODO: for groups aggregation as well
-                cumulative_sql = CUMULATIVE_SQL.format(event_query=event_query)
+            elif filter.display == TRENDS_CUMULATIVE and entity.math in (UNIQUE_USERS, UNIQUE_GROUPS):
+                # :TODO: Consider using bitmap-per-date to speed this up
+                cumulative_sql = CUMULATIVE_SQL.format(
+                    actor_expression=determine_aggregator(entity, team),
+                    event_query_base=event_query_base,
+                )
+                content_sql_params["aggregate_operation"] = "COUNT(DISTINCT actor_id)"
                 content_sql = VOLUME_SQL.format(
-                    event_query=cumulative_sql,
+                    timestamp_column="first_seen_timestamp",
+                    event_query_base=f"FROM ({cumulative_sql})",
                     start_of_week_fix=start_of_week_fix(filter.interval),
                     **content_sql_params,
                 )
@@ -104,20 +127,25 @@ class TrendsTotalVolume:
                 # Calculate average number of events per actor
                 # (only including actors with at least one matching event in a period)
                 content_sql = VOLUME_PER_ACTOR_SQL.format(
-                    event_query=event_query,
+                    event_query_base=event_query_base,
                     start_of_week_fix=start_of_week_fix(filter.interval),
+                    aggregator=determine_aggregator(entity, team),
                     **content_sql_params,
-                    aggregator="distinct_id" if team.aggregate_users_by_distinct_id else "person_id",
                 )
             elif entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
                 content_sql = SESSION_DURATION_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter.interval), **content_sql_params
+                    event_query_base=event_query_base,
+                    start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
                 )
             else:
                 content_sql = VOLUME_SQL.format(
-                    event_query=event_query, start_of_week_fix=start_of_week_fix(filter.interval), **content_sql_params
+                    timestamp_column="timestamp",
+                    event_query_base=event_query_base,
+                    start_of_week_fix=start_of_week_fix(filter.interval),
+                    **content_sql_params,
                 )
 
             null_sql = NULL_SQL.format(
@@ -141,7 +169,7 @@ class TrendsTotalVolume:
             else:
                 smoothing_operation = "SUM(total)"
 
-            final_query = AGGREGATE_SQL.format(
+            final_query = FINAL_TIME_SERIES_SQL.format(
                 null_sql=null_sql,
                 content_sql=content_sql,
                 smoothing_operation=smoothing_operation,

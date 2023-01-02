@@ -70,6 +70,8 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             redirectToInsight,
         }),
         loadInsights: true,
+        setInsight: (insight: InsightModel) => ({ insight }),
+        addInsight: (insight: InsightModel) => ({ insight }),
     },
     loaders: ({ values }) => ({
         insights: {
@@ -123,13 +125,20 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
                 )
                 return { ...values.insights, results: updatedInsights }
             },
-            setInsight: (insight: InsightModel) => {
-                const results = values.insights.results.map((i) => (i.short_id === insight.short_id ? insight : i))
-                return { ...values.insights, results }
-            },
         },
     }),
     reducers: {
+        insights: {
+            setInsight: (state, { insight }) => ({
+                ...state,
+                results: state.results.map((i) => (i.short_id === insight.short_id ? insight : i)),
+            }),
+            addInsight: (state, { insight }) => ({
+                ...state,
+                count: state.count + 1,
+                results: [insight, ...state.results],
+            }),
+        },
         rawFilters: [
             null as Partial<SavedInsightFilters> | null,
             {
@@ -249,9 +258,11 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
             insightsModel.actions.renameInsight(insight)
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            insight.name = (insight.name || insight.derived_name) + ' (copy)'
-            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, insight)
-            actions.loadInsights()
+            const newInsight = await api.create(`api/projects/${values.currentTeamId}/insights`, {
+                ...insight,
+                name: insight.name ? `${insight.name} (copy)` : insight.name,
+            })
+            actions.addInsight(newInsight)
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
         },
         setDates: () => {
@@ -260,7 +271,14 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>({
         [insightsModel.actionTypes.renameInsightSuccess]: ({ item }) => {
             actions.setInsight(item)
         },
-        [dashboardsModel.actionTypes.updateDashboardInsight]: () => actions.loadInsights(),
+        [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight }) => {
+            const matchingInsightIndex = values.insights.results.findIndex((i) => i.id === insight.id)
+            if (matchingInsightIndex >= 0) {
+                actions.setInsight(insight)
+            } else {
+                actions.addInsight(insight)
+            }
+        },
         [deleteDashboardLogic.actionTypes.submitDeleteDashboardSuccess]: ({ deleteDashboard }) => {
             if (deleteDashboard.deleteInsights) {
                 actions.loadInsights()

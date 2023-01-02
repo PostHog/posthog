@@ -66,11 +66,14 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     },
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
+    capture_performance_opt_in: true,
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
     has_group_types: true,
     primary_dashboard: 1,
-    live_events_columns: ['event', 'person'],
+    live_events_columns: null,
+    person_on_events_querying_enabled: true,
+    groups_on_events_querying_enabled: true,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {

@@ -69,7 +69,6 @@ function IngestionContainer({ children }: { children: React.ReactNode }): JSX.El
                 {/* <div className="IngestionContainer" */}
                 <BridgePage
                     view="ingestion"
-                    noHedgehog
                     noLogo
                     fixedWidth={false}
                     header={<PanelHeader />}

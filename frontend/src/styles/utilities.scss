@@ -14,103 +14,103 @@
 @each $space in $spaces {
     .space-y-#{$space} {
         & > * + * {
-            margin-top: #{$space/4}rem;
+            margin-top: #{$space * 0.25}rem;
         }
     }
 
     .space-x-#{$space} {
         & > * + * {
-            margin-left: #{$space/4}rem;
+            margin-left: #{$space * 0.25}rem;
         }
     }
 
     .gap-#{$space} {
-        gap: #{$space/4}rem;
+        gap: #{$space * 0.25}rem;
     }
 
     .gap-x-#{$space} {
-        column-gap: #{$space/4}rem;
+        column-gap: #{$space * 0.25}rem;
     }
 
     .gap-y-#{$space} {
-        row-gap: #{$space/4}rem;
+        row-gap: #{$space * 0.25}rem;
     }
 
     .w-#{$space} {
-        width: #{$space/4}rem;
+        width: #{$space * 0.25}rem;
     }
 
     .h-#{$space} {
-        height: #{$space/4}rem;
+        height: #{$space * 0.25}rem;
     }
 
     .max-w-#{$space} {
-        max-width: #{$space/4}rem;
+        max-width: #{$space * 0.25}rem;
     }
     .max-h-#{$space} {
-        max-height: #{$space/4}rem;
+        max-height: #{$space * 0.25}rem;
     }
 
     .min-w-#{$space} {
-        min-width: #{$space/4}rem;
+        min-width: #{$space * 0.25}rem;
     }
     .min-h-#{$space} {
-        min-height: #{$space/4}rem;
+        min-height: #{$space * 0.25}rem;
     }
 
     .m-#{$space} {
-        margin: #{$space/4}rem;
+        margin: #{$space * 0.25}rem;
     }
 
     .-m-#{$space} {
-        margin: #{-$space/4}rem;
+        margin: #{-$space * 0.25}rem;
     }
 
     .mx-#{$space} {
-        margin-left: #{$space/4}rem;
-        margin-right: #{$space/4}rem;
+        margin-left: #{$space * 0.25}rem;
+        margin-right: #{$space * 0.25}rem;
     }
 
     .-mx-#{$space} {
-        margin-left: #{-$space/4}rem;
-        margin-right: #{-$space/4}rem;
+        margin-left: #{-$space * 0.25}rem;
+        margin-right: #{-$space * 0.25}rem;
     }
 
     .my-#{$space} {
-        margin-top: #{$space/4}rem;
-        margin-bottom: #{$space/4}rem;
+        margin-top: #{$space * 0.25}rem;
+        margin-bottom: #{$space * 0.25}rem;
     }
 
     .-my-#{$space} {
-        margin-top: #{-$space/4}rem;
-        margin-bottom: #{-$space/4}rem;
+        margin-top: #{-$space * 0.25}rem;
+        margin-bottom: #{-$space * 0.25}rem;
     }
 
     .px-#{$space} {
-        padding-left: #{$space/4}rem;
-        padding-right: #{$space/4}rem;
+        padding-left: #{$space * 0.25}rem;
+        padding-right: #{$space * 0.25}rem;
     }
 
     .py-#{$space} {
-        padding-top: #{$space/4}rem;
-        padding-bottom: #{$space/4}rem;
+        padding-top: #{$space * 0.25}rem;
+        padding-bottom: #{$space * 0.25}rem;
     }
 
     .p-#{$space} {
-        padding: #{$space/4}rem;
+        padding: #{$space * 0.25}rem;
     }
 
     @each $side in $sides {
         .m#{str-slice($side, 0, 1)}-#{$space} {
-            margin-#{$side}: #{$space/4}rem;
+            margin-#{$side}: #{$space * 0.25}rem;
         }
 
         .-m#{str-slice($side, 0, 1)}-#{$space} {
-            margin-#{$side}: #{-$space/4}rem;
+            margin-#{$side}: #{-$space * 0.25}rem;
         }
 
         .p#{str-slice($side, 0, 1)}-#{$space} {
-            padding-#{$side}: #{$space/4}rem;
+            padding-#{$side}: #{$space * 0.25}rem;
         }
     }
 }
@@ -143,15 +143,35 @@
         #{$kind}-top: auto;
         #{$kind}-bottom: auto;
     }
+    .#{$char}-px {
+        #{$kind}: 1px;
+    }
+
+    .#{$char}x-px {
+        #{$kind}-left: 1px;
+        #{$kind}-right: 1px;
+    }
+
+    .#{$char}y-px {
+        #{$kind}-top: 1px;
+        #{$kind}-bottom: 1px;
+    }
 
     @each $side in $sides {
-        .m#{str-slice($side, 0, 1)}-auto {
+        .#{$char}#{str-slice($side, 0, 1)}-auto {
             #{$kind}-#{$side}: auto;
+        }
+
+        .#{$char}#{str-slice($side, 0, 1)}-px {
+            #{$kind}-#{$side}: 1px;
         }
     }
 }
 
 // Border
+.border {
+    border-width: 1px;
+}
 .border-0 {
     border-width: 0px;
 }
@@ -163,9 +183,6 @@
 }
 .border-8 {
     border-width: 8px;
-}
-.border {
-    border-width: 1px;
 }
 .border-t-0 {
     border-top-width: 0px;
@@ -625,7 +642,7 @@
 
 @each $space in $spaces {
     .leading-#{$space} {
-        line-height: #{$space/4}rem;
+        line-height: #{$space * 0.25}rem;
     }
 }
 
@@ -642,32 +659,36 @@
 }
 
 .rounded-sm {
-    border-radius: 0.125rem; /* 2px */
+    border-radius: calc(var(--radius) / 2); /* 2px */
 }
 .rounded {
-    border-radius: 0.25rem; /* 4px */
+    border-radius: var(--radius); /* 4px */
 }
 .rounded-t {
-    border-top-left-radius: 0.25rem; /* 4px */
-    border-top-right-radius: 0.25rem; /* 4px */
+    border-top-left-radius: var(--radius); /* 4px */
+    border-top-right-radius: var(--radius); /* 4px */
+}
+.rounded-b {
+    border-bottom-left-radius: var(--radius); /* 4px */
+    border-bottom-right-radius: var(--radius); /* 4px */
 }
 .rounded-md {
-    border-radius: 0.375rem; /* 6px */
+    border-radius: calc(var(--radius) * 1.5); /* 6px */
 }
 .rounded-lg {
-    border-radius: 0.5rem; /* 8px */
+    border-radius: calc(var(--radius) * 2); /* 8px */
 }
 .rounded-xl {
-    border-radius: 0.75rem; /* 12px */
+    border-radius: calc(var(--radius) * 3); /* 12px */
 }
 .rounded-2xl {
-    border-radius: 1rem; /* 16px */
+    border-radius: calc(var(--radius) * 4); /* 16px */
 }
 .rounded-3xl {
-    border-radius: 1.5rem; /* 24px */
+    border-radius: calc(var(--radius) * 6); /* 24px */
 }
 .rounded-full {
-    border-radius: 9999px;
+    border-radius: 1000rem;
 }
 
 .overflow-auto {
@@ -712,45 +733,45 @@
 .opacity-0 {
     opacity: 0;
 }
-// .opacity-5 {
-//     opacity: 0.05;
-// }
-// .opacity-10 {
-//     opacity: 0.1;
-// }
-// .opacity-20 {
-//     opacity: 0.2;
-// }
+.opacity-5 {
+    opacity: 0.05;
+}
+.opacity-10 {
+    opacity: 0.1;
+}
+.opacity-20 {
+    opacity: 0.2;
+}
 .opacity-25 {
     opacity: 0.25;
 }
-// .opacity-30 {
-//     opacity: 0.3;
-// }
-// .opacity-40 {
-//     opacity: 0.4;
-// }
+.opacity-30 {
+    opacity: 0.3;
+}
+.opacity-40 {
+    opacity: 0.4;
+}
 .opacity-50 {
     opacity: 0.5;
 }
-// .opacity-60 {
-//     opacity: 0.6;
-// }
-// .opacity-70 {
-//     opacity: 0.7;
-// }
+.opacity-60 {
+    opacity: 0.6;
+}
+.opacity-70 {
+    opacity: 0.7;
+}
 .opacity-75 {
     opacity: 0.75;
 }
-// .opacity-80 {
-//     opacity: 0.8;
-// }
-// .opacity-90 {
-//     opacity: 0.9;
-// }
-// .opacity-95 {
-//     opacity: 0.95;
-// }
+.opacity-80 {
+    opacity: 0.8;
+}
+.opacity-90 {
+    opacity: 0.9;
+}
+.opacity-95 {
+    opacity: 0.95;
+}
 .opacity-100 {
     opacity: 1;
 }
@@ -871,4 +892,8 @@
 
 .hidden {
     display: none;
+}
+
+.resize-y {
+    resize: vertical;
 }

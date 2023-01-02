@@ -56,6 +56,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
+    "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -77,7 +78,6 @@ try:
 except ImportError:
     pass
 else:
-    INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 # Use django-extensions if it exists
@@ -96,7 +96,7 @@ ROOT_URLCONF = "posthog.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["frontend/dist", "posthog/templates"],
+        "DIRS": ["frontend/dist", "posthog/templates", "posthog/year_in_posthog"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -176,7 +176,7 @@ USE_TZ = True
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist")]
+STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist"), os.path.join(BASE_DIR, "posthog/year_in_posthog/images")]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
@@ -253,6 +253,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/activity_log/important_changes/?$",
                 "^/?api/projects/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
+                "^/year_in_posthog/.*$",
             ]
         ),
     )

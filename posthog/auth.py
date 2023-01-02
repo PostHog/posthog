@@ -11,6 +11,7 @@ from rest_framework import authentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.user import User
@@ -91,6 +92,14 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_last_used_at = now
             personal_api_key_object.save()
         assert personal_api_key_object.user is not None
+
+        # :KLUDGE: CHMiddleware does not receive the correct user when authenticating by api key.
+        tag_queries(
+            user_id=personal_api_key_object.user.pk,
+            team_id=personal_api_key_object.user.current_team_id,
+            access_method="personal_api_key",
+        )
+        request.using_personal_api_key = True  # type: ignore
         return personal_api_key_object.user, None
 
     @classmethod

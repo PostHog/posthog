@@ -4,10 +4,11 @@ import json
 import random
 import string
 import zlib
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from datetime import timezone as tz
-from typing import Any, Counter, Dict, List, Union
+from typing import Any, Dict, List, Union
 from unittest import mock
 from unittest.mock import MagicMock, call, patch
 from urllib.parse import quote
@@ -29,7 +30,7 @@ from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings import DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.test.base import BaseTest
 
 
@@ -140,6 +141,23 @@ class TestCapture(BaseTest):
             },
             self._to_arguments(kafka_produce),
         )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_too_large(self, kafka_produce):
+        # There is a setting in Django, `DATA_UPLOAD_MAX_MEMORY_SIZE`, which
+        # limits the size of the request body. An error is  raise, e.g. when we
+        # try to read `django.http.request.HttpRequest.body` in the view. We
+        # want to make sure this doesn't it is returned as a 413 error, not as a
+        # 500, otherwise we have issues with setting up sensible monitoring that
+        # is resilient to clients that send too much data.
+        response = self.client.post(
+            "/e/",
+            data=20 * DATA_UPLOAD_MAX_MEMORY_SIZE * "x",
+            HTTP_ORIGIN="https://localhost",
+            content_type="text/plain",
+        )
+
+        self.assertEqual(response.status_code, 413)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_events_503_on_kafka_produce_errors(self, kafka_produce):

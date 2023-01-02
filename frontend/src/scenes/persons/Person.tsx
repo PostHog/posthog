@@ -27,6 +27,13 @@ import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 const { TabPane } = Tabs
 
@@ -85,18 +92,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId, distinctId } =
-        useValues(personsLogic)
-    const {
-        editProperty,
-        deleteProperty,
-        navigateToTab,
-        setSplitMergeModalShown,
-        showPersonDeleteModal,
-        setDistinctId,
-    } = useActions(personsLogic)
+    const { person, personLoading, currentTab, splitMergeModalShown, urlId, distinctId } = useValues(personsLogic)
+    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
+        useActions(personsLogic)
+    const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
+    const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (!person) {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
@@ -110,7 +114,7 @@ export function Person(): JSX.Element | null {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            onClick={() => showPersonDeleteModal(person)}
+                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
                             loading={deletedPersonLoading}
                             type="secondary"
@@ -157,12 +161,27 @@ export function Person(): JSX.Element | null {
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    <EventsTable
-                        pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                        fixedFilters={{ person_id: person.id }}
-                        showPersonColumn={false}
-                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
-                    />
+                    {featureDataExploration ? (
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                full: true,
+                                hiddenColumns: ['person'],
+                                source: {
+                                    kind: NodeKind.EventsQuery,
+                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                    personId: person.id,
+                                },
+                            }}
+                        />
+                    ) : (
+                        <EventsTable
+                            pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                            fixedFilters={{ person_id: person.id }}
+                            showPersonColumn={false}
+                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                        />
+                    )}
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
@@ -178,9 +197,9 @@ export function Person(): JSX.Element | null {
                         </div>
                     ) : null}
                     <SessionRecordingsPlaylist
-                        logicKey={person.uuid || 'persons'} // force refresh if user changes
                         personUUID={person.uuid}
                         updateSearchParams
+                        filters={DEFAULT_PERSON_RECORDING_FILTERS}
                     />
                 </TabPane>
 

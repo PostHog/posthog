@@ -95,7 +95,12 @@ describe('PersonState.update()', () => {
 
     describe('on person creation', () => {
         it('creates person if they are new', async () => {
-            const personContainer = await personState({ event: '$pageview', distinct_id: 'new-user' }).update()
+            const event_uuid = new UUIDT().toString()
+            const personContainer = await personState({
+                event: '$pageview',
+                distinct_id: 'new-user',
+                uuid: event_uuid,
+            }).update()
             await hub.db.kafkaProducer.flush()
 
             expect(hub.personManager.isNewPerson).toHaveBeenCalledTimes(1)
@@ -109,7 +114,7 @@ describe('PersonState.update()', () => {
                 expect.objectContaining({
                     id: expect.any(Number),
                     uuid: uuid.toString(),
-                    properties: {},
+                    properties: { $creator_event_uuid: event_uuid },
                     created_at: timestamp,
                     version: 0,
                     is_identified: false,

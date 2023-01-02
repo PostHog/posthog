@@ -1,4 +1,4 @@
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, path, reducers, selectors } from 'kea'
 import { Breadcrumb, SessionPlayerData } from '~/types'
 import { urls } from 'scenes/urls'
 import { loaders } from 'kea-loaders'
@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import type { sessionRecodingFilePlaybackLogicType } from './sessionRecodingFilePlaybackLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { uuid } from 'lib/utils'
 
 export type ExportedSessionRecordingFile = {
     version: '2022-12-02'
@@ -58,6 +59,16 @@ export const sessionRecodingFilePlaybackLogic = kea<sessionRecodingFilePlaybackL
             resetSessionRecording: () => null,
         },
     })),
+
+    reducers({
+        playerKey: [
+            'file-playback',
+            {
+                loadFromFileSuccess: () => `file-playback-${uuid()}`,
+                resetSessionRecording: () => 'file-playback',
+            },
+        ],
+    }),
 
     beforeUnload(({ values, actions }) => ({
         enabled: () => !!values.sessionRecording,

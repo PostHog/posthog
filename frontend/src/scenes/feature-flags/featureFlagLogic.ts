@@ -124,7 +124,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
     connect({
         values: [
             teamLogic,
-            ['currentTeamId', 'sentryIntegrationEnabled'],
+            ['currentTeamId'],
             groupsModel,
             ['groupTypes', 'groupsTaxonomicTypes', 'aggregationLabel'],
             userLogic,
@@ -449,12 +449,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             },
         ],
-        sentryErrorCount: [
-            undefined as number | undefined,
+        sentryStats: [
+            {} as { total_count?: number; sentry_integration_enabled?: number },
             {
-                loadSentryErrorCount: async () => {
-                    const response = await api.get(`api/sentry_errors/`)
-                    return response.total_count
+                loadSentryStats: async () => {
+                    return await api.get(`api/sentry_stats/`)
                 },
             },
         ],
@@ -496,8 +495,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     )}`
                 )
                 const counts = response.result?.[0]?.data
-                const firstWeek = counts.slice(0, 7)
-                const avg = Math.round(sum(firstWeek) / 7)
+                const avg = Math.round(sum(counts) / 7)
                 actions.setInsightResultAtIndex(index, avg)
             }
         },
@@ -537,6 +535,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
             const response = await api.create(`api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`, {
                 condition: { properties: newProperties },
+                group_type_index: values.featureFlag?.filters?.aggregation_group_type_index ?? null,
             })
             actions.setAffectedUsers(index, response.users_affected)
             actions.setTotalUsers(response.total_users)
@@ -572,6 +571,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         `api/projects/${values.currentTeamId}/feature_flags/user_blast_radius`,
                         {
                             condition,
+                            group_type_index: values.featureFlag?.filters?.aggregation_group_type_index ?? null,
                         }
                     )
 
@@ -590,6 +590,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     selectors({
+        sentryErrorCount: [(s) => [s.sentryStats], (stats) => stats.total_count],
+        sentryIntegrationEnabled: [(s) => [s.sentryStats], (stats) => !!stats.sentry_integration_enabled],
         props: [() => [(_, props) => props], (props) => props],
         multivariateEnabled: [(s) => [s.featureFlag], (featureFlag) => !!featureFlag?.filters.multivariate],
         roleBasedAccessEnabled: [
@@ -714,6 +716,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         } else if (props.id !== 'new') {
             actions.loadFeatureFlag()
         }
-        actions.loadSentryErrorCount()
+        actions.loadSentryStats()
     }),
 ])

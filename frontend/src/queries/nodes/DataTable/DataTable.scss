@@ -1,0 +1,18 @@
+.DataTable {
+    td {
+        max-width: 20rem;
+    }
+
+    @keyframes DataTable--highlight {
+        0% {
+            background-color: var(--yellow-lightest);
+        }
+        100% {
+            background-color: initial;
+        }
+    }
+
+    .DataTable__row--highlight_once {
+        animation: DataTable--highlight 2000ms ease-out;
+    }
+}

@@ -86,13 +86,15 @@ class TestAccessMiddleware(APIBaseTest):
 class TestAutoProjectMiddleware(APIBaseTest):
     # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
-    BASE_APP_NUM_QUERIES = 40 if not settings.MULTI_TENANCY else 41
-
     second_team: Team
+    base_app_num_queries: int
 
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
+        cls.base_app_num_queries = 42
+        if settings.MULTI_TENANCY:
+            cls.base_app_num_queries += 2
         # Create another team that the user does have access to
         cls.second_team = Team.objects.create(organization=cls.organization, name="Second Life")
 
@@ -104,7 +106,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     def test_project_switched_when_accessing_dashboard_of_another_accessible_team(self):
         dashboard = Dashboard.objects.create(team=self.second_team)
-        with self.assertNumQueries(self.BASE_APP_NUM_QUERIES + 4):  # AutoProjectMiddleware adds 4 queries
+        with self.assertNumQueries(self.base_app_num_queries + 4):  # AutoProjectMiddleware adds 4 queries
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -148,7 +150,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_dashboards_api.status_code, 404)
 
     def test_project_unchanged_when_accessing_dashboards_list(self):
-        with self.assertNumQueries(self.BASE_APP_NUM_QUERIES):  # No AutoProjectMiddleware queries
+        with self.assertNumQueries(self.base_app_num_queries):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -217,7 +219,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     def test_project_switched_when_accessing_feature_flag_of_another_accessible_team(self):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
-        with self.assertNumQueries(self.BASE_APP_NUM_QUERIES + 4):
+        with self.assertNumQueries(self.base_app_num_queries + 4):
             response_app = self.client.get(f"/feature_flags/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -230,7 +232,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         self.assertEqual(response_feature_flags_api.status_code, 200)
 
     def test_project_unchanged_when_creating_feature_flag(self):
-        with self.assertNumQueries(self.BASE_APP_NUM_QUERIES):
+        with self.assertNumQueries(self.base_app_num_queries):
             response_app = self.client.get(f"/feature_flags/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()

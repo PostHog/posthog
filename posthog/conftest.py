@@ -119,3 +119,14 @@ def user(base_test_mixin_fixture):
 @pytest.fixture
 def unittest_snapshot(request, snapshot):
     request.cls.snapshot = snapshot
+
+
+@pytest.fixture
+def cache():
+    from django.core.cache import cache as django_cache
+
+    django_cache.clear()
+
+    yield django_cache
+
+    django_cache.clear()

@@ -8,8 +8,9 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconDelete } from 'lib/components/icons'
 import { useActions } from 'kea'
-import { personsLogic } from 'scenes/persons/personsLogic'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
+import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { personsLogic } from 'scenes/persons/personsLogic'
 
 interface PersonsTableType {
     people: PersonType[]
@@ -30,7 +31,8 @@ export function PersonsTable({
     loadNext,
     compact,
 }: PersonsTableType): JSX.Element {
-    const { showPersonDeleteModal } = useActions(personsLogic)
+    const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
+    const { loadPersons } = useActions(personsLogic)
 
     const columns: LemonTableColumns<PersonType> = [
         {
@@ -72,7 +74,7 @@ export function PersonsTable({
                       render: function Render(_, person: PersonType) {
                           return (
                               <LemonButton
-                                  onClick={() => showPersonDeleteModal(person)}
+                                  onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                                   icon={<IconDelete />}
                                   status="danger"
                                   size="small"

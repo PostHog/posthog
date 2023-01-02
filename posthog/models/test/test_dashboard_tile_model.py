@@ -38,6 +38,20 @@ class TestDashboardTileModel(APIBaseTest):
 
         assert len(capture_query_context.captured_queries) == 1
 
+    def test_loads_dashboard_tiles_excludes_deleted(self) -> None:
+        tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
+        assert len(tiles) == 10
+
+        tiles[0].deleted = True
+        tiles[0].save()
+
+        insight = Insight.objects.get(team=self.team, short_id="123456-1")
+        insight.deleted = True
+        insight.save()
+
+        tiles = get_tiles_ordered_by_position(dashboard=self.dashboard)
+        assert len(tiles) == 8
+
     def test_cannot_add_a_tile_with_insight_and_text_on_validation(self) -> None:
         insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
         text = Text.objects.create(team=self.team, body="I am a text")

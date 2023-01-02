@@ -15,7 +15,7 @@ from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
-from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, process_math
+from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group_based, process_math
 
 
 def _handle_date_interval(filter: Filter) -> Filter:
@@ -51,7 +51,7 @@ class TrendsActors(ActorBaseQuery):
 
     @cached_property
     def aggregation_group_type_index(self):
-        if self.entity.math == "unique_group":
+        if is_series_group_based(self.entity):
             return self.entity.math_group_type_index
         return None
 
@@ -121,10 +121,10 @@ class TrendsActors(ActorBaseQuery):
             team=self._team,
             entity=self.entity,
             should_join_distinct_ids=not self.is_aggregating_by_groups
-            and not self._team.actor_on_events_querying_enabled,
+            and not self._team.person_on_events_querying_enabled,
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
-            using_person_on_events=self._team.actor_on_events_querying_enabled,
+            using_person_on_events=self._team.person_on_events_querying_enabled,
         ).get_query()
 
         matching_events_select_statement = (

@@ -165,10 +165,10 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
         dashboard_id, dashboard_json = self.dashboard_api.update_text_tile(dashboard_id, updated_tile)
 
         assert len(dashboard_json["tiles"]) == 2
-        assert [(t["id"], t["color"]) for t in dashboard_json["tiles"]] == [
+        assert set((t["id"], t["color"]) for t in dashboard_json["tiles"]) == {
             (tile_ids[0], "purple"),
             (tile_ids[1], None),
-        ]
+        }
 
     def test_can_remove_text_tiles_from_dashboard(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

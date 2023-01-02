@@ -33,7 +33,7 @@ from posthog.utils import encode_get_request_params
 class Lifecycle:
     def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
         event_query, event_params = LifecycleEventQuery(
-            team=team, filter=filter, using_person_on_events=team.actor_on_events_querying_enabled
+            team=team, filter=filter, using_person_on_events=team.person_on_events_querying_enabled
         ).get_query()
 
         return (
@@ -60,7 +60,7 @@ class Lifecycle:
 
     def get_people(self, filter: Filter, team: Team, target_date: datetime, lifecycle_type: str):
         event_query, event_params = LifecycleEventQuery(
-            team=team, filter=filter, using_person_on_events=team.actor_on_events_querying_enabled
+            team=team, filter=filter, using_person_on_events=team.person_on_events_querying_enabled
         ).get_query()
 
         result = insight_sync_execute(
@@ -129,7 +129,7 @@ class LifecycleEventQuery(EventQuery):
         self.params.update(groups_params)
 
         entity_params, entity_format_params = get_entity_filtering_params(
-            entity=self._filter.entities[0],
+            allowed_entities=[self._filter.entities[0]],
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
