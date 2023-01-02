@@ -36,7 +36,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                 }
                 note={
                     <>
-                        <span>{crucialPropertyKeys.length > 0 ? 'Relevant properties' : 'Properties'} over time</span>
+                        <span>Relevant properties over time</span>
                         {!resultLoading && (
                             <Tooltip
                                 title={
