@@ -28,6 +28,7 @@ jobs:
 
         outputs:
             container_image_tags: ${{ steps.meta.outputs.tags }}
+            container_image_version: ${{ steps.meta.outputs.version }}
 
         steps:
             - name: Checkout code
