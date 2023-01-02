@@ -15,8 +15,10 @@ export interface PropertiesTimelinePoint {
     relevantEventCount: number
 }
 
-export interface RawPropertiesTimelinePoint extends Omit<PropertiesTimelinePoint, 'timestamp'> {
+export interface RawPropertiesTimelinePoint {
     timestamp: string
+    properties: Properties
+    relevant_event_count: number
 }
 
 export interface RawPropertiesTimelineResult {
@@ -77,10 +79,14 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
         points: [
             (s) => [s.result, s.timezone],
             (result, timezone) =>
-                result.points.map((point) => ({
-                    ...point,
-                    timestamp: dayjsUtcToTimezone(point.timestamp, timezone),
-                })),
+                result.points.map(
+                    (point) =>
+                        ({
+                            relevantEventCount: point.relevant_event_count,
+                            properties: point.properties,
+                            timestamp: dayjsUtcToTimezone(point.timestamp, timezone),
+                        } as PropertiesTimelinePoint)
+                ),
         ],
         crucialPropertyKeys: [(s) => [s.result], (result) => result.crucial_property_keys],
     }),

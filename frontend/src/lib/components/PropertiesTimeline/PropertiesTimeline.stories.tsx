@@ -33,7 +33,7 @@ export function MultiplePointsForPerson(): JSX.Element {
                             hobby: 'hiking',
                             name: 'Perry',
                         },
-                        relevantEventCount: 3,
+                        relevant_event_count: 3,
                     },
                     {
                         timestamp: '2021-01-17T00:00:00.000Z',
@@ -41,7 +41,7 @@ export function MultiplePointsForPerson(): JSX.Element {
                             hobby: 'hiking',
                             name: 'Jerry',
                         },
-                        relevantEventCount: 3,
+                        relevant_event_count: 3,
                     },
                     {
                         timestamp: '2021-01-18T08:00:00.000Z',
@@ -49,7 +49,7 @@ export function MultiplePointsForPerson(): JSX.Element {
                             hobby: 'sailing',
                             name: 'Kerry',
                         },
-                        relevantEventCount: 3,
+                        relevant_event_count: 3,
                     },
                     {
                         timestamp: '2021-03-01T00:00:00.000Z',
@@ -57,7 +57,7 @@ export function MultiplePointsForPerson(): JSX.Element {
                             hobby: 'hiking',
                             name: 'Terry',
                         },
-                        relevantEventCount: 1,
+                        relevant_event_count: 1,
                     },
                 ],
                 crucial_property_keys: ['name'],

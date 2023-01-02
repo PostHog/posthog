@@ -25,7 +25,7 @@ export const PersonsModal: Story = () => {
                                 email: 'mortgage2056@yandex.com',
                                 $geoip_country_code: 'US',
                             },
-                            relevantEventCount: 2,
+                            relevant_event_count: 2,
                         },
                         {
                             timestamp: '2022-12-02T08:00:00.000Z',
@@ -34,7 +34,7 @@ export const PersonsModal: Story = () => {
                                 email: 'mortgage2056@yandex.com',
                                 $geoip_country_code: 'PL',
                             },
-                            relevantEventCount: 9,
+                            relevant_event_count: 9,
                         },
                         {
                             timestamp: '2022-12-08T00:00:00.000Z',
@@ -43,7 +43,7 @@ export const PersonsModal: Story = () => {
                                 email: 'mortgage2056@yandex.com',
                                 $geoip_country_code: 'DE',
                             },
-                            relevantEventCount: 155,
+                            relevant_event_count: 155,
                         },
                         {
                             timestamp: '2022-12-12T00:00:00.000Z',
@@ -52,7 +52,7 @@ export const PersonsModal: Story = () => {
                                 email: 'mortgage2056@yandex.com',
                                 $geoip_country_code: 'CN',
                             },
-                            relevantEventCount: 13,
+                            relevant_event_count: 13,
                         },
                     ],
                     crucial_property_keys: ['$geoip_country_code'],
