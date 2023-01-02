@@ -33,10 +33,6 @@ from posthog.tasks.calculate_event_property_usage import calculate_event_propert
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
 
-# Because the Postgres `Person.id` value is synthesized here (instead of relying on the DB sequence), we can
-# bulk insert persons AND person distinct IDs into Postgres without having to query for the person IDs resulting
-# from auto-incrementation. The trade-off is that we need to make sure synthesized IDs don't collide between teams,
-# so the limit is used as an ID multiplier.
 PERSON_COUNT_LIMIT = 500_000
 
 
@@ -218,10 +214,10 @@ class MatrixManager:
             {"id": "uuid"},
         )
         bulk_persons: Dict[str, Person] = {}
-        for i, row in enumerate(clickhouse_persons):
-            synthetic_id = target_team_id * PERSON_COUNT_LIMIT + i
+        for row in clickhouse_persons:
             properties = json.loads(row.pop("properties", "{}"))
-            bulk_persons[row["uuid"]] = Person(id=synthetic_id, team_id=target_team_id, properties=properties, **row)
+            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **row)
+        # This sets the pk in the bulk_persons dict so we can use them later
         Person.objects.bulk_create(bulk_persons.values())
         # Person distinct IDs
         clickhouse_distinct_ids = query_with_columns(
