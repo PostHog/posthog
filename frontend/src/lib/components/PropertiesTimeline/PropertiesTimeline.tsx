@@ -8,11 +8,17 @@ import { TimelineSeekbar } from '../TimelineSeekbar'
 import { Tooltip } from '../Tooltip'
 import { IconInfo } from '../icons'
 import { humanList } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): JSX.Element {
     const logic = propertiesTimelineLogic({ actor, filter })
     const { points, crucialPropertyKeys, resultLoading, selectedPointIndex, timezone } = useValues(logic)
     const { setSelectedPointIndex } = useActions(logic)
+    const { currentTeam } = useValues(teamLogic)
+
+    if (currentTeam && !currentTeam.person_on_events_querying_enabled) {
+        throw new Error('Properties timeline is irrelevant if persons-on-events querying is disabled')
+    }
 
     const propertiesShown: Properties =
         points.length > 0 && selectedPointIndex !== null ? points[selectedPointIndex].properties : actor.properties
@@ -30,7 +36,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                 }
                 note={
                     <>
-                        <span>Relevant properties over time</span>
+                        <span>{crucialPropertyKeys.length > 0 ? 'Relevant properties' : 'Properties'} over time</span>
                         {!resultLoading && (
                             <Tooltip
                                 title={
@@ -46,7 +52,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                                                   ? 'that crucial property has'
                                                   : 'those crucial properties have'
                                           } been changing within this data point's time range.`
-                                        : "Because this insight doesn't rely on any person properties in its filters, this timeline shows properties only for the first relevant event."
+                                        : "This insight doesn't rely on any actor properties in its filters, so this timeline only shows properties for the first relevant event."
                                 }
                             >
                                 <IconInfo className="ml-1 text-muted text-xl shrink-0" />
@@ -61,7 +67,12 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                 loading={resultLoading}
             />
             <LemonDivider className="h-0" />
-            <PropertiesTable properties={propertiesShown} nestingLevel={1} highlightedKeys={crucialPropertyKeys} />
+            <PropertiesTable
+                properties={propertiesShown}
+                nestingLevel={1}
+                highlightedKeys={crucialPropertyKeys}
+                sortProperties
+            />
         </div>
     )
 }
