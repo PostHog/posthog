@@ -47,7 +47,7 @@ class AsyncDeletionProcess(ABC):
         raise NotImplementedError()
 
     @abstractmethod
-    def _verify_by_group(deletion_type: int, async_deletions: List[AsyncDeletion]) -> List[AsyncDeletion]:
+    def _verify_by_group(self, deletion_type: int, async_deletions: List[AsyncDeletion]) -> List[AsyncDeletion]:
         raise NotImplementedError()
 
     def _conditions(self, async_deletions: List[AsyncDeletion]) -> Tuple[List[str], Dict]:
