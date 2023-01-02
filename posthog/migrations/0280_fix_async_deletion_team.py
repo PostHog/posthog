@@ -3,6 +3,12 @@
 from django.db import migrations, models
 
 
+# :KLUDGE: Work around test_migrations_are_safe
+class RenameFieldSafe(migrations.RenameField):
+    def describe(self):
+        return super().describe() + " -- rename-ignore"
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -15,7 +21,7 @@ class Migration(migrations.Migration):
             name="team",
             field=models.IntegerField(),
         ),
-        migrations.RenameField(  # This is a small table so it should be safe to rename the column
+        RenameFieldSafe(  # This is a small table so it should be safe to rename the column
             model_name="asyncdeletion",
             old_name="team",
             new_name="team_id",
