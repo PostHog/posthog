@@ -112,11 +112,17 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
   '
   
-  SELECT count()
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version < NULL
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
@@ -137,28 +143,46 @@
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
   '
-  
-  SELECT count(*)
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
   FROM
-    (SELECT 1
-     FROM cohortpeople
+    (SELECT id
+     FROM person
      WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+       AND id in
+         (SELECT person_id
+          FROM cohortpeople
+          WHERE team_id = 2
+            AND cohort_id = 2
+          GROUP BY person_id,
+                   cohort_id,
+                   team_id,
+                   version
+          HAVING sum(sign) > 0)
+       AND id in
+         (SELECT person_id
+          FROM cohortpeople
+          WHERE team_id = 2
+            AND cohort_id = 2
+          GROUP BY person_id,
+                   cohort_id,
+                   team_id,
+                   version
+          HAVING sum(sign) > 0)
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
   '
-  
-  SELECT count()
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version < NULL
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.6
@@ -278,11 +302,17 @@
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '
   
-  SELECT count()
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version < NULL
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
@@ -303,18 +333,29 @@
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
   '
-  
-  SELECT count(*)
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
   FROM
-    (SELECT 1
-     FROM cohortpeople
+    (SELECT id
+     FROM person
      WHERE team_id = 2
-       AND cohort_id = 2
-     GROUP BY person_id,
-              cohort_id,
-              team_id,
-              version
-     HAVING sum(sign) > 0)
+       AND id in
+         (SELECT person_id as id
+          FROM person_static_cohort
+          WHERE cohort_id = 2
+            AND team_id = 2)
+       AND id in
+         (SELECT person_id
+          FROM cohortpeople
+          WHERE team_id = 2
+            AND cohort_id = 2
+          GROUP BY person_id,
+                   cohort_id,
+                   team_id,
+                   version
+          HAVING sum(sign) > 0)
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.7
@@ -420,12 +461,25 @@
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
   '
-  
-  SELECT count()
-  FROM cohortpeople
-  WHERE team_id = 2
-    AND cohort_id = 2
-    AND version < NULL
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     INNER JOIN
+       (SELECT person_id
+        FROM cohortpeople
+        WHERE team_id = 2
+          AND cohort_id = 2
+        GROUP BY person_id,
+                 cohort_id,
+                 team_id,
+                 version
+        HAVING sum(sign) > 0
+        ORDER BY person_id) cohort_persons ON cohort_persons.person_id = person.id
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
   '
 ---
 # name: TestBlastRadius.test_user_blast_radius_with_single_cohort.5
