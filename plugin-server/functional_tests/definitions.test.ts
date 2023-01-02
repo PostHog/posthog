@@ -3,8 +3,8 @@ import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
-import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
 import { capture, createOrganization, createTeam, getPropertyDefinitions } from './api'
+import { waitForExpect } from './expectations'
 // import { beforeAll, afterAll, test, expect } from 'vitest'
 
 let producer: Producer
@@ -40,14 +40,16 @@ test.concurrent(`event ingestion: definition for string property %p`, async () =
         property: 'hehe',
     })
 
-    const propertyDefinitions = await delayUntilEventIngested(() => getPropertyDefinitions(postgres, teamId))
-    expect(propertyDefinitions).toContainEqual(
-        expect.objectContaining({
-            name: 'property',
-            is_numerical: false,
-            property_type: 'String',
-        })
-    )
+    await waitForExpect(async () => {
+        const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+        expect(propertyDefinitions).toContainEqual(
+            expect.objectContaining({
+                name: 'property',
+                is_numerical: false,
+                property_type: 'String',
+            })
+        )
+    })
 })
 
 test.concurrent.each([[2], [2.1234], ['2'], ['2.1234']])(
@@ -61,14 +63,16 @@ test.concurrent.each([[2], [2.1234], ['2'], ['2.1234']])(
             property: numberValue,
         })
 
-        const propertyDefinitions = await delayUntilEventIngested(() => getPropertyDefinitions(postgres, teamId))
-        expect(propertyDefinitions).toContainEqual(
-            expect.objectContaining({
-                name: 'property',
-                is_numerical: true,
-                property_type: 'Numeric',
-            })
-        )
+        await waitForExpect(async () => {
+            const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+            expect(propertyDefinitions).toContainEqual(
+                expect.objectContaining({
+                    name: 'property',
+                    is_numerical: true,
+                    property_type: 'Numeric',
+                })
+            )
+        })
     }
 )
 
@@ -88,14 +92,16 @@ test.concurrent.each([
         property: dateString,
     })
 
-    const propertyDefinitions = await delayUntilEventIngested(() => getPropertyDefinitions(postgres, teamId))
-    expect(propertyDefinitions).toContainEqual(
-        expect.objectContaining({
-            name: 'property',
-            is_numerical: false,
-            property_type: 'DateTime',
-        })
-    )
+    await waitForExpect(async () => {
+        const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+        expect(propertyDefinitions).toContainEqual(
+            expect.objectContaining({
+                name: 'property',
+                is_numerical: false,
+                property_type: 'DateTime',
+            })
+        )
+    })
 })
 
 test.concurrent.each([[true], ['true']])(
@@ -109,14 +115,16 @@ test.concurrent.each([[true], ['true']])(
             property: booleanValue,
         })
 
-        const propertyDefinitions = await delayUntilEventIngested(() => getPropertyDefinitions(postgres, teamId))
-        expect(propertyDefinitions).toContainEqual(
-            expect.objectContaining({
-                name: 'property',
-                is_numerical: false,
-                property_type: 'Boolean',
-            })
-        )
+        await waitForExpect(async () => {
+            const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+            expect(propertyDefinitions).toContainEqual(
+                expect.objectContaining({
+                    name: 'property',
+                    is_numerical: false,
+                    property_type: 'Boolean',
+                })
+            )
+        })
     }
 )
 
@@ -131,13 +139,15 @@ test.concurrent.each([['utm_abc'], ['utm_123']])(
             [propertyName]: 1234,
         })
 
-        const propertyDefinitions = await delayUntilEventIngested(() => getPropertyDefinitions(postgres, teamId))
-        expect(propertyDefinitions).toContainEqual(
-            expect.objectContaining({
-                name: propertyName,
-                is_numerical: false,
-                property_type: 'String',
-            })
-        )
+        await waitForExpect(async () => {
+            const propertyDefinitions = await getPropertyDefinitions(postgres, teamId)
+            expect(propertyDefinitions).toContainEqual(
+                expect.objectContaining({
+                    name: propertyName,
+                    is_numerical: false,
+                    property_type: 'String',
+                })
+            )
+        })
     }
 )

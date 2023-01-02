@@ -140,7 +140,8 @@ export async function createHub(
 
     status.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
-        host: serverConfig.CLICKHOUSE_HOST,
+        // We prefer to run queries on the offline cluster.
+        host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
         port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
         protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
         user: serverConfig.CLICKHOUSE_USER,

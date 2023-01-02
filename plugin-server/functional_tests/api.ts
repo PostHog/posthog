@@ -4,14 +4,7 @@ import { Producer } from 'kafkajs'
 import parsePrometheusTextFormat from 'parse-prometheus-text-format'
 import { Pool } from 'pg'
 
-import {
-    ActionStep,
-    PluginLogEntry,
-    RawAction,
-    RawClickHouseEvent,
-    RawPerson,
-    RawSessionRecordingEvent,
-} from '../src/types'
+import { ActionStep, PluginLogEntry, RawAction, RawClickHouseEvent, RawSessionRecordingEvent } from '../src/types'
 import { Plugin, PluginConfig } from '../src/types'
 import { parseRawClickHouseEvent } from '../src/utils/event'
 import { UUIDT } from '../src/utils/utils'
@@ -109,8 +102,8 @@ export const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, 
 export const fetchPersons = async (clickHouseClient: ClickHouse, teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM person WHERE team_id = ${teamId} ORDER BY created_at ASC`
-    )) as unknown as ClickHouse.ObjectQueryResult<RawPerson>
-    return queryResult.data
+    )) as unknown as ClickHouse.ObjectQueryResult<any>
+    return queryResult.data.map((person) => ({ ...person, properties: JSON.parse(person.properties) }))
 }
 
 export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
