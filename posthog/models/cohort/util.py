@@ -268,7 +268,7 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
 
     count = get_cohort_size(cohort.pk, cohort.team_id)
 
-    if cohort.version is not None:
+    if cohort.version > 0:
         clear_stale_cohortpeople(cohort, cohort.version)
 
     if count is not None and before_count is not None:
