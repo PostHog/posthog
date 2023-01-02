@@ -544,11 +544,19 @@
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.2
   '
   
-  SELECT count()
-  FROM cohortpeople
+  SELECT id
+  FROM person
   WHERE team_id = 2
-    AND cohort_id = 2
-    AND version < NULL
+    AND id IN
+      (SELECT id
+       FROM person
+       WHERE team_id = 2
+         AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))))
+              OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(person.properties, 'name'), '^"|"$', '')))) )
+  GROUP BY id
+  HAVING max(is_deleted) = 0
+  AND ((((has(['test'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', '')))))
+       OR (has(['test2'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'name'), '^"|"$', ''))))
   '
 ---
 # name: TestCohortQuery.test_precalculated_cohort_filter_with_extra_filters.3
