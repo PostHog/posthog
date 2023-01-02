@@ -26,7 +26,7 @@ from posthog.models import (
     User,
 )
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.async_deletion.delete import process_found_event_table_deletions
+from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 from posthog.models.utils import UUIDT
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
@@ -176,7 +176,7 @@ class MatrixManager:
 
     @classmethod
     def _erase_master_team_data(cls):
-        process_found_event_table_deletions(
+        AsyncEventDeletion().process(
             [AsyncDeletion(team_id=cls.MASTER_TEAM_ID, key=cls.MASTER_TEAM_ID, deletion_type=DeletionType.Team)]
         )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
