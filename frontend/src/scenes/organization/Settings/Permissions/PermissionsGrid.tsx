@@ -5,6 +5,7 @@ import { LemonTableColumns } from 'lib/components/LemonTable'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
 import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { Tooltip } from 'lib/components/Tooltip'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { AccessLevel, Resource, RoleType } from '~/types'
 import { permissionsLogic } from './permissionsLogic'
 import { CreateRoleModal } from './Roles/CreateRoleModal'
@@ -16,6 +17,8 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
     const { updatePermission } = useActions(permissionsLogic)
     const { roles, rolesLoading } = useValues(rolesLogic)
     const { setRoleInFocus, openCreateRoleModal } = useActions(rolesLogic)
+    const { isAdminOrOwner } = useValues(organizationLogic)
+
     const columns: LemonTableColumns<RoleType> = [
         {
             key: 'role',
@@ -80,6 +83,8 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                                         updatePermission(v, role, resource[name].id, name)
                                     }}
                                     checked={resource[`${name}`][role.name] >= AccessLevel.WRITE}
+                                    disabled={!isAdminOrOwner}
+                                    color={isAdminOrOwner ? '' : 'gray'}
                                 />
                             </div>
                         )
