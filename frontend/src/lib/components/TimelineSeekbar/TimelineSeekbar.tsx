@@ -14,8 +14,9 @@ export interface TimelinePoint {
 
 export interface TimelineSeekbarProps {
     points: TimelinePoint[]
+    note: JSX.Element | string
     selectedPointIndex: number | null
-    onPointSelection: (index: number) => void
+    onPointSelection: (index: number | null) => void
     from?: Dayjs
     to?: Dayjs
     loading?: boolean
@@ -43,6 +44,7 @@ const SEEKBAR_TOOLTIP_PLACEMENTS: Record<string, AlignType> = {
 
 export function TimelineSeekbar({
     points,
+    note,
     selectedPointIndex,
     onPointSelection,
     from = points.length ? points[0].timestamp : dayjs(),
@@ -53,15 +55,15 @@ export function TimelineSeekbar({
     return (
         <div className={clsx('TimelineSeekbar', className)}>
             <div className="TimelineSeekbar__meta">
-                <div className="TimelineSeekbar__note">Relevant properties over time</div>
+                <div className="TimelineSeekbar__note">
+                    {note}
+                    {loading && <Spinner className="ml-1 text-xl" />}
+                </div>
                 <div className="TimelineSeekbar__current">
-                    {loading && <Spinner monocolor />}
-                    <span>
-                        As of{' '}
-                        {selectedPointIndex !== null
-                            ? humanFriendlyDetailedTime(points[selectedPointIndex].timestamp)
-                            : 'now'}
-                    </span>
+                    As of{' '}
+                    {selectedPointIndex !== null
+                        ? humanFriendlyDetailedTime(points[selectedPointIndex].timestamp)
+                        : 'now'}
                 </div>
             </div>
             {points.length > 0 && (
@@ -83,17 +85,28 @@ export function TimelineSeekbar({
                         </Tooltip>
                         <Tooltip
                             title={
-                                <span>
-                                    This data point's range ends at
-                                    <br />
-                                    {humanFriendlyDetailedTime(to)}
-                                </span>
+                                <>
+                                    <p>
+                                        This data point's range ends at
+                                        <br />
+                                        {humanFriendlyDetailedTime(to)}
+                                    </p>
+                                    <em>Click to view properties as they are in the present</em>
+                                </>
                             }
                             placement="topRight"
                             builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
                             delayMs={0}
                         >
-                            <div className="TimelineSeekbar__line-end" />
+                            <div
+                                className="TimelineSeekbar__line-end"
+                                onMouseDown={(e) =>
+                                    e.button === 0 && selectedPointIndex !== null && onPointSelection(null)
+                                }
+                                onMouseOver={(e) =>
+                                    e.buttons === 1 && selectedPointIndex !== null && onPointSelection(null)
+                                }
+                            />
                         </Tooltip>
                     </div>
                     <div className="TimelineSeekbar__points">
