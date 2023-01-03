@@ -1,7 +1,7 @@
 from celery import shared_task
 from sentry_sdk import capture_exception
 
-import posthog.demo.matrix.manager as manager
+from posthog.demo.matrix import manager```
 from posthog.demo.products.hedgebox.matrix import HedgeboxMatrix
 from posthog.models.team.team import Team
 from posthog.models.user import User
