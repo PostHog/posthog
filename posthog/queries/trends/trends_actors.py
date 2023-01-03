@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -10,6 +10,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.sql import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.models.property import Property
 from posthog.models.team import Team
@@ -17,19 +18,35 @@ from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group_based, process_math
 
+F = TypeVar("F", Filter, PropertiesTimelineFilter)
 
-def _handle_date_interval(filter: Filter) -> Filter:
+
+def handle_data_interval_for_data_point_actors(filter: F) -> F:
     # adhoc date handling. parsed differently with django orm
+    if filter.display == TRENDS_CUMULATIVE or filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+        return filter
     date_from = filter.date_from or timezone.now()
     data: Dict = {}
     if filter.interval == "month":
-        data.update({"date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
+        data.update(
+            {
+                "date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+            }
+        )
     elif filter.interval == "week":
-        data.update({"date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).strftime("%Y-%m-%d")})
+        data.update(
+            {
+                "date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+            }
+        )
     elif filter.interval == "day":
-        data.update({"date_to": (date_from).strftime("%Y-%m-%d 23:59:59")})
+        data.update({"date_to": date_from.replace(hour=23, minute=59, second=59, microsecond=999999)})
     elif filter.interval == "hour":
-        data.update({"date_to": (date_from + timedelta(hours=1)).strftime("%Y-%m-%d %H:%M:%S")})
+        data.update({"date_to": (date_from + timedelta(hours=1))})
     return filter.with_data(data)
 
 
@@ -43,10 +60,7 @@ class TrendsActors(ActorBaseQuery):
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
-
-        if filter.display != TRENDS_CUMULATIVE and filter.display not in NON_TIME_SERIES_DISPLAY_TYPES:
-            filter = _handle_date_interval(filter)
-
+        filter = handle_data_interval_for_data_point_actors(filter)
         super().__init__(team, filter, entity, **kwargs)
 
     @cached_property

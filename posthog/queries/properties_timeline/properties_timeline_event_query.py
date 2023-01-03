@@ -1,3 +1,4 @@
+import datetime as dt
 from typing import Any, Dict, Tuple
 
 from posthog.models.entity.util import get_entity_filtering_params
@@ -8,6 +9,9 @@ from posthog.queries.query_date_range import QueryDateRange
 
 
 class PropertiesTimelineEventQuery(EventQuery):
+    effective_date_from: dt.datetime
+    effective_date_to: dt.datetime
+
     _filter: PropertiesTimelineFilter
 
     def __init__(self, filter: PropertiesTimelineFilter, *args, **kwargs):
@@ -62,6 +66,8 @@ class PropertiesTimelineEventQuery(EventQuery):
     def _get_date_filter(self) -> Tuple[str, Dict]:
         query_params: Dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
+        self.effective_date_from = query_date_range.date_from_param
+        self.effective_date_to = query_date_range.date_to_param
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
 
@@ -77,9 +83,7 @@ class PropertiesTimelineEventQuery(EventQuery):
             allowed_entities=self._filter.entities,
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
         )
 
         return entity_format_params.get("entity_query", ""), entity_params
