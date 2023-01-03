@@ -17,9 +17,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -168,7 +168,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=custom_event").json()
         self.assertListEqual(sorted(events), sorted(event["name"] for event in response))
 
-    @with_materialized_columns(["random_prop"])
+    @also_test_with_materialized_columns(["random_prop"])
     @snapshot_clickhouse_queries
     def test_event_property_values(self):
 

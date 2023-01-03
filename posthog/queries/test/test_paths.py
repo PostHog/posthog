@@ -9,7 +9,13 @@ from posthog.constants import FILTER_TEST_ACCOUNTS
 from posthog.models import Team
 from posthog.models.filters.path_filter import PathFilter
 from posthog.queries.paths import Paths
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, with_materialized_columns
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    also_test_with_materialized_columns,
+)
 
 
 # This test file uses a batched method of event creation
@@ -25,7 +31,7 @@ class MockEvent:
 
 def paths_test_factory(paths):
     class TestPaths(ClickhouseTestMixin, APIBaseTest):
-        @with_materialized_columns(["$current_url", "$screen_name"], person_properties=["email"])
+        @also_test_with_materialized_columns(["$current_url", "$screen_name"], person_properties=["email"])
         def test_current_url_paths_and_logic(self):
             events = []
             _create_person(team_id=self.team.pk, distinct_ids=["fake"])

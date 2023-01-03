@@ -14,8 +14,8 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    with_materialized_columns,
 )
 
 
@@ -45,7 +45,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
     def base_time(self):
         return (now() - relativedelta(hours=1)).replace(microsecond=0)
 
-    @with_materialized_columns(["$current_url"])
+    @also_test_with_materialized_columns(["$current_url"])
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_basic_query(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -147,7 +147,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
-    @with_materialized_columns(["$current_url", "$browser"])
+    @also_test_with_materialized_columns(["$current_url", "$browser"])
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_event_filter_with_properties(self):
@@ -255,7 +255,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
-    @with_materialized_columns(["$current_url", "$browser"])
+    @also_test_with_materialized_columns(["$current_url", "$browser"])
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_action_filter(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
@@ -627,7 +627,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @with_materialized_columns(person_properties=["email"])
+    @also_test_with_materialized_columns(person_properties=["email"])
     def test_event_filter_with_person_properties(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         Person.objects.create(team=self.team, distinct_ids=["user2"], properties={"email": "bla2"})
@@ -657,7 +657,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(session_recordings[0]["session_id"], "1")
 
     @snapshot_clickhouse_queries
-    @with_materialized_columns(["$current_url"])
+    @also_test_with_materialized_columns(["$current_url"])
     def test_event_filter_with_cohort_properties(self):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
             with freeze_time("2021-08-21T20:00:00.000Z"):
@@ -699,7 +699,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @with_materialized_columns(["$current_url"])
+    @also_test_with_materialized_columns(["$current_url"])
     def test_event_filter_with_matching_on_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(
@@ -732,7 +732,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
-    @with_materialized_columns(["$current_url"])
+    @also_test_with_materialized_columns(["$current_url"])
     def test_event_filter_matching_with_no_session_id(self):
         Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
         create_snapshot(

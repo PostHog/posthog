@@ -16,9 +16,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    with_materialized_columns,
 )
 
 
@@ -77,7 +77,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_data[1]["name"], "$browser")
         self.assertEqual(response_data[1]["count"], 1)
 
-    @with_materialized_columns(person_properties=["random_prop"])
+    @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
     def test_person_property_values(self):
         _create_person(
@@ -104,7 +104,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()[0]["name"], "qwerty")
         self.assertEqual(response.json()[0]["count"], 1)
 
-    @with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_filter_person_email(self):
 

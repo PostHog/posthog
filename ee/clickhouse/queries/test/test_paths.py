@@ -25,8 +25,8 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    with_materialized_columns,
 )
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
@@ -1293,7 +1293,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             5, len(self._get_people_at_path(path_filter, "4_between_step_1_c", "5_step two", funnel_filter))
         )
 
-    @with_materialized_columns(["$current_url", "$screen_name"])
+    @also_test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_paths_end(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
         p1 = [
@@ -1939,7 +1939,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @with_materialized_columns(["$current_url", "$screen_name"])
+    @also_test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_paths_start_and_end(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
 
@@ -2750,7 +2750,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @with_materialized_columns(
+    @also_test_with_materialized_columns(
         ["$current_url", "$screen_name"],
         group_properties=[(0, "industry"), (1, "industry")],
         materialize_only_with_person_on_events=True,
