@@ -647,7 +647,7 @@ def get_active_feature_flags(
 
     all_feature_flags = (
         feature_flags
-        if feature_flags
+        if feature_flags is not None
         else FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
             "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
         )
