@@ -83,8 +83,6 @@ class SignupSerializer(serializers.Serializer):
 
         user = self._user
 
-        login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
-
         report_user_signed_up(
             user,
             is_instance_first_user=is_instance_first_user,
@@ -122,7 +120,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = "/ingestion" if not settings.DEMO else "/"
+        data["redirect_url"] = "/verify_email" if not settings.DEMO else "/"
         return data
 
 
