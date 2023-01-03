@@ -12,18 +12,15 @@ import { humanFriendlyDuration } from 'lib/utils'
 import { dayjs } from 'lib/dayjs'
 import { IconSad, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { getSeriesColor } from 'lib/colors'
-import './Trace.scss'
 import { LemonButton } from 'lib/components/LemonButton'
 
 export interface SpanProps extends SpanData {
     maxSpan: number
     durationContainerWidth: number | undefined
     widthTrackingRef?: RefCallback<HTMLElement>
-    isSelected?: boolean
 }
 
 export function Span({
-    isSelected,
     start,
     duration,
     data,
@@ -31,6 +28,7 @@ export function Span({
     durationContainerWidth,
     widthTrackingRef,
     type,
+    children,
     level = 0,
 }: SpanProps): JSX.Element {
     const durationWidth = (duration / maxSpan) * 100
@@ -39,57 +37,67 @@ export function Span({
     const [isExpanded, setIsExpanded] = useState(false)
 
     return (
-        <div
-            className={clsx(
-                'w-full border px-4 py-4 flex flex-row justify-between cursor-pointer',
-                isSelected && 'bg-muted',
-                `Span__${type}`
-            )}
-        >
-            <div className={'w-60 relative flex flex-row'}>
-                <LemonButton
-                    noPadding
-                    status="stealth"
-                    onClick={() => setIsExpanded(!isExpanded)}
-                    icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                    title={isExpanded ? 'Collapse span' : 'Expand span'}
-                />
-                <div className={clsx('h-full relative', level > 0 && 'Span__nested', `w-${(level + 1) * 4}`)} />
-                <div className={clsx('flex flex-col')}>
-                    <div className={'flex flex-row items-center gap-2'}>
-                        {data && 'type' in data ? data?.type : 'session'}{' '}
-                        {data && 'data' in data && 'is_frustrating' in data.data && data.data.is_frustrating && (
-                            <IconSad />
+        <>
+            <div className={clsx('w-full border px-4 py-4 flex flex-row justify-between', `Span__${type}`)}>
+                <div className={'w-100 relative flex flex-row gap-2'}>
+                    {children.length ? (
+                        <LemonButton
+                            noPadding
+                            status="stealth"
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                            title={isExpanded ? 'Collapse span' : 'Expand span'}
+                        />
+                    ) : null}
+                    <div className={clsx('flex flex-col')}>
+                        <div className={'flex flex-row items-center gap-2'}>
+                            {data && 'type' in data ? data?.type : 'session'}{' '}
+                            {data && 'data' in data && 'is_frustrating' in data.data && data.data.is_frustrating && (
+                                <IconSad />
+                            )}
+                        </div>
+                        {data && 'data' in data && 'type' in data.data && 'action' in data.data && (
+                            <>
+                                {data.data.type} - {data.data.action}
+                            </>
                         )}
                     </div>
-                    {data && 'data' in data && 'type' in data.data && 'action' in data.data && (
-                        <>
-                            {data.data.type} - {data.data.action}
-                        </>
-                    )}
                 </div>
-            </div>
-            <div
-                ref={widthTrackingRef}
-                className={'grow self-center'}
-                style={{
-                    width: durationContainerWidth || '100%',
-                    maxWidth: durationContainerWidth,
-                    minWidth: durationContainerWidth,
-                }}
-            >
                 <div
+                    ref={widthTrackingRef}
+                    className={'grow self-center'}
                     style={{
-                        backgroundColor: getSeriesColor(level),
-                        width: `${durationWidth}%`,
-                        marginLeft: `${startMargin}%`,
+                        width: durationContainerWidth || '100%',
+                        maxWidth: durationContainerWidth,
+                        minWidth: durationContainerWidth,
                     }}
-                    className={'text-white pl-1'}
                 >
-                    {duration}ms
+                    <div
+                        style={{
+                            backgroundColor: getSeriesColor(level),
+                            width: `${durationWidth}%`,
+                            marginLeft: `${startMargin}%`,
+                        }}
+                        className={'text-white pl-1'}
+                    >
+                        {duration}ms
+                    </div>
                 </div>
             </div>
-        </div>
+            {isExpanded && (
+                <div className={'pl-4'}>
+                    {children.map((child, index) => (
+                        <Span
+                            key={`${level}-${index}`}
+                            maxSpan={maxSpan}
+                            durationContainerWidth={durationContainerWidth}
+                            widthTrackingRef={widthTrackingRef}
+                            {...child}
+                        />
+                    ))}
+                </div>
+            )}
+        </>
     )
 }
 
@@ -103,6 +111,7 @@ interface SpanData {
     duration: number
     data?: TimeToSeeNode | SessionData
     level?: number
+    children: SpanData[]
 }
 
 interface ProcessSpans {
@@ -111,13 +120,14 @@ interface ProcessSpans {
 }
 
 function walkSpans(nodes: Array<TimeToSeeNode>, sessionStart: dayjs.Dayjs, level: number = 1): ProcessSpans {
-    let spanData: SpanData[] = []
+    const spanData: SpanData[] = []
     let maxDuration = 0
 
     nodes
         .filter((node): node is TimeToSeeInteractionNode => node.type === 'interaction' || node.type === 'event')
         .forEach((node) => {
-            // are these all InteractionNodes
+            const walkedChildren = walkSpans(node.children, sessionStart, level++)
+
             const start = dayjs(node.data.timestamp).diff(sessionStart)
             spanData.push({
                 type: node.type,
@@ -125,13 +135,13 @@ function walkSpans(nodes: Array<TimeToSeeNode>, sessionStart: dayjs.Dayjs, level
                 duration: node.data.time_to_see_data_ms,
                 data: node,
                 level,
+                children: walkedChildren.spans,
             })
             maxDuration = start + node.data.time_to_see_data_ms
 
-            const walkedChildren = walkSpans(node.children, sessionStart, level++)
-            spanData = spanData.concat(walkedChildren.spans)
-            maxDuration = maxDuration > walkedChildren.maxDuration ? maxDuration : walkedChildren.maxDuration
+            maxDuration = Math.max(maxDuration, walkedChildren.maxDuration)
         })
+
     return { spans: spanData, maxDuration }
 }
 
@@ -142,6 +152,7 @@ function flattenSpans(timeToSeeSession: TimeToSeeSessionNode): ProcessSpans {
         start: 0,
         duration: timeToSeeSession.data.duration_ms,
         data: timeToSeeSession.data,
+        children: [], // the session's children are shown separately
     })
 
     return {
@@ -151,8 +162,6 @@ function flattenSpans(timeToSeeSession: TimeToSeeSessionNode): ProcessSpans {
 }
 
 export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
-    const [selectedSpan, setSelectedSpan] = useState<number | null>(null)
-
     const { ref: parentSpanRef, width: parentSpanWidth } = useResizeObserver()
 
     const { spans, maxDuration } = flattenSpans(timeToSeeSession)
@@ -171,18 +180,12 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
                     ref = parentSpanRef
                 }
                 return (
-                    <div
-                        key={i}
-                        onClick={() => {
-                            setSelectedSpan(selectedSpan === i ? null : i)
-                        }}
-                    >
+                    <div key={i}>
                         <Span
                             widthTrackingRef={ref}
                             // don't set duration container width back onto the element that is generating it
                             durationContainerWidth={!!ref ? undefined : parentSpanWidth}
                             maxSpan={maxDuration}
-                            isSelected={selectedSpan === i}
                             {...spanData}
                         />
                     </div>

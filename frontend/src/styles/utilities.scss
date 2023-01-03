@@ -5,7 +5,7 @@
     PLEASE READ BEFORE MODIFYING THIS FILE
 
     We don't use Tailwind in PostHog but we do use a lot of helpful Utility classes to make straightforward CSS easy.
-    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible. 
+    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible.
     As such, if something is missing here, please go to Tailwind's docs and copy their implementation rather than creating your own
     custom naming conventions 🙌
 */
@@ -656,6 +656,11 @@
 .rounded-l-none {
     border-top-left-radius: 0px;
     border-bottom-left-radius: 0px;
+}
+
+.rounded-t-none {
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
 }
 
 .rounded-sm {
