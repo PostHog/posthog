@@ -208,7 +208,7 @@ function NodeFacts({ node }: { node: TimeToSeeNode }): JSX.Element {
                 .filter((entry) => entry[1] !== undefined && entry[1] !== '')
                 .map(([key, fact], index) => {
                     return (
-                        <div key={index} className={'flex flex-row w-full overflow-scroll whitespace-nowrap'}>
+                        <div key={index} className={'flex flex-row w-full overflow-auto whitespace-nowrap'}>
                             <strong>{key}: </strong>
                             <span>{fact}</span>
                         </div>
