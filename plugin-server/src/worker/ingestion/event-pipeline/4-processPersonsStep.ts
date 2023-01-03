@@ -15,7 +15,7 @@ export async function processPersonsStep(
 
     // TODO: Have the snapshot events pipeline be completely separate
     // from all other events
-    if (event.event === '$snapshot') {
+    if (['$snapshot', '$performance_event'].includes(event.event)) {
         return runner.nextStep('prepareEventStep', event, personContainer)
     }
 
