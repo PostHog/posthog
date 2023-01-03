@@ -99,7 +99,7 @@ export class EventsProcessor {
                     }
                 }
             } else if (data['event'] === '$performance_event') {
-                const timeout2 = timeoutGuard('Still running "createPerformanceEvent". Timeout warning after 30 sec!', {
+                const timeout3 = timeoutGuard('Still running "createPerformanceEvent". Timeout warning after 30 sec!', {
                     eventUuid,
                 })
                 try {
@@ -109,21 +109,18 @@ export class EventsProcessor {
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.performance', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
-                } catch (e) {
-                    console.log('BOO ERROR', e)
-                    throw e
                 } finally {
-                    clearTimeout(timeout2)
+                    clearTimeout(timeout3)
                 }
             } else {
-                const timeout3 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
+                const timeout4 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
                 try {
                     result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
                 } finally {
-                    clearTimeout(timeout3)
+                    clearTimeout(timeout4)
                 }
             }
         } finally {
