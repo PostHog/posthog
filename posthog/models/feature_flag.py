@@ -604,6 +604,36 @@ def _get_active_feature_flags(
     return {}, {}
 
 
+def get_feature_flags(
+    team_id: int,
+    distinct_id: str,
+    groups: Dict[GroupTypeName, str] = {},
+    hash_key_override: Optional[str] = None,
+    property_value_overrides: Dict[str, Union[str, int]] = {},
+    group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+    only_active: bool = False,
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
+    all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
+        "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
+    )
+    active_flags, active_flag_reasons = get_active_feature_flags(
+        team_id,
+        distinct_id,
+        groups,
+        hash_key_override,
+        property_value_overrides,
+        group_property_value_overrides,
+        feature_flags=all_feature_flags,
+    )
+
+    if only_active:
+        return active_flags, active_flag_reasons
+
+    all_flags_response = {flag.key: False for flag in all_feature_flags}
+    all_flags_response.update(active_flags)
+    return all_flags_response, active_flag_reasons
+
+
 # Return feature flags
 def get_active_feature_flags(
     team_id: int,
@@ -612,10 +642,15 @@ def get_active_feature_flags(
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
+    feature_flags: Optional[List[FeatureFlag]] = None,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
 
-    all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
-        "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
+    all_feature_flags = (
+        feature_flags
+        if feature_flags
+        else FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
+            "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
+        )
     )
 
     flags_have_experience_continuity_enabled = any(

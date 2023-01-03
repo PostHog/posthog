@@ -14,7 +14,7 @@ from posthog.api.utils import get_project_id, get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_feature_flags
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -147,14 +147,16 @@ def get_decide(request: HttpRequest):
                 **(data.get("person_properties") or {}),
             }
 
-            feature_flags, _ = get_active_feature_flags(
+            feature_flags, _ = get_feature_flags(
                 team.pk,
                 data["distinct_id"],
                 data.get("groups") or {},
                 hash_key_override=data.get("$anon_distinct_id"),
                 property_value_overrides=all_property_overrides,
                 group_property_value_overrides=(data.get("group_properties") or {}),
+                only_active=(api_version < 3),
             )
+
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
 

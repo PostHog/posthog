@@ -705,7 +705,7 @@ class TestDecide(BaseTest):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # different hash, overridden by distinct_id, same variant assigned
 
-    def test_feature_flags_v2_complex(self):
+    def _setup_test_feature_flags_complex(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()
         self.client.logout()
@@ -742,6 +742,8 @@ class TestDecide(BaseTest):
             created_by=self.user,
         )
 
+    def test_feature_flags_v2_complex(self):
+        self._setup_test_feature_flags_complex()
         with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="hosted_id")
             self.assertIsNone(
@@ -766,6 +768,14 @@ class TestDecide(BaseTest):
             # second-variant: 20 (100 * 80% * 25% = 20 users)
             # third-variant:  20 (100 * 80% * 25% = 20 users)
             # fourth-variant: 20 (100 * 80% * 25% = 20 users)
+
+    # v3 does everything that 2 does but returns False instead of None on unmatched flags
+    def test_feature_flags_v3_complex(self):
+        self._setup_test_feature_flags_complex()
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=3, distinct_id="hosted_id")
+            self.assertFalse((response.json()["featureFlags"]).get("multivariate-flag", None))
+            self.assertTrue((response.json()["featureFlags"]).get("default-flag"))
 
     def test_feature_flags_v2_with_groups(self):
         # More in-depth tests in posthog/api/test/test_feature_flag.py
