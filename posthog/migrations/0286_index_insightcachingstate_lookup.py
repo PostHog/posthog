@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
         migrations.RunSQL(
             sql="""
             -- not-null-ignore
-            CREATE INDEX CONCURRENTLY posthog_insightcachingstate_lookup ON posthog_insightcachingstate (
+            CREATE INDEX CONCURRENTLY IF NOT EXISTS posthog_insightcachingstate_lookup ON posthog_insightcachingstate (
                 last_refresh DESC NULLS LAST,
                 last_refresh_queued_at DESC NULLS LAST,
                 target_cache_age_seconds,
