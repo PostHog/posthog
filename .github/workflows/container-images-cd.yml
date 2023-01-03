@@ -110,7 +110,7 @@ jobs:
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
                   push: true
-                  tags: ${{ steps.login-ecr.outputs.registry }}/posthog-cloud:latest
+                  tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:latest
                   platforms: linux/amd64,linux/arm64
                   file: Dockerfile.cloud
                   context: cloud
