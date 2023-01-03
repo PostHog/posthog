@@ -408,11 +408,12 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
 # Using CONSTANCE_CONFIG instead of get_instance_setting, becasue DB access is only allowed _inside_ the Test* class
 if CONSTANCE_CONFIG["PERSON_ON_EVENTS_ENABLED"][0]:
 
-    class TestPersonPropertiesTimeline(properties_timeline_test_factory(actor_type="person")):
+    class TestPersonPropertiesTimeline(properties_timeline_test_factory(actor_type="person")):  # type: ignore
         pass
 
 
 # TODO: Uncomment below when groups-on-events is released, and make sure everything works
 # if CONSTANCE_CONFIG["GROUPS_ON_EVENTS_ENABLED"][0]:
-#     class TestGroupPropertiesTimeline(properties_timeline_test_factory(actor_type="group")):
+#
+#     class TestGroupPropertiesTimeline(properties_timeline_test_factory(actor_type="group")):  # type: ignore
 #         pass
