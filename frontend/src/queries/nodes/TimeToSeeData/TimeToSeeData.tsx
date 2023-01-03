@@ -6,7 +6,7 @@ import { useValues } from 'kea'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { TimeToSeeSessionNode } from './types'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { Trace } from 'lib/components/Performance/Traces/Trace'
+import { Trace } from '~/queries/nodes/TimeToSeeData/Trace/Trace'
 
 let uniqueNode = 0
 

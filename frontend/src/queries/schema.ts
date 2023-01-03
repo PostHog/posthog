@@ -300,7 +300,7 @@ export interface TimeToSeeDataQuery extends DataNode {
     sessionStart?: string
     sessionEnd?: string
 
-    visualization: 'json' | 'waterfall'
+    visualization: 'json' | 'trace'
 }
 
 export type InsightQueryNode =

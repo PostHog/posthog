@@ -1,17 +1,12 @@
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
-import { Trace } from 'lib/components/Performance/Traces/Trace'
+import { Trace } from '~/queries/nodes/TimeToSeeData/Trace/Trace'
 import { TimeToSeeSessionNode } from '~/queries/nodes/TimeToSeeData/types'
 
 export default {
-    title: 'Components/Performance/Traces',
+    title: 'Queries/Time to see data/Traces',
     component: Trace,
     parameters: { chromatic: { disableSnapshot: false } },
-    argTypes: {
-        // label: {
-        //     defaultValue: 'Switch this!',
-        // },
-    },
 } as ComponentMeta<typeof Trace>
 
 const Template: ComponentStory<typeof Trace> = () => {
