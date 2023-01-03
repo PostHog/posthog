@@ -1,12 +1,13 @@
 import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
 import { Row } from 'antd'
 import { useValues } from 'kea'
-import { IconDelete } from 'lib/components/icons'
+import { IconDelete, IconSettings } from 'lib/components/icons'
 import {
     LemonSelectMultiple,
     LemonSelectMultipleOptionItem,
 } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { LemonTableColumns } from 'lib/components/LemonTable'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { AccessLevel, Resource, RoleType } from '~/types'
 import {
     FormattedResourceLevel,
@@ -230,10 +231,22 @@ function OrganizationResourcePermissionLabel({
 }): JSX.Element {
     return (
         <>
-            <h5>Organization Default</h5>
-            <Link to={`${urls.organizationSettings()}?tab=role_based_access`} target="_blank">
-                <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
-            </Link>
+            <TitleWithIcon
+                icon={
+                    <LemonButton
+                        icon={<IconSettings />}
+                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                        status="stealth"
+                        targetBlank
+                        size="small"
+                        noPadding
+                        className="ml-1"
+                    />
+                }
+            >
+                <h5>Organization default</h5>
+            </TitleWithIcon>
+            <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
         </>
     )
 }
