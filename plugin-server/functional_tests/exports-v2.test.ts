@@ -94,10 +94,10 @@ test.concurrent(`exports: historical exports v2`, async () => {
     // First let's capture an event and wait for it to be ingested so
     // so we can check that the historical event is the same as the one
     // passed to processEvent on initial ingestion.
-    const eventTime = new Date('2022-01-01T00:00:00.000Z')
-    const sentAt = new Date('2022-01-02T00:00:00.000Z')
-    const now = new Date('2022-01-03T00:00:00.000Z')
-    const skewAdjustedTimestamp = new Date(now.getTime() - (sentAt.getTime() - eventTime.getTime()))
+    const eventTime = new Date('2022-01-01T05:08:00.000Z')
+    const sentAt = new Date('2022-01-01T05:10:00.000Z')
+    const now = new Date('2022-01-01T05:00:00.000Z')
+    const skewAdjustedTimestamp = new Date('2022-01-01T04:58:00.000Z')
     const properties = {
         name: 'hehe',
         uuid: new UUIDT().toString(),
