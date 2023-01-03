@@ -99,7 +99,7 @@ export class EventsProcessor {
                     }
                 }
             } else if (data['event'] === '$performance_event') {
-                const timeout3 = timeoutGuard('Still running "createPerformanceEvent". Timeout warning after 30 sec!', {
+                const performanceEventTimeout = timeoutGuard('Still running "createPerformanceEvent". Timeout warning after 30 sec!', {
                     eventUuid,
                 })
                 try {
@@ -110,7 +110,7 @@ export class EventsProcessor {
                         team_id: teamId.toString(),
                     })
                 } finally {
-                    clearTimeout(timeout3)
+                    clearTimeout(performanceEventTimeout)
                 }
             } else {
                 const timeout4 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
