@@ -611,7 +611,7 @@ def get_feature_flags(
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-    only_active: bool = False,
+    only_active: bool = True,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
