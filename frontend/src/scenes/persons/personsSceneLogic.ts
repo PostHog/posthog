@@ -12,12 +12,9 @@ import type { personsSceneLogicType } from './personsSceneLogicType'
 const getDefaultQuery = (): DataTableNode => ({
     kind: NodeKind.DataTableNode,
     source: { kind: NodeKind.PersonsNode },
+    full: true,
     columns: undefined,
     propertiesViaUrl: true,
-    showSearch: true,
-    showPropertyFilter: true,
-    showExport: true,
-    showReload: true,
 })
 
 export const personsSceneLogic = kea<personsSceneLogicType>([

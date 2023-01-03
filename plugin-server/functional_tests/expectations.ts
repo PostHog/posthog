@@ -1,4 +1,4 @@
-export const waitForExpect = async (fn: () => Promise<void>, timeout = 5000, interval = 50): Promise<void> => {
+export const waitForExpect = async <T>(fn: () => T | Promise<T>, timeout = 10_000, interval = 100): Promise<T> => {
     // Allows for running expectations that are expected to pass eventually.
     // This is useful for, e.g. waiting for events to have been ingested into
     // the database.
@@ -6,8 +6,7 @@ export const waitForExpect = async (fn: () => Promise<void>, timeout = 5000, int
     const start = Date.now()
     while (true) {
         try {
-            await fn()
-            return
+            return await fn()
         } catch (error) {
             if (Date.now() - start > timeout) {
                 throw error

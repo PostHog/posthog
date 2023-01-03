@@ -6,7 +6,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface PersonPropertyFiltersProps {
     query: PersonsNode
-    setQuery?: (node: PersonsNode) => void
+    setQuery?: (query: PersonsNode) => void
 }
 
 let uniqueNode = 0

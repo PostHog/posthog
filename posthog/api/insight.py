@@ -1,9 +1,9 @@
 import json
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Optional, Type, cast
 
 import structlog
-from django.db.models import Count, OuterRef, Prefetch, QuerySet, Subquery
+from django.db.models import Count, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
 from django.utils.text import slugify
@@ -11,7 +11,7 @@ from django.utils.timezone import now
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse
-from rest_framework import exceptions, request, serializers, status, viewsets
+from rest_framework import request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAuthenticated
@@ -226,7 +226,10 @@ class InsightSerializer(InsightBasicSerializer):
         dashboards = validated_data.pop("dashboards", None)
 
         insight = Insight.objects.create(
-            team=team, created_by=created_by, last_modified_by=request.user, **validated_data
+            team=team,
+            created_by=created_by,
+            last_modified_by=request.user,
+            **validated_data,
         )
 
         if dashboards is not None:
@@ -310,7 +313,11 @@ class InsightSerializer(InsightBasicSerializer):
         for dashboard in candidate_dashboards:
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
-            DashboardTile.objects.create(insight=instance, dashboard=dashboard)
+            tile, _ = DashboardTile.objects.get_or_create(insight=instance, dashboard=dashboard)
+            if tile.deleted:
+                tile.deleted = False
+                tile.save()
+
         if ids_to_remove:
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
         # also update dashboards set so activity log can detect the change
@@ -376,11 +383,23 @@ class InsightSerializer(InsightBasicSerializer):
         return dashboard_tile
 
 
-class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class InsightViewSet(
+    TaggedItemViewSetMixin,
+    StructuredViewSetMixin,
+    ForbidDestroyModel,
+    viewsets.ModelViewSet,
+):
     queryset = Insight.objects.all()
     serializer_class = InsightSerializer
-    permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
-    throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
+    permission_classes = [
+        IsAuthenticated,
+        ProjectMembershipNecessaryPermissions,
+        TeamMemberAccessPermission,
+    ]
+    throttle_classes = [
+        PassThroughClickHouseBurstRateThrottle,
+        PassThroughClickHouseSustainedRateThrottle,
+    ]
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.CSVRenderer,)
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["short_id", "created_by"]
@@ -424,22 +443,30 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
 
         order = self.request.GET.get("order", None)
         if order:
-            if order == "-my_last_viewed_at":
-                queryset = self._annotate_with_my_last_viewed_at(queryset).order_by("-my_last_viewed_at")
-            else:
-                queryset = queryset.order_by(order)
+            queryset = queryset.order_by(order)
         else:
             queryset = queryset.order_by("order")
 
         return queryset
 
-    def _annotate_with_my_last_viewed_at(self, queryset: QuerySet) -> QuerySet:
-        if self.request.user.is_authenticated:
-            insight_viewed = InsightViewed.objects.filter(
-                team=self.team, user=self.request.user, insight_id=OuterRef("id")
+    @action(methods=["GET"], detail=False)
+    def my_last_viewed(self, request: request.Request, *args, **kwargs) -> Response:
+        """
+        Returns basic details about the last 5 insights viewed by this user. Most recently viewed first.
+        """
+        recently_viewed = [
+            rv.insight
+            for rv in (
+                InsightViewed.objects.filter(team=self.team, user=cast(User, request.user))
+                .select_related("insight")
+                .exclude(insight__deleted=True)
+                .only("insight")
+                .order_by("-last_viewed_at")[:5]
             )
-            return queryset.annotate(my_last_viewed_at=Subquery(insight_viewed.values("last_viewed_at")[:1]))
-        raise exceptions.NotAuthenticated()
+        ]
+
+        response = InsightBasicSerializer(recently_viewed, many=True)
+        return Response(data=response.data, status=status.HTTP_200_OK)
 
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         filters = request.GET.dict()
@@ -451,10 +478,6 @@ class InsightViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestr
                     queryset = queryset.filter(Q(saved=True) | Q(dashboards_count__gte=1))
                 else:
                     queryset = queryset.filter(Q(saved=False))
-
-            elif key == "my_last_viewed":
-                if str_to_bool(request.GET["my_last_viewed"]):
-                    queryset = self._annotate_with_my_last_viewed_at(queryset).filter(my_last_viewed_at__isnull=False)
             elif key == "feature_flag":
                 feature_flag = request.GET["feature_flag"]
                 queryset = queryset.filter(
@@ -614,7 +637,9 @@ Using the correct cache and enriching the response with dashboard specific confi
 
         if filter.insight == INSIGHT_STICKINESS or filter.shown_as == TRENDS_STICKINESS:
             stickiness_filter = StickinessFilter(
-                request=request, team=team, get_earliest_timestamp=get_earliest_timestamp
+                request=request,
+                team=team,
+                get_earliest_timestamp=get_earliest_timestamp,
             )
             result = self.stickiness_query_class().run(stickiness_filter, team)
         else:
@@ -663,12 +688,21 @@ Using the correct cache and enriching the response with dashboard specific confi
         filter = Filter(request=request, data={"insight": INSIGHT_FUNNELS}, team=self.team)
 
         if filter.funnel_viz_type == FunnelVizType.TRENDS:
-            return {"result": ClickhouseFunnelTrends(team=team, filter=filter).run(), "timezone": team.timezone}
+            return {
+                "result": ClickhouseFunnelTrends(team=team, filter=filter).run(),
+                "timezone": team.timezone,
+            }
         elif filter.funnel_viz_type == FunnelVizType.TIME_TO_CONVERT:
-            return {"result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(), "timezone": team.timezone}
+            return {
+                "result": ClickhouseFunnelTimeToConvert(team=team, filter=filter).run(),
+                "timezone": team.timezone,
+            }
         else:
             funnel_order_class = get_funnel_order_class(filter)
-            return {"result": funnel_order_class(team=team, filter=filter).run(), "timezone": team.timezone}
+            return {
+                "result": funnel_order_class(team=team, filter=filter).run(),
+                "timezone": team.timezone,
+            }
 
     # ******************************************
     # /projects/:id/insights/retention
@@ -730,7 +764,10 @@ Using the correct cache and enriching the response with dashboard specific confi
     @action(methods=["POST"], detail=True)
     def viewed(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         InsightViewed.objects.update_or_create(
-            team=self.team, user=request.user, insight=self.get_object(), defaults={"last_viewed_at": now()}
+            team=self.team,
+            user=request.user,
+            insight=self.get_object(),
+            defaults={"last_viewed_at": now()},
         )
         return Response(status=status.HTTP_201_CREATED)
 
@@ -751,7 +788,13 @@ Using the correct cache and enriching the response with dashboard specific confi
         if not Insight.objects.filter(id=item_id, team_id=self.team_id).exists():
             return Response("", status=status.HTTP_404_NOT_FOUND)
 
-        activity_page = load_activity(scope="Insight", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
+        activity_page = load_activity(
+            scope="Insight",
+            team_id=self.team_id,
+            item_id=item_id,
+            limit=limit,
+            page=page,
+        )
         return activity_page_response(activity_page, limit, page, request)
 
     @action(methods=["POST"], detail=False)
