@@ -5,19 +5,27 @@ export type TimeToSeeNode = TimeToSeeSessionNode | TimeToSeeInteractionNode | Ti
 export interface TimeToSeeSessionNode {
     type: 'session'
     data: SessionData
-    children: Array<TimeToSeeNode>
+    children: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>
+}
+
+export function isInteractionNode(x: TimeToSeeNode): x is TimeToSeeInteractionNode {
+    return ['interaction', 'event'].includes(x.type)
+}
+
+export function isQueryNode(x: TimeToSeeNode): x is TimeToSeeQueryNode {
+    return ['query', 'subquery'].includes(x.type)
 }
 
 export interface TimeToSeeInteractionNode {
     type: 'interaction' | 'event'
     data: InteractionData
-    children: Array<TimeToSeeNode>
+    children: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>
 }
 
-interface TimeToSeeQueryNode {
+export interface TimeToSeeQueryNode {
     type: 'query' | 'subquery'
     data: QueryData
-    children: Array<TimeToSeeNode>
+    children: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>
 }
 
 export interface SessionData {
@@ -37,7 +45,7 @@ export interface SessionData {
 }
 
 interface InteractionData {
-    client_query_id: string
+    query_id: string
     primary_interaction_id: string
     team_id: number
     user_id: number // todo this should be a basic serialized user?
@@ -50,7 +58,7 @@ interface InteractionData {
 
     type: string
     context: string
-    is_primary_interaction: boolean
+    is_primary_interaction: 0 | 1
     api_response_bytes: number
     time_to_see_data_ms: number
     current_url: string
@@ -60,7 +68,7 @@ interface InteractionData {
     insights_fetched: number
     insights_fetched_cached: number
 
-    is_frustrating: boolean
+    is_frustrating: 0 | 1
 }
 
 interface QueryData {
@@ -73,7 +81,7 @@ interface QueryData {
     result_rows: number
     result_bytes: number
     memory_usage: number
-    is_initial_query: boolean
+    is_initial_query: 0 | 1
     exception_code: number
     team_id: number
     team_events_last_month: number
@@ -82,11 +90,10 @@ interface QueryData {
     kind: string
     query_type: string
     client_query_id: string
-    primary_interaction_id: string
     id: string
     route_id: string
     query_time_range_days: number
-    has_json_operations: boolean
+    has_json_operations: 0 | 1
     filter_by_type: Array<string>
     breakdown_by: Array<string>
     entity_math: Array<string>
@@ -98,8 +105,7 @@ interface QueryData {
 
     log_comment: string
 
-    is_frustrating: boolean
+    is_frustrating: 0 | 1
 
-    min_last_refresh: string
-    max_last_refresh: string
+    has_joins: 0 | 1
 }

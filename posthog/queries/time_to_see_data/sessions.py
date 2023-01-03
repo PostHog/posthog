@@ -65,8 +65,8 @@ def get_session_events(query: SessionEventsQuerySerializer) -> Optional[Dict]:
         "session_start": query.validated_data["session_start"].strftime("%Y-%m-%d %H:%M:%S"),
         "session_end": query.validated_data["session_end"].strftime("%Y-%m-%d %H:%M:%S"),
     }
-    events = query_with_columns(GET_SESSION_EVENTS, params)
-    queries = query_with_columns(GET_SESSION_QUERIES, params)
+    events = query_with_columns(GET_SESSION_EVENTS, params, columns_to_remove=["_timestamp", "_partition", "_offset"])
+    queries = query_with_columns(GET_SESSION_QUERIES, params, columns_to_remove=["_timestamp", "_partition", "_offset"])
     session_query = SessionsQuerySerializer(
         data={"team_id": query.validated_data["team_id"], "session_id": query.validated_data["session_id"]}
     )

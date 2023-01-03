@@ -1,10 +1,11 @@
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { RefCallback, useState } from 'react'
+import { RefCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-    SessionData,
+    isInteractionNode,
     TimeToSeeInteractionNode,
     TimeToSeeNode,
+    TimeToSeeQueryNode,
     TimeToSeeSessionNode,
 } from '~/queries/nodes/TimeToSeeData/types'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -13,11 +14,68 @@ import { dayjs } from 'lib/dayjs'
 import { IconSad, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { getSeriesColor } from 'lib/colors'
 import { LemonButton } from 'lib/components/LemonButton'
+import { Tooltip } from 'lib/components/Tooltip'
 
 export interface SpanProps extends SpanData {
     maxSpan: number
     durationContainerWidth: number | undefined
     widthTrackingRef?: RefCallback<HTMLElement>
+}
+
+const checkOverflow = (textContainer: HTMLSpanElement | null): boolean => {
+    if (textContainer) {
+        return (
+            textContainer.offsetHeight < textContainer.scrollHeight ||
+            textContainer.offsetWidth < textContainer.scrollWidth
+        )
+    }
+    return false
+}
+
+function TraceBar({
+    level,
+    start,
+    duration,
+    maxSpan,
+}: Pick<SpanProps, 'level' | 'duration' | 'start' | 'maxSpan'>): JSX.Element {
+    const durationWidth = (duration / maxSpan) * 100
+    const startMargin = (start / maxSpan) * 100
+    const [textIsOverflowing, setTextIsOverflowing] = useState<boolean>(false)
+    const overflowingText = useRef<HTMLDivElement | null>(null)
+
+    useEffect(() => {
+        if (checkOverflow(overflowingText.current)) {
+            setTextIsOverflowing(true)
+            return
+        }
+
+        setTextIsOverflowing(false)
+    }, [duration, start, maxSpan])
+
+    return (
+        <div className={clsx('h-full flex relative', startMargin > 50 ? 'flex-row-reverse' : 'flex-row')}>
+            <div
+                ref={overflowingText}
+                /* eslint-disable-next-line react/forbid-dom-props */
+                style={{
+                    backgroundColor: getSeriesColor(level),
+                    width: `${durationWidth}%`,
+                    marginLeft: `${startMargin}%`,
+                }}
+                className={'text-white pl-1'}
+            >
+                <span className={clsx(textIsOverflowing && 'invisible')}>{duration}ms</span>
+            </div>
+            <span
+                className={clsx(!textIsOverflowing && 'hidden', 'text-black', startMargin > 50 ? 'absolute' : 'pl-1')}
+                style={{
+                    right: `${101 - startMargin}%`,
+                }}
+            >
+                {duration}ms
+            </span>
+        </div>
+    )
 }
 
 export function Span({
@@ -31,9 +89,6 @@ export function Span({
     children,
     level = 0,
 }: SpanProps): JSX.Element {
-    const durationWidth = (duration / maxSpan) * 100
-    const startMargin = (start / maxSpan) * 100
-
     const [isExpanded, setIsExpanded] = useState(false)
 
     return (
@@ -52,8 +107,10 @@ export function Span({
                     <div className={clsx('flex flex-col')}>
                         <div className={'flex flex-row items-center gap-2'}>
                             {data && 'type' in data ? data?.type : 'session'}{' '}
-                            {data && 'data' in data && 'is_frustrating' in data.data && data.data.is_frustrating && (
-                                <IconSad />
+                            {data && 'data' in data && 'is_frustrating' in data.data && !!data.data.is_frustrating && (
+                                <Tooltip title={'This was frustrating - because it took longer than 5 seconds'}>
+                                    <IconSad />
+                                </Tooltip>
                             )}
                         </div>
                         {data && 'data' in data && 'type' in data.data && 'action' in data.data && (
@@ -72,16 +129,7 @@ export function Span({
                         minWidth: durationContainerWidth,
                     }}
                 >
-                    <div
-                        style={{
-                            backgroundColor: getSeriesColor(level),
-                            width: `${durationWidth}%`,
-                            marginLeft: `${startMargin}%`,
-                        }}
-                        className={'text-white pl-1'}
-                    >
-                        {duration}ms
-                    </div>
+                    <TraceBar maxSpan={maxSpan} duration={duration} start={start} level={level} />
                 </div>
             </div>
             {isExpanded && (
@@ -106,10 +154,10 @@ export interface TraceProps {
 }
 
 interface SpanData {
-    type: 'session' | 'interaction' | 'event'
+    type: 'session' | 'interaction' | 'event' | 'query' | 'subquery'
     start: number // milliseconds after session start
     duration: number
-    data?: TimeToSeeNode | SessionData
+    data?: TimeToSeeNode
     level?: number
     children: SpanData[]
 }
@@ -119,28 +167,31 @@ interface ProcessSpans {
     maxDuration: number
 }
 
-function walkSpans(nodes: Array<TimeToSeeNode>, sessionStart: dayjs.Dayjs, level: number = 1): ProcessSpans {
+function walkSpans(
+    nodes: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>,
+    sessionStart: dayjs.Dayjs,
+    level: number = 1
+): ProcessSpans {
     const spanData: SpanData[] = []
     let maxDuration = 0
 
-    nodes
-        .filter((node): node is TimeToSeeInteractionNode => node.type === 'interaction' || node.type === 'event')
-        .forEach((node) => {
-            const walkedChildren = walkSpans(node.children, sessionStart, level++)
+    nodes.forEach((node) => {
+        const walkedChildren = walkSpans(node.children, sessionStart, level++)
 
-            const start = dayjs(node.data.timestamp).diff(sessionStart)
-            spanData.push({
-                type: node.type,
-                start: start,
-                duration: node.data.time_to_see_data_ms,
-                data: node,
-                level,
-                children: walkedChildren.spans,
-            })
-            maxDuration = start + node.data.time_to_see_data_ms
-
-            maxDuration = Math.max(maxDuration, walkedChildren.maxDuration)
+        const start = dayjs(node.data.timestamp).diff(sessionStart)
+        const duration = isInteractionNode(node) ? node.data.time_to_see_data_ms : node.data.query_duration_ms
+        spanData.push({
+            type: node.type,
+            start: start,
+            duration: duration,
+            data: node,
+            level,
+            children: walkedChildren.spans,
         })
+        maxDuration = start + duration
+
+        maxDuration = Math.max(maxDuration, walkedChildren.maxDuration)
+    })
 
     return { spans: spanData, maxDuration }
 }
@@ -151,7 +202,7 @@ function flattenSpans(timeToSeeSession: TimeToSeeSessionNode): ProcessSpans {
         type: 'session',
         start: 0,
         duration: timeToSeeSession.data.duration_ms,
-        data: timeToSeeSession.data,
+        data: timeToSeeSession,
         children: [], // the session's children are shown separately
     })
 
