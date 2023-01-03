@@ -110,8 +110,6 @@ test.concurrent(`exports: historical exports v2`, async () => {
         expect(exportEvents).toEqual([
             expect.objectContaining({
                 event: '$autocapture',
-                // TODO: send `sent_at` with real time exports as well
-                // sent_at: sentAt.toISOString(),
                 timestamp: eventTime.toISOString(),
                 uuid: uuid,
                 distinct_id: distinctId,
