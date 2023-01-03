@@ -432,8 +432,6 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
 
     const firstUuid = new UUIDT().toString()
     await capture(producer, teamId, firstDistinctId, firstUuid, 'custom event', {
-        distinct_id: firstDistinctId,
-        $anon_distinct_id: firstDistinctId,
         $set: {
             prop: 'value', // This value should be included in the $identify event.
         },
@@ -444,8 +442,6 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
 
     const secondUuid = new UUIDT().toString()
     await capture(producer, teamId, secondDistinctId, secondUuid, 'custom event', {
-        distinct_id: secondDistinctId,
-        $anon_distinct_id: secondDistinctId,
         $set: {
             prop: 'second value', // This value should be included in the $identify event.
         },
