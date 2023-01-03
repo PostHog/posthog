@@ -1,12 +1,15 @@
 import { LemonButton, LemonCheckbox, LemonTable } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { IconInfo } from 'lib/components/icons'
 import { LemonTableColumns } from 'lib/components/LemonTable'
 import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { TitleWithIcon } from 'lib/components/TitleWithIcon'
 import { Tooltip } from 'lib/components/Tooltip'
 import { AccessLevel, Resource, RoleType } from '~/types'
 import { permissionsLogic } from './permissionsLogic'
 import { CreateRoleModal } from './Roles/CreateRoleModal'
 import { rolesLogic } from './Roles/rolesLogic'
+import { getSingularType } from './utils'
 
 export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX.Element {
     const { resourceRolesAccess, organizationResourcePermissionsLoading } = useValues(permissionsLogic)
@@ -56,9 +59,17 @@ export function PermissionsGrid({ isRestricted }: RestrictedComponentProps): JSX
                 {
                     key: 'edit',
                     title: (
-                        <div className="text-center">
-                            {name} <br /> Edit
-                        </div>
+                        <TitleWithIcon
+                            icon={
+                                <Tooltip title={`You can extend permissions on a per ${getSingularType(name)} basis.`}>
+                                    <IconInfo />
+                                </Tooltip>
+                            }
+                        >
+                            <>
+                                {name} <br /> Edit
+                            </>
+                        </TitleWithIcon>
                     ),
                     align: 'center',
                     render: function RenderEdit(_, role) {
