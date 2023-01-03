@@ -241,6 +241,9 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Query]: {
         projectBased: true,
     },
+    [Scene.VerifyEmail]: {
+        plain: true,
+    },
 }
 
 export const redirects: Record<string, string | ((params: Params) => string)> = {
@@ -343,6 +346,7 @@ export const routes: Record<string, Scene> = {
     [urls.passwordResetComplete(':uuid', ':token')]: Scene.PasswordResetComplete,
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
+    [urls.verifyEmail()]: Scene.VerifyEmail,
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.query()]: Scene.Query,

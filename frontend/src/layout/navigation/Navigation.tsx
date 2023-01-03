@@ -13,7 +13,7 @@ export function Navigation({ children }: { children: any }): JSX.Element {
 
     return (
         <Layout>
-            {activeScene !== Scene.Ingestion && <TopBar />}
+            {activeScene !== Scene.Ingestion && activeScene !== Scene.VerifyEmail && <TopBar />}
             <SideBar>
                 <Layout.Content className={!sceneConfig?.plain ? 'main-app-content' : undefined}>
                     {!sceneConfig?.plain && (

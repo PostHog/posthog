@@ -25,7 +25,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Persons]: () => import('./persons/PersonsScene'),
     [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Group]: () => import('./groups/Group'),
-    [Scene.Action]: () => import('./actions/Action'), // TODO
+    [Scene.Action]: () => import('./actions/Action'),
     [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
@@ -61,4 +61,5 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.IntegrationsRedirect]: () => import('./IntegrationsRedirect/IntegrationsRedirect'),
     [Scene.IngestionWarnings]: () => import('./data-management/ingestion-warnings/IngestionWarningsView'),
     [Scene.Query]: () => import('./query/QueryScene'),
+    [Scene.VerifyEmail]: () => import('./verify-email/VerifyEmail'),
 }
