@@ -96,7 +96,8 @@ test.concurrent(`exports: historical exports v2`, async () => {
     // passed to processEvent on initial ingestion.
     const eventTime = new Date('2022-01-01T00:00:00.000Z')
     const sentAt = new Date('2022-01-02T00:00:00.000Z')
-    const now = new Date('2022-01-02T00:00:00.000Z')
+    const now = new Date('2022-01-03T00:00:00.000Z')
+    const skewAdjustedTimestamp = new Date(now.getTime() - (sentAt.getTime() - eventTime.getTime()))
     const properties = {
         name: 'hehe',
         uuid: new UUIDT().toString(),
@@ -107,42 +108,45 @@ test.concurrent(`exports: historical exports v2`, async () => {
     // Then check that the exportEvents function was called
     const [exportedEvent] = await waitForExpect(() => {
         const [exportEvents] = webHookCalledWith[`/${testUuid}`]
-        expect(exportEvents).toEqual([
-            expect.objectContaining({
-                event: '$autocapture',
-                timestamp: eventTime.toISOString(),
-                uuid: uuid,
-                distinct_id: distinctId,
-                properties: expect.objectContaining({
-                    name: properties.name,
-                    // TODO: do not override uuid property with event id
-                    uuid: uuid, // NOTE: uuid added to properties is overridden by the event uuid
-                }),
-                elements: [
-                    {
-                        tag_name: 'div',
-                        nth_child: 1,
-                        nth_of_type: 2,
-                        order: 0,
-                        $el_text: '💻',
-                        text: '💻',
-                        attributes: {},
-                    },
-                ],
-                team_id: teamId,
-            }),
-        ])
-
+        expect(exportEvents.length).toBe(1)
         return exportEvents
     }, 20_000)
+
+    expect(exportedEvent).toEqual(
+        expect.objectContaining({
+            event: '$autocapture',
+            // NOTE: this timestamp takes into account the time skew between
+            // `now` and `sent_at`.
+            timestamp: skewAdjustedTimestamp.toISOString(),
+            uuid: uuid,
+            distinct_id: distinctId,
+            properties: expect.objectContaining({
+                name: properties.name,
+                // TODO: do not override uuid property with event id
+                uuid: uuid, // NOTE: uuid added to properties is overridden by the event uuid
+            }),
+            elements: [
+                {
+                    tag_name: 'div',
+                    nth_child: 1,
+                    nth_of_type: 2,
+                    order: 0,
+                    $el_text: '💻',
+                    text: '💻',
+                    attributes: {},
+                },
+            ],
+            team_id: teamId,
+        })
+    )
 
     await createHistoricalExportJob({
         producer,
         teamId,
         pluginConfigId: pluginConfig.id,
         dateRange: [
-            new Date(eventTime.getTime() - 10000).toISOString(),
-            new Date(eventTime.getTime() + 10000).toISOString(),
+            new Date(skewAdjustedTimestamp.getTime() - 10000).toISOString(),
+            new Date(skewAdjustedTimestamp.getTime() + 10000).toISOString(),
         ],
     })
 
@@ -155,33 +159,33 @@ test.concurrent(`exports: historical exports v2`, async () => {
                 return events.some((event) => event.properties['$$is_historical_export_event'])
             })
 
-            expect(historicallyExportedEvents).toEqual([
-                {
-                    ...exportedEvent,
-                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
-                    // NOTE: it's important that event, sent_at, uuid, and distinct_id
-                    // are preserved and are stable for ClickHouse deduplication to
-                    // function as expected.
-                    site_url: '',
-                    // NOTE: we get a now attribute which is set to the time the
-                    // event was converted from the ClickHouse event. We do not
-                    // use the `now` attribute in the /capture endpoint, so this
-                    // should be ok to leave.
-                    now: expect.any(String),
-                    properties: {
-                        ...exportedEvent.properties,
-                        $$is_historical_export_event: true,
-                        $$historical_export_timestamp: expect.any(String),
-                        $$historical_export_source_db: 'clickhouse',
-                    },
-                },
-            ])
+            expect(historicallyExportedEvents.length).toBe(1)
 
             return historicallyExportedEvents[0]
         },
         10_000,
         1_000
     )
+
+    expect(firstExportedEvent).toEqual({
+        ...exportedEvent,
+        ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+        // NOTE: it's important that event, sent_at, uuid, and distinct_id
+        // are preserved and are stable for ClickHouse deduplication to
+        // function as expected.
+        site_url: '',
+        // NOTE: we get a now attribute which is set to the time the
+        // event was converted from the ClickHouse event. We do not
+        // use the `now` attribute in the /capture endpoint, so this
+        // should be ok to leave.
+        now: expect.any(String),
+        properties: {
+            ...exportedEvent.properties,
+            $$is_historical_export_event: true,
+            $$historical_export_timestamp: expect.any(String),
+            $$historical_export_source_db: 'clickhouse',
+        },
+    })
 
     // Run the export again to ensure we get the same results, such that we can
     // re-run exports without creating duplicates. We use a different plugin
@@ -208,30 +212,32 @@ test.concurrent(`exports: historical exports v2`, async () => {
         teamId,
         pluginConfigId: secondPluginConfig.id,
         dateRange: [
-            new Date(eventTime.getTime() - 10000).toISOString(),
-            new Date(eventTime.getTime() + 10000).toISOString(),
+            new Date(skewAdjustedTimestamp.getTime() - 10000).toISOString(),
+            new Date(skewAdjustedTimestamp.getTime() + 10000).toISOString(),
         ],
     })
 
-    await waitForExpect(
+    const historicallyExportedEvents = await waitForExpect(
         () => {
             const [historicallyExportedEvents] = webHookCalledWith[`/${secondTestUuid}`]
-
-            expect(historicallyExportedEvents).toEqual([
-                {
-                    ...firstExportedEvent,
-                    // NOTE: we get a now attribute which is set to the time the
-                    // event was converted from the ClickHouse event. We do not
-                    // use the `now` attribute in the /capture endpoint, so this
-                    // should be ok to leave.
-                    now: expect.any(String),
-                    properties: { ...firstExportedEvent.properties, $$historical_export_timestamp: expect.any(String) },
-                },
-            ])
+            expect(historicallyExportedEvents.length).toBe(1)
+            return historicallyExportedEvents
         },
         10_000,
         1_000
     )
+
+    expect(historicallyExportedEvents).toEqual([
+        {
+            ...firstExportedEvent,
+            // NOTE: we get a now attribute which is set to the time the
+            // event was converted from the ClickHouse event. We do not
+            // use the `now` attribute in the /capture endpoint, so this
+            // should be ok to leave.
+            now: expect.any(String),
+            properties: { ...firstExportedEvent.properties, $$historical_export_timestamp: expect.any(String) },
+        },
+    ])
 })
 
 test.concurrent('consumer updates timestamp exported to prometheus', async () => {
