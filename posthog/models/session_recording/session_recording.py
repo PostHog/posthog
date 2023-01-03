@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 
 from django.db import models
 from django.dispatch import receiver
@@ -7,7 +7,11 @@ from posthog import settings
 from posthog.celery import ee_persist_single_recording
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.person import Person
-from posthog.models.session_recording.metadata import DecompressedRecordingData, RecordingMetadata
+from posthog.models.session_recording.metadata import (
+    DecompressedRecordingData,
+    RecordingMatchingEvents,
+    RecordingMetadata,
+)
 from posthog.models.session_recording_event.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
@@ -25,13 +29,25 @@ class SessionRecording(UUIDModel):
     deleted: models.BooleanField = models.BooleanField(default=False)
     object_storage_path: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
+    # Metadata persisted on postgres
+    metadata: models.JSONField = models.JSONField(default=dict)
+
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
+    matching_events: Optional[RecordingMatchingEvents] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
     _snapshots: Optional[DecompressedRecordingData] = None
+
+    def save_persisted_metadata(self, metadata: Dict[str, str]) -> None:
+        # TODO: call this method on only persisted session recordings on list call
+        if self.metadata:
+            return
+
+        self.metadata = metadata
+        self.save()
 
     def load_metadata(self) -> None:
         from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
@@ -115,31 +131,31 @@ class SessionRecording(UUIDModel):
 
     @property
     def duration(self):
-        return None
+        return self.metadata["duration"]
 
     @property
     def start_time(self):
-        return None
+        return self.metadata["start_time"]
 
     @property
     def end_time(self):
-        return None
+        return self.metadata["end_time"]
 
     @property
     def click_count(self):
-        return None
+        return self.metadata["click_count"]
 
     @property
     def keypress_count(self):
-        return None
+        return self.metadata["keypress_count"]
 
     @property
     def urls(self):
-        return None
+        return self.metadata["urls"]
 
     @property
     def matching_events(self):
-        return None
+        return self.matching_events
 
     @cached_property
     def person(self) -> Optional[Person]:

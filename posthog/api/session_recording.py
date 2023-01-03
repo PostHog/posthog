@@ -29,7 +29,7 @@ logger = structlog.get_logger(__name__)
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
-    person = PersonSerializer()
+    person = PersonSerializer(required=False)
 
     class Meta:
         model = SessionRecording
@@ -189,7 +189,10 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
 
     session_recordings = list(
-        map(lambda x: {**x, "viewed": x["session_id"] in viewed_session_recordings}, session_recordings)
+        map(
+            lambda x: SessionRecording(**{**x, "viewed": x["session_id"] in viewed_session_recordings}),
+            session_recordings,
+        )
     )
 
     session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)

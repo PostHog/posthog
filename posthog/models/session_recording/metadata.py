@@ -34,6 +34,14 @@ class SessionRecordingEvent(TypedDict):
     events_summary: List[SessionRecordingEventSummary]
 
 
+# NOTE: MatchingSessionRecordingEvent is a minimal version of full events that is used to display events matching a filter on the frontend
+class MatchingSessionRecordingEvent(TypedDict):
+    uuid: str
+    timestamp: datetime
+    session_id: str
+    window_id: str
+
+
 class DecompressedRecordingData(TypedDict):
     has_next: bool
     snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
@@ -43,6 +51,10 @@ class RecordingMetadata(TypedDict):
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
+
+
+class RecordingMatchingEvents(TypedDict):
+    events: List[MatchingSessionRecordingEvent]
 
 
 class PersistedRecordingV1(TypedDict):
