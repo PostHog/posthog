@@ -78,7 +78,7 @@ export class EventsProcessor {
 
             if (data['event'] === '$snapshot') {
                 if (team.session_recording_opt_in) {
-                    const timeout2 = timeoutGuard(
+                    const snapshotEventTimeout = timeoutGuard(
                         'Still running "createSessionRecordingEvent". Timeout warning after 30 sec!',
                         { eventUuid }
                     )
@@ -95,13 +95,16 @@ export class EventsProcessor {
                             team_id: teamId.toString(),
                         })
                     } finally {
-                        clearTimeout(timeout2)
+                        clearTimeout(snapshotEventTimeout)
                     }
                 }
             } else if (data['event'] === '$performance_event') {
-                const performanceEventTimeout = timeoutGuard('Still running "createPerformanceEvent". Timeout warning after 30 sec!', {
-                    eventUuid,
-                })
+                const performanceEventTimeout = timeoutGuard(
+                    'Still running "createPerformanceEvent". Timeout warning after 30 sec!',
+                    {
+                        eventUuid,
+                    }
+                )
                 try {
                     await this.createPerformanceEvent(eventUuid, teamId, distinctId, timestamp, ip, properties)
                     // No return value in case of performance events as we don't do further processing on them
@@ -113,14 +116,16 @@ export class EventsProcessor {
                     clearTimeout(performanceEventTimeout)
                 }
             } else {
-                const timeout4 = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', { eventUuid })
+                const captureTimeout = timeoutGuard('Still running "capture". Timeout warning after 30 sec!', {
+                    eventUuid,
+                })
                 try {
                     result = await this.capture(eventUuid, ip, team, data['event'], distinctId, properties, timestamp)
                     this.pluginsServer.statsd?.timing('kafka_queue.single_save.standard', singleSaveTimer, {
                         team_id: teamId.toString(),
                     })
                 } finally {
-                    clearTimeout(timeout4)
+                    clearTimeout(captureTimeout)
                 }
             }
         } finally {
