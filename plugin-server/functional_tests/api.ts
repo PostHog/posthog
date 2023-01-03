@@ -9,6 +9,7 @@ import {
     PluginLogEntry,
     RawAction,
     RawClickHouseEvent,
+    RawPerformanceEvent,
     RawPerson,
     RawSessionRecordingEvent,
 } from '../src/types'
@@ -123,6 +124,13 @@ export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse,
             snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
         }
     })
+}
+
+export const fetchPerformanceEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
+    const queryResult = (await clickHouseClient.querying(
+        `SELECT * FROM performance_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
+    )) as unknown as ClickHouse.ObjectQueryResult<RawPerformanceEvent>
+    return queryResult.data
 }
 
 export const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, pluginConfigId: number) => {
