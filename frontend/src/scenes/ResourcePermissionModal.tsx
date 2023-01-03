@@ -1,4 +1,4 @@
-import { LemonButton, LemonModal, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonTable } from '@posthog/lemon-ui'
 import { Row } from 'antd'
 import { useValues } from 'kea'
 import { IconDelete, IconSettings } from 'lib/components/icons'
@@ -110,7 +110,22 @@ export function ResourcePermission({
                 return (
                     <>
                         {role.name === 'Organization default' ? (
-                            <Link to={`${urls.organizationSettings()}?tab=role_access`}>{role.name}</Link>
+                            <TitleWithIcon
+                                icon={
+                                    <LemonButton
+                                        icon={<IconSettings />}
+                                        to={`${urls.organizationSettings()}?tab=role_based_access`}
+                                        status="stealth"
+                                        targetBlank
+                                        size="small"
+                                        noPadding
+                                        tooltip="Organization-wide permissions for roles can be managed in the organization settings."
+                                        className="ml-1"
+                                    />
+                                }
+                            >
+                                All users by default
+                            </TitleWithIcon>
                         ) : (
                             role.name
                         )}
