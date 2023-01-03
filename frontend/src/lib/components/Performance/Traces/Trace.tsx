@@ -192,14 +192,18 @@ interface ProcessSpans {
 
 function NodeFacts({ node }: { node: TimeToSeeNode }): JSX.Element {
     const facts = {
-        type: isInteractionNode(node) ? `${node.data.action ?? 'load'} in ${node.data.context}` : 'ClickHouse query',
+        type: isSessionNode(node)
+            ? 'session'
+            : isInteractionNode(node)
+            ? `${node.data.action || 'load'} in ${node.data.context}`
+            : 'ClickHouse query',
         context: isInteractionNode(node) ? node.data.context : undefined,
         action: isInteractionNode(node) ? node.data.action : undefined,
         page: isInteractionNode(node) ? node.data.current_url : undefined,
         cacheHitRatio: isInteractionNode(node)
             ? `${Math.round((node.data.insights_fetched_cached / node.data.insights_fetched) * 100)}%`
             : undefined,
-        duration: getDurationMs(node),
+        duration: `${getDurationMs(node)}ms`,
     }
 
     return (
@@ -209,8 +213,7 @@ function NodeFacts({ node }: { node: TimeToSeeNode }): JSX.Element {
                 .map(([key, fact], index) => {
                     return (
                         <div key={index} className={'flex flex-row w-full overflow-auto whitespace-nowrap'}>
-                            <strong>{key}: </strong>
-                            <span>{fact}</span>
+                            <strong>{key}:</strong> <span>{fact}</span>
                         </div>
                     )
                 })}
