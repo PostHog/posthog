@@ -57,7 +57,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DashboardTile
-        exclude = ["dashboard", "deleted"]
+        exclude = ["dashboard", "deleted", "filters_hash", "last_refresh", "refreshing", "refresh_attempt"]
         read_only_fields = ["id", "insight"]
         depth = 1
 
