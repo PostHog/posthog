@@ -1,12 +1,14 @@
+import { UserBasicType } from '~/types'
+
 export type TimeToSeeNode = TimeToSeeSessionNode | TimeToSeeInteractionNode | TimeToSeeQueryNode
 
-interface TimeToSeeSessionNode {
+export interface TimeToSeeSessionNode {
     type: 'session'
     data: SessionData
     children: Array<TimeToSeeNode>
 }
 
-interface TimeToSeeInteractionNode {
+export interface TimeToSeeInteractionNode {
     type: 'interaction' | 'event'
     data: InteractionData
     children: Array<TimeToSeeNode>
@@ -18,22 +20,31 @@ interface TimeToSeeQueryNode {
     children: Array<TimeToSeeNode>
 }
 
-interface SessionData {
+export interface SessionData {
     session_id: string
     user_id: number
+    user: UserBasicType
     team_id: number
     session_start: string
     session_end: string
     duration_ms: number
 
-    team_events_last_month: string
-    events_count: string
-    interactions_count: string
-    total_interaction_time_to_see_data_ms: string
-    frustrating_interactions_count: string
+    team_events_last_month: number
+    events_count: number
+    interactions_count: number
+    total_interaction_time_to_see_data_ms: number
+    frustrating_interactions_count: number
 }
 
 interface InteractionData {
+    client_query_id: string
+    primary_interaction_id: string
+    team_id: number
+    user_id: number // todo this should be a basic serialized user?
+    session_id: string
+    min_last_refresh: string
+    max_last_refresh: string
+    team_events_last_month: number
     timestamp: string
     status: string
 
@@ -71,6 +82,7 @@ interface QueryData {
     kind: string
     query_type: string
     client_query_id: string
+    primary_interaction_id: string
     id: string
     route_id: string
     query_time_range_days: number
@@ -87,4 +99,7 @@ interface QueryData {
     log_comment: string
 
     is_frustrating: boolean
+
+    min_last_refresh: string
+    max_last_refresh: string
 }
