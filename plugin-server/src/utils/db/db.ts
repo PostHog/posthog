@@ -47,7 +47,6 @@ import {
     RawClickHouseEvent,
     RawGroup,
     RawOrganization,
-    RawPerformanceEvent,
     RawPerson,
     RawSessionRecordingEvent,
     Team,
@@ -1245,12 +1244,6 @@ export class DB {
             }
         })
         return events
-    }
-
-    // PerformanceEvent
-
-    public async fetchPerformanceEvents(): Promise<RawPerformanceEvent[]> {
-        return (await this.clickhouseQuery<RawPerformanceEvent>(`SELECT * FROM performance_events`)).data
     }
 
     // PluginLogEntry (NOTE: not a Django model, stored in ClickHouse table `plugin_log_entries`)

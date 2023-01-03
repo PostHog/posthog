@@ -20,6 +20,7 @@ import {
     PluginsServerConfig,
     PropertyType,
     PropertyUpdateOperation,
+    RawPerformanceEvent,
     Team,
 } from '../../src/types'
 import { createHub } from '../../src/utils/db/hub'
@@ -1076,12 +1077,16 @@ test('performance event stored as performance_event', async () => {
         new UUIDT().toString()
     )
 
-    await delayUntilEventIngested(() => hub.db.fetchPerformanceEvents())
+    const fetchPerformanceEvents = async (): Promise<RawPerformanceEvent[]> => {
+        return (await hub.db.clickhouseQuery<RawPerformanceEvent>(`SELECT * FROM performance_events`)).data
+    }
+
+    await delayUntilEventIngested(() => fetchPerformanceEvents())
 
     const events = await hub.db.fetchEvents()
     expect(events.length).toEqual(0)
 
-    const sessionRecordingEvents = await hub.db.fetchPerformanceEvents()
+    const sessionRecordingEvents = await fetchPerformanceEvents()
     expect(sessionRecordingEvents.length).toBe(1)
 
     const [event] = sessionRecordingEvents
