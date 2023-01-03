@@ -1247,7 +1247,7 @@ class TestCapture(BaseTest):
                 self.assertEqual(kafka_produce.call_args[1]["data"]["token"], "token123")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
-    def test_capture_event_with_value_overrides_according_to_replicator(self, kafka_produce):
+    def test_capture_event_can_override_attributes_important_in_replicator_exports(self, kafka_produce):
         # Check that for the values required to import historical data, we override appropriately.
         response = self.client.post(
             "/track/",
@@ -1259,6 +1259,7 @@ class TestCapture(BaseTest):
                             "uuid": "017d37c1-f285-0000-0e8b-e02d131925dc",
                             "sent_at": "2020-01-01T00:00:00Z",
                             "distinct_id": "id1",
+                            "timestamp": "2020-01-01T00:00:00Z",
                             "properties": {"token": self.team.api_token},
                         }
                     ]
@@ -1276,6 +1277,7 @@ class TestCapture(BaseTest):
             {
                 "uuid": "017d37c1-f285-0000-0e8b-e02d131925dc",
                 "sent_at": "2020-01-01T00:00:00Z",
+                "timestamp": "2020-01-01T00:00:00Z",
                 "event": "event1",
                 "distinct_id": "id1",
             },
