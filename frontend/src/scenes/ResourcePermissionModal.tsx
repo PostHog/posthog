@@ -231,7 +231,7 @@ function OrganizationResourcePermissionLabel({
     return (
         <>
             <h5>Organization Default</h5>
-            <Link to={`${urls.organizationSettings()}?tab=role_access`}>
+            <Link to={`${urls.organizationSettings()}?tab=role_based_access`} target="_blank">
                 <b>{ResourcePermissionMapping[resourceLevel.access_level]}</b>
             </Link>
         </>
