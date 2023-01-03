@@ -623,13 +623,13 @@ def get_feature_flags(
         hash_key_override,
         property_value_overrides,
         group_property_value_overrides,
-        feature_flags=all_feature_flags,
+        feature_flags=list(all_feature_flags),
     )
 
     if only_active:
         return active_flags, active_flag_reasons
 
-    all_flags_response = {flag.key: False for flag in all_feature_flags}
+    all_flags_response: Dict[str, Union[str, bool]] = {flag.key: False for flag in all_feature_flags}
     all_flags_response.update(active_flags)
     return all_flags_response, active_flag_reasons
 
@@ -693,7 +693,7 @@ def get_active_feature_flags(
             # would fail server side anyway.
 
         if person_id is not None:
-            set_feature_flag_hash_key_overrides(all_feature_flags, team_id, person_id, hash_key_override)
+            set_feature_flag_hash_key_overrides(list(all_feature_flags), team_id, person_id, hash_key_override)
 
     # :TRICKY: Consistency matters only when personIDs exist
     # as overrides are stored on personIDs.
@@ -711,7 +711,7 @@ def get_active_feature_flags(
 
 
 def set_feature_flag_hash_key_overrides(
-    feature_flags: QuerySet, team_id: int, person_id: int, hash_key_override: str
+    feature_flags: List[FeatureFlag], team_id: int, person_id: int, hash_key_override: str
 ) -> None:
 
     existing_flag_overrides = set(
