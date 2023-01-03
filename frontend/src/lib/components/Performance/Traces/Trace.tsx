@@ -35,11 +35,11 @@ const checkOverflow = (textContainer: HTMLSpanElement | null): boolean => {
 }
 
 function TraceBar({
-    level,
+    depth,
     start,
     duration,
     maxSpan,
-}: Pick<SpanProps, 'level' | 'duration' | 'start' | 'maxSpan'>): JSX.Element {
+}: Pick<SpanProps, 'depth' | 'duration' | 'start' | 'maxSpan'>): JSX.Element {
     const durationWidth = (duration / maxSpan) * 100
     const startMargin = (start / maxSpan) * 100
     const [textIsOverflowing, setTextIsOverflowing] = useState<boolean>(false)
@@ -60,7 +60,7 @@ function TraceBar({
                 ref={overflowingText}
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
-                    backgroundColor: getSeriesColor(level),
+                    backgroundColor: getSeriesColor(depth),
                     width: `${durationWidth}%`,
                     marginLeft: `${startMargin}%`,
                 }}
@@ -91,7 +91,7 @@ function DescribeSpan({ node }: { node: TimeToSeeNode }): JSX.Element {
                 {isSessionNode(node) ? 'session' : null}
 
                 {(isFrustratingSession || isFrustratingInteraction) && (
-                    <Tooltip title={'This was frustrating - because it took longer than 5 seconds'}>
+                    <Tooltip title={'This was frustrating because it took longer than 5 seconds'}>
                         <IconSad />
                     </Tooltip>
                 )}
@@ -121,7 +121,7 @@ export function Span({
     widthTrackingRef,
     type,
     children,
-    level = 0,
+    depth = 0,
 }: SpanProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
 
@@ -129,41 +129,44 @@ export function Span({
         <>
             <div className={clsx('w-full border px-4 py-4 flex flex-row justify-between', `Span__${type}`)}>
                 <div className={'w-100 relative flex flex-row gap-2'}>
-                    {children.length ? (
-                        <LemonButton
-                            noPadding
-                            status="stealth"
-                            onClick={() => setIsExpanded(!isExpanded)}
-                            icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                            title={isExpanded ? 'Collapse span' : 'Expand span'}
-                        />
-                    ) : null}
+                    <LemonButton
+                        noPadding
+                        status="stealth"
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                        title={isExpanded ? 'Collapse span' : 'Expand span'}
+                    />
+
                     {data && <DescribeSpan node={data} />}
                 </div>
                 <div
                     ref={widthTrackingRef}
                     className={'grow self-center'}
+                    /* eslint-disable-next-line react/forbid-dom-props */
                     style={{
                         width: durationContainerWidth || '100%',
                         maxWidth: durationContainerWidth,
                         minWidth: durationContainerWidth,
                     }}
                 >
-                    <TraceBar maxSpan={maxSpan} duration={duration} start={start} level={level} />
+                    <TraceBar maxSpan={maxSpan} duration={duration} start={start} depth={depth} />
                 </div>
             </div>
             {isExpanded && (
-                <div className={'pl-4'}>
-                    {children.map((child, index) => (
-                        <Span
-                            key={`${level}-${index}`}
-                            maxSpan={maxSpan}
-                            durationContainerWidth={durationContainerWidth}
-                            widthTrackingRef={widthTrackingRef}
-                            {...child}
-                        />
-                    ))}
-                </div>
+                <>
+                    <NodeFacts node={data} />
+                    <div className={'pl-4'}>
+                        {children.map((child, index) => (
+                            <Span
+                                key={`${depth}-${index}`}
+                                maxSpan={maxSpan}
+                                durationContainerWidth={durationContainerWidth}
+                                widthTrackingRef={widthTrackingRef}
+                                {...child}
+                            />
+                        ))}
+                    </div>
+                </>
             )}
         </>
     )
@@ -177,8 +180,8 @@ interface SpanData {
     type: 'session' | 'interaction' | 'event' | 'query' | 'subquery'
     start: number // milliseconds after session start
     duration: number
-    data?: TimeToSeeNode
-    level?: number
+    data: TimeToSeeNode
+    depth?: number
     children: SpanData[]
 }
 
@@ -187,6 +190,46 @@ interface ProcessSpans {
     maxDuration: number
 }
 
+function NodeFacts({ node }: { node: TimeToSeeNode }): JSX.Element {
+    const facts = {
+        type: isInteractionNode(node) ? `${node.data.action ?? 'load'} in ${node.data.context}` : 'ClickHouse query',
+        context: isInteractionNode(node) ? node.data.context : undefined,
+        action: isInteractionNode(node) ? node.data.action : undefined,
+        page: isInteractionNode(node) ? node.data.current_url : undefined,
+        cacheHitRatio: isInteractionNode(node)
+            ? `${Math.round((node.data.insights_fetched_cached / node.data.insights_fetched) * 100)}%`
+            : undefined,
+        duration: getDurationMs(node),
+    }
+
+    return (
+        <div className={clsx('w-full border px-4 py-4 flex flex-col justify-between')}>
+            {Object.entries(facts)
+                .filter((entry) => entry[1] !== undefined && entry[1] !== '')
+                .map(([key, fact], index) => {
+                    return (
+                        <div key={index} className={'flex flex-row w-full overflow-scroll whitespace-nowrap'}>
+                            <strong>{key}: </strong>
+                            <span>{fact}</span>
+                        </div>
+                    )
+                })}
+        </div>
+    )
+}
+
+function getDurationMs(node: TimeToSeeNode): number {
+    switch (node.type) {
+        case 'session':
+            return node.data.duration_ms
+        case 'interaction':
+        case 'event':
+            return node.data.time_to_see_data_ms
+        case 'query':
+        case 'subquery':
+            return node.data.query_duration_ms
+    }
+}
 function walkSpans(
     nodes: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>,
     sessionStart: dayjs.Dayjs,
@@ -199,13 +242,13 @@ function walkSpans(
         const walkedChildren = walkSpans(node.children, sessionStart, level++)
 
         const start = dayjs(node.data.timestamp).diff(sessionStart)
-        const duration = isInteractionNode(node) ? node.data.time_to_see_data_ms : node.data.query_duration_ms
+        const duration = getDurationMs(node)
         spanData.push({
             type: node.type,
             start: start,
             duration: duration,
             data: node,
-            level,
+            depth: level,
             children: walkedChildren.spans,
         })
         maxDuration = start + duration
@@ -221,7 +264,7 @@ function flattenSpans(timeToSeeSession: TimeToSeeSessionNode): ProcessSpans {
     walkedChildren.spans.unshift({
         type: 'session',
         start: 0,
-        duration: timeToSeeSession.data.duration_ms,
+        duration: getDurationMs(timeToSeeSession),
         data: timeToSeeSession,
         children: [], // the session's children are shown separately
     })

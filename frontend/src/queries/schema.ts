@@ -299,6 +299,8 @@ export interface TimeToSeeDataQuery extends DataNode {
     /** Session start time. Defaults to current time - 2 hours */
     sessionStart?: string
     sessionEnd?: string
+
+    visualization: 'json' | 'waterfall'
 }
 
 export type InsightQueryNode =

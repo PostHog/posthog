@@ -271,6 +271,7 @@ const TimeToSeeDataSessions: TimeToSeeDataSessionsQuery = {
 
 const TimeToSeeData: TimeToSeeDataQuery = {
     kind: NodeKind.TimeToSeeDataQuery,
+    visualization: 'json',
 }
 
 export const examples: Record<string, Node> = {
