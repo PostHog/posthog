@@ -153,6 +153,6 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         )
 
         serializer = PerformanceEventSerializer(data=results, many=True)
-        serializer.is_valid(raise_exception=False)
+        serializer.is_valid(raise_exception=True)
 
         return Response({"results": serializer.data})
