@@ -1,12 +1,11 @@
-import { randomString } from 'cypress/support/random'
 import { urls } from 'scenes/urls'
-import { insight, savedInsights, dashboards, dashboard, duplicateDashboardFromMenu } from 'cypress/productAnalytics'
+import { randomString } from '../support/random'
+import { insight, savedInsights, dashboards, dashboard, duplicateDashboardFromMenu } from '../productAnalytics'
 
 describe('Dashboard', () => {
     beforeEach(() => {
         cy.intercept('GET', /api\/projects\/\d+\/insights\/\?.*/).as('loadInsightList')
         cy.intercept('PATCH', /api\/projects\/\d+\/insights\/\d+\/.*/).as('patchInsight')
-        cy.intercept('GET', /\/api\/projects\/\d+\/insights\/?\?short/).as('getInsight')
         cy.intercept('POST', /\/api\/projects\/\d+\/dashboards/).as('createDashboard')
 
         cy.clickNavMenu('dashboards')
@@ -176,84 +175,76 @@ describe('Dashboard', () => {
 
         describe('from the dashboard list', () => {
             it('can duplicate a dashboard without duplicating insights', () => {
-                cy.wait('@getInsight').then(() => {
-                    cy.clickNavMenu('dashboards')
-                    cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
+                cy.clickNavMenu('dashboards')
+                cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
 
-                    cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
-                        cy.get('[data-attr="more-button"]').click()
-                    })
-                    duplicateDashboardFromMenu()
-                    cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+                cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
+                    cy.get('[data-attr="more-button"]').click()
+                })
+                duplicateDashboardFromMenu()
+                cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
 
-                    cy.wait('@createDashboard').then(() => {
-                        cy.get('.CardMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
-                        cy.contains('h4', insightName).click()
-                        // this works when actually using the site, but not in Cypress
-                        // cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '2')
-                    })
+                cy.wait('@createDashboard').then(() => {
+                    cy.get('.CardMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
+                    cy.contains('h4', insightName).click()
+                    // this works when actually using the site, but not in Cypress
+                    // cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '2')
                 })
             })
 
             it('can duplicate a dashboard and duplicate insights', () => {
-                cy.wait('@getInsight').then(() => {
-                    cy.clickNavMenu('dashboards')
-                    cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
+                cy.clickNavMenu('dashboards')
+                cy.get('[placeholder="Search for dashboards"]').type(dashboardName)
 
-                    cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
-                        cy.get('[data-attr="more-button"]').click()
-                    })
-                    duplicateDashboardFromMenu(true)
-                    cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
-
-                    cy.wait('@createDashboard').then(() => {
-                        cy.contains('h4', expectedCopiedInsightName).click()
-                        cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '1')
-                    })
-
-                    savedInsights.checkInsightIsInListView(insightName)
-                    savedInsights.checkInsightIsInListView(expectedCopiedInsightName)
+                cy.contains('[data-attr="dashboards-table"] tr', dashboardName).within(() => {
+                    cy.get('[data-attr="more-button"]').click()
                 })
+                duplicateDashboardFromMenu(true)
+                cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+
+                cy.wait('@createDashboard').then(() => {
+                    cy.contains('h4', expectedCopiedInsightName).click()
+                    cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '1')
+                })
+
+                savedInsights.checkInsightIsInListView(insightName)
+                savedInsights.checkInsightIsInListView(expectedCopiedInsightName)
             })
         })
 
         describe('from the dashboard', () => {
             it('can duplicate a dashboard without duplicating insights', () => {
-                cy.wait('@getInsight').then(() => {
-                    cy.clickNavMenu('dashboards')
-                    dashboards.visitDashboard(dashboardName)
+                cy.clickNavMenu('dashboards')
+                dashboards.visitDashboard(dashboardName)
 
-                    cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
-                    duplicateDashboardFromMenu()
-                    cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+                cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
+                duplicateDashboardFromMenu()
+                cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
 
-                    cy.wait('@createDashboard').then(() => {
-                        cy.get('.CardMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
-                        cy.contains('h4', insightName).click()
-                        // this works when actually using the site, but not in Cypress
-                        // cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '2')
-                    })
-                    savedInsights.checkInsightIsInListView(insightName)
-                    savedInsights.checkInsightIsNotInListView(expectedCopiedInsightName)
+                cy.wait('@createDashboard').then(() => {
+                    cy.get('.CardMeta h4').should('have.text', insightName).should('not.have.text', '(Copy)')
+                    cy.contains('h4', insightName).click()
+                    // this works when actually using the site, but not in Cypress
+                    // cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '2')
                 })
+                savedInsights.checkInsightIsInListView(insightName)
+                savedInsights.checkInsightIsNotInListView(expectedCopiedInsightName)
             })
             it('can duplicate a dashboard and duplicate insights', () => {
-                cy.wait('@getInsight').then(() => {
-                    cy.clickNavMenu('dashboards')
-                    dashboards.visitDashboard(dashboardName)
+                cy.clickNavMenu('dashboards')
+                dashboards.visitDashboard(dashboardName)
 
-                    cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
-                    duplicateDashboardFromMenu(true)
-                    cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
+                cy.get('[data-attr="dashboard-three-dots-options-menu"]').click()
+                duplicateDashboardFromMenu(true)
+                cy.get('h1.page-title').should('have.text', expectedCopiedDashboardName)
 
-                    cy.wait('@createDashboard').then(() => {
-                        cy.contains('h4', expectedCopiedInsightName).click()
-                        cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '1')
-                    })
-
-                    savedInsights.checkInsightIsInListView(insightName)
-                    savedInsights.checkInsightIsInListView(expectedCopiedInsightName)
+                cy.wait('@createDashboard').then(() => {
+                    cy.contains('h4', expectedCopiedInsightName).click()
+                    cy.get('[data-attr="save-to-dashboard-button"] .LemonBadge').should('have.text', '1')
                 })
+
+                savedInsights.checkInsightIsInListView(insightName)
+                savedInsights.checkInsightIsInListView(expectedCopiedInsightName)
             })
         })
     })

@@ -5,8 +5,8 @@ import { Pool } from 'pg'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
-import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
 import { capture, createOrganization, createTeam, fetchSessionRecordingsEvents } from './api'
+import { waitForExpect } from './expectations'
 
 let producer: Producer
 let clickHouseClient: ClickHouse
@@ -56,12 +56,13 @@ test.concurrent(
             $snapshot_data: 'yes way',
         })
 
-        await delayUntilEventIngested(() => fetchSessionRecordingsEvents(clickHouseClient, teamId), 1, 500, 40)
-        const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
-        expect(events.length).toBe(1)
+        await waitForExpect(async () => {
+            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
 
-        // processEvent did not modify
-        expect(events[0].snapshot_data).toEqual('yes way')
+            // processEvent did not modify
+            expect(events[0].snapshot_data).toEqual('yes way')
+        })
     },
     20000
 )

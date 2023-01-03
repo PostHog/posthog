@@ -8,6 +8,9 @@ export interface TrendResponse {
 
 export interface IndexedTrendResult extends TrendResult {
     id: number
+    // if the sorting changes (e.g. for pie chart) we lose the original index
+    // the series index is used for e.g. to get series color correctly
+    seriesIndex: number
 }
 
 export interface TrendActors {
