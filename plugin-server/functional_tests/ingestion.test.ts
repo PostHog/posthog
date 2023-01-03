@@ -433,20 +433,20 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
     const firstUuid = new UUIDT().toString()
     await capture(producer, teamId, firstDistinctId, firstUuid, 'custom event', {
         $set: {
-            prop: 'value', // This value should be included in the $identify event.
+            prop: 'value',
         },
         $set_once: {
-            set_once_property: 'value', // This value should be included in the $identify event.
+            set_once_property: 'value',
         },
     })
 
     const secondUuid = new UUIDT().toString()
     await capture(producer, teamId, secondDistinctId, secondUuid, 'custom event', {
         $set: {
-            prop: 'second value', // This value should be included in the $identify event.
+            prop: 'second value',
         },
         $set_once: {
-            set_once_property: 'second value', // This value should be included in the $identify event.
+            set_once_property: 'second value',
         },
     })
 
@@ -455,10 +455,10 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
         distinct_id: personIdentifier,
         $anon_distinct_id: firstDistinctId,
         $set: {
-            prop: 'identify value', // This value should be included in the $identify event.
+            prop: 'identify value',
         },
         $set_once: {
-            set_once_property: 'identify value', // This value should be included in the $identify event.
+            set_once_property: 'identify value',
         },
     })
 
@@ -467,10 +467,10 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
         distinct_id: personIdentifier,
         $anon_distinct_id: secondDistinctId,
         $set: {
-            prop: 'second identify value', // This value should be included in the $identify event.
+            prop: 'second identify value',
         },
         $set_once: {
-            set_once_property: 'second identify value', // This value should be included in the $identify event.
+            set_once_property: 'second identify value',
         },
     })
 
@@ -479,6 +479,7 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
         const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
         const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
         const [forth] = await fetchEvents(clickHouseClient, teamId, forthUuid)
+
         expect(first).toEqual(
             expect.objectContaining({
                 person_properties: expect.objectContaining({
@@ -487,30 +488,30 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
                 }),
             })
         )
-        expect(first.person_id).toEqual(forth.person_id)
 
         expect(second).toEqual(
             expect.objectContaining({
+                person_id: forth.person_id,
                 person_properties: expect.objectContaining({
                     prop: 'second value',
                     set_once_property: 'value',
                 }),
             })
         )
-        expect(second.person_id).toEqual(forth.person_id)
 
         expect(third).toEqual(
             expect.objectContaining({
+                person_id: forth.person_id,
                 person_properties: expect.objectContaining({
                     prop: 'identify value',
                     set_once_property: 'value',
                 }),
             })
         )
-        expect(third.person_id).toEqual(forth.person_id)
 
         expect(forth).toEqual(
             expect.objectContaining({
+                person_id: forth.person_id,
                 person_properties: expect.objectContaining({
                     prop: 'second identify value',
                     set_once_property: 'value',
