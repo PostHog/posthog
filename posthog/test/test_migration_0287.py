@@ -7,8 +7,8 @@ pytestmark = pytest.mark.skip("old migrations slow overall test run down")
 
 class CreatingSessionRecordingModelMigrationTestCase(TestMigrations):
 
-    migrate_from = "0284_improved_caching_state_idx"
-    migrate_to = "0285_add_session_recording_model"
+    migrate_from = "0286_index_insightcachingstate_lookup"
+    migrate_to = "0287_add_session_recording_model"
 
     def setUpBeforeMigration(self, apps):
         Organization = apps.get_model("posthog", "Organization")
