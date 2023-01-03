@@ -15,11 +15,13 @@ from social_core.pipeline.partial import partial
 from social_django.strategy import DjangoStrategy
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.cloud_utils import is_cloud
 from posthog.demo.matrix import MatrixManager
 from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.models import Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.permissions import CanCreateOrg
+from posthog.tasks.email import send_email_verification
 from posthog.utils import get_can_create_org
 
 logger = structlog.get_logger(__name__)
@@ -95,6 +97,11 @@ class SignupSerializer(serializers.Serializer):
             referral_source=referral_source,
         )
 
+        if not is_cloud():
+            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
+        else:
+            send_email_verification(user.id)
+
         return user
 
     def enter_demo(self, validated_data) -> User:
@@ -120,7 +127,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = "/verify_email" if not settings.DEMO else "/"
+        data["redirect_url"] = "/verify_email" if is_cloud() and not settings.DEMO else "/"
         return data
 
 

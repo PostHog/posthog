@@ -82,6 +82,26 @@ def send_password_reset(user_id: int) -> None:
 
 
 @app.task(max_retries=1)
+def send_email_verification(user_id: int) -> None:
+    user = User.objects.get(pk=user_id)
+    email_verification_token = default_token_generator.make_token(user)
+    message = EmailMessage(
+        campaign_key=f"email-verification-{user.uuid}-{timezone.now().timestamp()}",
+        subject=f"Verify your email address",
+        template_name="password_reset",
+        template_context={
+            "preheader": "Please follow the link inside to verify your account.",
+            "link": f"/verify_email/{user.uuid}/{email_verification_token}",
+            "cloud": is_cloud(),
+            "site_url": settings.SITE_URL,
+            "social_providers": list(user.social_auth.values_list("provider", flat=True)),
+        },
+    )
+    message.add_recipient(user.email)
+    message.send()
+
+
+@app.task(max_retries=1)
 def send_fatal_plugin_error(
     plugin_config_id: int, plugin_config_updated_at: Optional[str], error: str, is_system_error: bool
 ) -> None:
