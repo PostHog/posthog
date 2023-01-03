@@ -2500,7 +2500,7 @@ export interface RolesListParams {
 
 export interface FeatureFlagAssociatedRoleType {
     id: string
-    feature_flag: FeatureFlagType
+    feature_flag: FeatureFlagType | null
     role: RoleType
     updated_at: string
     added_at: string

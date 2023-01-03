@@ -25,7 +25,6 @@ interface ResourcePermissionProps {
     onAdd: () => void
     roles: RoleType[]
     deleteAssociatedRole: (id: RoleType['id']) => void
-    isNewResource: boolean
     resourceType: Resource
     canEdit: boolean
 }
@@ -59,7 +58,6 @@ export function ResourcePermissionModal({
     onAdd,
     roles,
     deleteAssociatedRole,
-    isNewResource,
     canEdit,
 }: ResourcePermissionModalProps): JSX.Element {
     return (
@@ -67,7 +65,6 @@ export function ResourcePermissionModal({
             <LemonModal title={title} isOpen={visible} onClose={onClose}>
                 <ResourcePermission
                     resourceType={Resource.FEATURE_FLAGS}
-                    isNewResource={isNewResource}
                     onChange={onChange}
                     rolesToAdd={rolesToAdd}
                     addableRoles={addableRoles}
@@ -90,7 +87,6 @@ export function ResourcePermission({
     onAdd,
     roles,
     deleteAssociatedRole,
-    isNewResource,
     resourceType,
     canEdit,
 }: ResourcePermissionProps): JSX.Element {
@@ -165,7 +161,7 @@ export function ResourcePermission({
                     {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
                 </>
             )}
-            {(isNewResource || canEdit) && (
+            {canEdit && (
                 <>
                     <h5 className="mt-4">Custom edit roles</h5>
                     <div className="flex gap-2">
@@ -181,7 +177,7 @@ export function ResourcePermission({
                                 options={roleLemonSelectOptions(addableRoles)}
                             />
                         </div>
-                        {!isNewResource && (
+                        {
                             <LemonButton
                                 type="primary"
                                 loading={false}
@@ -190,12 +186,12 @@ export function ResourcePermission({
                             >
                                 Add
                             </LemonButton>
-                        )}
+                        }
                     </div>
                 </>
             )}
             {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
-            {!shouldShowPermissionsTable && !isNewResource && (
+            {!shouldShowPermissionsTable && (
                 <>
                     <h5 className="mt-4">Roles</h5>
                     {roles.length > 0 ? (
@@ -275,6 +271,7 @@ function RoleRow({ role, deleteRole }: { role: RoleType; deleteRole?: (roleId: R
                     icon={<IconDelete />}
                     onClick={() => deleteRole(role.id)}
                     tooltip={'Remove role from permission'}
+                    tooltipPlacement="bottomLeft"
                     status="primary-alt"
                     type="tertiary"
                     size="small"
