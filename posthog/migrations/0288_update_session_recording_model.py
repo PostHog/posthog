@@ -6,18 +6,18 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('posthog', '0286_add_session_recording_model'),
+        ("posthog", "0287_add_session_recording_model"),
     ]
 
     operations = [
         migrations.AddField(
-            model_name='sessionrecording',
-            name='deleted',
+            model_name="sessionrecording",
+            name="deleted",
             field=models.BooleanField(default=False),
         ),
         migrations.AddField(
-            model_name='sessionrecording',
-            name='object_storage_path',
+            model_name="sessionrecording",
+            name="object_storage_path",
             field=models.CharField(blank=True, max_length=200, null=True),
         ),
     ]

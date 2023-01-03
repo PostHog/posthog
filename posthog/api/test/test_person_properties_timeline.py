@@ -4,6 +4,7 @@ from typing import Optional
 
 from rest_framework import status
 
+from posthog.queries.properties_timeline.properties_timeline import PropertiesTimelineResult
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -43,13 +44,16 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             timeline,
-            [
-                {
-                    "properties": {"foo": "abc", "bar": 123},
-                    "relevant_event_count": 1,  # 0 here means the person was created within range
-                    "timestamp": "2020-01-01T00:00:00Z",
-                }
-            ],
+            {
+                "points": [
+                    {
+                        "properties": {"foo": "abc", "bar": 123},
+                        "relevant_event_count": 1,  # 0 here means the person was created within range
+                        "timestamp": "2020-01-01T00:00:00Z",
+                    }
+                ],
+                "crucial_property_keys": ["bar"],
+            },
         )
 
     @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
@@ -79,7 +83,10 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             timeline,
-            [],  # No relevant events in range
+            {
+                "points": [],  # No relevant events in range
+                "crucial_property_keys": ["bar"],
+            },
         )
 
     @snapshot_clickhouse_queries
@@ -123,23 +130,26 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             timeline,
-            [
-                {
-                    "properties": {"foo": "abc", "bar": 456},
-                    "relevant_event_count": 1,  # 0 here means the person was created within range
-                    "timestamp": "2020-01-02T00:00:00Z",
-                },
-                {
-                    "properties": {"foo": "abc", "bar": 123},
-                    "relevant_event_count": 1,
-                    "timestamp": "2020-01-03T00:00:00Z",
-                },
-                {
-                    "properties": {"foo": "abc", "bar": 456},
-                    "relevant_event_count": 1,
-                    "timestamp": "2020-01-04T00:00:00Z",
-                },
-            ],
+            {
+                "points": [
+                    {
+                        "properties": {"foo": "abc", "bar": 456},
+                        "relevant_event_count": 1,  # 0 here means the person was created within range
+                        "timestamp": "2020-01-02T00:00:00Z",
+                    },
+                    {
+                        "properties": {"foo": "abc", "bar": 123},
+                        "relevant_event_count": 1,
+                        "timestamp": "2020-01-03T00:00:00Z",
+                    },
+                    {
+                        "properties": {"foo": "abc", "bar": 456},
+                        "relevant_event_count": 1,
+                        "timestamp": "2020-01-04T00:00:00Z",
+                    },
+                ],
+                "crucial_property_keys": ["bar"],
+            },
         )
 
     @snapshot_clickhouse_queries
@@ -204,23 +214,26 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             timeline,
-            [
-                {
-                    "properties": {"foo": "abc", "bar": 456},
-                    "relevant_event_count": 1,
-                    "timestamp": "2020-01-01T00:00:00Z",
-                },
-                {
-                    "properties": {"foo": "abc", "bar": 123},
-                    "relevant_event_count": 3,
-                    "timestamp": "2020-01-02T01:00:00Z",
-                },
-                {
-                    "properties": {"foo": "abc", "bar": 789},
-                    "relevant_event_count": 1,
-                    "timestamp": "2020-01-04T19:00:01Z",
-                },
-            ],
+            {
+                "points": [
+                    {
+                        "properties": {"foo": "abc", "bar": 456},
+                        "relevant_event_count": 1,
+                        "timestamp": "2020-01-01T00:00:00Z",
+                    },
+                    {
+                        "properties": {"foo": "abc", "bar": 123},
+                        "relevant_event_count": 3,
+                        "timestamp": "2020-01-02T01:00:00Z",
+                    },
+                    {
+                        "properties": {"foo": "abc", "bar": 789},
+                        "relevant_event_count": 1,
+                        "timestamp": "2020-01-04T19:00:01Z",
+                    },
+                ],
+                "crucial_property_keys": ["bar"],
+            },
         )
 
     @snapshot_clickhouse_queries
@@ -283,13 +296,16 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             timeline,  # Without filters, NO changes are relevant
-            [
-                {
-                    "properties": {"foo": "abc", "bar": 456},
-                    "relevant_event_count": 5,
-                    "timestamp": "2020-01-01T00:00:00Z",
-                },
-            ],
+            {
+                "points": [
+                    {
+                        "properties": {"foo": "abc", "bar": 456},
+                        "relevant_event_count": 5,
+                        "timestamp": "2020-01-01T00:00:00Z",
+                    },
+                ],
+                "crucial_property_keys": [],
+            },
         )
 
     @snapshot_clickhouse_queries
@@ -348,23 +364,26 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(
             timeline,
-            [
-                {
-                    "properties": {"foo": "abc", "bar": 456},
-                    "relevant_event_count": 1,
-                    "timestamp": "2020-01-01T00:00:00Z",
-                },
-                {
-                    "properties": {"foo": "abc", "bar": 123},
-                    "relevant_event_count": 4,
-                    "timestamp": "2020-01-01T01:00:00Z",  # whatever event
-                },
-                {
-                    "properties": {"foo": "abc", "bar": 789},
-                    "relevant_event_count": 1,
-                    "timestamp": "2020-01-04T19:00:01Z",
-                },
-            ],
+            {
+                "points": [
+                    {
+                        "properties": {"foo": "abc", "bar": 456},
+                        "relevant_event_count": 1,
+                        "timestamp": "2020-01-01T00:00:00Z",
+                    },
+                    {
+                        "properties": {"foo": "abc", "bar": 123},
+                        "relevant_event_count": 4,
+                        "timestamp": "2020-01-01T01:00:00Z",  # whatever event
+                    },
+                    {
+                        "properties": {"foo": "abc", "bar": 789},
+                        "relevant_event_count": 1,
+                        "timestamp": "2020-01-04T19:00:01Z",
+                    },
+                ],
+                "crucial_property_keys": ["bar"],
+            },
         )
 
     def _get_person_properties_timeline(
@@ -377,7 +396,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         date_from: Optional[dt.datetime] = None,
         date_to: Optional[dt.datetime] = None,
         expected_status: int = status.HTTP_200_OK,
-    ):
+    ) -> PropertiesTimelineResult:
         url = (
             f"/api/person/{person_id}/properties_timeline"
             f"?events={json.dumps(events or [])}&actions={json.dumps(actions or [])}"

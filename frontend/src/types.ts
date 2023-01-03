@@ -25,6 +25,7 @@ import { LogicWrapper } from 'kea'
 import { AggregationAxisFormat } from 'scenes/insights/aggregationAxisFormat'
 import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
 import { Layout } from 'react-grid-layout'
+import { InsightQueryNode } from './queries/schema'
 
 export type Optional<T, K extends string | number | symbol> = Omit<T, K> & { [K in keyof T]?: T[K] }
 
@@ -646,7 +647,7 @@ export enum EntityTypes {
 export type EntityFilter = {
     type?: EntityType
     id: Entity['id'] | null
-    name: string | null
+    name?: string | null
     custom_name?: string
     index?: number
     order?: number
@@ -1469,6 +1470,7 @@ export interface RetentionFilterType extends FilterType {
 export interface LifecycleFilterType extends FilterType {
     shown_as?: ShownAsValue
 }
+export type LifecycleToggle = 'new' | 'resurrecting' | 'returning' | 'dormant'
 export type AnyFilterType =
     | TrendsFilterType
     | StickinessFilterType
@@ -1505,11 +1507,15 @@ export interface RecordingConsoleLogsFilters {
     query: string
 }
 
-export type InsightEditorFilterGroup = {
+export enum RecordingWindowFilter {
+    All = 'all',
+}
+
+export type InsightEditorFilterGroup<T = InsightEditorFilter> = {
     title?: string
-    editorFilters: InsightEditorFilter[]
-    defaultExpanded?: boolean
     count?: number
+    editorFilters: T[]
+    defaultExpanded?: boolean
 }
 
 export interface EditorFilterProps {
@@ -1519,15 +1525,25 @@ export interface EditorFilterProps {
     value: any
 }
 
-export interface InsightEditorFilter {
+export interface QueryEditorFilterProps {
+    query: InsightQueryNode
+    setQuery: (node: InsightQueryNode) => void
+    insightProps: InsightLogicProps
+}
+
+export interface InsightEditorFilter<T = EditorFilterProps> {
     key: string
-    label?: string | ((props: EditorFilterProps) => JSX.Element | null)
+    label?: string | ((props: T) => JSX.Element | null)
     tooltip?: JSX.Element
     showOptional?: boolean
     position?: 'left' | 'right'
     valueSelector?: (insight: Partial<InsightModel>) => any
-    component?: (props: EditorFilterProps) => JSX.Element | null
+    component?: (props: T) => JSX.Element | null
 }
+
+export type QueryInsightEditorFilter = InsightEditorFilter<QueryEditorFilterProps>
+
+export type QueryInsightEditorFilterGroup = InsightEditorFilterGroup<QueryInsightEditorFilter>
 
 export interface SystemStatusSubrows {
     columns: string[]

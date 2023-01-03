@@ -1,4 +1,4 @@
-const createAction = (actionName) => {
+const createAction = (actionName: string): void => {
     cy.get('[data-attr=create-action]').click()
     cy.get('.LemonButton').should('contain', 'From event or pageview')
     cy.get('[data-attr=new-action-pageview]').click()
@@ -13,7 +13,7 @@ const createAction = (actionName) => {
     cy.contains('Action saved').should('exist')
 }
 
-function navigateToActionsTab() {
+function navigateToActionsTab(): void {
     cy.clickNavMenu('datamanagement')
     cy.get('[data-attr=data-management-actions-tab]').click()
 }

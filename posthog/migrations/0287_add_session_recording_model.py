@@ -46,7 +46,7 @@ def reverse(apps, _) -> None:
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("posthog", "0285_capture_performance_opt_in"),
+        ("posthog", "0286_index_insightcachingstate_lookup"),
     ]
 
     operations = [

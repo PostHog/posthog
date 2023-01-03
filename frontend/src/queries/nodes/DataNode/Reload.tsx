@@ -8,7 +8,14 @@ export function Reload(): JSX.Element {
     const { loadData } = useActions(dataNodeLogic)
 
     return (
-        <LemonButton type="secondary" onClick={loadData} loading={responseLoading} icon={<IconRefresh />}>
+        <LemonButton
+            type="secondary"
+            onClick={() => {
+                loadData()
+            }}
+            loading={responseLoading}
+            icon={<IconRefresh />}
+        >
             {responseLoading ? 'Loading' : 'Reload'}
         </LemonButton>
     )

@@ -41,6 +41,9 @@ DEPRECATED_ATTRS = (
 
 
 class TeamManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().defer(*DEPRECATED_ATTRS)
+
     def set_test_account_filters(self, organization: Optional[Any]) -> List:
         filters = [
             {
@@ -83,7 +86,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.defer(*DEPRECATED_ATTRS).get(api_token=token)
+            return Team.objects.get(api_token=token)
         except Team.DoesNotExist:
             return None
 
