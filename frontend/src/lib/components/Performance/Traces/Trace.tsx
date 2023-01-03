@@ -3,6 +3,8 @@ import { RefCallback, useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
     isInteractionNode,
+    isQueryNode,
+    isSessionNode,
     TimeToSeeInteractionNode,
     TimeToSeeNode,
     TimeToSeeQueryNode,
@@ -68,12 +70,44 @@ function TraceBar({
             </div>
             <span
                 className={clsx(!textIsOverflowing && 'hidden', 'text-black', startMargin > 50 ? 'absolute' : 'pl-1')}
+                /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
                     right: `${101 - startMargin}%`,
                 }}
             >
                 {duration}ms
             </span>
+        </div>
+    )
+}
+
+function DescribeSpan({ node }: { node: TimeToSeeNode }): JSX.Element {
+    const isFrustratingSession = isSessionNode(node) && node.data.frustrating_interactions_count > 0
+    const hasIsFrustrating = isInteractionNode(node) || isQueryNode(node)
+    const isFrustratingInteraction = hasIsFrustrating && !!node.data.is_frustrating
+    return (
+        <div className={clsx('flex flex-col')}>
+            <div className={'flex flex-row items-center gap-2'}>
+                {isSessionNode(node) ? 'session' : null}
+
+                {(isFrustratingSession || isFrustratingInteraction) && (
+                    <Tooltip title={'This was frustrating - because it took longer than 5 seconds'}>
+                        <IconSad />
+                    </Tooltip>
+                )}
+            </div>
+            {isInteractionNode(node) && (
+                <>
+                    {node.data.type}
+                    {node.data.action && <> - {node.data.action}</>}
+                </>
+            )}
+            {isQueryNode(node) && (
+                <>
+                    query
+                    {node.data.query_type && <> - {node.data.query_type}</>}
+                </>
+            )}
         </div>
     )
 }
@@ -104,21 +138,7 @@ export function Span({
                             title={isExpanded ? 'Collapse span' : 'Expand span'}
                         />
                     ) : null}
-                    <div className={clsx('flex flex-col')}>
-                        <div className={'flex flex-row items-center gap-2'}>
-                            {data && 'type' in data ? data?.type : 'session'}{' '}
-                            {data && 'data' in data && 'is_frustrating' in data.data && !!data.data.is_frustrating && (
-                                <Tooltip title={'This was frustrating - because it took longer than 5 seconds'}>
-                                    <IconSad />
-                                </Tooltip>
-                            )}
-                        </div>
-                        {data && 'data' in data && 'type' in data.data && 'action' in data.data && (
-                            <>
-                                {data.data.type} - {data.data.action}
-                            </>
-                        )}
-                    </div>
+                    {data && <DescribeSpan node={data} />}
                 </div>
                 <div
                     ref={widthTrackingRef}

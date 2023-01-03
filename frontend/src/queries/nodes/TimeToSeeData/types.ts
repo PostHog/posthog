@@ -8,12 +8,16 @@ export interface TimeToSeeSessionNode {
     children: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>
 }
 
-export function isInteractionNode(x: TimeToSeeNode): x is TimeToSeeInteractionNode {
-    return ['interaction', 'event'].includes(x.type)
+export const isSessionNode = (x: TimeToSeeNode | undefined): x is TimeToSeeSessionNode => {
+    return !!x && x.type === 'session'
 }
 
-export function isQueryNode(x: TimeToSeeNode): x is TimeToSeeQueryNode {
-    return ['query', 'subquery'].includes(x.type)
+export const isInteractionNode = (x: TimeToSeeNode | undefined): x is TimeToSeeInteractionNode => {
+    return ['interaction', 'event'].includes(x?.type || 'not present')
+}
+
+export const isQueryNode = (x: TimeToSeeNode | undefined): x is TimeToSeeQueryNode => {
+    return ['query', 'subquery'].includes(x?.type || 'not present')
 }
 
 export interface TimeToSeeInteractionNode {
@@ -44,7 +48,7 @@ export interface SessionData {
     frustrating_interactions_count: number
 }
 
-interface InteractionData {
+export interface InteractionData {
     query_id: string
     primary_interaction_id: string
     team_id: number
@@ -71,7 +75,7 @@ interface InteractionData {
     is_frustrating: 0 | 1
 }
 
-interface QueryData {
+export interface QueryData {
     host: string
     timestamp: string
 
