@@ -131,6 +131,7 @@ export function ResourcePermission({
                                 icon={<IconDelete />}
                                 onClick={() => deleteAssociatedRole(role.id)}
                                 tooltip={'Remove custom role from feature flag'}
+                                tooltipPlacement="bottomLeft"
                                 status="primary-alt"
                                 type="tertiary"
                                 size="small"
@@ -161,6 +162,32 @@ export function ResourcePermission({
                     {<OrganizationResourcePermissionRoles roles={rolesWithAccess} />}
                 </>
             )}
+            {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
+            {!shouldShowPermissionsTable && (
+                <>
+                    <h5 className="mt-4">Roles</h5>
+                    {roles.length > 0 ? (
+                        <div
+                            className="pb-2 rounded overflow-y-auto"
+                            style={{
+                                maxHeight: 300,
+                            }}
+                        >
+                            {roles.map((role) => {
+                                return (
+                                    <RoleRow
+                                        key={role.id}
+                                        role={role}
+                                        deleteRole={(roleId) => deleteAssociatedRole(roleId)}
+                                    />
+                                )
+                            })}
+                        </div>
+                    ) : (
+                        <div className="text-muted mb-2">No roles added yet</div>
+                    )}
+                </>
+            )}
             {canEdit && (
                 <>
                     <h5 className="mt-4">Custom edit roles</h5>
@@ -188,32 +215,6 @@ export function ResourcePermission({
                             </LemonButton>
                         }
                     </div>
-                </>
-            )}
-            {shouldShowPermissionsTable && <LemonTable dataSource={tableData} columns={columns} className="mt-4" />}
-            {!shouldShowPermissionsTable && (
-                <>
-                    <h5 className="mt-4">Roles</h5>
-                    {roles.length > 0 ? (
-                        <div
-                            className="pb-2 rounded overflow-y-auto"
-                            style={{
-                                maxHeight: 300,
-                            }}
-                        >
-                            {roles.map((role) => {
-                                return (
-                                    <RoleRow
-                                        key={role.id}
-                                        role={role}
-                                        deleteRole={(roleId) => deleteAssociatedRole(roleId)}
-                                    />
-                                )
-                            })}
-                        </div>
-                    ) : (
-                        <div className="text-muted mb-2">No roles added yet</div>
-                    )}
                 </>
             )}
         </>
