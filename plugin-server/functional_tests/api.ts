@@ -18,8 +18,13 @@ export const capture = async (
     event: string,
     properties: object = {},
     token: string | null = null,
-    sentAt: Date = new Date()
+    sentAt: Date = new Date(),
+    eventTime: Date = new Date(),
+    now: Date = new Date()
 ) => {
+    // WARNING: this capture method is meant to simulate the ingestion of events
+    // from the capture endpoint, but there is no guarantee that is is 100%
+    // accurate.
     await producer.send({
         topic: 'events_plugin_ingestion',
         messages: [
@@ -31,7 +36,7 @@ export const capture = async (
                     ip: '',
                     site_url: '',
                     team_id: teamId,
-                    now: new Date(),
+                    now: now,
                     sent_at: sentAt,
                     uuid: uuid,
                     data: JSON.stringify({
@@ -39,7 +44,7 @@ export const capture = async (
                         properties: { ...properties, uuid },
                         distinct_id: distinctId,
                         team_id: teamId,
-                        timestamp: new Date(),
+                        timestamp: eventTime,
                     }),
                 }),
             },

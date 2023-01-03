@@ -1,3 +1,4 @@
+import { uuid4 } from '@sentry/utils'
 import { createServer, Server } from 'http'
 import Redis from 'ioredis'
 import { Kafka, Partitioners, Producer } from 'kafkajs'
@@ -52,9 +53,27 @@ afterAll(async () => {
 })
 
 test.concurrent(`exports: historical exports v2`, async () => {
+    // This test runs through checking:
+    //
+    //  1. the payload we send for "live" events i.e. events we are exporting as
+    //     they are ingested
+    //  2. running an historical export, and checking the payload is
+    //     sufficiently the same as the live event export
+    //  3. running an historical export again, and checking the payload is the
+    //     same as the previous historical export
+    //
+    // It's important the the timestamp and sent_at are the same, as otherwise
+    // the event time committed to the database will be different, and will
+    // result in duplicates.
+    //
+    // The way the merging in ClickHouse works means that we will not be able to
+    // guarantee events with the same sorting key will be dedpulicated, but we
+    // should do a best effort at ensuring they are the same.
+
     const teamId = await createTeam(postgres, organizationId)
     const distinctId = new UUIDT().toString()
     const uuid = new UUIDT().toString()
+    const testUuid = new UUIDT().toString()
 
     const plugin = await createPlugin(postgres, {
         organization_id: organizationId,
@@ -64,7 +83,7 @@ test.concurrent(`exports: historical exports v2`, async () => {
         source__index_ts: `
             export const exportEvents = async (events, { global, config }) => {
                 await fetch(
-                    "http://localhost:${server.address()?.port}/${teamId}", 
+                    "http://localhost:${server.address()?.port}/${testUuid}", 
                     {method: "POST", body: JSON.stringify(events)}
                 )
             }
@@ -75,84 +94,144 @@ test.concurrent(`exports: historical exports v2`, async () => {
     // First let's capture an event and wait for it to be ingested so
     // so we can check that the historical event is the same as the one
     // passed to processEvent on initial ingestion.
-    const sentAt = new Date(Date.now())
-    await capture(
-        producer,
-        teamId,
-        distinctId,
-        uuid,
-        '$autocapture',
-        {
-            name: 'hehe',
-            uuid: new UUIDT().toString(),
-            $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
-        },
-        null,
-        sentAt
-    )
+    const eventTime = new Date('2022-01-01T00:00:00.000Z')
+    const sentAt = new Date('2022-01-02T00:00:00.000Z')
+    const now = new Date('2022-01-02T00:00:00.000Z')
+    const properties = {
+        name: 'hehe',
+        uuid: new UUIDT().toString(),
+        $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+    }
+    await capture(producer, teamId, distinctId, uuid, '$autocapture', properties, null, sentAt, eventTime, now)
 
     // Then check that the exportEvents function was called
     const [exportedEvent] = await waitForExpect(() => {
-        const exportEvents = webHookCalledWith[`/${teamId}`]
-        expect(exportEvents.length).toBeGreaterThan(0)
-        return exportEvents[0]
+        const [exportEvents] = webHookCalledWith[`/${testUuid}`]
+        expect(exportEvents).toEqual([
+            expect.objectContaining({
+                event: '$autocapture',
+                // TODO: send `sent_at` with real time exports as well
+                // sent_at: sentAt.toISOString(),
+                timestamp: eventTime.toISOString(),
+                uuid: uuid,
+                distinct_id: distinctId,
+                properties: expect.objectContaining({
+                    name: properties.name,
+                    // TODO: do not override uuid property with event id
+                    uuid: uuid, // NOTE: uuid added to properties is overridden by the event uuid
+                }),
+                elements: [
+                    {
+                        tag_name: 'div',
+                        nth_child: 1,
+                        nth_of_type: 2,
+                        order: 0,
+                        $el_text: '💻',
+                        text: '💻',
+                        attributes: {},
+                    },
+                ],
+                team_id: teamId,
+            }),
+        ])
+
+        return exportEvents
     }, 20_000)
 
-    // NOTE: the frontend doesn't actually push to this queue but rather
-    // adds directly to PostgreSQL using the graphile-worker stored
-    // procedure `add_job`. I'd rather keep these tests graphile
-    // unaware.
-    await producer.send({
-        topic: 'jobs',
-        messages: [
-            {
-                key: teamId.toString(),
-                value: JSON.stringify({
-                    type: 'Export historical events V2',
-                    pluginConfigId: pluginConfig.id,
-                    pluginConfigTeam: teamId,
-                    payload: {
-                        dateRange: [
-                            new Date(sentAt.getTime() - 10000).toISOString(),
-                            new Date(Date.now()).toISOString(),
-                        ],
-                        $job_id: 'test',
-                        parallelism: 1,
-                    },
-                }),
-            },
+    await createHistoricalExportJob({
+        producer,
+        teamId,
+        pluginConfigId: pluginConfig.id,
+        dateRange: [
+            new Date(eventTime.getTime() - 10000).toISOString(),
+            new Date(eventTime.getTime() + 10000).toISOString(),
         ],
     })
 
     // Then check that the exportEvents function was called with the
     // same data that was used with the non-historical export, with the
     // additions of details related to the historical export.
+    const firstExportedEvent = await waitForExpect(
+        () => {
+            const [historicallyExportedEvents] = webHookCalledWith[`/${testUuid}`].filter((events) => {
+                return events.some((event) => event.properties['$$is_historical_export_event'])
+            })
+
+            expect(historicallyExportedEvents).toEqual([
+                {
+                    ...exportedEvent,
+                    ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
+                    // NOTE: it's important that event, sent_at, uuid, and distinct_id
+                    // are preserved and are stable for ClickHouse deduplication to
+                    // function as expected.
+                    site_url: '',
+                    // NOTE: we get a now attribute which is set to the time the
+                    // event was converted from the ClickHouse event. We do not
+                    // use the `now` attribute in the /capture endpoint, so this
+                    // should be ok to leave.
+                    now: expect.any(String),
+                    properties: {
+                        ...exportedEvent.properties,
+                        $$is_historical_export_event: true,
+                        $$historical_export_timestamp: expect.any(String),
+                        $$historical_export_source_db: 'clickhouse',
+                    },
+                },
+            ])
+
+            return historicallyExportedEvents[0]
+        },
+        10_000,
+        1_000
+    )
+
+    // Run the export again to ensure we get the same results, such that we can
+    // re-run exports without creating duplicates. We use a different plugin
+    // config as otherwise it seems the second export doesn't start.
+    const secondTestUuid = uuid4()
+    const secondPlugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'export plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
+            export const exportEvents = async (events, { global, config }) => {
+                await fetch(
+                    "http://localhost:${server.address()?.port}/${secondTestUuid}", 
+                    {method: "POST", body: JSON.stringify(events)}
+                )
+            }
+        `,
+    })
+    const secondPluginConfig = await createAndReloadPluginConfig(postgres, teamId, secondPlugin.id, redis)
+
+    await createHistoricalExportJob({
+        producer,
+        teamId,
+        pluginConfigId: secondPluginConfig.id,
+        dateRange: [
+            new Date(eventTime.getTime() - 10000).toISOString(),
+            new Date(eventTime.getTime() + 10000).toISOString(),
+        ],
+    })
+
     await waitForExpect(
         () => {
-            const historicallyExportedEvents = webHookCalledWith[`/${teamId}`].filter((events) =>
-                events.some((event) => event.properties['$$is_historical_export_event'])
-            )
-            expect(historicallyExportedEvents.length).toBeGreaterThan(0)
+            const [historicallyExportedEvents] = webHookCalledWith[`/${secondTestUuid}`]
 
-            expect.objectContaining({
-                ...exportedEvent,
-                ip: '', // NOTE: for some reason this is "" when exported historically, but null otherwise.
-                // NOTE: it's important that event, sent_at, uuid, and distinct_id
-                // are preserved and are stable for ClickHouse deduplication to
-                // function as expected.
-                event: '$autocapture',
-                sent_at: sentAt.toISOString(),
-                uuid: uuid,
-                distinct_id: distinctId,
-                properties: {
-                    ...exportedEvent.properties,
-                    $$is_historical_export_event: true,
-                    $$historical_export_timestamp: expect.any(String),
-                    $$historical_export_source_db: 'clickhouse',
+            expect(historicallyExportedEvents).toEqual([
+                {
+                    ...firstExportedEvent,
+                    // NOTE: we get a now attribute which is set to the time the
+                    // event was converted from the ClickHouse event. We do not
+                    // use the `now` attribute in the /capture endpoint, so this
+                    // should be ok to leave.
+                    now: expect.any(String),
+                    properties: { ...firstExportedEvent.properties, $$historical_export_timestamp: expect.any(String) },
                 },
-            })
+            ])
         },
-        20_000,
+        10_000,
         1_000
     )
 })
@@ -188,3 +267,31 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
     }, 10_000)
 })
+
+const createHistoricalExportJob = async ({ producer, teamId, pluginConfigId, dateRange }) => {
+    // Queues an historical export for the specified pluginConfigId and date
+    // range.
+    //
+    // NOTE: the frontend doesn't actually push to this queue but rather
+    // adds directly to PostgreSQL using the graphile-worker stored
+    // procedure `add_job`. I'd rather keep these tests graphile
+    // unaware.
+    await producer.send({
+        topic: 'jobs',
+        messages: [
+            {
+                key: teamId.toString(),
+                value: JSON.stringify({
+                    type: 'Export historical events V2',
+                    pluginConfigId: pluginConfigId,
+                    pluginConfigTeam: teamId,
+                    payload: {
+                        dateRange: dateRange,
+                        $job_id: uuid4(),
+                        parallelism: 1,
+                    },
+                }),
+            },
+        ],
+    })
+}
