@@ -10,7 +10,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { IconDelete, IconEdit } from 'lib/components/icons'
 import { LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
-
 import { Field } from 'lib/forms/Field'
 import { MetricSelector } from './MetricSelector'
 import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'

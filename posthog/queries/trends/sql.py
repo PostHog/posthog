@@ -1,44 +1,58 @@
 VOLUME_SQL = """
-SELECT {aggregate_operation} as data, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date FROM ({event_query}) GROUP BY date
+SELECT
+    {aggregate_operation} as data,
+    {interval}(toTimeZone(toDateTime({timestamp_column}, 'UTC'), %(timezone)s) {start_of_week_fix}) as date
+{event_query_base}
+GROUP BY date
 """
 
 VOLUME_AGGREGATE_SQL = """
-SELECT {aggregate_operation} as data FROM ({event_query}) events
+SELECT {aggregate_operation} as data
+{event_query_base}
 """
 
 VOLUME_PER_ACTOR_SQL = """
 SELECT {aggregate_operation} AS data, date FROM (
-    SELECT COUNT(*) AS intermediate_count, {aggregator}, {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS date
-    FROM ({event_query})
+    SELECT
+        count() AS intermediate_count,
+        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) AS date
+    {event_query_base}
     GROUP BY {aggregator}, date
 ) GROUP BY date
 """
 
 VOLUME_PER_ACTOR_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
-    SELECT COUNT(*) AS intermediate_count, {aggregator}
-    FROM ({event_query})
+    SELECT
+        count() AS intermediate_count
+    {event_query_base}
     GROUP BY {aggregator}
 ) events
 """
 
 SESSION_DURATION_SQL = """
 SELECT {aggregate_operation} as data, date FROM (
-    SELECT {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date, any(session_duration) as session_duration
-    FROM ({event_query})
-    GROUP BY $session_id, date
+    SELECT
+        {interval}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) {start_of_week_fix}) as date,
+        any(sessions.session_duration) as session_duration
+    {event_query_base}
+    GROUP BY sessions.$session_id, date
 ) GROUP BY date
 """
 
 SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
-    SELECT any(session_duration) as session_duration FROM ({event_query}) events GROUP BY $session_id
+    SELECT any(session_duration) as session_duration
+    {event_query_base}
+    GROUP BY sessions.$session_id
 )
 """
 
+# This query performs poorly due to aggregation happening outside of subqueries.
+# :TODO: Fix this!
 ACTIVE_USERS_SQL = """
 SELECT counts AS total, timestamp AS day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT {aggregator}) AS counts FROM (
+    SELECT d.timestamp, COUNT(DISTINCT actor_id) AS counts FROM (
         /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
            and not `events`, because we cannot rely on there being an event for each period (this assumption previously
            caused active user counts to be off for sparse events). */
@@ -50,10 +64,9 @@ SELECT counts AS total, timestamp AS day_start FROM (
     CROSS JOIN (
         SELECT
             toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
-            {aggregator}
-        FROM ({event_query}) events
-        WHERE 1 = 1 {parsed_date_from_prev_range} {parsed_date_to}
-        GROUP BY timestamp, {aggregator}
+            {aggregator} AS actor_id
+        {event_query_base}
+        GROUP BY timestamp, actor_id
     ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
@@ -63,27 +76,27 @@ SELECT counts AS total, timestamp AS day_start FROM (
 ACTIVE_USERS_AGGREGATE_SQL = """
 SELECT
     {aggregate_operation} AS total
-FROM ({event_query}) events
-WHERE 1 = 1 {parsed_date_from_prev_range} - INTERVAL {prev_interval} {parsed_date_to}
+{event_query_base}
 """
 
 FINAL_TIME_SERIES_SQL = """
 SELECT groupArray(day_start) as date, groupArray({aggregate}) as data FROM (
     SELECT {smoothing_operation} AS count, day_start
-    from (
+    FROM (
         {null_sql}
         UNION ALL
         {content_sql}
     )
-    group by day_start
-    order by day_start
+    GROUP BY day_start
+    ORDER BY day_start
 )
 SETTINGS timeout_before_checking_execution_speed = 60
 """
 
 CUMULATIVE_SQL = """
-SELECT person_id, min(timestamp) as timestamp
-FROM ({event_query}) GROUP BY person_id
+SELECT {actor_expression} AS actor_id, min(timestamp) AS first_seen_timestamp
+{event_query_base}
+GROUP BY actor_id
 """
 
 TOP_ELEMENTS_ARRAY_OF_KEY_SQL = """

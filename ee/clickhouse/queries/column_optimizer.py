@@ -1,10 +1,9 @@
 from typing import Counter as TCounter
-from typing import List, Set, cast
+from typing import Set, cast
 
 from posthog.clickhouse.materialized_columns.column import ColumnName
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, FunnelCorrelationType
 from posthog.models.action.util import get_action_tables_and_properties
-from posthog.models.entity import Entity
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -67,7 +66,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
                 counter[(breakdown["property"], breakdown["type"], self.filter.breakdown_group_type_index)] += 1
 
         # Both entities and funnel exclusions can contain nested property filters
-        for entity in self.filter.entities + cast(List[Entity], self.filter.exclusions):
+        for entity in self.entities_used_in_filter():
             counter += extract_tables_and_properties(entity.property_groups.flat)
 
             # Math properties are also implicitly used.

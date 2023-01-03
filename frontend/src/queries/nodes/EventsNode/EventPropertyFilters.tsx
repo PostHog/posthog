@@ -5,7 +5,7 @@ import { useState } from 'react'
 
 interface EventPropertyFiltersProps {
     query: EventsNode | EventsQuery
-    setQuery?: (node: EventsNode | EventsQuery) => void
+    setQuery?: (query: EventsNode | EventsQuery) => void
 }
 
 let uniqueNode = 0

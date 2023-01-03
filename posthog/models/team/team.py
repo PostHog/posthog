@@ -41,6 +41,9 @@ DEPRECATED_ATTRS = (
 
 
 class TeamManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().defer(*DEPRECATED_ATTRS)
+
     def set_test_account_filters(self, organization: Optional[Any]) -> List:
         filters = [
             {
@@ -83,7 +86,7 @@ class TeamManager(models.Manager):
         if not token:
             return None
         try:
-            return Team.objects.defer(*DEPRECATED_ATTRS).get(api_token=token)
+            return Team.objects.get(api_token=token)
         except Team.DoesNotExist:
             return None
 
@@ -114,6 +117,7 @@ class Team(UUIDClassicModel):
     ingested_event: models.BooleanField = models.BooleanField(default=False)
     session_recording_opt_in: models.BooleanField = models.BooleanField(default=False)
     capture_console_log_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
+    capture_performance_opt_in: models.BooleanField = models.BooleanField(null=True, blank=True)
     signup_token: models.CharField = models.CharField(max_length=200, null=True, blank=True)
     is_demo: models.BooleanField = models.BooleanField(default=False)
     access_control: models.BooleanField = models.BooleanField(default=False)

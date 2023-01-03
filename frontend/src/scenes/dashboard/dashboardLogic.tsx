@@ -20,7 +20,6 @@ import { insightsModel } from '~/models/insightsModel'
 import {
     AUTO_REFRESH_DASHBOARD_THRESHOLD_HOURS,
     DashboardPrivilegeLevel,
-    FEATURE_FLAGS,
     OrganizationMembershipLevel,
 } from 'lib/constants'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
@@ -48,7 +47,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { Link } from 'lib/components/Link'
-import { captureTimeToSeeData, TimeToSeeDataPayload } from 'lib/internalMetrics'
+import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -187,9 +186,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadingDashboardItemsStarted: (action: string, dashboardQueryId: string) => ({ action, dashboardQueryId }),
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
         abortQuery: (payload: { dashboardQueryId: string; queryId: string; queryStartTime: number }) => payload,
+        abortAnyRunningQuery: true,
     }),
 
-    loaders(({ actions, props, values, cache }) => ({
+    loaders(({ actions, props, values }) => ({
         // TODO this is a terrible name... it is "dashboard" but there's a "dashboard" reducer ¯\_(ツ)_/¯
         allItems: [
             null as DashboardType | null,
@@ -225,10 +225,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return values.allItems
                     }
 
-                    if (cache.abortController) {
-                        cache.abortController.abort()
-                    }
-                    cache.abortController = null
+                    actions.abortAnyRunningQuery()
 
                     try {
                         return await api.update(`api/projects/${values.currentTeamId}/dashboards/${props.id}`, {
@@ -778,7 +775,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
-            cache.abortController?.abort()
             if (cache.autoRefreshInterval) {
                 window.clearInterval(cache.autoRefreshInterval)
                 cache.autoRefreshInterval = null
@@ -926,11 +922,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 true
             )
 
-            // If a query is in progress, kill that query
             // we will use one abort controller for all insight queries for this dashboard
-            if (cache.abortController) {
-                cache.abortController.abort()
-            }
+            actions.abortAnyRunningQuery()
             cache.abortController = new AbortController()
             const methodOptions: ApiMethodOptions = {
                 signal: cache.abortController.signal,
@@ -950,6 +943,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh: true,
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
+                    session_id: currentSessionId(),
                 })}`
 
                 try {
@@ -969,7 +963,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     captureTimeToSeeData(values.currentTeamId, {
                         type: 'insight_load',
                         context: 'dashboard',
-                        dashboard_query_id: dashboardQueryId,
+                        primary_interaction_id: dashboardQueryId,
                         query_id: queryId,
                         status: 'success',
                         time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
@@ -980,7 +974,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     })
                     totalResponseBytes += getResponseBytes(refreshedInsightResponse)
                 } catch (e: any) {
-                    console.error(e)
                     if (isBreakpoint(e)) {
                         cancelled = true
                     } else if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
@@ -995,29 +988,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 refreshesFinished += 1
-                if (refreshesFinished === insights.length) {
-                    breakpoint()
-                    cache.abortController = null
-
+                if (!cancelled && refreshesFinished === insights.length) {
                     const payload: TimeToSeeDataPayload = {
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
-                        dashboard_query_id: dashboardQueryId,
+                        primary_interaction_id: dashboardQueryId,
                         api_response_bytes: totalResponseBytes,
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
                         insights_fetched: insights.length,
                         insights_fetched_cached: 0,
                     }
-                    captureTimeToSeeData(values.currentTeamId, payload)
+                    captureTimeToSeeData(values.currentTeamId, {
+                        ...payload,
+                        is_primary_interaction: !initialLoad,
+                    })
                     if (initialLoad) {
-                        const { dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
+                        const { startTime, responseBytes } = values.dashboardLoadTimerData
                         captureTimeToSeeData(values.currentTeamId, {
                             ...payload,
-                            dashboard_query_id: dashboardQueryId,
                             action: 'initial_load_full',
                             time_to_see_data_ms: Math.floor(performance.now() - startTime),
                             api_response_bytes: responseBytes + totalResponseBytes,
+                            is_primary_interaction: true,
                         })
                     }
                 }
@@ -1121,13 +1114,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 type: 'dashboard_load',
                 context: 'dashboard',
                 action,
-                dashboard_query_id: dashboardQueryId,
+                primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
                 api_response_bytes: responseBytes,
                 insights_fetched: dashboard.tiles.length,
                 insights_fetched_cached: dashboard.tiles.reduce((acc, curr) => acc + (curr.is_cached ? 1 : 0), 0),
                 min_last_refresh: lastRefresh[0],
                 max_last_refresh: lastRefresh[lastRefresh.length - 1],
+                is_primary_interaction: !initialLoad,
             }
 
             captureTimeToSeeData(values.currentTeamId, payload)
@@ -1135,6 +1129,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 captureTimeToSeeData(values.currentTeamId, {
                     ...payload,
                     action: 'initial_load_full',
+                    is_primary_interaction: true,
                 })
             }
 
@@ -1162,25 +1157,30 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setShouldReportOnAPILoad(true)
             }
         },
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+                cache.abortController = null
+            }
+        },
         abortQuery: async ({ dashboardQueryId, queryId, queryStartTime }) => {
             const { currentTeamId } = values
-            if (values.featureFlags[FEATURE_FLAGS.CANCEL_RUNNING_QUERIES]) {
-                await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
 
-                // TRICKY: we cancel just once using the dashboard query id.
-                // we can record the queryId that happened to capture the AbortError exception
-                // and request the cancellation, but it is probably not particularly relevant
-                await captureTimeToSeeData(values.currentTeamId, {
-                    type: 'insight_load',
-                    context: 'dashboard',
-                    dashboard_query_id: dashboardQueryId,
-                    query_id: queryId,
-                    status: 'cancelled',
-                    time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
-                    insights_fetched: 0,
-                    insights_fetched_cached: 0,
-                })
-            }
+            await api.create(`api/projects/${currentTeamId}/insights/cancel`, { client_query_id: dashboardQueryId })
+
+            // TRICKY: we cancel just once using the dashboard query id.
+            // we can record the queryId that happened to capture the AbortError exception
+            // and request the cancellation, but it is probably not particularly relevant
+            await captureTimeToSeeData(values.currentTeamId, {
+                type: 'insight_load',
+                context: 'dashboard',
+                primary_interaction_id: dashboardQueryId,
+                query_id: queryId,
+                status: 'cancelled',
+                time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
+                insights_fetched: 0,
+                insights_fetched_cached: 0,
+            })
         },
     })),
 

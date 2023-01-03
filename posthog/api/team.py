@@ -34,26 +34,34 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
     def has_permission(self, request: request.Request, view) -> bool:
         user = cast(User, request.user)
-        if request.method in CREATE_METHODS and (
-            (user.organization is None)
-            or (
-                # if we're not requesting to make a demo project
-                # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
-                # and the org isn't allowed to make multiple projects
-                "is_demo" not in request.data
+        if request.method in CREATE_METHODS:
+
+            if user.organization is None:
+                return False
+
+            # if we're not requesting to make a demo project
+            # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
+            # and the org isn't allowed to make multiple projects
+            if (
+                ("is_demo" not in request.data or not request.data["is_demo"])
                 and user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
-            )
-            or (
-                # if we ARE requesting to make a demo project
-                # but the org already has a demo project
+            ):
+                return False
+
+            # if we ARE requesting to make a demo project
+            # but the org already has a demo project
+            if (
                 "is_demo" in request.data
                 and request.data["is_demo"]
                 and user.organization.teams.exclude(is_demo=False).count() > 0
-            )
-        ):
-            return False
-        return True
+            ):
+                return False
+
+            # in any other case, we're good to go
+            return True
+        else:
+            return True
 
 
 class TeamSerializer(serializers.ModelSerializer):
@@ -86,6 +94,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "correlation_config",
             "session_recording_opt_in",
             "capture_console_log_opt_in",
+            "capture_performance_opt_in",
             "effective_membership_level",
             "access_control",
             "has_group_types",
@@ -142,11 +151,13 @@ class TeamSerializer(serializers.ModelSerializer):
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
-        team = Team.objects.create_with_data(**validated_data, organization=organization)
+        if validated_data.get("is_demo", False):
+            team = Team.objects.create(**validated_data, organization=organization)
+            create_data_for_demo_team.delay(team.pk, request.user.pk)
+        else:
+            team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
         request.user.save()
-        if validated_data.get("is_demo", False):
-            create_data_for_demo_team.delay(team.pk, request.user.pk)
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:

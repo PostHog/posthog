@@ -250,7 +250,10 @@
     "lint-staged": {
         "*.{js,jsx,mjs,ts,tsx,json,yaml,yml,css,scss}": "prettier --write",
         "((frontend|cypress)/**).{js,jsx,mjs,ts,tsx}": "eslint -c .eslintrc.js --fix",
-        "(plugin-server/**).{js,jsx,mjs,ts,tsx}": "eslint -c plugin-server/.eslintrc.js --fix",
+        "(plugin-server/**).{js,jsx,mjs,ts,tsx}": [
+            "eslint -c plugin-server/.eslintrc.js --fix",
+            "prettier --write"
+        ],
         "*.{py,pyi}": [
             "black",
             "flake8",

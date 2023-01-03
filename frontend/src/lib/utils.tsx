@@ -396,7 +396,7 @@ export function objectsEqual(obj1: any, obj2: any): boolean {
 }
 
 // https://stackoverflow.com/questions/25421233/javascript-removing-undefined-fields-from-an-object
-export function objectClean(obj: Record<string, any>): Record<string, any> {
+export function objectClean<T extends Record<string | number | symbol, unknown>>(obj: T): T {
     const response = { ...obj }
     Object.keys(response).forEach((key) => {
         if (response[key] === undefined) {
@@ -1239,6 +1239,11 @@ export function humanTzOffset(timezone?: string): string {
     const hourForm = absoluteOffset === 1 ? 'hour' : 'hours'
     const direction = offset > 0 ? 'ahead' : 'behind'
     return `${absoluteOffset} ${hourForm} ${direction}`
+}
+
+/** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
+export function humanList(arr: string[]): string {
+    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
 }
 
 export function resolveWebhookService(webhookUrl: string): string {

@@ -44,6 +44,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */
     size?: 'xs' | 'small' | 'middle'
+    /** Whether this table already is inset, meaning it needs reduced horizontal padding (0.5rem instead of 1rem). */
+    inset?: boolean
     /** An embedded table has no border around it and no background. This way it blends better into other components. */
     embedded?: boolean
     /** Whether inner table borders should be shown. **/
@@ -88,6 +90,7 @@ export function LemonTable<T extends Record<string, any>>({
     rowStatus,
     onRow,
     size,
+    inset = false,
     embedded = false,
     bordered = true,
     loading,
@@ -198,6 +201,7 @@ export function LemonTable<T extends Record<string, any>>({
             className={clsx(
                 'LemonTable',
                 size && size !== 'middle' && `LemonTable--${size}`,
+                inset && 'LemonTable--inset',
                 loading && 'LemonTable--loading',
                 embedded && 'LemonTable--embedded',
                 !bordered && 'LemonTable--borderless',

@@ -4,7 +4,7 @@ export function IconWindow({ value, className = '' }: { value: number | string; 
     const shortValue = typeof value === 'number' ? value : String(value).charAt(0)
     return (
         <div className={clsx('flex justify-center items-center relative shrink-0', className)}>
-            <span className="absolute font-semibold" style={{ fontSize: 8, marginTop: 1 }}>
+            <span className="absolute font-semibold" style={{ fontSize: 8, marginTop: 2 }}>
                 {shortValue}
             </span>
             <svg
