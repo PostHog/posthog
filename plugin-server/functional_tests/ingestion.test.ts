@@ -426,33 +426,100 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
     // events specially, and it would fail with that implementation.
 
     const teamId = await createTeam(postgres, organizationId)
-    const distinctId = new UUIDT().toString()
+    const firstDistinctId = new UUIDT().toString()
+    const secondDistinctId = new UUIDT().toString()
     const personIdentifier = new UUIDT().toString()
 
     const firstUuid = new UUIDT().toString()
-    await capture(producer, teamId, distinctId, firstUuid, 'custom event', {
-        distinct_id: distinctId,
+    await capture(producer, teamId, firstDistinctId, firstUuid, 'custom event', {
+        distinct_id: firstDistinctId,
+        $anon_distinct_id: firstDistinctId,
         $set: {
             prop: 'value', // This value should be included in the $identify event.
         },
+        $set_once: {
+            set_once_property: 'value', // This value should be included in the $identify event.
+        },
     })
 
-    const identifyUuid = new UUIDT().toString()
-    await capture(producer, teamId, personIdentifier, identifyUuid, '$identify', {
+    const secondUuid = new UUIDT().toString()
+    await capture(producer, teamId, secondDistinctId, secondUuid, 'custom event', {
+        distinct_id: secondDistinctId,
+        $anon_distinct_id: secondDistinctId,
+        $set: {
+            prop: 'second value', // This value should be included in the $identify event.
+        },
+        $set_once: {
+            set_once_property: 'second value', // This value should be included in the $identify event.
+        },
+    })
+
+    const thirdUuid = new UUIDT().toString()
+    await capture(producer, teamId, personIdentifier, thirdUuid, '$identify', {
         distinct_id: personIdentifier,
-        $anon_distinct_id: distinctId,
+        $anon_distinct_id: firstDistinctId,
+        $set: {
+            prop: 'identify value', // This value should be included in the $identify event.
+        },
+        $set_once: {
+            set_once_property: 'identify value', // This value should be included in the $identify event.
+        },
+    })
+
+    const forthUuid = new UUIDT().toString()
+    await capture(producer, teamId, personIdentifier, forthUuid, '$identify', {
+        distinct_id: personIdentifier,
+        $anon_distinct_id: secondDistinctId,
+        $set: {
+            prop: 'second identify value', // This value should be included in the $identify event.
+        },
+        $set_once: {
+            set_once_property: 'second identify value', // This value should be included in the $identify event.
+        },
     })
 
     await waitForExpect(async () => {
-        const [identify] = await fetchEvents(clickHouseClient, teamId, identifyUuid)
-        const [customEvent] = await fetchEvents(clickHouseClient, teamId, firstUuid)
-        expect(identify).toEqual(
+        const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+        const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
+        const [forth] = await fetchEvents(clickHouseClient, teamId, forthUuid)
+        expect(first).toEqual(
             expect.objectContaining({
                 person_properties: expect.objectContaining({
                     prop: 'value',
+                    set_once_property: 'value',
                 }),
             })
         )
-        expect(identify.person_id).toEqual(customEvent.person_id)
+        expect(first.person_id).toEqual(forth.person_id)
+
+        expect(second).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'second value',
+                    set_once_property: 'value',
+                }),
+            })
+        )
+        expect(second.person_id).toEqual(forth.person_id)
+
+        expect(third).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'identify value',
+                    set_once_property: 'value',
+                }),
+            })
+        )
+        expect(third.person_id).toEqual(forth.person_id)
+
+        expect(forth).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    prop: 'second identify value',
+                    set_once_property: 'value',
+                }),
+            })
+        )
     })
 })
