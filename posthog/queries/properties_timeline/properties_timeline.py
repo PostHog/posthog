@@ -16,6 +16,11 @@ class PropertiesTimelinePoint(TypedDict):
     relevant_event_count: int
 
 
+class PropertiesTimelineResult(TypedDict):
+    points: List[PropertiesTimelinePoint]
+    crucial_property_keys: List[str]
+
+
 PROPERTIES_TIMELINE_SQL = """
 SELECT
     timestamp,
@@ -43,7 +48,7 @@ WHERE timestamp IS NOT NULL /* Remove sentinel row */
 
 
 class PropertiesTimeline:
-    def run(self, filter: PropertiesTimelineFilter, team: Team, person: Person) -> List[PropertiesTimelinePoint]:
+    def run(self, filter: PropertiesTimelineFilter, team: Team, person: Person) -> PropertiesTimelineResult:
         event_query = PropertiesTimelineEventQuery(
             filter=filter,
             team=team,
@@ -52,7 +57,7 @@ class PropertiesTimeline:
         event_query_sql, event_query_params = event_query.get_query()
         params = {**event_query_params, "person_id": person.uuid}
 
-        property_keys = [
+        crucial_property_keys = [
             property_key
             for property_key, property_type, property_group_type_index in extract_tables_and_properties(
                 filter.property_groups.flat
@@ -61,7 +66,7 @@ class PropertiesTimeline:
         ]
 
         crucial_property_columns = get_single_or_multi_property_string_expr(
-            property_keys,
+            crucial_property_keys,
             query_alias=None,
             table="events",
             column="person_properties",
@@ -74,15 +79,16 @@ class PropertiesTimeline:
             crucial_property_columns=crucial_property_columns,
         )
 
-        raw_result = insight_sync_execute(formatted_sql, params, query_type="properties_timeline")
+        raw_query_result = insight_sync_execute(formatted_sql, params, query_type="properties_timeline")
 
-        parsed_result = [
-            PropertiesTimelinePoint(
-                timestamp=timestamp,
-                properties=json.loads(properties),
-                relevant_event_count=relevant_event_count,
-            )
-            for timestamp, properties, relevant_event_count in raw_result
-        ]
-
-        return parsed_result
+        return PropertiesTimelineResult(
+            points=[
+                PropertiesTimelinePoint(
+                    timestamp=timestamp,
+                    properties=json.loads(properties),
+                    relevant_event_count=relevant_event_count,
+                )
+                for timestamp, properties, relevant_event_count in raw_query_result
+            ],
+            crucial_property_keys=crucial_property_keys,
+        )

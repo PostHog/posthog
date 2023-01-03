@@ -24,6 +24,7 @@ import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 export interface PersonsModalProps extends Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
@@ -65,6 +66,7 @@ export function PersonsModal({
     const { loadActors, setSearchTerm, saveCohortWithUrl, setIsCohortModalOpen, closeModal } = useActions(logic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const { currentTeam } = useValues(teamLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
 
@@ -137,6 +139,7 @@ export function PersonsModal({
                                             openSessionPlayer(sessionRecording)
                                         }}
                                         propertiesTimelineFilter={
+                                            currentTeam?.person_on_events_querying_enabled &&
                                             featureFlags[FEATURE_FLAGS.ACTOR_PROPERTIES_TIMELINE]
                                                 ? propertiesTimelineFilterFromUrl
                                                 : undefined
