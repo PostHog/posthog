@@ -8,7 +8,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.filters import Filter
 from posthog.queries.breakdown_props import ALL_USERS_COHORT_ID
 from posthog.queries.funnels.funnel_unordered import ClickhouseFunnelUnordered
-from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries, test_with_materialized_columns
+from posthog.test.base import APIBaseTest, snapshot_clickhouse_queries, with_materialized_columns
 from posthog.test.test_journeys import journeys_for
 
 
@@ -58,7 +58,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
 
             assert_funnel_results_equal(result, step_results)
 
-        @test_with_materialized_columns(["$browser", "$browser_version"])
+        @with_materialized_columns(["$browser", "$browser_version"])
         def test_funnel_step_multi_property_breakdown_event(self):
 
             filters = {
@@ -169,7 +169,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, ["Chrome", "95"]), [people["person1"].uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, ["Chrome", "95"]), [people["person1"].uuid])
 
-        @test_with_materialized_columns(["$browser"])
+        @with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_with_string_only_breakdown(self):
 
             filters = {
@@ -270,7 +270,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
-        @test_with_materialized_columns(["$browser"])
+        @with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event(self):
 
             filters = {
@@ -372,7 +372,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
-        @test_with_materialized_columns(["$browser"])
+        @with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_with_other(self):
 
             filters = {
@@ -474,7 +474,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Other"), [people["person1"].uuid])
 
-        @test_with_materialized_columns(["$browser"])
+        @with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_no_type(self):
 
             filters = {
@@ -560,7 +560,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             )
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [people["person2"].uuid])
 
-        @test_with_materialized_columns(person_properties=["$browser"])
+        @with_materialized_columns(person_properties=["$browser"])
         def test_funnel_step_breakdown_person(self):
 
             filters = {
@@ -636,7 +636,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Safari"), [person2.uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 3, "Safari"), [])
 
-        @test_with_materialized_columns(["some_breakdown_val"])
+        @with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_breakdown_limit(self):
 
             filters = {
@@ -682,7 +682,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             breakdown_vals = sorted([res[0]["breakdown"] for res in result])
             self.assertEqual([["5"], ["6"], ["7"], ["8"], ["9"], ["Other"]], breakdown_vals)
 
-        @test_with_materialized_columns(["some_breakdown_val"])
+        @with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls(self):
 
             filters = {
@@ -736,7 +736,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             # skipped 1 and '' because the limit was 3.
             self.assertTrue(people["person_null"].uuid in self._get_actor_ids_at_step(filter, 1, "Other"))
 
-        @test_with_materialized_columns(["some_breakdown_val"])
+        @with_materialized_columns(["some_breakdown_val"])
         def test_funnel_step_custom_breakdown_limit_with_nulls_included(self):
 
             filters = {
@@ -795,7 +795,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertEqual([people["person_null"].uuid], self._get_actor_ids_at_step(filter, 1, ""))
             self.assertEqual([people["person_null"].uuid], self._get_actor_ids_at_step(filter, 3, ""))
 
-        @test_with_materialized_columns(["$browser"])
+        @with_materialized_columns(["$browser"])
         def test_funnel_step_breakdown_event_single_person_multiple_breakdowns(self):
 
             filters = {
@@ -927,7 +927,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1, "Safari"), [people["person1"].uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2, "Safari"), [people["person1"].uuid])
 
-        @test_with_materialized_columns(person_properties=["key"], verify_no_jsonextract=False)
+        @with_materialized_columns(person_properties=["key"], verify_no_jsonextract=False)
         def test_funnel_cohort_breakdown(self):
             # This caused some issues with SQL parsing
             _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
@@ -1058,7 +1058,7 @@ def funnel_breakdown_test_factory(Funnel, FunnelPerson, _create_event, _create_a
                 ],
             )
 
-        @test_with_materialized_columns(["$current_url"])
+        @with_materialized_columns(["$current_url"])
         def test_basic_funnel_default_funnel_days_breakdown_action(self):
             # Same case as test_basic_funnel_default_funnel_days_breakdown_event but with an action
             user_signed_up_action = _create_action(name="user signed up", event="user signed up", team=self.team)

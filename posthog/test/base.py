@@ -251,7 +251,7 @@ def cleanup_materialized_columns():
         sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
 
 
-def test_with_materialized_columns(
+def with_materialized_columns(
     event_properties=[],
     person_properties=[],
     group_properties=[],

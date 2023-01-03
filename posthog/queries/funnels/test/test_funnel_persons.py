@@ -16,7 +16,7 @@ from posthog.test.base import (
     _create_event,
     _create_person,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
+    with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -294,7 +294,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 5)
 
-    @test_with_materialized_columns(["$browser"])
+    @with_materialized_columns(["$browser"])
     def test_first_step_breakdowns(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
@@ -356,7 +356,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         ).get_actors()
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
-    @test_with_materialized_columns(person_properties=["$country"])
+    @with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
@@ -398,7 +398,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         ).get_actors()
         self.assertEqual(results, custom_step_results)
 
-    @test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
+    @with_materialized_columns(["$browser"], verify_no_jsonextract=False)
     def test_funnel_cohort_breakdown_persons(self):
         person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
         _create_event(

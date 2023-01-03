@@ -19,7 +19,7 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
+    with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -382,7 +382,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related")), 1)
         self.assertEqual(len(self._get_actors_for_event(filter, "negatively_related", success=False)), 1)
 
-    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"])
+    @with_materialized_columns(event_properties=[], person_properties=["$browser"])
     @snapshot_clickhouse_queries
     def test_basic_funnel_correlation_with_properties(self):
         filters = {
@@ -486,7 +486,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         )
 
     # TODO: Delete this test when moved to person-on-events
-    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False)
+    @with_materialized_columns(event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False)
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_properties_and_groups(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
@@ -642,7 +642,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(new_result, result)
 
-    @test_with_materialized_columns(
+    @with_materialized_columns(
         event_properties=[],
         person_properties=["$browser"],
         group_properties=[(0, "industry")],
@@ -906,7 +906,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValidationError):
             FunnelCorrelation(filter, self.team)._run()
 
-    @test_with_materialized_columns(event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False)
+    @with_materialized_columns(event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False)
     def test_correlation_with_multiple_properties(self):
         filters = {
             "events": [
@@ -1194,7 +1194,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
+    @with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
     def test_funnel_correlation_with_event_properties(self):
         filters = {
             "events": [
@@ -1288,7 +1288,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             len(self._get_actors_for_event(filter, "negatively_related", {"signup_source": "email"}, False)), 3
         )
 
-    @test_with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
+    @with_materialized_columns(["blah", "signup_source"], verify_no_jsonextract=False)
     @snapshot_clickhouse_queries
     def test_funnel_correlation_with_event_properties_and_groups(self):
         # same test as test_funnel_correlation_with_event_properties but with events attached to groups
@@ -1459,7 +1459,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             len(self._get_actors_for_event(filter, "positively_related", {"signup_source": "facebook"})), 3
         )
 
-    @test_with_materialized_columns(["$event_type", "signup_source"])
+    @with_materialized_columns(["$event_type", "signup_source"])
     def test_funnel_correlation_with_event_properties_autocapture(self):
         filters = {
             "events": [

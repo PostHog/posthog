@@ -12,12 +12,12 @@ from posthog.test.base import (
     _create_person,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
+    with_materialized_columns,
 )
 
 
 class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
-    @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
     @snapshot_clickhouse_queries
     def test_timeline_for_new_person_with_one_event_in_range(self):
         person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
@@ -56,7 +56,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
             },
         )
 
-    @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
     @snapshot_clickhouse_queries
     def test_timeline_for_new_person_with_one_event_before_range(self):
         person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
@@ -90,7 +90,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
     def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value(self):
         person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
         _create_event(
@@ -153,7 +153,7 @@ class TestPersonPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
         )
 
     @snapshot_clickhouse_queries
-    @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+    @with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
     def test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes(self):
         person = _create_person(team=self.team, distinct_ids=["1", "2", "3"], properties={"foo": "abc", "bar": 123})
         _create_event(
