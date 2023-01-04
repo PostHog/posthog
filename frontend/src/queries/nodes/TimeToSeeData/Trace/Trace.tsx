@@ -190,19 +190,31 @@ interface ProcessSpans {
     maxDuration: number
 }
 
+function interactionNodeFacts(node: TimeToSeeNode): Record<string, any> {
+    return isInteractionNode(node)
+        ? {
+              type: `${node.data.action || 'load'} in ${node.data.context}`,
+              context: node.data.context,
+              action: node.data.action,
+              page: node.data.current_url,
+              cacheHitRatio: `${Math.round((node.data.insights_fetched_cached / node.data.insights_fetched) * 100)}%`,
+          }
+        : {}
+}
+
+function sessionNodeFacts(node: TimeToSeeNode): Record<string, any> {
+    return isSessionNode(node) ? { type: 'session' } : {}
+}
+
+function queryNodeFacts(node: TimeToSeeNode): Record<string, any> {
+    return isQueryNode(node) ? { type: 'Clickhouse query', hasJoins: !!node.data.has_joins ? 'true' : 'false' } : {}
+}
+
 function NodeFacts({ node }: { node: TimeToSeeNode }): JSX.Element {
     const facts = {
-        type: isSessionNode(node)
-            ? 'session'
-            : isInteractionNode(node)
-            ? `${node.data.action || 'load'} in ${node.data.context}`
-            : 'ClickHouse query',
-        context: isInteractionNode(node) ? node.data.context : undefined,
-        action: isInteractionNode(node) ? node.data.action : undefined,
-        page: isInteractionNode(node) ? node.data.current_url : undefined,
-        cacheHitRatio: isInteractionNode(node)
-            ? `${Math.round((node.data.insights_fetched_cached / node.data.insights_fetched) * 100)}%`
-            : undefined,
+        ...sessionNodeFacts(node),
+        ...interactionNodeFacts(node),
+        ...queryNodeFacts(node),
         duration: `${getDurationMs(node)}ms`,
     }
 
