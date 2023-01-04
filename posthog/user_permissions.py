@@ -28,6 +28,16 @@ class UserPermissions:
             organization=self.organization_instance, user=self.user_instance
         ).first()
 
+    @cached_property
+    def dashboard_privileges(self) -> Dict[int, Dashboard.PrivilegeLevel]:
+        try:
+            from ee.models import DashboardPrivilege
+
+            rows = DashboardPrivilege.objects.filter(user=self.user_instance).values_list("dashboard_id", "level")
+            return {dashboard_id: cast(Dashboard.PrivilegeLevel, level) for dashboard_id, level in rows}
+        except ImportError:
+            return {}
+
 
 class UserTeamPermissions:
     def __init__(self, user_permissions: "UserPermissions"):
@@ -102,19 +112,8 @@ class UserDashboardPermissions:
             # Returning the highest access level if no checks needed
             return Dashboard.PrivilegeLevel.CAN_EDIT
 
-        try:
-            from ee.models import DashboardPrivilege
-        except ImportError:
-            return Dashboard.PrivilegeLevel.CAN_VIEW
-        else:
-            try:
-                return cast(
-                    Dashboard.PrivilegeLevel,
-                    self.dashboard.privileges.values_list("level", flat=True).get(user_id=self.p.user_instance.pk),
-                )
-            except DashboardPrivilege.DoesNotExist:
-                # Returning the lowest access level if there's no explicit privilege for this user
-                return Dashboard.PrivilegeLevel.CAN_VIEW
+        # We return lowest access level if there's no explicit privilege for this user
+        return self.p.dashboard_privileges.get(self.dashboard.pk, Dashboard.PrivilegeLevel.CAN_VIEW)
 
     @cached_property
     def can_edit(self) -> bool:
