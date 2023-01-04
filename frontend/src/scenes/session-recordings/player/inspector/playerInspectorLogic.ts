@@ -111,10 +111,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         syncScroll: [
-            true,
+            false,
             {
-                setTab: () => true,
-                setMiniFilter: () => true,
                 setSyncScroll: (_, { syncScroll }) => syncScroll,
                 setItemExpanded: () => false,
             },
