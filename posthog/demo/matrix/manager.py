@@ -33,8 +33,6 @@ from posthog.tasks.calculate_event_property_usage import calculate_event_propert
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
 
-PERSON_COUNT_LIMIT = 500_000
-
 
 class MatrixManager:
     # ID of the team under which demo data will be pre-saved
@@ -136,11 +134,6 @@ class MatrixManager:
 
     def _save_analytics_data(self, data_team: Team):
         sim_persons = self.matrix.people
-        if len(sim_persons) >= PERSON_COUNT_LIMIT:
-            raise exceptions.ValidationError(
-                f"The simulation has {len(sim_persons)} persons, when the limit is {PERSON_COUNT_LIMIT}. "
-                "Reduce the number of clusters."
-            )
         bulk_group_type_mappings = []
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             bulk_group_type_mappings.append(
