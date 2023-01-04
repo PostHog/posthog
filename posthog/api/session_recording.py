@@ -1,5 +1,5 @@
 import json
-from typing import Any
+from typing import Any, List
 
 import structlog
 from django.http import JsonResponse
@@ -12,7 +12,8 @@ from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
-from posthog.models import Filter, PersonDistinctId
+from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
+from posthog.models import Filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
@@ -176,9 +177,38 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
 
 def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team) -> dict:
-    (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
+    """
+    As we can store recordings in S3 or in Clickhouse we need to do a few things here
 
-    # TODO: Load specified IDs from Postgres model as well
+    A. If filter.session_ids is specified:
+      1. We first try to load them directly from Postgres if they have been persisted to S3 (they might have fell out of CH)
+      2. Any that couldn't be found are then loaded from Clickhouse
+    B. Otherwise we just load all values from Clickhouse
+      2. Once loaded we convert them to SessionRecording objects in case we have any other persisted data
+    """
+
+    all_session_ids = filter.session_ids
+    recordings: List[SessionRecording] = []
+    more_recordings_available = False
+
+    if all_session_ids:
+        # If we specify the session ids (like from pinned recordings) we can optimise by only going to Postgres
+        persisted_recordings = (
+            SessionRecording.objects.filter(team=team, session_id__in=all_session_ids)
+            .exclude(object_storage_path=None)
+            .all()
+        )
+
+        recordings = recordings + list(persisted_recordings)
+
+        remaining_session_ids = list(set(all_session_ids) - {x.session_id for x in persisted_recordings})
+        filter = filter.with_data({SESSION_RECORDINGS_FILTER_IDS: json.dumps(remaining_session_ids)})
+
+    if (all_session_ids and filter.session_ids) or not all_session_ids:
+        # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
+        (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
+        recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
+        recordings = recordings + recordings_from_clickhouse
 
     # if not request.user.is_authenticated:  # for mypy
     #     raise exceptions.NotAuthenticated()
@@ -193,17 +223,6 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     # distinct_id_to_person = {}
     # for person_distinct_id in person_distinct_ids:
     #     distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
-
-    # Convert clickhouse recordings to Django models
-    recordings = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
-    remaining_session_ids = (
-        set(filter.session_ids) - set(map(lambda x: x.session_id, recordings)) if filter.session_ids else set()
-    )
-
-    # If we have a list of session ids, we need to load the rest of the recordings from Postgres as well
-    if remaining_session_ids:
-        persisted_recordings = SessionRecording.objects.filter(session_id__in=remaining_session_ids, team=team).all()
-        recordings = recordings + list(persisted_recordings)
 
     session_recording_serializer = SessionRecordingSerializer(recordings, many=True)
     results = session_recording_serializer.data

@@ -1,5 +1,4 @@
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 
 from django.db import models
 from django.dispatch import receiver
@@ -62,7 +61,7 @@ class SessionRecording(UUIDModel):
             metadata = SessionRecordingEvents(
                 team=self.team,
                 session_recording_id=self.session_id,
-                recording_start_time=None,  # TODO Add this as an otpimisation
+                recording_start_time=None,  # TODO Add this as an optimisation
             ).get_metadata()
 
             if not metadata:
