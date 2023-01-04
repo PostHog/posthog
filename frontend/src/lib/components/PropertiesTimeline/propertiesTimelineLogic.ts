@@ -53,7 +53,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
         ],
     }),
     loaders(({ values, props }) => ({
-        // This reducer is for loading convenience, for actual data use `points`, `crucialPropertyKeys`, and `range`
+        // This reducer is for loading convenience, for actual data use `points`, `crucialPropertyKeys`, and `dateRange`
         result: [
             null as RawPropertiesTimelineResult | null,
             {
