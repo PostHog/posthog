@@ -202,7 +202,6 @@ const insightActionsMapping: Record<
     id: () => null,
     created_at: () => null,
     created_by: () => null,
-    refreshing: () => null,
     updated_at: () => null,
     last_modified_at: () => null,
     order: () => null,
