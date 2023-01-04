@@ -617,7 +617,7 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$feature_flag_called'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 10:10:00', 'US/Pacific')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
        AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
             AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
@@ -646,7 +646,7 @@
            FROM
              (SELECT toStartOfDay(toDateTime('2020-01-06 07:00:00', 'US/Pacific') - number * 86400) as day_start
               FROM numbers(6)
-              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 10:10:00', 'US/Pacific')) as day_start) as ticks
+              UNION ALL SELECT toStartOfDay(toDateTime('2020-01-01 02:10:00', 'US/Pacific')) as day_start) as ticks
            CROSS JOIN
              (SELECT breakdown_value
               FROM
@@ -677,7 +677,7 @@
                    AND event = '$feature_flag_called'
                    AND (has(['control', 'test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag_response'), '^"|"$', ''))
                         AND has(['a-b-test'], replaceRegexpAll(JSONExtractRaw(e.properties, '$feature_flag'), '^"|"$', '')))
-                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 10:10:00', 'US/Pacific')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 02:10:00', 'US/Pacific')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-06 07:00:00', 'US/Pacific')
                    AND replaceRegexpAll(JSONExtractRaw(properties, '$feature_flag_response'), '^"|"$', '') in (['control', 'test']) )
               GROUP BY person_id,
