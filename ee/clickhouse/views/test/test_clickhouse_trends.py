@@ -21,8 +21,8 @@ from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_person,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for, update_or_create_person
 
@@ -859,7 +859,7 @@ class ClickhouseTestTrends(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest):
             [str(created_people["p1"].uuid), str(created_people["p3"].uuid)]
         )
 
-    @test_with_materialized_columns(["key"])
+    @also_test_with_materialized_columns(["key"])
     def test_breakdown_with_filter(self):
         events_by_person = {
             "person1": [{"event": "sign up", "timestamp": datetime(2012, 1, 13, 3), "properties": {"key": "val"}}],

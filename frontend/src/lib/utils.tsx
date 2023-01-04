@@ -1241,6 +1241,11 @@ export function humanTzOffset(timezone?: string): string {
     return `${absoluteOffset} ${hourForm} ${direction}`
 }
 
+/** Join array of string into a list ("a, b, and c"). Uses the Oxford comma, but only if there are at least 3 items. */
+export function humanList(arr: string[]): string {
+    return arr.length > 2 ? arr.slice(0, -1).join(', ') + ', and ' + arr.slice(-1) : arr.join(' and ')
+}
+
 export function resolveWebhookService(webhookUrl: string): string {
     for (const [service, domain] of Object.entries(WEBHOOK_SERVICES)) {
         if (webhookUrl.includes(domain + '/')) {
