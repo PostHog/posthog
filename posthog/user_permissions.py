@@ -1,8 +1,8 @@
 from functools import cached_property
-from typing import Dict, Optional, cast
+from typing import Dict, List, Optional, cast
 
 from posthog.constants import AvailableFeature
-from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
+from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
 
 
 class UserPermissions:
@@ -11,7 +11,9 @@ class UserPermissions:
         self.team_instance = team
         self.organization_instance = organization
 
+        self._tiles: Optional[List[DashboardTile]] = None
         self._dashboard_permissions: Dict[int, UserDashboardPermissions] = {}
+        self._insight_permissions: Dict[int, UserInsightPermissions] = {}
 
     @cached_property
     def team(self) -> "UserTeamPermissions":
@@ -21,6 +23,11 @@ class UserPermissions:
         if dashboard.pk not in self._dashboard_permissions:
             self._dashboard_permissions[dashboard.pk] = UserDashboardPermissions(self, dashboard)
         return self._dashboard_permissions[dashboard.pk]
+
+    def insight(self, insight: Insight) -> "UserInsightPermissions":
+        if insight.pk not in self._insight_permissions:
+            self._insight_permissions[insight.pk] = UserInsightPermissions(self, insight)
+        return self._insight_permissions[insight.pk]
 
     @cached_property
     def organization_membership(self) -> Optional[OrganizationMembership]:
@@ -37,6 +44,12 @@ class UserPermissions:
             return {dashboard_id: cast(Dashboard.PrivilegeLevel, level) for dashboard_id, level in rows}
         except ImportError:
             return {}
+
+    def set_dashboard_tiles(self, tiles: List[DashboardTile]):
+        """
+        Allows for speeding up insight-related permissions code
+        """
+        self._tiles = tiles
 
 
 class UserTeamPermissions:
@@ -120,3 +133,17 @@ class UserDashboardPermissions:
         if self.dashboard.effective_restriction_level < Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
             return True
         return self.effective_privilege_level >= Dashboard.PrivilegeLevel.CAN_EDIT
+
+
+class UserInsightPermissions:
+    def __init__(self, user_permissions: "UserPermissions", insight: Insight):
+        self.p = user_permissions
+        self.insight = insight
+
+    @cached_property
+    def effective_restriction_level(self):
+        return self.insight.effective_restriction_level
+
+    @cached_property
+    def effective_privilege_level(self):
+        return self.insight.get_effective_privilege_level(self.p.user_instance.pk)
