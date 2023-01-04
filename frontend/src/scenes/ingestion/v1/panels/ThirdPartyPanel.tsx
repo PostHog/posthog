@@ -191,7 +191,7 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         type="secondary"
                                         fullWidth
                                         center
-                                        onClick={() => window.open(`https://${thirdPartyIntegrationSource.name}.com`)}
+                                        onClick={() => window.open(thirdPartyIntegrationSource.docsLink)}
                                         sideIcon={<IconOpenInNew style={{ color: 'var(--primary)' }} />}
                                     >
                                         Take me to {thirdPartyIntegrationSource.name}
