@@ -45,11 +45,17 @@ export function CreateRoleModal(): JSX.Element {
         <LemonModal
             onClose={handleClose}
             isOpen={createRoleModalShown}
-            title={isNewRole ? 'Create role' : `Edit ${roleInFocus.name} role`}
+            title={
+                isNewRole
+                    ? 'Create role'
+                    : isAdminOrOwner
+                    ? `Edit ${roleInFocus.name} role`
+                    : `${roleInFocus.name} role`
+            }
             footer={
                 rolesLoading ? (
                     <Spinner monocolor />
-                ) : (
+                ) : isAdminOrOwner ? (
                     <div className="flex flex-row justify-between w-full">
                         <div>
                             {!isNewRole && (
@@ -68,7 +74,7 @@ export function CreateRoleModal(): JSX.Element {
                             Save
                         </LemonButton>
                     </div>
-                )
+                ) : undefined
             }
         >
             {isNewRole && (
