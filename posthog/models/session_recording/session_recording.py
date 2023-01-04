@@ -127,6 +127,10 @@ class SessionRecording(UUIDModel):
     def start_and_end_times_by_window_id(self):
         return self._metadata["start_and_end_times_by_window_id"] if self._metadata else None
 
+    @property
+    def storage(self):
+        return "object_storage" if self.object_storage_path else "clickhouse"
+
     @cached_property
     def person(self) -> Optional[Person]:
         # Move this to _property so we can set it in a bulk command as well

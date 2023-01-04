@@ -49,6 +49,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "person",
             "segments",
             "start_and_end_times_by_window_id",
+            "storage",
         ]
 
         read_only_fields = [
@@ -62,6 +63,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "keypress_count",
             "start_url",
             "matching_events",
+            "storage",
         ]
 
 
@@ -194,10 +196,13 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
     # Convert clickhouse recordings to Django models
     recordings = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
+    remaining_session_ids = (
+        set(filter.session_ids) - set(map(lambda x: x.session_id, recordings)) if filter.session_ids else set()
+    )
 
     # If we have a list of session ids, we need to load the rest of the recordings from Postgres as well
-    if filter.session_ids:
-        persisted_recordings = SessionRecording.objects.filter(session_id__in=filter.session_ids, team=team).all()
+    if remaining_session_ids:
+        persisted_recordings = SessionRecording.objects.filter(session_id__in=remaining_session_ids, team=team).all()
         recordings = recordings + list(persisted_recordings)
 
     session_recording_serializer = SessionRecordingSerializer(recordings, many=True)

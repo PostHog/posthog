@@ -49,7 +49,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         object_path = recording.build_object_storage_path()
         object_storage.write(object_path, string_content.encode("utf-8"))
         recording.object_storage_path = object_path
-        recording.save(update_fields=["object_storage_path"])
+        recording.save()
 
         logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id)
     except object_storage.ObjectStorageError as ose:
