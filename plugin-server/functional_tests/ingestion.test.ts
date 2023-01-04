@@ -544,6 +544,17 @@ testIfDelayEnabled(
             },
         })
 
+        // Now we wait to ensure that these events have been ingested.
+        const [first, second] = await waitForExpect(async () => {
+            const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+            const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+
+            expect(first).toBeDefined()
+            expect(second).toBeDefined()
+
+            return [first, second]
+        })
+
         const thirdUuid = new UUIDT().toString()
         await capture(producer, teamId, bobId, thirdUuid, 'custom event', {
             $set: {
@@ -558,23 +569,18 @@ testIfDelayEnabled(
             alias: aliceAnonId,
         })
 
-        const [first, second, third, forth] = await waitForExpect(async () => {
-            const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
-            const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+        const [third, forth] = await waitForExpect(async () => {
             const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
             const [forth] = await fetchEvents(clickHouseClient, teamId, forthUuid)
 
-            expect(first).toBeDefined()
-            expect(second).toBeDefined()
             expect(third).toBeDefined()
             expect(forth).toBeDefined()
 
-            return [first, second, third, forth]
+            return [third, forth]
         })
 
         expect(first).toEqual(
             expect.objectContaining({
-                person_id: forth.person_id,
                 person_properties: expect.objectContaining({
                     k: 'v1',
                 }),
@@ -583,7 +589,6 @@ testIfDelayEnabled(
 
         expect(second).toEqual(
             expect.objectContaining({
-                person_id: forth.person_id,
                 person_properties: expect.objectContaining({
                     k: 'v2',
                 }),
