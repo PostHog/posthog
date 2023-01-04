@@ -1,3 +1,4 @@
+import time
 from ipaddress import ip_address, ip_network
 from typing import List, Optional, cast
 
@@ -225,12 +226,19 @@ class QueryTimeCountingMiddleware:
             return self.get_response(request)
 
         pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
+        start_time = time.perf_counter()
         with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
             response: HttpResponse = self.get_response(request)
-            response.headers[
-                "Server-Timing"
-            ] = f"pg;dur={round(pg_query_counter.query_time_ms)}, ch;dur={round(ch_query_counter.query_time_ms)}"
+
+        response.headers["Server-Timing"] = self._construct_header(
+            django=time.perf_counter() - start_time,
+            pg=pg_query_counter.query_time_ms,
+            ch=ch_query_counter.query_time_ms,
+        )
         return response
+
+    def _construct_header(self, **kwargs):
+        return ", ".join(f"{key}:dur={round(duration)}" for key, duration in kwargs.items())
 
 
 def shortcircuitmiddleware(f):

@@ -14,9 +14,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 
 
@@ -924,7 +924,7 @@ class TestCohortQuery(ClickhouseTestMixin, BaseTest):
 
         self.assertCountEqual([p1.uuid, p3.uuid], [r[0] for r in res])
 
-    @test_with_materialized_columns(person_properties=["$sample_field"])
+    @also_test_with_materialized_columns(person_properties=["$sample_field"])
     @snapshot_clickhouse_queries
     def test_person(self):
 
