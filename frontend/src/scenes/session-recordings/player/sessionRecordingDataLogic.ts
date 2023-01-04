@@ -429,8 +429,6 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
 
                     breakpoint()
 
-                    console.log(response)
-
                     return response.results ?? []
                 },
             },
