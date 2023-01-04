@@ -23,7 +23,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-0000-0000-000000000009'
+                   AND person_id = '12345678-0000-0000-0000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -62,7 +62,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-0000-0000-000000000009'
+                   AND person_id = '12345678-0000-0000-0000-000000000001'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)
@@ -100,7 +100,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-0000-0000-000000000009'
+                   AND person_id = '12345678-0000-0000-0000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -139,7 +139,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-0000-0000-000000000009'
+                   AND person_id = '12345678-0000-0000-0000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -178,7 +178,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-0000-0000-000000000009'
+                   AND person_id = '12345678-0000-0000-0000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -218,7 +218,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-0000-0000-000000000009'
+                   AND person_id = '12345678-0000-0000-0000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -258,7 +258,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-0000-0000-000000000009'
+                   AND person_id = '12345678-0000-0000-0000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -298,7 +298,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-0000-0000-000000000009'
+                   AND person_id = '12345678-0000-0000-0000-000000000001'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
