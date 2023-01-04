@@ -165,12 +165,6 @@ class InsightSerializer(InsightBasicSerializer):
         required=False,
         queryset=Dashboard.objects.all(),
     )
-    filters_hash = serializers.CharField(
-        read_only=True,
-        help_text="""A hash of the filters that generate this insight.
-        Used as a cache key for this result.
-        A different hash will be returned if loading the insight on a dashboard that has filters.""",
-    )
 
     class Meta:
         model = Insight
@@ -180,12 +174,10 @@ class InsightSerializer(InsightBasicSerializer):
             "name",
             "derived_name",
             "filters",
-            "filters_hash",
             "order",
             "deleted",
             "dashboards",
             "last_refresh",
-            "refreshing",
             "result",
             "created_at",
             "created_by",

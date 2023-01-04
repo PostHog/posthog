@@ -499,7 +499,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         )
 
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
-        self.assertIsNotNone(tile.filters_hash)
+        self.assertIsNotNone(tile)
 
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboards(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
@@ -596,24 +596,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # confirm it's gone when reloaded
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == []
-
-    def test_adding_insight_to_a_dashboard_sets_filters_hash(self) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({})
-
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                }
-            }
-        )
-
-        self.dashboard_api.add_insight_to_dashboard(dashboard_ids=[dashboard_id], insight_id=insight_id)
-
-        tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
-        self.assertIsNotNone(tile.filters_hash)
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_logs_derived_name_if_there_is_no_name(self) -> None:
@@ -2002,165 +1984,6 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             {"dashboards": [dashboard_restricted.id]},
         )
         assert response.status_code == status.HTTP_200_OK
-
-    def test_saving_an_insight_with_new_filters_updates_the_dashboard_tile(
-        self,
-    ) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                }
-            }
-        )
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-
-        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Chrome"}],
-                }
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
-
-        self.assertIsNotNone(before_save)
-        self.assertIsNotNone(after_save)
-        self.assertNotEqual(before_save, after_save)
-
-    def test_saving_an_insight_with_unchanged_filters_does_not_update_the_dashboard_tile(
-        self,
-    ) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                }
-            }
-        )
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-
-        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"name": "a non-filter change"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
-
-        self.assertIsNotNone(before_save)
-        self.assertIsNotNone(after_save)
-        self.assertEqual(before_save, after_save)
-
-    def test_saving_a_dashboard_with_new_filters_updates_the_dashboard_tile(
-        self,
-    ) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({})
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                }
-            }
-        )
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-
-        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"filters": {"date_from": "-14d"}},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
-
-        self.assertIsNotNone(before_save)
-        self.assertIsNotNone(after_save)
-        self.assertNotEqual(before_save, after_save)
-
-    def test_saving_a_dashboard_with_unchanged_filters_does_not_update_the_dashboard_tile(
-        self,
-    ) -> None:
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "the dashboard's name"})
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                }
-            }
-        )
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
-
-        before_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/dashboards/{dashboard_id}",
-            {"name": "the dashboard's name"},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        after_save = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id).filters_hash
-
-        self.assertIsNotNone(before_save)
-        self.assertIsNotNone(after_save)
-        self.assertEqual(before_save, after_save)
-
-    def test_saving_an_insight_without_changing_dashboards_does_not_update_the_dashboard_tiles(
-        self,
-    ) -> None:
-        """
-        Regression test. Sending an unchanged dashboard list to the API should not update the dashboard tiles.
-        Previously it was resetting the tiles which was removing their layouts and making dashboard tiles move about :/
-        """
-        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "the dashboard's name"})
-        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "the other dashboard's name"})
-
-        insight_id, _ = self.dashboard_api.create_insight(
-            {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                }
-            }
-        )
-
-        self.dashboard_api.add_insight_to_dashboard([dashboard_id, dashboard_two_id], insight_id)
-
-        self.dashboard_api.set_tile_layout(dashboard_id, expected_tiles_to_update=1)
-        self.dashboard_api.set_tile_layout(dashboard_two_id, expected_tiles_to_update=1)
-
-        tiles = DashboardTile.objects.filter(insight_id=insight_id)
-        layouts = [tile.layouts for tile in tiles]
-        assert len(layouts) == 2
-        for layout in layouts:
-            assert layout != {}
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/insights/{insight_id}",
-            {"name": "the new name", "dashboards": [dashboard_id, dashboard_two_id]},
-        )  # the UI sends entire insight objects, where these tests send individual fields
-        # here we send unchanged dashboards list to trigger the bug
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        tiles_after_save = DashboardTile.objects.filter(insight_id=insight_id)
-        layouts_after_save = [tile.layouts for tile in tiles_after_save]
-        assert layouts_after_save == layouts
 
     def test_hard_delete_is_forbidden(self) -> None:
         insight_id, _ = self.dashboard_api.create_insight({"name": "to be deleted"})
