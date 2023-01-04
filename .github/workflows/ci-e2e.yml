@@ -39,7 +39,7 @@ jobs:
 
     cypress:
         name: Cypress E2E tests (${{ strategy.job-index }})
-        runs-on: ubuntu-latest-16-cores
+        runs-on: ubuntu-latest
         timeout-minutes: 30
         needs: [cypress_prep]
         permissions:

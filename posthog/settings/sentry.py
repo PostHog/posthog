@@ -41,6 +41,8 @@ def traces_sampler(sampling_context: dict) -> float:
             return 0.00001  # 0.001%
         elif path.startswith("/api/feature_flag"):
             return 0.00001  # 0.001%
+        elif path.startswith("/api/projects") and ("dashboard" in path or "insight" in path):
+            return 0.5  # 50%
         elif path.startswith("/api"):
             return 0.001  # 0.1%
         else:

@@ -22,7 +22,10 @@ export function UpgradeModal(): JSX.Element {
                     <LemonButton
                         type="primary"
                         to={urls.organizationBilling()}
-                        onClick={() => posthog.capture('upgrade modal pricing interaction')}
+                        onClick={() => {
+                            hideUpgradeModal()
+                            posthog.capture('upgrade modal pricing interaction')
+                        }}
                     >
                         Upgrade now
                     </LemonButton>
