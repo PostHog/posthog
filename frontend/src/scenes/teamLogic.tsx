@@ -11,6 +11,7 @@ import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
 import { OrganizationMembershipLevel } from '../lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { urls } from './urls'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -148,10 +149,8 @@ export const teamLogic = kea<teamLogicType>([
             lemonToast.success('Project has been deleted')
         },
         createTeamSuccess: ({ currentTeam }) => {
-            if (window.location.href.includes('/ingestion') && currentTeam.is_demo) {
-                window.location.href = '/'
-            } else {
-                window.location.href = '/ingestion'
+            if (!window.location.href.includes(urls.ingestion()) && !currentTeam.is_demo) {
+                window.location.href = urls.ingestion()
             }
         },
     })),
