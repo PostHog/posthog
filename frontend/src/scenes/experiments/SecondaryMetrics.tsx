@@ -17,16 +17,20 @@ import { getSeriesColor } from 'lib/colors'
 import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { LemonTableColumns } from 'lib/components/LemonTable'
 
-// TODO: handle skeleton and loading statues again
-
 export function SecondaryMetrics({
     onMetricsChange,
     initialMetrics,
     experimentId,
 }: SecondaryMetricsProps): JSX.Element {
     const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId })
-    const { previewInsightId, metrics, isModalOpen, isSecondaryMetricModalSubmitting, existingModalSecondaryMetric } =
-        useValues(logic)
+    const {
+        previewInsightId,
+        metrics,
+        isModalOpen,
+        isSecondaryMetricModalSubmitting,
+        existingModalSecondaryMetric,
+        metricId,
+    } = useValues(logic)
 
     const {
         setFilters,
@@ -39,15 +43,13 @@ export function SecondaryMetrics({
     } = useActions(logic)
 
     const {
-        // secondaryMetricResults,
-        // secondaryMetricResultsLoading,
+        secondaryMetricResultsLoading,
+        isExperimentRunning,
         getIndexForVariant,
         experiment,
         editingExistingExperiment,
         tabularSecondaryMetricResults,
     } = useValues(experimentLogic({ experimentId }))
-
-    console.log('experiment xxxxxx', experiment, experiment.start_date)
 
     const columns: LemonTableColumns<TabularSecondaryMetricResults> = [
         {
@@ -73,7 +75,21 @@ export function SecondaryMetrics({
     experiment.secondary_metrics?.forEach((metric, idx) => {
         columns.push({
             key: `results_${idx}`,
-            title: capitalizeFirstLetter(metric.name),
+            title: (
+                <>
+                    <div>
+                        <b>{capitalizeFirstLetter(metric.name)}</b>
+                    </div>
+                    <div className="flex" onClick={(event) => event.stopPropagation()}>
+                        <LemonButton
+                            icon={<IconEdit />}
+                            size="small"
+                            status="muted"
+                            onClick={() => openModalToEditSecondaryMetric(metric, idx)}
+                        />
+                    </div>
+                </>
+            ),
             align: 'right',
             render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
                 return (
@@ -102,24 +118,38 @@ export function SecondaryMetrics({
                 width={650}
                 title={existingModalSecondaryMetric ? 'Edit secondary metric' : 'New secondary metric'}
                 footer={
-                    <div className="flex items-center gap-2">
-                        <LemonButton form="secondary-metric-modal-form" type="secondary" onClick={closeModal}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton
-                            form="secondary-metric-modal-form"
-                            onClick={saveSecondaryMetric}
-                            type="primary"
-                            loading={isSecondaryMetricModalSubmitting}
-                            data-attr="create-annotation-submit"
-                        >
-                            {existingModalSecondaryMetric ? 'Save' : 'Create'}
-                        </LemonButton>
-                    </div>
+                    <>
+                        {existingModalSecondaryMetric && (
+                            <LemonButton
+                                className="mr-auto"
+                                form="secondary-metric-modal-form"
+                                type="secondary"
+                                status="danger"
+                                onClick={() => deleteMetric(metricId)}
+                            >
+                                Delete
+                            </LemonButton>
+                        )}
+                        <div className="flex items-center gap-2">
+                            <LemonButton form="secondary-metric-modal-form" type="secondary" onClick={closeModal}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                form="secondary-metric-modal-form"
+                                onClick={saveSecondaryMetric}
+                                type="primary"
+                                loading={isSecondaryMetricModalSubmitting}
+                                data-attr="create-annotation-submit"
+                            >
+                                {existingModalSecondaryMetric ? 'Save' : 'Create'}
+                            </LemonButton>
+                        </div>
+                    </>
                 }
             >
                 <Form
                     logic={secondaryMetricsLogic}
+                    props={{ onMetricsChange, initialMetrics, experimentId }}
                     formKey="secondaryMetricModal"
                     id="secondary-metric-modal-form"
                     className="space-y-4"
@@ -221,19 +251,25 @@ export function SecondaryMetrics({
                 </Row>
             ) : (
                 <>
-                    <LemonTable columns={columns} dataSource={tabularSecondaryMetricResults} />
-                    {metrics && !(metrics.length > 2) && (
+                    <div className="card-secondary mt-4 mb-1">Secondary metrics</div>
+                    {metrics && metrics.length > 0 ? (
+                        <LemonTable
+                            loading={secondaryMetricResultsLoading}
+                            columns={columns}
+                            dataSource={tabularSecondaryMetricResults}
+                        />
+                    ) : !isExperimentRunning ? (
+                        <>--</>
+                    ) : (
+                        <></>
+                    )}
+                    {metrics && !(metrics.length > 2) && isExperimentRunning && (
                         <div className="mb-2 mt-4 justify-end">
                             <LemonButton type="secondary" size="small" onClick={openModalToCreateSecondaryMetric}>
                                 Add metric
                             </LemonButton>
                         </div>
                     )}
-                    {/* TODO:
-                1. Make sure to reload new sec metrics when editing on a running experiment
-                2. Need an edit button in the header! and delete too. Can change title into a node
-                3. Also, ensure very long names are handled properly....
-                4. Maybe think of a better position for 'add secondary metric' ? */}
                 </>
             )}
         </>

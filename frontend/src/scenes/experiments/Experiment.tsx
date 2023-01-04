@@ -67,8 +67,7 @@ export function Experiment(): JSX.Element {
         taxonomicGroupTypesForSelection,
         groupTypes,
         aggregationLabel,
-        // secondaryMetricResults,
-        // secondaryMetricResultsLoading,
+        isExperimentRunning,
         experimentResultCalculationError,
         flagImplementationWarning,
         flagAvailabilityWarning,
@@ -89,6 +88,7 @@ export function Experiment(): JSX.Element {
         loadExperiment,
         setExposureAndSampleSize,
         setExperimentValue,
+        updateExperimentSecondaryMetrics,
     } = useActions(experimentLogic)
 
     const [showWarning, setShowWarning] = useState(true)
@@ -138,7 +138,7 @@ export function Experiment(): JSX.Element {
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
-        if (!experiment?.start_date) {
+        if (!isExperimentRunning) {
             return 'draft'
         } else if (!experiment?.end_date) {
             return 'running'
@@ -557,12 +557,8 @@ export function Experiment(): JSX.Element {
                                                     Use secondary metrics to monitor metrics related to your experiment
                                                     goal. You can add up to three secondary metrics.{' '}
                                                 </div>
-                                                {JSON.stringify(value)}
                                                 <SecondaryMetrics
-                                                    onMetricsChange={(val) => {
-                                                        onChange(val)
-                                                        console.log('incoming changed values: ', val)
-                                                    }}
+                                                    onMetricsChange={onChange}
                                                     initialMetrics={value}
                                                     experimentId={experiment.id}
                                                 />
@@ -648,7 +644,7 @@ export function Experiment(): JSX.Element {
                                     />
                                 </Row>
                                 <span className="exp-description">
-                                    {experiment.start_date ? (
+                                    {isExperimentRunning ? (
                                         <EditableField
                                             multiline
                                             name="description"
@@ -664,7 +660,7 @@ export function Experiment(): JSX.Element {
                                     )}
                                 </span>
                             </Col>
-                            {experiment && !experiment.start_date && (
+                            {experiment && !isExperimentRunning && (
                                 <div className="flex items-center">
                                     <LemonButton
                                         type="secondary"
@@ -678,7 +674,7 @@ export function Experiment(): JSX.Element {
                                     </LemonButton>
                                 </div>
                             )}
-                            {experiment && experiment.start_date && !experiment.end_date && (
+                            {experiment && isExperimentRunning && !experiment.end_date && (
                                 <div className="flex flex-row gap-2">
                                     <Popconfirm
                                         placement="topLeft"
@@ -776,19 +772,17 @@ export function Experiment(): JSX.Element {
                         <Collapse className="w-full" defaultActiveKey="experiment-details">
                             <Collapse.Panel header={<b>Experiment details</b>} key="experiment-details">
                                 <Row>
-                                    <Col span={experiment?.start_date ? 12 : 24}>
+                                    <Col span={isExperimentRunning ? 12 : 24}>
                                         <ExperimentPreview
                                             experimentId={experiment.id}
                                             trendCount={trendCount}
                                             trendExposure={experiment?.parameters.recommended_running_time}
                                             funnelSampleSize={experiment?.parameters.recommended_sample_size}
                                             funnelConversionRate={conversionRate}
-                                            funnelEntrants={
-                                                experiment?.start_date ? funnelResultsPersonsTotal : entrants
-                                            }
+                                            funnelEntrants={isExperimentRunning ? funnelResultsPersonsTotal : entrants}
                                         />
                                     </Col>
-                                    {!experimentResultsLoading && !experimentResults && experiment.start_date && (
+                                    {!experimentResultsLoading && !experimentResults && isExperimentRunning && (
                                         <Col span={12}>
                                             <ExperimentImplementationDetails experiment={experiment} />
                                         </Col>
@@ -859,29 +853,13 @@ export function Experiment(): JSX.Element {
                                             )}
                                         </Col>
                                     )}
-                                    {/*  TODO: Need a way to add them to a new new running experiment */}
-                                    {experiment.secondary_metrics?.length >= 0 && (
-                                        <Col
-                                            className="secondary-progress"
-                                            span={
-                                                experiment?.start_date &&
-                                                (experiment?.parameters?.feature_flag_variants?.length || 0) <= 5
-                                                    ? 12
-                                                    : 24
-                                            }
-                                        >
-                                            <SecondaryMetrics
-                                                experimentId={experiment.id}
-                                                onMetricsChange={(metrics) =>
-                                                    updateExperiment({
-                                                        secondary_metrics: metrics,
-                                                    })
-                                                }
-                                                initialMetrics={experiment.secondary_metrics}
-                                                // experimentResults={experimentResults}
-                                            />
-                                        </Col>
-                                    )}
+                                    <Col>
+                                        <SecondaryMetrics
+                                            experimentId={experiment.id}
+                                            onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
+                                            initialMetrics={experiment.secondary_metrics}
+                                        />
+                                    </Col>
                                 </Row>
                             </Collapse.Panel>
                         </Collapse>
