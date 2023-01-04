@@ -1,7 +1,8 @@
 import json
-from typing import Any, Dict, List, TypedDict
+from typing import Any, Dict, List, TypedDict, Union
 
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
+from posthog.models.group.group import Group
 from posthog.models.person.person import Person
 from posthog.models.property.util import extract_tables_and_properties, get_single_or_multi_property_string_expr
 from posthog.models.team.team import Team
@@ -38,7 +39,7 @@ FROM (
     FROM (
         SELECT
             timestamp,
-            person_properties AS properties,
+            {actor_properties_column} AS properties,
             {crucial_property_columns} AS relevant_property_values,
             lagInFrame(relevant_property_values) OVER (ORDER BY timestamp ASC ROWS BETWEEN 1 PRECEDING AND CURRENT ROW) AS previous_relevant_property_values,
             row_number() OVER (ORDER BY timestamp ASC) AS start_event_number
@@ -51,25 +52,33 @@ WHERE timestamp IS NOT NULL /* Remove sentinel row */
 
 
 class PropertiesTimeline:
-    def run(self, filter: PropertiesTimelineFilter, team: Team, person: Person) -> PropertiesTimelineResult:
+    def extract_crucial_property_keys(self, filter: PropertiesTimelineFilter) -> List[str]:
+        is_filter_relevant = lambda property_type, property_group_type_index: (
+            (property_type == "person")
+            if filter.aggregation_group_type_index is None
+            else (property_type == "group" and property_group_type_index == filter.aggregation_group_type_index)
+        )
+
+        return [
+            property_key
+            for property_key, property_type, property_group_type_index in extract_tables_and_properties(
+                filter.property_groups.flat
+            )
+            if is_filter_relevant(property_type, property_group_type_index)
+        ]
+
+    def run(
+        self, filter: PropertiesTimelineFilter, team: Team, actor: Union[Person, Group]
+    ) -> PropertiesTimelineResult:
         filter = handle_data_interval_for_data_point_actors(filter)
 
         event_query = PropertiesTimelineEventQuery(
             filter=filter,
             team=team,
         )
-
         event_query_sql, event_query_params = event_query.get_query()
-        params = {**event_query_params, "person_id": person.uuid}
 
-        crucial_property_keys = [
-            property_key
-            for property_key, property_type, property_group_type_index in extract_tables_and_properties(
-                filter.property_groups.flat
-            )
-            if property_type == "person"
-        ]
-
+        crucial_property_keys = self.extract_crucial_property_keys(filter)
         crucial_property_columns = get_single_or_multi_property_string_expr(
             crucial_property_keys,
             query_alias=None,
@@ -79,11 +88,19 @@ class PropertiesTimeline:
             materialised_table_column="person_properties",
         )
 
+        actor_properties_column = (
+            "person_properties"
+            if filter.aggregation_group_type_index is None
+            else f"group_{filter.aggregation_group_type_index}_properties"
+        )
+
         formatted_sql = PROPERTIES_TIMELINE_SQL.format(
             event_query=event_query_sql,
             crucial_property_columns=crucial_property_columns,
+            actor_properties_column=actor_properties_column,
         )
 
+        params = {**event_query_params, "actor_id": actor.uuid if isinstance(actor, Person) else actor.group_key}
         raw_query_result = insight_sync_execute(formatted_sql, params, query_type="properties_timeline")
 
         return PropertiesTimelineResult(
