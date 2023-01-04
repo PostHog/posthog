@@ -45,11 +45,19 @@ class UserPermissions:
         except ImportError:
             return {}
 
-    def set_dashboard_tiles(self, tiles: List[DashboardTile]):
+    def set_preloaded_dashboard_tiles(self, tiles: List[DashboardTile]):
         """
         Allows for speeding up insight-related permissions code
         """
         self._tiles = tiles
+
+    @cached_property
+    def preloaded_dashboards(self) -> Optional[List[Dashboard]]:
+        if self._tiles is None:
+            return None
+
+        dashboard_ids = set(tile.dashboard_id for tile in self._tiles)
+        return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
 
 class UserTeamPermissions:
@@ -141,9 +149,29 @@ class UserInsightPermissions:
         self.insight = insight
 
     @cached_property
-    def effective_restriction_level(self):
-        return self.insight.effective_restriction_level
+    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
+        if len(self.insight_dashboards) == 0:
+            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+
+        return max(self.p.dashboard(dashboard).restriction_level for dashboard in self.insight_dashboards)
 
     @cached_property
-    def effective_privilege_level(self):
-        return self.insight.get_effective_privilege_level(self.p.user_instance.pk)
+    def effective_privilege_level(self) -> Dashboard.PrivilegeLevel:
+        if len(self.insight_dashboards) == 0:
+            return Dashboard.PrivilegeLevel.CAN_EDIT
+
+        if any(self.p.dashboard(dashboard).can_edit for dashboard in self.insight_dashboards):
+            return Dashboard.PrivilegeLevel.CAN_EDIT
+        else:
+            return Dashboard.PrivilegeLevel.CAN_VIEW
+
+    @cached_property
+    def insight_dashboards(self):
+        # If we're in dashboard(s) and have sped up lookups
+        if self.p.preloaded_dashboards is not None:
+            return self.p.preloaded_dashboards
+
+        dashboard_ids = set(
+            DashboardTile.objects.filter(insight=self.insight.pk).values_list("dashboard_id", flat=True)
+        )
+        return list(Dashboard.objects.filter(pk__in=dashboard_ids))

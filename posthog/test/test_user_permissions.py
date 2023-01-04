@@ -246,14 +246,16 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
         assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
     def test_efficiency(self):
-        insights = []
+        insights, tiles = [], []
         for _ in range(10):
             insight = Insight.objects.create(team=self.team)
-            DashboardTile.objects.create(dashboard=self.dashboard1, insight=insight)
+            tile = DashboardTile.objects.create(dashboard=self.dashboard1, insight=insight)
             insights.append(insight)
+            tiles.append(tile)
 
         user_permissions = self.permissions()
-        with self.assertNumQueries(90):
+        user_permissions.set_preloaded_dashboard_tiles(tiles)
+        with self.assertNumQueries(5):
             for insight in insights:
                 assert user_permissions.insight(insight).effective_restriction_level is not None
                 assert user_permissions.insight(insight).effective_privilege_level is not None
