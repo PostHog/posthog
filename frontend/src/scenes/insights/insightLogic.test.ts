@@ -92,14 +92,12 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
         updated_at: '2021-03-09T14: 00: 00.000Z',
         updated_by: null,
         visibility: null,
-        refreshing: false,
         last_modified_at: '2021-03-31T15:00:00.000Z',
         last_modified_by: null,
         effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
         effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
-        filters_hash: 'hash',
         ...properties,
     } as InsightModel
 }

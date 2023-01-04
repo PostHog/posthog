@@ -1,5 +1,6 @@
 import json
-from typing import Any, Optional
+from datetime import datetime
+from typing import Any, Optional, Tuple
 
 import structlog
 from dateutil import parser
@@ -13,6 +14,7 @@ from sentry_sdk import capture_exception
 
 from posthog.api.person import PersonSerializer
 from posthog.api.routing import StructuredViewSetMixin
+from posthog.helpers.session_recording import RecordingMetadata
 from posthog.models import Filter, PersonDistinctId
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.person import Person
@@ -47,7 +49,6 @@ class SessionRecordingSerializer(serializers.Serializer):
     click_count = serializers.IntegerField(required=False)
     keypress_count = serializers.IntegerField(required=False)
     urls = serializers.ListField(required=False)
-    distinct_id = serializers.CharField()
     matching_events = serializers.ListField(required=False)
 
     def to_representation(self, instance):
@@ -61,7 +62,6 @@ class SessionRecordingSerializer(serializers.Serializer):
             "click_count": instance["click_count"],
             "keypress_count": instance["keypress_count"],
             "urls": instance.get("urls"),
-            "distinct_id": instance["distinct_id"],
             "matching_events": instance["matching_events"],
         }
 
@@ -91,35 +91,14 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         recording_start_time_string = request.GET.get("recording_start_time")
         recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
-        session_recording_meta_data = SessionRecording(
-            request=request,
-            team=self.team,
-            session_recording_id=session_recording_id,
-            recording_start_time=recording_start_time,
-        ).get_metadata()
-
-        if not session_recording_meta_data:
-            raise exceptions.NotFound("Session not found")
-
-        if not request.user.is_authenticated:  # for mypy
-            raise exceptions.NotAuthenticated()
-        viewed_session_recording = SessionRecordingViewed.objects.filter(
-            team=self.team, user=request.user, session_id=session_recording_id
-        ).exists()
-
-        session_recording_serializer = SessionRecordingMetadataSerializer(
-            data={
-                "segments": session_recording_meta_data["segments"],
-                "start_and_end_times_by_window_id": session_recording_meta_data["start_and_end_times_by_window_id"],
-                "session_id": session_recording_id,
-                "viewed": viewed_session_recording,
-            }
+        session_recording_serializer, session_recording_metadata = self._get_serialized_recording_metadata(
+            request=request, session_id=session_recording_id, start_time=recording_start_time
         )
         session_recording_serializer.is_valid(raise_exception=True)
 
         try:
             person: Optional[Person] = Person.objects.get(
-                persondistinctid__distinct_id=session_recording_meta_data["distinct_id"],
+                persondistinctid__distinct_id=session_recording_metadata["distinct_id"],
                 persondistinctid__team_id=self.team,
                 team=self.team,
             )
@@ -206,6 +185,37 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         session_recording_serializer.is_valid(raise_exception=True)
 
         return Response({"results": session_recording_serializer.data})
+
+    def _get_serialized_recording_metadata(
+        self, request: request.Request, session_id: str, start_time: Optional[datetime]
+    ) -> Tuple[SessionRecordingMetadataSerializer, RecordingMetadata]:
+
+        session_recording_meta_data = SessionRecording(
+            request=request,
+            team=self.team,
+            session_recording_id=session_id,
+            recording_start_time=start_time,
+        ).get_metadata()
+
+        if not session_recording_meta_data:
+            raise exceptions.NotFound("Session not found")
+
+        if not request.user.is_authenticated:  # for mypy
+            raise exceptions.NotAuthenticated()
+        viewed_session_recording = SessionRecordingViewed.objects.filter(
+            team=self.team, user=request.user, session_id=session_id
+        ).exists()
+
+        session_recording_serializer = SessionRecordingMetadataSerializer(
+            data={
+                "segments": session_recording_meta_data["segments"],
+                "start_and_end_times_by_window_id": session_recording_meta_data["start_and_end_times_by_window_id"],
+                "session_id": session_id,
+                "viewed": viewed_session_recording,
+                "description": session_recording_meta_data.get("description", None),
+            }
+        )
+        return session_recording_serializer, session_recording_meta_data
 
 
 def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team) -> dict:

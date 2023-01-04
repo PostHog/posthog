@@ -14,7 +14,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
-    test_with_materialized_columns,
+    also_test_with_materialized_columns,
 )
 
 
@@ -31,7 +31,7 @@ class MockEvent:
 
 def paths_test_factory(paths):
     class TestPaths(ClickhouseTestMixin, APIBaseTest):
-        @test_with_materialized_columns(["$current_url", "$screen_name"], person_properties=["email"])
+        @also_test_with_materialized_columns(["$current_url", "$screen_name"], person_properties=["email"])
         def test_current_url_paths_and_logic(self):
             events = []
             _create_person(team_id=self.team.pk, distinct_ids=["fake"])
