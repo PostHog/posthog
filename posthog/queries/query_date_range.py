@@ -63,11 +63,10 @@ class QueryDateRange(Generic[F]):
         elif isinstance(self._filter._date_from, str):
             date_from = self._parse_date(self._filter._date_from)
         elif isinstance(self._filter._date_from, datetime):
-            date_from = self._filter._date_from
+            date_from = self._localize_to_team(self._filter._date_from)
         else:
-            date_from = self._localize_to_team(
-                self._now.replace(hour=0, minute=0, second=0, microsecond=0)
-                - relativedelta(days=DEFAULT_DATE_FROM_DAYS)
+            date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
+                days=DEFAULT_DATE_FROM_DAYS
             )
 
         if not self.is_hourly(self._filter._date_from) and not self._filter.use_explicit_dates:
