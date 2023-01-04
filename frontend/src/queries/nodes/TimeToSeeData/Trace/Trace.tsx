@@ -15,7 +15,7 @@ import { getSeriesColor } from 'lib/colors'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import { getDurationMs, SpanData, traceLogic } from '~/queries/nodes/TimeToSeeData/Trace/traceLogic'
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
 
 export interface SpanProps {
     maxSpan: number
@@ -124,7 +124,24 @@ export function Span({
 }: SpanProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(isExpandable)
 
-    const onClickProps = spanData.data.type === 'interaction' ? { onClick: () => onClick?.(spanData) } : undefined
+    const { focussedInteraction } = useValues(traceLogic)
+
+    const onClickProps =
+        spanData.data.type === 'interaction'
+            ? {
+                  onClick: () => {
+                      return onClick?.(spanData)
+                  },
+              }
+            : undefined
+
+    const styleProps =
+        focussedInteraction?.id === spanData.id
+            ? {
+                  style: { borderColor: getSeriesColor(spanData.depth) },
+              }
+            : {}
+
     return (
         <>
             <div
@@ -134,6 +151,7 @@ export function Span({
                     !!onClick && 'cursor-pointer'
                 )}
                 {...onClickProps}
+                {...styleProps}
             >
                 <div className={'w-100 relative flex flex-row gap-2'}>
                     {isExpandable && (
@@ -278,31 +296,33 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
     const { showInteractionTrace } = useActions(logic)
 
     return (
-        <div className={'flex flex-col gap-1 border rounded p-4'}>
-            <h2>{timeToSeeSession.data.session_id}</h2>
-            <div>
-                session length: {humanFriendlyDuration(timeToSeeSession.data.total_interaction_time_to_see_data_ms)}
-            </div>
-            <div>
-                session start: <TZLabel time={timeToSeeSession.data.session_start} />
-            </div>
-            <TraceOverview
-                processedSpans={processedSpans}
-                timeToSeeSession={timeToSeeSession}
-                onClick={(span) => showInteractionTrace(span)}
-            />
-
-            {focussedInteraction ? (
-                <Span
-                    isExpandable={true}
-                    widthTrackingRef={selectedSpanRef}
-                    // don't set duration container width back onto the element that is generating it
-                    durationContainerWidth={selectedSpanWidth}
-                    // the selected span _must_ always have a larger duration than its children
-                    maxSpan={focussedInteraction.duration}
-                    spanData={focussedInteraction}
+        <BindLogic logic={traceLogic} props={{ sessionNode: timeToSeeSession }}>
+            <div className={'flex flex-col gap-1 border rounded p-4'}>
+                <h2>{timeToSeeSession.data.session_id}</h2>
+                <div>
+                    session length: {humanFriendlyDuration(timeToSeeSession.data.total_interaction_time_to_see_data_ms)}
+                </div>
+                <div>
+                    session start: <TZLabel time={timeToSeeSession.data.session_start} />
+                </div>
+                <TraceOverview
+                    processedSpans={processedSpans}
+                    timeToSeeSession={timeToSeeSession}
+                    onClick={(span) => showInteractionTrace(span)}
                 />
-            ) : null}
-        </div>
+
+                {focussedInteraction ? (
+                    <Span
+                        isExpandable={true}
+                        widthTrackingRef={selectedSpanRef}
+                        // don't set duration container width back onto the element that is generating it
+                        durationContainerWidth={selectedSpanWidth}
+                        // the selected span _must_ always have a larger duration than its children
+                        maxSpan={focussedInteraction.duration}
+                        spanData={focussedInteraction}
+                    />
+                ) : null}
+            </div>
+        </BindLogic>
     )
 }

@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import type { traceLogicType } from './traceLogicType'
 
 export interface SpanData {
+    id: string // not provided by backend
     type: 'session' | 'interaction' | 'event' | 'query' | 'subquery'
     start: number // milliseconds after session start
     duration: number
@@ -42,12 +43,13 @@ function walkSpans(
 ): SpanData[] {
     const spanData: SpanData[] = []
 
-    nodes.forEach((node) => {
+    nodes.forEach((node, index) => {
         const walkedChildren = walkSpans(node.children, sessionStart, level++)
 
         const start = dayjs(node.data.timestamp).diff(sessionStart)
         const duration = getDurationMs(node)
         spanData.push({
+            id: `${node.type}-${level}-${index}`,
             type: node.type,
             start: start,
             duration: duration,
@@ -63,6 +65,7 @@ function walkSpans(
 function flattenSpans(timeToSeeSession: TimeToSeeSessionNode): SpanData[] {
     const walkedChildren = walkSpans(timeToSeeSession.children, dayjs(timeToSeeSession.data.session_start))
     walkedChildren.unshift({
+        id: timeToSeeSession.data.session_id,
         type: 'session',
         start: 0,
         duration: getDurationMs(timeToSeeSession),
