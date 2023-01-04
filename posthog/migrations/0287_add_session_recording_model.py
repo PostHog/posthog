@@ -19,6 +19,8 @@ def migrate_playlist_item_recording_relations(apps, _) -> None:
     batch_size = 1_000
     playlist_item_paginator = Paginator(PlaylistItem.objects.order_by("created_at"), batch_size)
 
+    print("here!")
+
     for playlist_item_page in playlist_item_paginator.page_range:
         playlist_items = playlist_item_paginator.get_page(playlist_item_page)
 
@@ -32,10 +34,12 @@ def migrate_playlist_item_recording_relations(apps, _) -> None:
         # Bulk update playlist_items
         playlist_items_to_update = []
         for playlist_item_object in playlist_items:
-            playlist_item_object.recording = playlist_item_object.session_id
+            playlist_item_object.recording_id = playlist_item_object.session_id
             playlist_items_to_update.append(playlist_item_object)
 
-        PlaylistItem.objects.bulk_update(playlist_items_to_update, fields=["recording"])
+        PlaylistItem.objects.bulk_update(playlist_items_to_update, fields=["recording_id"])
+
+    print("here2!")
 
 
 def reverse(apps, _) -> None:
@@ -61,6 +65,11 @@ class Migration(migrations.Migration):
                 to=settings.AUTH_USER_MODEL,
             ),
         ),
+        migrations.AlterField(
+            model_name="sessionrecordingplaylistitem",
+            name="session_id",
+            field=models.CharField(blank=True, max_length=200, null=True),
+        ),
         migrations.CreateModel(
             name="SessionRecording",
             fields=[
@@ -75,7 +84,7 @@ class Migration(migrations.Migration):
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
             options={
-                "abstract": False,
+                "unique_together": {("team", "session_id")},
             },
         ),
         migrations.AddField(
