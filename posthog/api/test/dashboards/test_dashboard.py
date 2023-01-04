@@ -428,10 +428,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard_id)
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(len(response["tiles"]), 1)
-        item_insight = response["tiles"][0]
         tile = response["tiles"][0]
 
-        assert item_insight["filters_hash"] == tile["filters_hash"]
         assert tile["insight"]["id"] == insight_id
 
     def test_dashboard_filtering_on_properties(self):
@@ -699,13 +697,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         }
 
         # create two insights with a -7d date from filter
-        insight_one_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-        insight_two_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-
-        insight_one_original_filter_hash = self.dashboard_api.get_insight(insight_one_id)["filters_hash"]
-        insight_two_original_filter_hash = self.dashboard_api.get_insight(insight_two_id)["filters_hash"]
-
-        self.assertEqual(insight_one_original_filter_hash, insight_two_original_filter_hash)
+        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
+        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
 
         # cache insight results for trends with a -7d date from
         response = self.client.get(
@@ -713,6 +706,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
+        self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 8)
 
         # set a filter on the dashboard
         _, patch_response_json = self.dashboard_api.update_dashboard(
@@ -723,28 +718,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(patch_response_json["tiles"][0]["insight"]["result"], None)
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {"date_from": "-24h"})
-
-        # doesn't change the filters hash on the Insight itself
-        self.assertEqual(insight_one_original_filter_hash, Insight.objects.get(pk=insight_one_id).filters_hash)
-        self.assertEqual(insight_two_original_filter_hash, Insight.objects.get(pk=insight_two_id).filters_hash)
-
-        # the updated filters_hashes are from the dashboard tiles
-        tile_one = DashboardTile.objects.filter(insight__id=insight_one_id).first()
-        if tile_one is None:
-            breakpoint()
-        self.assertEqual(
-            patch_response_json["tiles"][0]["filters_hash"],
-            tile_one.filters_hash
-            if tile_one is not None
-            else f"should have been able to load a single tile for {insight_one_id}",
-        )
-        tile_two = DashboardTile.objects.filter(insight__id=insight_two_id).first()
-        self.assertEqual(
-            patch_response_json["tiles"][1]["filters_hash"],
-            tile_two.filters_hash
-            if tile_two is not None
-            else f"should have been able to load a single tile for {insight_two_id}",
-        )
 
         # cache results
         response = self.client.get(
