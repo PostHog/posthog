@@ -21,8 +21,13 @@ from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group
 F = TypeVar("F", Filter, PropertiesTimelineFilter)
 
 
-def handle_data_interval_for_data_point_actors(filter: F) -> F:
-    # adhoc date handling. parsed differently with django orm
+def handle_dates_with_interval_for_data_point_actors(filter: F) -> F:
+    """Handle date_to for non-cumulative time-series insight data points.
+
+    We need to do some interval-aware offsetting when querying for such data points' actors, because for them
+    `date_from` and `date_to` are one and the same, and `interval` must be used for offsetting - as opposed to
+    non-time-series or cumulative time-series insights' actors, where `date_from` and `date_to` are always proper.
+    """
     if filter.display == TRENDS_CUMULATIVE or filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
         return filter
     date_from = filter.date_from or timezone.now()
@@ -60,7 +65,7 @@ class TrendsActors(ActorBaseQuery):
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
-        filter = handle_data_interval_for_data_point_actors(filter)
+        filter = handle_dates_with_interval_for_data_point_actors(filter)
         super().__init__(team, filter, entity, **kwargs)
 
     @cached_property

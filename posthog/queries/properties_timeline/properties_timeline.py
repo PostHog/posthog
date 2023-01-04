@@ -7,7 +7,7 @@ from posthog.models.person.person import Person
 from posthog.models.property.util import extract_tables_and_properties, get_single_or_multi_property_string_expr
 from posthog.models.team.team import Team
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.trends.trends_actors import handle_data_interval_for_data_point_actors
+from posthog.queries.trends.trends_actors import handle_dates_with_interval_for_data_point_actors
 
 from .properties_timeline_event_query import PropertiesTimelineEventQuery
 
@@ -70,7 +70,7 @@ class PropertiesTimeline:
     def run(
         self, filter: PropertiesTimelineFilter, team: Team, actor: Union[Person, Group]
     ) -> PropertiesTimelineResult:
-        filter = handle_data_interval_for_data_point_actors(filter)
+        filter = handle_dates_with_interval_for_data_point_actors(filter)
 
         event_query = PropertiesTimelineEventQuery(
             filter=filter,
