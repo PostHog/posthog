@@ -4,16 +4,20 @@ from posthog.constants import AvailableFeature
 from posthog.models.dashboard import Dashboard
 from posthog.models.dashboard_tile import DashboardTile
 from posthog.models.insight import Insight
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.test.base import BaseTest
 from posthog.user_permissions import UserPermissions
 
 
 class WithPermissionsBase:
-    def permissions(self, **kwargs):
-        options = {"user": self.user, "team": self.team, "organization": self.organization, **kwargs}
+    user: User
+    team: Team
+    organization: Organization
 
-        return UserPermissions(**options)  # type: ignore
+    def permissions(self):
+        return UserPermissions(user=self.user, team=self.team, organization=self.organization)
 
 
 class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
@@ -84,13 +88,19 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         return self.permissions().dashboard(self.dashboard)
 
     def test_dashboard_effective_restriction_level(self):
-        assert self.dashboard_permissions().restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        assert (
+            self.dashboard_permissions().effective_restriction_level
+            == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
 
     def test_dashboard_effective_restriction_level_explicit(self):
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.dashboard.save()
 
-        assert self.dashboard_permissions().restriction_level == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        assert (
+            self.dashboard_permissions().effective_restriction_level
+            == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
 
     def test_dashboard_effective_restriction_level_when_feature_not_available(self):
         self.organization.available_features = []
@@ -99,7 +109,10 @@ class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
         self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         self.dashboard.save()
 
-        assert self.dashboard_permissions().restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        assert (
+            self.dashboard_permissions().effective_restriction_level
+            == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
 
     def test_dashboard_can_restrict(self):
         assert not self.dashboard_permissions().can_restrict
@@ -255,7 +268,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
 
         user_permissions = self.permissions()
         user_permissions.set_preloaded_dashboard_tiles(tiles)
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(3):
             for insight in insights:
                 assert user_permissions.insight(insight).effective_restriction_level is not None
                 assert user_permissions.insight(insight).effective_privilege_level is not None
