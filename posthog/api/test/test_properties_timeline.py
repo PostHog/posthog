@@ -14,9 +14,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 
 
@@ -81,7 +81,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             self.assertEqual(properties_timeline.status_code, expected_status)
             return properties_timeline.json()
 
-        @test_with_materialized_columns(**materialized_column_kwargs)
+        @also_test_with_materialized_columns(**materialized_column_kwargs)
         @snapshot_clickhouse_queries
         def test_timeline_for_new_actor_with_one_event_in_range(self):
             self._create_actor({"foo": "abc", "bar": 123})
@@ -119,7 +119,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                 },
             )
 
-        @test_with_materialized_columns(**materialized_column_kwargs)
+        @also_test_with_materialized_columns(**materialized_column_kwargs)
         @snapshot_clickhouse_queries
         def test_timeline_for_new_actor_with_one_event_before_range(self):
             self._create_actor({"foo": "abc", "bar": 123})
@@ -152,7 +152,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
 
         @snapshot_clickhouse_queries
-        @test_with_materialized_columns(**materialized_column_kwargs)
+        @also_test_with_materialized_columns(**materialized_column_kwargs)
         def test_timeline_for_existing_actor_with_three_events_and_return_to_previous_value(self):
             self._create_actor({"foo": "abc", "bar": 123})
             self._create_event(
@@ -210,7 +210,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
 
         @snapshot_clickhouse_queries
-        @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+        @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
         def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_day_point(self):
             self._create_actor(properties={"foo": "abc", "bar": 123})
             self._create_event(
@@ -272,7 +272,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
 
         @snapshot_clickhouse_queries
-        @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+        @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
         def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_hour_point(self):
             self._create_actor(properties={"foo": "abc", "bar": 123})
             self._create_event(
@@ -332,7 +332,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
 
         @snapshot_clickhouse_queries
-        @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+        @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
         def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_month_point(
             self,
         ):
@@ -394,7 +394,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
 
         @snapshot_clickhouse_queries
-        @test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+        @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
         def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_using_relative_date_from(
             self,
         ):
@@ -455,7 +455,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
 
         @snapshot_clickhouse_queries
-        @test_with_materialized_columns(**materialized_column_kwargs)
+        @also_test_with_materialized_columns(**materialized_column_kwargs)
         def test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes(self):
             self._create_actor({"foo": "abc", "bar": 123})
             self._create_event(

@@ -30,6 +30,17 @@ function handleTimestamp(data: PluginEvent, now: DateTime, sentAt: DateTime | nu
     if (data['timestamp']) {
         const timestamp = parseDate(data['timestamp'])
         if (sentAt && timestamp.isValid) {
+            // To handle clock skew between the client and server, we attempt
+            // to compute the skew based on the difference between the
+            // client-generated `sent_at` and the server-generated `now`
+            // filled by the capture endpoint.
+            //
+            // We calculate the skew as:
+            //
+            //      skew = sent_at - now
+            //
+            // And adjust the timestamp accordingly.
+
             // sent_at - timestamp == now - x
             // x = now + (timestamp - sent_at)
             try {
