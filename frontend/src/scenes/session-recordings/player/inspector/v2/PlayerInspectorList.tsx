@@ -152,7 +152,9 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, syncScroll, tab, loading } = useValues(playerInspectorLogic(props))
+    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab, loading } = useValues(
+        playerInspectorLogic(props)
+    )
     const { setSyncScroll } = useActions(playerInspectorLogic(props))
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -187,11 +189,10 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
 
     useEffect(() => {
         if (listRef.current) {
-            const offset = range((items.length + playbackIndicatorIndex) % items.length).reduce(
+            const offset = range(playbackIndicatorIndexStop).reduce(
                 (acc, x) => acc + cellMeasurerCache.getHeight(x, 0),
                 0
             )
-            console.log('OFFSET', offset, playbackIndicatorIndex, range(playbackIndicatorIndex), syncScroll)
             document
                 .getElementById('PlayerInspectorListMarker')
                 ?.setAttribute('style', `transform: translateY(${offset}px)`)

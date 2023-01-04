@@ -449,6 +449,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        playbackIndicatorIndexStop: [
+            (s) => [s.playbackIndicatorIndex, s.items],
+            (playbackIndicatorIndex, items): number => (items.length + playbackIndicatorIndex) % items.length,
+        ],
+
         fuse: [
             (s) => [s.allItems],
             (allItems): Fuse =>
