@@ -28,6 +28,8 @@ def create_performance_event(
         "pageview_id": window_id,
         "current_url": current_url,
         "timestamp": timestamp_str,
+        "entry_type": "resource",
+        "name": "https://posthog.com/static/js/1.0.0/PostHog.js",
     }
 
     data.update(kwargs)
