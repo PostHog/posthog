@@ -418,6 +418,8 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     // Use `nextUrl` if there is a `next` url to fetch
                     const response = await api.performanceEvents.list({
                         session_id: props.sessionRecordingId,
+                        date_from: values.eventsApiParams?.after,
+                        date_to: values.eventsApiParams?.before,
                     })
 
                     breakpoint()

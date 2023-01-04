@@ -238,6 +238,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
                 const items: InspectorListItem[] = []
 
+                // PERFORMANCE EVENTS
                 if (
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
                     (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
@@ -261,7 +262,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
                         if (
-                            miniFiltersByKey['performance-fetch']?.enabled &&
+                            (miniFiltersByKey['performance-fetch']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
                             event.entry_type === 'resource' &&
                             ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '')
                         ) {
@@ -310,6 +312,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
                 }
 
+                // CONSOLE LOGS
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
                     for (const event of consoleLogs || []) {
                         const timestamp = dayjs(event.timestamp)
@@ -358,6 +361,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
                 }
 
+                // EVENTS
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.EVENTS) {
                     for (const event of eventsData?.events || []) {
                         let include = false
