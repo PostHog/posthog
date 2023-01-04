@@ -431,6 +431,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         tile = response["tiles"][0]
 
         assert tile["insight"]["id"] == insight_id
+        assert tile["insight"]["filters"]["date_from"] == "-14d"
 
     def test_dashboard_filtering_on_properties(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
