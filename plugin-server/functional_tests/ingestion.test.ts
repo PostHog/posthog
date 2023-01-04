@@ -482,6 +482,7 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
 
         expect(first).toEqual(
             expect.objectContaining({
+                person_id: forth.person_id,
                 person_properties: expect.objectContaining({
                     prop: 'value',
                     set_once_property: 'value',
@@ -511,7 +512,6 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
 
         expect(forth).toEqual(
             expect.objectContaining({
-                person_id: forth.person_id,
                 person_properties: expect.objectContaining({
                     prop: 'second identify value',
                     set_once_property: 'value',
@@ -520,3 +520,91 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
         )
     })
 })
+
+testIfDelayEnabled(
+    `person properties as per https://github.com/PostHog/posthog/pull/13505#discussion_r1061675265`,
+    async () => {
+        const teamId = await createTeam(postgres, organizationId)
+        const aliceAnonId = new UUIDT().toString()
+        const aliceId = new UUIDT().toString()
+        const bobAnonId = new UUIDT().toString()
+        const bobId = new UUIDT().toString()
+
+        const firstUuid = new UUIDT().toString()
+        await capture(producer, teamId, aliceId, firstUuid, '$identify', {
+            $anon_distinct_id: aliceAnonId,
+            $set: {
+                k: 'v1',
+            },
+        })
+
+        const secondUuid = new UUIDT().toString()
+        await capture(producer, teamId, bobId, secondUuid, '$identify', {
+            $anon_distinct_id: bobAnonId,
+            $set: {
+                k: 'v2',
+            },
+        })
+
+        const thirdUuid = new UUIDT().toString()
+        await capture(producer, teamId, bobId, thirdUuid, 'custom event', {
+            $set: {
+                k: 'v3',
+            },
+        })
+
+        const forthUuid = new UUIDT().toString()
+        await capture(producer, teamId, bobAnonId, forthUuid, '$create_alias', {
+            alias: aliceAnonId,
+        })
+
+        const [first, second, third, forth] = await waitForExpect(async () => {
+            const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+            const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+            const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
+            const [forth] = await fetchEvents(clickHouseClient, teamId, forthUuid)
+
+            expect(first).toBeDefined()
+            expect(second).toBeDefined()
+            expect(third).toBeDefined()
+            expect(forth).toBeDefined()
+
+            return [first, second, third, forth]
+        })
+
+        expect(first).toEqual(
+            expect.objectContaining({
+                person_id: forth.person_id,
+                person_properties: expect.objectContaining({
+                    k: 'v1',
+                }),
+            })
+        )
+
+        expect(second).toEqual(
+            expect.objectContaining({
+                person_id: forth.person_id,
+                person_properties: expect.objectContaining({
+                    k: 'v2',
+                }),
+            })
+        )
+
+        expect(third).toEqual(
+            expect.objectContaining({
+                person_id: forth.person_id,
+                person_properties: expect.objectContaining({
+                    k: 'v3',
+                }),
+            })
+        )
+
+        expect(forth).toEqual(
+            expect.objectContaining({
+                person_properties: expect.objectContaining({
+                    k: 'v3',
+                }),
+            })
+        )
+    }
+)
