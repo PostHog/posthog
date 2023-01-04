@@ -1,39 +1,41 @@
+from ee.models.dashboard_privilege import DashboardPrivilege
 from ee.models.explicit_team_membership import ExplicitTeamMembership
 from posthog.constants import AvailableFeature
+from posthog.models.dashboard import Dashboard
 from posthog.models.organization import OrganizationMembership
 from posthog.test.base import BaseTest
 from posthog.user_permissions import UserPermissions
 
 
-class TestUserPermissions(BaseTest):
-    CLASS_DATA_LEVEL_SETUP = False
-
+class TestUserTeamPermissions(BaseTest):
     def setUp(self):
         super().setUp()
-        self.organization.available_features = [AvailableFeature.PROJECT_BASED_PERMISSIONING]
-        self.organization.save()
+        self.organization.available_features = [
+            AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            AvailableFeature.DASHBOARD_PERMISSIONING,
+        ]
 
     def permissions(self, **kwargs):
         options = {"user": self.user, "team": self.team, "organization": self.organization, **kwargs}
 
-        return UserPermissions(**options)
+        return UserPermissions(**options)  # type: ignore
 
     def test_team_effective_membership_level(self):
         with self.assertNumQueries(1):
-            assert self.permissions().team_effective_membership_level == OrganizationMembership.Level.MEMBER
+            assert self.permissions().team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_updated(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
         with self.assertNumQueries(1):
-            assert self.permissions().team_effective_membership_level == OrganizationMembership.Level.ADMIN
+            assert self.permissions().team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_does_not_belong(self):
         self.organization_membership.delete()
 
         with self.assertNumQueries(1):
-            assert self.permissions().team_effective_membership_level is None
+            assert self.permissions().team.effective_membership_level is None
 
     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
         self.team.access_control = True
@@ -42,7 +44,7 @@ class TestUserPermissions(BaseTest):
         self.organization_membership.save()
 
         with self.assertNumQueries(2):
-            assert self.permissions().team_effective_membership_level == OrganizationMembership.Level.ADMIN
+            assert self.permissions().team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_with_member(self):
         self.team.access_control = True
@@ -51,7 +53,7 @@ class TestUserPermissions(BaseTest):
         self.organization_membership.save()
 
         with self.assertNumQueries(2):
-            assert self.permissions().team_effective_membership_level is None
+            assert self.permissions().team.effective_membership_level is None
 
     def test_team_effective_membership_level_with_explicit_membership_returns_explicit_membership(self):
         self.team.access_control = True
@@ -64,4 +66,113 @@ class TestUserPermissions(BaseTest):
         )
 
         with self.assertNumQueries(2):
-            assert self.permissions().team_effective_membership_level == OrganizationMembership.Level.ADMIN
+            assert self.permissions().team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+
+class TestUserDashboardPermissions(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_features = [AvailableFeature.DASHBOARD_PERMISSIONING]
+        self.organization.save()
+        self.dashboard = Dashboard.objects.create(team=self.team)
+
+    def permissions(self, **kwargs):
+        options = {"user": self.user, "team": self.team, "organization": self.organization, **kwargs}
+
+        return UserPermissions(**options)  # type: ignore
+
+    def dashboard_permissions(self):
+        return self.permissions().dashboard(self.dashboard)
+
+    def test_dashboard_effective_restriction_level(self):
+        assert self.dashboard_permissions().restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+
+    def test_dashboard_effective_restriction_level_explicit(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.dashboard.save()
+
+        assert self.dashboard_permissions().restriction_level == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+
+    def test_dashboard_effective_restriction_level_when_feature_not_available(self):
+        self.organization.available_features = []
+        self.organization.save()
+
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.dashboard.save()
+
+        assert self.dashboard_permissions().restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+
+    def test_dashboard_can_restrict(self):
+        assert not self.dashboard_permissions().can_restrict
+
+    def test_dashboard_can_restrict_as_admin(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        assert self.dashboard_permissions().can_restrict
+
+    def test_dashboard_can_restrict_as_creator(self):
+        self.dashboard.created_by = self.user
+        self.dashboard.save()
+
+        assert self.dashboard_permissions().can_restrict
+
+    def test_dashboard_effective_privilege_level_when_everyone_can_edit(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        self.dashboard.save()
+
+        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
+
+    def test_dashboard_effective_privilege_level_when_collaborators_can_edit(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.dashboard.save()
+
+        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW
+
+    def test_dashboard_effective_privilege_level_priviledged(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.dashboard.save()
+
+        DashboardPrivilege.objects.create(
+            user=self.user, dashboard=self.dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+        )
+
+        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
+
+    def test_dashboard_effective_privilege_level_creator(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.dashboard.save()
+        self.dashboard.created_by = self.user
+        self.dashboard.save()
+
+        assert self.dashboard_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
+
+    def test_dashboard_can_edit_when_everyone_can(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        self.dashboard.save()
+
+        assert self.dashboard_permissions().can_edit
+
+    def test_dashboard_can_edit_not_collaborator(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.dashboard.save()
+
+        assert not self.dashboard_permissions().can_edit
+
+    def test_dashboard_can_edit_creator(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.dashboard.save()
+        self.dashboard.created_by = self.user
+        self.dashboard.save()
+
+        assert self.dashboard_permissions().can_edit
+
+    def test_dashboard_can_edit_priviledged(self):
+        self.dashboard.restriction_level = Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        self.dashboard.save()
+
+        DashboardPrivilege.objects.create(
+            user=self.user, dashboard=self.dashboard, level=Dashboard.PrivilegeLevel.CAN_EDIT
+        )
+
+        assert self.dashboard_permissions().can_edit
