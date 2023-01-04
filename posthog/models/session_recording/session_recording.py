@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from django.db import models
@@ -31,8 +32,13 @@ class SessionRecording(UUIDModel):
     deleted: models.BooleanField = models.BooleanField(default=False)
     object_storage_path: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
-    # Metadata persisted on postgres
-    metadata: models.JSONField = models.JSONField(default=dict)
+    distinct_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
+    duration: models.IntegerField = models.IntegerField(null=True)
+    start_time: models.DateTimeField = models.DateTimeField(null=True)
+    end_time: models.DateTimeField = models.DateTimeField(null=True)
+    click_count: models.IntegerField = models.IntegerField(null=True)
+    keypress_count: models.IntegerField = models.IntegerField(null=True)
+    start_url: models.CharField = models.CharField(null=True, max_length=512)
 
     # DYNAMIC FIELDS
 
@@ -42,14 +48,6 @@ class SessionRecording(UUIDModel):
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
     _snapshots: Optional[DecompressedRecordingData] = None
-
-    def save_persisted_metadata(self, metadata: Dict[str, str]) -> None:
-        # TODO: call this method on only persisted session recordings on list call
-        if self.metadata:
-            return
-
-        self.metadata = metadata
-        self.save()
 
     def load_metadata(self) -> None:
         from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
@@ -71,6 +69,7 @@ class SessionRecording(UUIDModel):
                 return
 
             self._metadata = metadata
+            self.distinct_id = metadata["distinct_id"]
 
     def load_snapshots(self, limit=20, offset=0) -> None:
         from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
@@ -111,6 +110,7 @@ class SessionRecording(UUIDModel):
             "snapshot_data_by_window_id": data["snapshot_data_by_window_id"],
         }
 
+    # S3 / Clickhouse backed fields
     @property
     def snapshot_data_by_window_id(self):
         return self._snapshots["snapshot_data_by_window_id"] if self._snapshots else None
@@ -120,10 +120,6 @@ class SessionRecording(UUIDModel):
         return self._snapshots["has_next"] if self._snapshots else False
 
     @property
-    def distinct_id(self):
-        return self._metadata["distinct_id"] if self._metadata else None
-
-    @property
     def segments(self):
         return self._metadata["segments"] if self._metadata else None
 
@@ -131,36 +127,9 @@ class SessionRecording(UUIDModel):
     def start_and_end_times_by_window_id(self):
         return self._metadata["start_and_end_times_by_window_id"] if self._metadata else None
 
-    @property
-    def duration(self):
-        return self.metadata["duration"]
-
-    @property
-    def start_time(self):
-        return self.metadata["start_time"]
-
-    @property
-    def end_time(self):
-        return self.metadata["end_time"]
-
-    @property
-    def click_count(self):
-        return self.metadata["click_count"]
-
-    @property
-    def keypress_count(self):
-        return self.metadata["keypress_count"]
-
-    @property
-    def urls(self):
-        return self.metadata["urls"]
-
-    @property
-    def matching_events(self):
-        return self.matching_events
-
     @cached_property
     def person(self) -> Optional[Person]:
+        # Move this to _property so we can set it in a bulk command as well
         if not self.distinct_id:
             return None
 
@@ -193,6 +162,33 @@ class SessionRecording(UUIDModel):
             return SessionRecording.objects.get(session_id=session_id, team=team)
         except SessionRecording.DoesNotExist:
             return SessionRecording(session_id=session_id, team=team)
+
+    @staticmethod
+    def get_or_build_from_clickhouse(team: Team, ch_recordings: List[dict]) -> "List[SessionRecording]":
+        session_ids = [recording["session_id"] for recording in ch_recordings]
+
+        recordings_by_id = {
+            recording.session_id: recording
+            for recording in SessionRecording.objects.filter(session_id__in=session_ids, team=team).all()
+        }
+
+        recordings = []
+
+        for ch_recording in ch_recordings:
+            recording = recordings_by_id.get(ch_recording["session_id"]) or SessionRecording(
+                session_id=ch_recording["session_id"], team=team
+            )
+
+            recording.start_time = ch_recording["start_time"]
+            recording.end_time = ch_recording["end_time"]
+            recording.click_count = ch_recording["click_count"]
+            recording.keypress_count = ch_recording["keypress_count"]
+            recording.duration = ch_recording["duration"]
+            recording.distinct_id = ch_recording["distinct_id"]
+            recording.start_url = ch_recording["urls"][0]
+            recordings.append(recording)
+
+        return recordings
 
     # TODO: add metadata field to keep minimal information on this model for quick access
 

@@ -75,7 +75,7 @@ export function SessionRecordingPlaylistItem({
         </div>
     )
 
-    const firstPath = recording.urls?.[0].replace(/https?:\/\//g, '').split(/[?|#]/)[0]
+    const firstPath = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
 
     // TODO: Modify onClick to only react to shift+click
 
@@ -147,7 +147,7 @@ export function SessionRecordingPlaylistItem({
 
                 <div className="flex items-center justify-between gap-4 w-2/3">
                     <span className="flex items-center gap-1 overflow-hidden text-muted text-xs">
-                        <span title={`First URL: ${recording.urls?.[0]}`} className="truncate">
+                        <span title={`First URL: ${recording.start_url}`} className="truncate">
                             {firstPath}
                         </span>
                     </span>

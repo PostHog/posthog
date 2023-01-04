@@ -897,7 +897,7 @@ export interface SessionRecordingType {
     playlists?: SessionRecordingPlaylistType['id'][]
     click_count?: number
     keypress_count?: number
-    urls?: string[]
+    start_url?: string
 
     // These values are only present when loaded as a full recording
     segments?: SessionRecordingSegmentType[]

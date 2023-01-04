@@ -29,20 +29,22 @@ logger = structlog.get_logger(__name__)
 
 
 class SessionRecordingSerializer(serializers.ModelSerializer):
+    id = serializers.CharField(source="session_id", read_only=True)
+    recording_duration = serializers.IntegerField(source="duration", read_only=True)
     person = PersonSerializer(required=False)
 
     class Meta:
         model = SessionRecording
         fields = [
-            "session_id",
+            "id",
             "distinct_id",
             "viewed",
-            "duration",
+            "recording_duration",
             "start_time",
             "end_time",
             "click_count",
             "keypress_count",
-            "urls",
+            "start_url",
             "matching_events",
             "person",
             "segments",
@@ -50,15 +52,15 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
         ]
 
         read_only_fields = [
-            "session_id",
+            "id",
             "distinct_id",
             "viewed",
-            "duration",
+            "recording_duration",
             "start_time",
             "end_time",
             "click_count",
             "keypress_count",
-            "urls",
+            "start_url",
             "matching_events",
         ]
 
@@ -74,7 +76,7 @@ class SessionRecordingPropertiesSerializer(serializers.Serializer):
         }
 
 
-class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
+class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     permission_classes = [IsAuthenticated, ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission]
     throttle_classes = [PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle]
 
@@ -172,39 +174,33 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
 
 def list_recordings(filter: SessionRecordingsFilter, request: request.Request, team: Team) -> dict:
-    (session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
+    (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
 
-    if not request.user.is_authenticated:  # for mypy
-        raise exceptions.NotAuthenticated()
-    viewed_session_recordings = set(
-        SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
-    )
+    # TODO: Load specified IDs from Postgres model as well
 
-    distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
-    person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-        "person"
-    )
-    distinct_id_to_person = {}
-    for person_distinct_id in person_distinct_ids:
-        distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
+    # if not request.user.is_authenticated:  # for mypy
+    #     raise exceptions.NotAuthenticated()
+    # viewed_session_recordings = set(
+    #     SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
+    # )
 
-    session_recordings = list(
-        map(
-            lambda x: SessionRecording(**{**x, "viewed": x["session_id"] in viewed_session_recordings}),
-            session_recordings,
-        )
-    )
+    # distinct_ids = map(lambda x: x["distinct_id"], ch_session_recordings)
+    # person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
+    #     "person"
+    # )
+    # distinct_id_to_person = {}
+    # for person_distinct_id in person_distinct_ids:
+    #     distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
 
-    session_recording_serializer = SessionRecordingSerializer(data=session_recordings, many=True)
-    session_recording_serializer.is_valid(raise_exception=True)
-    results = list(
-        map(
-            lambda session_recording: {
-                **session_recording,
-                "person": PersonSerializer(instance=distinct_id_to_person.get(session_recording["distinct_id"])).data,
-            },
-            session_recording_serializer.data,
-        )
-    )
+    # Convert clickhouse recordings to Django models
+    recordings = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
+
+    # If we have a list of session ids, we need to load the rest of the recordings from Postgres as well
+    if filter.session_ids:
+        persisted_recordings = SessionRecording.objects.filter(session_id__in=filter.session_ids, team=team).all()
+        recordings = recordings + list(persisted_recordings)
+
+    session_recording_serializer = SessionRecordingSerializer(recordings, many=True)
+    results = session_recording_serializer.data
 
     return {"results": results, "has_next": more_recordings_available}
