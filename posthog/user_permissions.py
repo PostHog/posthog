@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Dict, Optional
+from typing import Dict, Optional, cast
 
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, Organization, OrganizationMembership, Team, User
@@ -71,16 +71,53 @@ class UserDashboardPermissions:
 
     @cached_property
     def restriction_level(self) -> Dashboard.RestrictionLevel:
-        return self.dashboard.effective_restriction_level
+        return (
+            self.dashboard.restriction_level
+            if self.p.organization_instance.is_feature_available(AvailableFeature.DASHBOARD_PERMISSIONING)
+            else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+        )
 
     @cached_property
     def can_restrict(self) -> bool:
-        return self.dashboard.can_user_restrict(self.p.user_instance.pk)
+        # Sync conditions with frontend hasInherentRestrictionsRights
+        from posthog.models.organization import OrganizationMembership
+
+        # The owner (aka creator) has full permissions
+        if self.p.user_instance.pk == self.dashboard.created_by_id:
+            return True
+        effective_project_membership_level = self.p.team.effective_membership_level
+        return (
+            effective_project_membership_level is not None
+            and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
+        )
 
     @cached_property
     def effective_privilege_level(self) -> Dashboard.PrivilegeLevel:
-        return self.dashboard.get_effective_privilege_level(self.p.user_instance.pk)
+        if (
+            # Checks can be skipped if the dashboard in on the lowest restriction level
+            self.dashboard.effective_restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            # Users with restriction rights can do anything
+            or self.can_restrict
+        ):
+            # Returning the highest access level if no checks needed
+            return Dashboard.PrivilegeLevel.CAN_EDIT
+
+        try:
+            from ee.models import DashboardPrivilege
+        except ImportError:
+            return Dashboard.PrivilegeLevel.CAN_VIEW
+        else:
+            try:
+                return cast(
+                    Dashboard.PrivilegeLevel,
+                    self.dashboard.privileges.values_list("level", flat=True).get(user_id=self.p.user_instance.pk),
+                )
+            except DashboardPrivilege.DoesNotExist:
+                # Returning the lowest access level if there's no explicit privilege for this user
+                return Dashboard.PrivilegeLevel.CAN_VIEW
 
     @cached_property
     def can_edit(self) -> bool:
-        return self.dashboard.can_user_edit(self.p.user_instance.pk)
+        if self.dashboard.effective_restriction_level < Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
+            return True
+        return self.effective_privilege_level >= Dashboard.PrivilegeLevel.CAN_EDIT
