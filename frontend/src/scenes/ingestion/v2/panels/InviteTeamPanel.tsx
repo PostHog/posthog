@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
@@ -7,14 +7,11 @@ import { IconChevronRight } from 'lib/components/icons'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DemoProjectButton } from './PanelComponents'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function InviteTeamPanel(): JSX.Element {
     const { next } = useActions(ingestionLogicV2)
     const { showInviteModal } = useActions(inviteLogic)
     const { reportInviteMembersButtonClicked } = useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -59,12 +56,10 @@ export function InviteTeamPanel(): JSX.Element {
                         </p>
                     </div>
                 </LemonButton>
-                {featureFlags[FEATURE_FLAGS.ONBOARDING_DEMO_EXPERIMENT] === 'test' ? (
-                    <DemoProjectButton
-                        text="I just want to try PostHog with some demo data."
-                        subtext="Explore insights, create dashboards, try out cohorts, and more."
-                    />
-                ) : null}
+                <DemoProjectButton
+                    text="I just want to try PostHog with some demo data."
+                    subtext="Explore insights, create dashboards, try out cohorts, and more."
+                />
             </div>
         </div>
     )
