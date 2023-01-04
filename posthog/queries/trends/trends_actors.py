@@ -2,6 +2,7 @@ import json
 from datetime import timedelta
 from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
+import pytz
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
 
@@ -21,7 +22,7 @@ from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group
 F = TypeVar("F", Filter, PropertiesTimelineFilter)
 
 
-def handle_dates_with_interval_for_data_point_actors(filter: F) -> F:
+def handle_date_to_with_interval_for_data_point_actors(filter: F, team: Team) -> F:
     """Handle date_to for non-cumulative time-series insight data points.
 
     We need to do some interval-aware offsetting when querying for such data points' actors, because for them
@@ -31,28 +32,20 @@ def handle_dates_with_interval_for_data_point_actors(filter: F) -> F:
     if filter.display == TRENDS_CUMULATIVE or filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
         return filter
     date_from = filter.date_from or timezone.now()
-    data: Dict = {}
     if filter.interval == "month":
-        data.update(
-            {
-                "date_to": (date_from + relativedelta(months=1) - timedelta(days=1)).replace(
-                    hour=0, minute=0, second=0, microsecond=0
-                )
-            }
+        date_to = (date_from + relativedelta(months=1) - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
         )
     elif filter.interval == "week":
-        data.update(
-            {
-                "date_to": (date_from + relativedelta(weeks=1) - timedelta(days=1)).replace(
-                    hour=0, minute=0, second=0, microsecond=0
-                )
-            }
+        date_to = (date_from + timedelta(weeks=1) - timedelta(days=1)).replace(
+            hour=0, minute=0, second=0, microsecond=0
         )
-    elif filter.interval == "day":
-        data.update({"date_to": date_from.replace(hour=23, minute=59, second=59, microsecond=999999)})
     elif filter.interval == "hour":
-        data.update({"date_to": (date_from + timedelta(hours=1))})
-    return filter.with_data(data)
+        date_to = date_from + timedelta(hours=1)
+    else:  # "day" is the default interval
+        date_to = date_from.replace(hour=23, minute=59, second=59, microsecond=999999)
+    date_to = date_to.replace(tzinfo=pytz.timezone(team.timezone))
+    return filter.with_data({"date_to": date_to})
 
 
 class TrendsActors(ActorBaseQuery):
@@ -65,7 +58,7 @@ class TrendsActors(ActorBaseQuery):
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
-        filter = handle_dates_with_interval_for_data_point_actors(filter)
+        filter = handle_date_to_with_interval_for_data_point_actors(filter, team)
         super().__init__(team, filter, entity, **kwargs)
 
     @cached_property
