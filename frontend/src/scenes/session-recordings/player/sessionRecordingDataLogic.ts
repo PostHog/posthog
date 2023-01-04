@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import api from 'lib/api'
 import { sum, toParams } from 'lib/utils'
 import {
+    AvailableFeature,
     EventType,
     PerformanceEvent,
     PlayerPosition,
@@ -31,6 +32,7 @@ import type { sessionRecordingDataLogicType } from './sessionRecordingDataLogicT
 import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 
@@ -133,7 +135,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
     key(({ sessionRecordingId }) => sessionRecordingId || 'no-session-recording-id'),
     connect({
         logic: [eventUsageLogic],
-        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags'], userLogic, ['hasAvailableFeature']],
     }),
     defaults({
         sessionPlayerMetaData: {
@@ -228,7 +230,13 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
-            actions.loadPerformanceEvents()
+            // TODO: remove FF check once feature is released. Keep hasAvailableFeature check.
+            if (
+                !!values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
+                values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
+            ) {
+                actions.loadPerformanceEvents()
+            }
         },
         loadRecordingSnapshotsSuccess: () => {
             // If there is more data to poll for load the next batch.
