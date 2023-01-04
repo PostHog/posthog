@@ -88,13 +88,11 @@ def send_email_verification(user_id: int) -> None:
     message = EmailMessage(
         campaign_key=f"email-verification-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Verify your email address",
-        template_name="password_reset",
+        template_name="email_verification",
         template_context={
             "preheader": "Please follow the link inside to verify your account.",
             "link": f"/verify_email/{user.uuid}/{email_verification_token}",
-            "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
-            "social_providers": list(user.social_auth.values_list("provider", flat=True)),
         },
     )
     message.add_recipient(user.email)
