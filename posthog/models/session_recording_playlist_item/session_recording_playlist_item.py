@@ -11,6 +11,7 @@ class SessionRecordingPlaylistItem(models.Model):
         on_delete=models.CASCADE,
         to_field="session_id",
         null=True,
+        blank=True,
     )
     playlist: models.ForeignKey = models.ForeignKey(
         "SessionRecordingPlaylist", related_name="playlist_items", on_delete=models.CASCADE
@@ -20,4 +21,4 @@ class SessionRecordingPlaylistItem(models.Model):
     # DEPRECATED: We hard delete as this is only a joiner table
     deleted: models.BooleanField = models.BooleanField(null=True, blank=True)
     # DEPRECATED: Use recording_id instead
-    session_id: models.CharField = models.CharField(max_length=200)
+    session_id: models.CharField = models.CharField(max_length=200, null=True, blank=True)

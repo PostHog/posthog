@@ -32,10 +32,10 @@ def migrate_playlist_item_recording_relations(apps, _) -> None:
         # Bulk update playlist_items
         playlist_items_to_update = []
         for playlist_item_object in playlist_items:
-            playlist_item_object.recording = playlist_item_object.session_id
+            playlist_item_object.recording_id = playlist_item_object.session_id
             playlist_items_to_update.append(playlist_item_object)
 
-        PlaylistItem.objects.bulk_update(playlist_items_to_update, fields=["recording"])
+        PlaylistItem.objects.bulk_update(playlist_items_to_update, fields=["recording_id"])
 
 
 def reverse(apps, _) -> None:
@@ -61,6 +61,11 @@ class Migration(migrations.Migration):
                 to=settings.AUTH_USER_MODEL,
             ),
         ),
+        migrations.AlterField(
+            model_name="sessionrecordingplaylistitem",
+            name="session_id",
+            field=models.CharField(blank=True, max_length=200, null=True),
+        ),
         migrations.CreateModel(
             name="SessionRecording",
             fields=[
@@ -75,13 +80,14 @@ class Migration(migrations.Migration):
                 ("team", models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team")),
             ],
             options={
-                "abstract": False,
+                "unique_together": {("team", "session_id")},
             },
         ),
         migrations.AddField(
             model_name="sessionrecordingplaylistitem",
             name="recording",
             field=models.ForeignKey(
+                blank=True,
                 null=True,
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="playlist_items",
