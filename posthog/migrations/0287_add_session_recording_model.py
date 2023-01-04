@@ -19,8 +19,6 @@ def migrate_playlist_item_recording_relations(apps, _) -> None:
     batch_size = 1_000
     playlist_item_paginator = Paginator(PlaylistItem.objects.order_by("created_at"), batch_size)
 
-    print("here!")
-
     for playlist_item_page in playlist_item_paginator.page_range:
         playlist_items = playlist_item_paginator.get_page(playlist_item_page)
 
@@ -38,8 +36,6 @@ def migrate_playlist_item_recording_relations(apps, _) -> None:
             playlist_items_to_update.append(playlist_item_object)
 
         PlaylistItem.objects.bulk_update(playlist_items_to_update, fields=["recording_id"])
-
-    print("here2!")
 
 
 def reverse(apps, _) -> None:
@@ -91,6 +87,7 @@ class Migration(migrations.Migration):
             model_name="sessionrecordingplaylistitem",
             name="recording",
             field=models.ForeignKey(
+                blank=True,
                 null=True,
                 on_delete=django.db.models.deletion.CASCADE,
                 related_name="playlist_items",

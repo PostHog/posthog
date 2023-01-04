@@ -11,6 +11,7 @@ class SessionRecordingPlaylistItem(models.Model):
         on_delete=models.CASCADE,
         to_field="session_id",
         null=True,
+        blank=True,
     )
     playlist: models.ForeignKey = models.ForeignKey(
         "SessionRecordingPlaylist", related_name="playlist_items", on_delete=models.CASCADE
