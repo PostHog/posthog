@@ -5,23 +5,25 @@ import {
     isInteractionNode,
     isQueryNode,
     isSessionNode,
-    TimeToSeeInteractionNode,
     TimeToSeeNode,
-    TimeToSeeQueryNode,
     TimeToSeeSessionNode,
 } from '~/queries/nodes/TimeToSeeData/types'
 import { TZLabel } from 'lib/components/TZLabel'
 import { humanFriendlyDuration } from 'lib/utils'
-import { dayjs } from 'lib/dayjs'
 import { IconSad, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { getSeriesColor } from 'lib/colors'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
+import { getDurationMs, SpanData, traceLogic } from '~/queries/nodes/TimeToSeeData/Trace/traceLogic'
+import { useActions, useValues } from 'kea'
 
-export interface SpanProps extends SpanData {
+export interface SpanProps {
     maxSpan: number
     durationContainerWidth: number | undefined
+    spanData: SpanData
     widthTrackingRef?: RefCallback<HTMLElement>
+    isExpandable?: boolean
+    onClick?: (span: SpanData) => void
 }
 
 const checkOverflow = (textContainer: HTMLSpanElement | null): boolean => {
@@ -34,25 +36,25 @@ const checkOverflow = (textContainer: HTMLSpanElement | null): boolean => {
     return false
 }
 
-function TraceBar({
-    depth,
-    start,
-    duration,
-    maxSpan,
-}: Pick<SpanProps, 'depth' | 'duration' | 'start' | 'maxSpan'>): JSX.Element {
-    const durationWidth = (duration / maxSpan) * 100
-    const startMargin = (start / maxSpan) * 100
+function TraceBar({ spanData, maxSpan }: SpanProps): JSX.Element {
+    const [durationWidth, setDurationWidth] = useState<number>(0)
+    const [startMargin, setStartMargin] = useState<number>(0)
+
     const [textIsOverflowing, setTextIsOverflowing] = useState<boolean>(false)
     const overflowingText = useRef<HTMLDivElement | null>(null)
 
     useEffect(() => {
-        if (checkOverflow(overflowingText.current)) {
-            setTextIsOverflowing(true)
-            return
+        setTextIsOverflowing(checkOverflow(overflowingText.current))
+        const nextDurationWidth = (spanData.duration / maxSpan) * 100
+        const nextStartMargin = (spanData.start / maxSpan) * 100
+        if (nextDurationWidth != durationWidth) {
+            console.log('setting duration width to ', nextDurationWidth, ' with max span of ', maxSpan)
+            setDurationWidth(nextDurationWidth)
         }
-
-        setTextIsOverflowing(false)
-    }, [duration, start, maxSpan])
+        if (nextStartMargin !== startMargin) {
+            setStartMargin(nextStartMargin)
+        }
+    }, [spanData, maxSpan])
 
     return (
         <div className={clsx('h-full flex relative', startMargin > 50 ? 'flex-row-reverse' : 'flex-row')}>
@@ -60,13 +62,13 @@ function TraceBar({
                 ref={overflowingText}
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
-                    backgroundColor: getSeriesColor(depth),
+                    backgroundColor: getSeriesColor(spanData.depth),
                     width: `${durationWidth}%`,
                     marginLeft: `${startMargin}%`,
                 }}
                 className={'text-white pl-1'}
             >
-                <span className={clsx(textIsOverflowing && 'invisible')}>{duration}ms</span>
+                <span className={clsx(textIsOverflowing && 'invisible')}>{spanData.duration}ms</span>
             </div>
             <span
                 className={clsx(!textIsOverflowing && 'hidden', 'text-black', startMargin > 50 ? 'absolute' : 'pl-1')}
@@ -75,7 +77,7 @@ function TraceBar({
                     right: `${101 - startMargin}%`,
                 }}
             >
-                {duration}ms
+                {spanData.duration}ms
             </span>
         </div>
     )
@@ -113,31 +115,38 @@ function DescribeSpan({ node }: { node: TimeToSeeNode }): JSX.Element {
 }
 
 export function Span({
-    start,
-    duration,
-    data,
     maxSpan,
     durationContainerWidth,
+    spanData,
     widthTrackingRef,
-    type,
-    children,
-    depth = 0,
+    isExpandable,
+    onClick,
 }: SpanProps): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(false)
+    const [isExpanded, setIsExpanded] = useState(isExpandable)
 
+    const onClickProps = spanData.data.type === 'interaction' ? { onClick: () => onClick?.(spanData) } : undefined
     return (
         <>
-            <div className={clsx('w-full border px-4 py-4 flex flex-row justify-between', `Span__${type}`)}>
+            <div
+                className={clsx(
+                    'w-full border px-4 py-4 flex flex-row justify-between',
+                    `Span__${spanData.type}`,
+                    !!onClick && 'cursor-pointer'
+                )}
+                {...onClickProps}
+            >
                 <div className={'w-100 relative flex flex-row gap-2'}>
-                    <LemonButton
-                        noPadding
-                        status="stealth"
-                        onClick={() => setIsExpanded(!isExpanded)}
-                        icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                        title={isExpanded ? 'Collapse span' : 'Expand span'}
-                    />
+                    {isExpandable && (
+                        <LemonButton
+                            noPadding
+                            status="stealth"
+                            onClick={() => setIsExpanded(!isExpanded)}
+                            icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                            title={isExpanded ? 'Collapse span' : 'Expand span'}
+                        />
+                    )}
 
-                    {data && <DescribeSpan node={data} />}
+                    {spanData.data && <DescribeSpan node={spanData.data} />}
                 </div>
                 <div
                     ref={widthTrackingRef}
@@ -149,20 +158,27 @@ export function Span({
                         minWidth: durationContainerWidth,
                     }}
                 >
-                    <TraceBar maxSpan={maxSpan} duration={duration} start={start} depth={depth} />
+                    <TraceBar maxSpan={maxSpan} durationContainerWidth={durationContainerWidth} spanData={spanData} />
                 </div>
             </div>
             {isExpanded && (
                 <>
-                    <NodeFacts node={data} />
+                    <NodeFacts
+                        facts={{
+                            ...sessionNodeFacts(spanData.data),
+                            ...interactionNodeFacts(spanData.data),
+                            ...queryNodeFacts(spanData.data),
+                            duration: `${getDurationMs(spanData.data)}ms`,
+                        }}
+                    />
                     <div className={'pl-4'}>
-                        {children.map((child, index) => (
+                        {spanData.children.map((child, index) => (
                             <Span
-                                key={`${depth}-${index}`}
+                                key={`${spanData.depth}-${index}`}
                                 maxSpan={maxSpan}
                                 durationContainerWidth={durationContainerWidth}
-                                widthTrackingRef={widthTrackingRef}
-                                {...child}
+                                widthTrackingRef={undefined}
+                                spanData={child}
                             />
                         ))}
                     </div>
@@ -174,20 +190,6 @@ export function Span({
 
 export interface TraceProps {
     timeToSeeSession: TimeToSeeSessionNode
-}
-
-interface SpanData {
-    type: 'session' | 'interaction' | 'event' | 'query' | 'subquery'
-    start: number // milliseconds after session start
-    duration: number
-    data: TimeToSeeNode
-    depth?: number
-    children: SpanData[]
-}
-
-interface ProcessSpans {
-    spans: SpanData[]
-    maxDuration: number
 }
 
 function interactionNodeFacts(node: TimeToSeeNode): Record<string, any> {
@@ -210,14 +212,7 @@ function queryNodeFacts(node: TimeToSeeNode): Record<string, any> {
     return isQueryNode(node) ? { type: 'Clickhouse query', hasJoins: !!node.data.has_joins ? 'true' : 'false' } : {}
 }
 
-function NodeFacts({ node }: { node: TimeToSeeNode }): JSX.Element {
-    const facts = {
-        ...sessionNodeFacts(node),
-        ...interactionNodeFacts(node),
-        ...queryNodeFacts(node),
-        duration: `${getDurationMs(node)}ms`,
-    }
-
+function NodeFacts({ facts }: { facts: Record<string, any> }): JSX.Element {
     return (
         <div className={clsx('w-full border px-4 py-4 flex flex-col justify-between')}>
             {Object.entries(facts)
@@ -233,67 +228,55 @@ function NodeFacts({ node }: { node: TimeToSeeNode }): JSX.Element {
     )
 }
 
-function getDurationMs(node: TimeToSeeNode): number {
-    switch (node.type) {
-        case 'session':
-            return node.data.duration_ms
-        case 'interaction':
-        case 'event':
-            return node.data.time_to_see_data_ms
-        case 'query':
-        case 'subquery':
-            return node.data.query_duration_ms
-    }
-}
-function walkSpans(
-    nodes: Array<TimeToSeeInteractionNode | TimeToSeeQueryNode>,
-    sessionStart: dayjs.Dayjs,
-    level: number = 1
-): ProcessSpans {
-    const spanData: SpanData[] = []
-    let maxDuration = 0
+function TraceOverview({
+    timeToSeeSession,
+    processedSpans,
+    onClick,
+}: {
+    processedSpans: SpanData[]
+    timeToSeeSession: TimeToSeeSessionNode
+    onClick: (span: SpanData) => void
+}): JSX.Element {
+    const { ref: parentSpanRef, width: parentSpanWidth } = useResizeObserver()
 
-    nodes.forEach((node) => {
-        const walkedChildren = walkSpans(node.children, sessionStart, level++)
-
-        const start = dayjs(node.data.timestamp).diff(sessionStart)
-        const duration = getDurationMs(node)
-        spanData.push({
-            type: node.type,
-            start: start,
-            duration: duration,
-            data: node,
-            depth: level,
-            children: walkedChildren.spans,
-        })
-        maxDuration = start + duration
-
-        maxDuration = Math.max(maxDuration, walkedChildren.maxDuration)
-    })
-
-    return { spans: spanData, maxDuration }
-}
-
-function flattenSpans(timeToSeeSession: TimeToSeeSessionNode): ProcessSpans {
-    const walkedChildren = walkSpans(timeToSeeSession.children, dayjs(timeToSeeSession.data.session_start))
-    walkedChildren.spans.unshift({
-        type: 'session',
-        start: 0,
-        duration: getDurationMs(timeToSeeSession),
-        data: timeToSeeSession,
-        children: [], // the session's children are shown separately
-    })
-
-    return {
-        spans: walkedChildren.spans,
-        maxDuration: Math.max(timeToSeeSession.data.duration_ms, walkedChildren.maxDuration),
-    }
+    return (
+        <>
+            <div className={'flex flex-col gap-1 border rounded p-4'}>
+                <h1>Session Interactions</h1>
+                <NodeFacts facts={sessionNodeFacts(timeToSeeSession)} />
+                {processedSpans
+                    .filter((spanData) => ['interaction', 'session'].includes(spanData.type))
+                    .map((spanData, i) => {
+                        let ref = undefined
+                        if (spanData.type === 'session') {
+                            ref = parentSpanRef
+                        }
+                        return (
+                            <div key={i}>
+                                <Span
+                                    onClick={onClick}
+                                    isExpandable={false}
+                                    widthTrackingRef={ref}
+                                    // don't set duration container width back onto the element that is generating it
+                                    durationContainerWidth={!!ref ? undefined : parentSpanWidth}
+                                    maxSpan={timeToSeeSession.data.duration_ms}
+                                    spanData={spanData}
+                                />
+                            </div>
+                        )
+                    })}
+            </div>
+        </>
+    )
 }
 
 export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
-    const { ref: parentSpanRef, width: parentSpanWidth } = useResizeObserver()
+    const { ref: selectedSpanRef, width: selectedSpanWidth } = useResizeObserver()
 
-    const { spans, maxDuration } = flattenSpans(timeToSeeSession)
+    const logic = traceLogic({ sessionNode: timeToSeeSession })
+    const { focussedInteraction, processedSpans } = useValues(logic)
+    const { showInteractionTrace } = useActions(logic)
+
     return (
         <div className={'flex flex-col gap-1 border rounded p-4'}>
             <h2>{timeToSeeSession.data.session_id}</h2>
@@ -303,23 +286,23 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
             <div>
                 session start: <TZLabel time={timeToSeeSession.data.session_start} />
             </div>
-            {spans.map((spanData, i) => {
-                let ref = undefined
-                if (spanData.type === 'session') {
-                    ref = parentSpanRef
-                }
-                return (
-                    <div key={i}>
-                        <Span
-                            widthTrackingRef={ref}
-                            // don't set duration container width back onto the element that is generating it
-                            durationContainerWidth={!!ref ? undefined : parentSpanWidth}
-                            maxSpan={maxDuration}
-                            {...spanData}
-                        />
-                    </div>
-                )
-            })}
+            <TraceOverview
+                processedSpans={processedSpans}
+                timeToSeeSession={timeToSeeSession}
+                onClick={(span) => showInteractionTrace(span)}
+            />
+
+            {focussedInteraction ? (
+                <Span
+                    isExpandable={true}
+                    widthTrackingRef={selectedSpanRef}
+                    // don't set duration container width back onto the element that is generating it
+                    durationContainerWidth={selectedSpanWidth}
+                    // the selected span _must_ always have a larger duration than its children
+                    maxSpan={focussedInteraction.duration}
+                    spanData={focussedInteraction}
+                />
+            ) : null}
         </div>
     )
 }
