@@ -1,4 +1,6 @@
-export const reportA11y = (options, tag, skipFailures = true) => {
+import { Options } from 'cypress-axe'
+
+export const reportA11y = (options: Options, tag: string, skipFailures = true): void => {
     if (typeof tag !== undefined) {
         tag += '-'
     }

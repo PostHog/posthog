@@ -1,5 +1,12 @@
 import { DataNode, EventsQuery, PersonsNode } from './schema'
-import { isInsightQueryNode, isEventsQuery, isLegacyQuery, isPersonsNode } from './utils'
+import {
+    isInsightQueryNode,
+    isEventsQuery,
+    isLegacyQuery,
+    isPersonsNode,
+    isTimeToSeeDataSessionsQuery,
+    isTimeToSeeDataQuery,
+} from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
 import { AnyPartialFilterType } from '~/types'
@@ -15,6 +22,7 @@ import {
 import { toParams } from 'lib/utils'
 import { queryNodeToFilter } from './nodes/InsightQuery/utils/queryNodeToFilter'
 import { now } from 'lib/dayjs'
+import { currentSessionId } from 'lib/internalMetrics'
 
 const EVENTS_DAYS_FIRST_FETCH = 5
 
@@ -57,6 +65,17 @@ export async function query<N extends DataNode = DataNode>(
             methodOptions,
         })
         return await response.json()
+    } else if (isTimeToSeeDataSessionsQuery(query)) {
+        return await api.create('/api/time_to_see_data/sessions', {
+            team_id: query.teamId ?? getCurrentTeamId(),
+        })
+    } else if (isTimeToSeeDataQuery(query)) {
+        return await api.create('/api/time_to_see_data/session_events', {
+            team_id: query.teamId ?? getCurrentTeamId(),
+            session_id: query.sessionId ?? currentSessionId(),
+            session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
+            session_end: query.sessionEnd ?? now().toISOString(),
+        })
     }
     throw new Error(`Unsupported query: ${query.kind}`)
 }

@@ -13,6 +13,8 @@ import {
     PersonsNode,
     RetentionQuery,
     StickinessQuery,
+    TimeToSeeDataQuery,
+    TimeToSeeDataSessionsQuery,
     TrendsQuery,
 } from '~/queries/schema'
 import {
@@ -263,6 +265,14 @@ const InsightLifecycleQuery: LifecycleQuery = {
     },
 }
 
+const TimeToSeeDataSessions: TimeToSeeDataSessionsQuery = {
+    kind: NodeKind.TimeToSeeDataSessionsQuery,
+}
+
+const TimeToSeeData: TimeToSeeDataQuery = {
+    kind: NodeKind.TimeToSeeDataQuery,
+}
+
 export const examples: Record<string, Node> = {
     Events,
     EventsTable,
@@ -280,6 +290,8 @@ export const examples: Record<string, Node> = {
     InsightPathsQuery,
     InsightStickinessQuery,
     InsightLifecycleQuery,
+    TimeToSeeDataSessions,
+    TimeToSeeData,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
