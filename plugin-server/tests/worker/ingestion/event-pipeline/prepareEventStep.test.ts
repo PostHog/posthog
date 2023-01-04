@@ -53,7 +53,6 @@ describe('prepareEventStep()', () => {
         personContainer = new LazyPersonContainer(2, 'my_id', hub)
 
         runner = {
-            fullyProcessEvent: true,
             nextStep: (...args: any[]) => args,
             hub,
         }

@@ -42,7 +42,7 @@ export async function emitToBufferStep(
 
         // TODO: remove this conditional once we're confident that the new
         // ingestion pipeline is working well for all teams.
-        runner.fullyProcessEvent = false
+        runner.onlyUpdatePersonIdAssociations = true
         return runner.nextStep('pluginsProcessEventStep', event, personContainer)
     }
 

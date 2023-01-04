@@ -526,13 +526,11 @@ testIfDelayEnabled(
     async () => {
         const teamId = await createTeam(postgres, organizationId)
         const aliceAnonId = new UUIDT().toString()
-        const aliceId = new UUIDT().toString()
         const bobAnonId = new UUIDT().toString()
         const bobId = new UUIDT().toString()
 
         const firstUuid = new UUIDT().toString()
-        await capture(producer, teamId, aliceId, firstUuid, '$identify', {
-            $anon_distinct_id: aliceAnonId,
+        await capture(producer, teamId, aliceAnonId, firstUuid, 'custom event', {
             $set: {
                 k: 'v1',
             },
@@ -554,6 +552,8 @@ testIfDelayEnabled(
         })
 
         const forthUuid = new UUIDT().toString()
+        // NOTE: this test doesn't work if we switch around `bobAnonId` and
+        // `aliceAnonId`
         await capture(producer, teamId, bobAnonId, forthUuid, '$create_alias', {
             alias: aliceAnonId,
         })

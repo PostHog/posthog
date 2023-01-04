@@ -26,7 +26,6 @@ describe('processPersonsStep()', () => {
 
     beforeEach(() => {
         runner = {
-            fullyProcessEvent: true,
             nextStep: (...args: any[]) => args,
             hub: {
                 db: 'hub.db',

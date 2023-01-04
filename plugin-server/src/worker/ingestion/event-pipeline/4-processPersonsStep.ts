@@ -24,28 +24,7 @@ export async function processPersonsStep(
 
     const timestamp = parseEventTimestamp(event)
 
-    if (runner.fullyProcessEvent) {
-        // The runner can be configured to either update only and create persons
-        // and distinct_id, or also update person properties and send the event
-        // to ClickHouse. This is to make is possible to provide a delay before
-        // person_id is denormalized onto the event.
-        //
-        // Here we are in the fullyProcessEvent mode, so we update the person
-        // properties as well, and then continue to the next step.
-
-        const newPersonContainer: LazyPersonContainer = await updatePersonState(
-            event,
-            event.team_id,
-            String(event.distinct_id),
-            timestamp,
-            runner.hub.db,
-            runner.hub.statsd,
-            runner.hub.personManager,
-            personContainer
-        )
-
-        return runner.nextStep('prepareEventStep', event, newPersonContainer)
-    } else {
+    if (runner.onlyUpdatePersonIdAssociations) {
         // If we're not performing all the processing, we need to send the event
         // to the buffer queue. Further processing will happen after the delay
         // has taken effect.
@@ -99,5 +78,26 @@ export async function processPersonsStep(
         }
 
         return null // Make sure we don't continue processing in this case.
+    } else {
+        // The runner can be configured to either update only and create persons
+        // and distinct_id, or also update person properties and send the event
+        // to ClickHouse. This is to make is possible to provide a delay before
+        // person_id is denormalized onto the event.
+        //
+        // Here we are in the fullyProcessEvent mode, so we update the person
+        // properties as well, and then continue to the next step.
+
+        const newPersonContainer: LazyPersonContainer = await updatePersonState(
+            event,
+            event.team_id,
+            String(event.distinct_id),
+            timestamp,
+            runner.hub.db,
+            runner.hub.statsd,
+            runner.hub.personManager,
+            personContainer
+        )
+
+        return runner.nextStep('prepareEventStep', event, newPersonContainer)
     }
 }

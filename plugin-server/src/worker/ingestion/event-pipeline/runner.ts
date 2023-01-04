@@ -66,12 +66,15 @@ const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
 export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent | ProcessedPluginEvent
-    fullyProcessEvent: boolean
 
-    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, fullyProcessEvent = true) {
+    // See https://github.com/PostHog/product-internal/pull/405 for an overview
+    // of the implementation.
+    onlyUpdatePersonIdAssociations: boolean
+
+    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, onlyUpdatePersonIdAssociations = false) {
         this.hub = hub
         this.originalEvent = originalEvent
-        this.fullyProcessEvent = fullyProcessEvent
+        this.onlyUpdatePersonIdAssociations = onlyUpdatePersonIdAssociations
     }
 
     // KLUDGE: This is a temporary entry point for the pipeline while we transition away from
