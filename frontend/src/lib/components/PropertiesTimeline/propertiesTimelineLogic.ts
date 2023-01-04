@@ -1,13 +1,13 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import api from 'lib/api'
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
-import { toParams } from 'lib/utils'
-import { ActorType, PropertiesTimelineFilterType } from '~/types'
+import { toParams, uuid } from 'lib/utils'
+import { ActorType, InsightType, PropertiesTimelineFilterType } from '~/types'
 import { kea, key, props, path, connect, afterMount, selectors, reducers, actions } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import type { propertiesTimelineLogicType } from './propertiesTimelineLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { api } from '@posthog/apps-common'
 
 export interface PropertiesTimelinePoint {
     timestamp: Dayjs
@@ -60,12 +60,23 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             {
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
-                        const response = (await api.get(
+                        const queryId = uuid()
+                        return await api.getWithTimeToSeeDataTracking(
                             `api/projects/${values.currentTeamId}/persons/${
                                 props.actor.uuid
-                            }/properties_timeline/?${toParams(props.filter)}`
-                        )) as RawPropertiesTimelineResult
-                        return response
+                            }/properties_timeline/?${toParams(props.filter)}`,
+                            values.currentTeamId,
+                            {
+                                type: 'insight_load',
+                                context: 'insight',
+                                primary_interaction_id: queryId,
+                                query_id: queryId,
+                                insights_fetched: 1,
+                                insights_fetched_cached: 0, // TODO: Cache properties timeline requests eventually
+                                insight: InsightType.PROPERTIES_TIMELINE,
+                                is_primary_interaction: true,
+                            }
+                        )
                     }
                     return {
                         points: [],
