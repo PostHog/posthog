@@ -1,12 +1,7 @@
 import json
 from typing import List, Optional
 
-from posthog.constants import (
-    PERSON_UUID_FILTER,
-    SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS,
-    SESSION_RECORDINGS_FILTER_TYPE_DURATION,
-)
-from posthog.helpers.session_recording import MinimalStaticSessionRecording
+from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS, SESSION_RECORDINGS_FILTER_TYPE_DURATION
 from posthog.models.filters.mixins.common import BaseParamMixin
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import Property
@@ -28,13 +23,12 @@ class SessionRecordingsMixin(BaseParamMixin):
         return None
 
     @cached_property
-    def static_recordings(self) -> Optional[List[MinimalStaticSessionRecording]]:
-        static_recordings_str = self._data.get(SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS, None)
-        if static_recordings_str is None:
+    def session_ids(self) -> Optional[List[str]]:
+        session_ids_str = self._data.get(SESSION_RECORDINGS_FILTER_IDS, None)
+        if session_ids_str is None:
             return None
 
-        static_recordings = json.loads(static_recordings_str)
-        return [
-            MinimalStaticSessionRecording(id=recording.get("id", None), created_at=recording.get("created_at", None))
-            for recording in static_recordings
-        ]
+        recordings_ids = json.loads(session_ids_str)
+        if isinstance(recordings_ids, list) and all(isinstance(recording_id, str) for recording_id in recordings_ids):
+            return recordings_ids
+        return None
