@@ -16,44 +16,31 @@ class UserPermissions:
         """Return an effective membership level.
         None returned if the user has no explicit membership and organization access is too low for implicit membership.
         """
-        from posthog.models.organization import OrganizationMembership
 
-        try:
-            requesting_parent_membership: OrganizationMembership = OrganizationMembership.objects.select_related(
-                "organization"
-            ).get(organization_id=self.organization.pk, user_id=self.user.pk)
-        except OrganizationMembership.DoesNotExist:
-            return None
-        return self.get_effective_membership_level_for_parent_membership(requesting_parent_membership)
+        return self.team_effective_membership_level_for_parent_membership(self._organization_membership)
 
-    def get_effective_membership_level_for_parent_membership(
-        self, requesting_parent_membership: "OrganizationMembership"
+    def team_effective_membership_level_for_parent_membership(
+        self, organization_membership: Optional["OrganizationMembership"]
     ) -> Optional["OrganizationMembership.Level"]:
+        if organization_membership is None:
+            return None
+
         if (
-            not requesting_parent_membership.organization.is_feature_available(
-                AvailableFeature.PROJECT_BASED_PERMISSIONING
-            )
+            not self.organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
             or not self.team.access_control
         ):
-            return requesting_parent_membership.level
-        from posthog.models.organization import OrganizationMembership
+            return organization_membership.level
 
         try:
-            from ee.models import ExplicitTeamMembership
-        except ImportError:
+            explicit_membership = organization_membership.explicit_team_memberships.all()[0]
+            return explicit_membership.effective_level
+        # Thrown if ee model is inaccessible or no explicit membership set
+        except (AttributeError, IndexError):
             # Only organizations admins and above get implicit project membership
-            if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
+            if organization_membership.level < OrganizationMembership.Level.ADMIN:
                 return None
-            return requesting_parent_membership.level
-        else:
-            try:
-                return (
-                    requesting_parent_membership.explicit_team_memberships.only("parent_membership", "level")
-                    .get(team=self.team)
-                    .effective_level
-                )
-            except ExplicitTeamMembership.DoesNotExist:
-                # Only organizations admins and above get implicit project membership
-                if requesting_parent_membership.level < OrganizationMembership.Level.ADMIN:
-                    return None
-                return requesting_parent_membership.level
+            return organization_membership.level
+
+    @cached_property
+    def _organization_membership(self) -> Optional[OrganizationMembership]:
+        return OrganizationMembership.objects.filter(organization=self.organization, user=self.user).first()
