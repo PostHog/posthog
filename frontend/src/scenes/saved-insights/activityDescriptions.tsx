@@ -202,8 +202,6 @@ const insightActionsMapping: Record<
     id: () => null,
     created_at: () => null,
     created_by: () => null,
-    filters_hash: () => null,
-    refreshing: () => null,
     updated_at: () => null,
     last_modified_at: () => null,
     order: () => null,
@@ -256,7 +254,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         )
 
         for (const change of logItem.detail.changes || []) {
-            if (!change?.field) {
+            if (!change?.field || !insightActionsMapping[change.field]) {
                 continue // insight updates have to have a "field" to be described
             }
 

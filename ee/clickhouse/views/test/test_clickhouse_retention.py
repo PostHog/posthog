@@ -12,8 +12,8 @@ from posthog.models.person import Person as PersonModel
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 from posthog.test.test_journeys import create_all_events, update_or_create_person
 from posthog.utils import encode_get_request_params
@@ -354,7 +354,7 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
             },
         )
 
-    @test_with_materialized_columns(person_properties=["os"])
+    @also_test_with_materialized_columns(person_properties=["os"])
     def test_can_specify_breakdown_person_property(self):
         """
         By default, we group users together by the first time they perform the
@@ -414,7 +414,7 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
             },  # IMPORTANT: the "2" value is from past the requested `date_to`
         }
 
-    @test_with_materialized_columns(event_properties=["os"])
+    @also_test_with_materialized_columns(event_properties=["os"])
     def test_can_specify_breakdown_event_property(self):
         """
         By default, we group users together by the first time they perform the
@@ -477,7 +477,7 @@ class BreakdownTests(APIBaseTest, ClickhouseTestMixin):
             },  # IMPORTANT: the "2" value is from past the requested `date_to`
         }
 
-    @test_with_materialized_columns(event_properties=["os"])
+    @also_test_with_materialized_columns(event_properties=["os"])
     def test_can_specify_breakdown_event_property_and_retrieve_people(self):
         """
         This test is slightly different from the

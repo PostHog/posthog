@@ -13,7 +13,6 @@ on:
     push:
         branches:
             - master
-            - main
 
 concurrency: ${{ github.workflow }} # ensure only one of this runs at a time
 
@@ -118,3 +117,23 @@ jobs:
                   # the posthog-cloud code we've checked out.
                   build-args: |
                       BASE_IMAGE=posthog/posthog:latest
+
+            - name: Trigger PostHog Cloud deployment
+              # TODO: switch to https://github.com/marketplace/actions/repository-dispatch
+              # as this action is now deprecated.
+              uses: mvasigh/dispatch-action@main
+              with:
+                  # TODO: find a way to avoid using a personal access token. An
+                  # option: push something to SQS (using WebIdentity) -> lambda
+                  # function to trigger the workflow via webhook
+                  token: ${{ secrets.POSTHOG_CLOUD_ACCESS_TOKEN }}
+                  repo: posthog-cloud-infra
+                  owner: PostHog
+                  event_type: posthog_cloud_build
+                  # TODO: switch image_tag to a SHA. We currently use 'latest'
+                  # to avoid checksum mismatch on multiple platforms.
+                  message: |
+                      {
+                        "image_tag": "latest",
+                        "context": ${{ toJson(github) }}
+                      }
