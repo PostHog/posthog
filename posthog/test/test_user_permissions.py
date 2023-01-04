@@ -25,7 +25,6 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         super().setUp()
         self.organization.available_features = [
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
-            AvailableFeature.DASHBOARD_PERMISSIONING,
         ]
 
     def test_team_effective_membership_level(self):
@@ -258,17 +257,35 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
 
         assert self.insight_permissions().effective_privilege_level == Dashboard.PrivilegeLevel.CAN_EDIT
 
+
+class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
     def test_efficiency(self):
+        self.organization.available_features = [
+            AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            AvailableFeature.DASHBOARD_PERMISSIONING,
+        ]
+        self.organization.save()
+
+        dashboard = Dashboard.objects.create(
+            team=self.team, restriction_level=Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        )
         insights, tiles = [], []
         for _ in range(10):
             insight = Insight.objects.create(team=self.team)
-            tile = DashboardTile.objects.create(dashboard=self.dashboard1, insight=insight)
+            tile = DashboardTile.objects.create(dashboard=dashboard, insight=insight)
             insights.append(insight)
             tiles.append(tile)
 
         user_permissions = self.permissions()
         user_permissions.set_preloaded_dashboard_tiles(tiles)
+
         with self.assertNumQueries(3):
+            assert user_permissions.team.effective_membership_level is not None
+            assert user_permissions.dashboard(dashboard).effective_restriction_level is not None
+            assert user_permissions.dashboard(dashboard).can_restrict is not None
+            assert user_permissions.dashboard(dashboard).effective_privilege_level is not None
+            assert user_permissions.dashboard(dashboard).can_edit is not None
+
             for insight in insights:
                 assert user_permissions.insight(insight).effective_restriction_level is not None
                 assert user_permissions.insight(insight).effective_privilege_level is not None
