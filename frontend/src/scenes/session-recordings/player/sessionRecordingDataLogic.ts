@@ -230,13 +230,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         loadRecordingMetaSuccess: () => {
             cache.eventsStartTime = performance.now()
             actions.loadEvents()
-            // TODO: remove FF check once feature is released. Keep hasAvailableFeature check.
-            if (
-                !!values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
-                values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
-            ) {
-                actions.loadPerformanceEvents()
-            }
+            actions.loadPerformanceEvents()
         },
         loadRecordingSnapshotsSuccess: () => {
             // If there is more data to poll for load the next batch.
@@ -419,7 +413,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             null as null | PerformanceEvent[],
             {
                 loadPerformanceEvents: async ({}, breakpoint) => {
-                    if (!values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]) {
+                    if (
+                        !values.featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] ||
+                        !values.hasAvailableFeature(AvailableFeature.RECORDINGS_PERFORMANCE)
+                    ) {
                         return null
                     }
 
