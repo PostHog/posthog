@@ -52,7 +52,7 @@ class UserPermissions:
         self._tiles = tiles
 
     @cached_property
-    def preloaded_dashboards(self) -> Optional[List[Dashboard]]:
+    def preloaded_insight_dashboards(self) -> Optional[List[Dashboard]]:
         if self._tiles is None:
             return None
 
@@ -168,8 +168,8 @@ class UserInsightPermissions:
     @cached_property
     def insight_dashboards(self):
         # If we're in dashboard(s) and have sped up lookups
-        if self.p.preloaded_dashboards is not None:
-            return self.p.preloaded_dashboards
+        if self.p.preloaded_insight_dashboards is not None:
+            return self.p.preloaded_insight_dashboards
 
         dashboard_ids = set(
             DashboardTile.objects.filter(insight=self.insight.pk).values_list("dashboard_id", flat=True)
