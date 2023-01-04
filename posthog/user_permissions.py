@@ -101,7 +101,7 @@ class UserDashboardPermissions:
         self.dashboard = dashboard
 
     @cached_property
-    def restriction_level(self) -> Dashboard.RestrictionLevel:
+    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
         return (
             self.dashboard.restriction_level
             if self.p.organization_instance.is_feature_available(AvailableFeature.DASHBOARD_PERMISSIONING)
@@ -126,7 +126,7 @@ class UserDashboardPermissions:
     def effective_privilege_level(self) -> Dashboard.PrivilegeLevel:
         if (
             # Checks can be skipped if the dashboard in on the lowest restriction level
-            self.dashboard.effective_restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
+            self.effective_restriction_level == Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
             # Users with restriction rights can do anything
             or self.can_restrict
         ):
@@ -138,7 +138,7 @@ class UserDashboardPermissions:
 
     @cached_property
     def can_edit(self) -> bool:
-        if self.dashboard.effective_restriction_level < Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
+        if self.effective_restriction_level < Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT:
             return True
         return self.effective_privilege_level >= Dashboard.PrivilegeLevel.CAN_EDIT
 
@@ -153,7 +153,7 @@ class UserInsightPermissions:
         if len(self.insight_dashboards) == 0:
             return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
 
-        return max(self.p.dashboard(dashboard).restriction_level for dashboard in self.insight_dashboards)
+        return max(self.p.dashboard(dashboard).effective_restriction_level for dashboard in self.insight_dashboards)
 
     @cached_property
     def effective_privilege_level(self) -> Dashboard.PrivilegeLevel:
