@@ -1,6 +1,8 @@
 import datetime as dt
 from typing import Any, Dict, Optional, Tuple
 
+import pytz
+
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.utils import PersonPropertiesMode
@@ -74,8 +76,9 @@ class PropertiesTimelineEventQuery(EventQuery):
     def _get_date_filter(self) -> Tuple[str, Dict]:
         query_params: Dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
-        self.effective_date_from = query_date_range.date_from_param
-        self.effective_date_to = query_date_range.date_to_param
+        effective_timezone = pytz.timezone(self._team.timezone)
+        self.effective_date_from = query_date_range.date_from_param.replace(tzinfo=effective_timezone)
+        self.effective_date_to = query_date_range.date_to_param.replace(tzinfo=effective_timezone)
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
 
