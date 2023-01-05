@@ -91,8 +91,22 @@ export class PersonState {
     }
 
     async updateExceptProperties(): Promise<LazyPersonContainer> {
-        await this.handleIdentifyOrAlias()
-        await this.createPersonIfDistinctIdIsNew()
+        // Update everything but the person properties. This is used such that
+        // we can separate the person_id distinct_id associations from the
+        // update of properties. This allows us to achieve:
+        //
+        //  1. time delayed denormalization of person_id onto events.
+        //  2. point in time denormalization of person properties onto events.
+        //
+        // See https://github.com/PostHog/product-internal/pull/405 for details
+        // of the implementation.
+        //
+        // TODO: when we have switched to only using the new implementation, we
+        // can more safely refactor this to make the separaation less coupled.
+        // For now we try to change as little as possible from the previous
+        // behaviour.
+        await this.handleIdentifyOrAlias({ excludeProperties: true })
+        await this.createPersonIfDistinctIdIsNew({ excludeProperties: true })
         return this.personContainer
     }
 
@@ -113,7 +127,11 @@ export class PersonState {
         return this.personContainer
     }
 
-    private async createPersonIfDistinctIdIsNew(): Promise<boolean> {
+    private async createPersonIfDistinctIdIsNew({
+        excludeProperties,
+    }: {
+        excludeProperties?: boolean
+    } = {}): Promise<boolean> {
         // :TRICKY: Short-circuit if person container already has loaded person and it exists
         if (this.personContainer.loaded) {
             return false
@@ -121,8 +139,8 @@ export class PersonState {
 
         const isNewPerson = await this.personManager.isNewPerson(this.db, this.teamId, this.distinctId)
         if (isNewPerson) {
-            const properties = this.eventProperties['$set'] || {}
-            const propertiesOnce = this.eventProperties['$set_once'] || {}
+            const properties = excludeProperties ? {} : this.eventProperties['$set'] || {}
+            const propertiesOnce = excludeProperties ? {} : this.eventProperties['$set_once'] || {}
             // Catch race condition where in between getting and creating, another request already created this user
             try {
                 const person = await this.createPerson(
@@ -267,7 +285,7 @@ export class PersonState {
 
     // Alias & merge
 
-    async handleIdentifyOrAlias(): Promise<void> {
+    async handleIdentifyOrAlias({ excludeProperties }: { excludeProperties?: boolean } = {}): Promise<void> {
         /**
          * strategy:
          *   - if the two distinct ids passed don't match and aren't illegal, then mark `is_identified` to be true for the `distinct_id` person
@@ -287,7 +305,8 @@ export class PersonState {
                     this.distinctId,
                     this.teamId,
                     this.timestamp,
-                    false
+                    false,
+                    excludeProperties
                 )
             } else if (this.event.event === '$identify' && this.eventProperties['$anon_distinct_id']) {
                 await this.merge(
@@ -295,7 +314,8 @@ export class PersonState {
                     this.distinctId,
                     this.teamId,
                     this.timestamp,
-                    true
+                    true,
+                    excludeProperties
                 )
             }
         } catch (e) {
@@ -310,7 +330,8 @@ export class PersonState {
         distinctId: string,
         teamId: number,
         timestamp: DateTime,
-        isIdentifyCall: boolean
+        isIdentifyCall: boolean,
+        excludeProperties = false
     ): Promise<void> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (distinctId === previousDistinctId) {
@@ -332,7 +353,16 @@ export class PersonState {
             })
             return
         }
-        await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall)
+        await this.aliasDeprecated(
+            previousDistinctId,
+            distinctId,
+            teamId,
+            timestamp,
+            isIdentifyCall,
+            true,
+            0,
+            excludeProperties
+        )
     }
 
     private async aliasDeprecated(
@@ -342,7 +372,8 @@ export class PersonState {
         timestamp: DateTime,
         isIdentifyCall = true,
         retryIfFailed = true,
-        totalMergeAttempts = 0
+        totalMergeAttempts = 0,
+        excludeProperties = false
     ): Promise<void> {
         // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (previousDistinctId === distinctId) {
@@ -364,7 +395,16 @@ export class PersonState {
                 // integrity error
                 if (retryIfFailed) {
                     // run everything again to merge the users if needed
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
+                    await this.aliasDeprecated(
+                        previousDistinctId,
+                        distinctId,
+                        teamId,
+                        timestamp,
+                        isIdentifyCall,
+                        false,
+                        0,
+                        excludeProperties
+                    )
                 }
             }
         } else if (!oldPerson && newPerson) {
@@ -375,7 +415,16 @@ export class PersonState {
                 // integrity error
                 if (retryIfFailed) {
                     // run everything again to merge the users if needed
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
+                    await this.aliasDeprecated(
+                        previousDistinctId,
+                        distinctId,
+                        teamId,
+                        timestamp,
+                        isIdentifyCall,
+                        false,
+                        0,
+                        excludeProperties
+                    )
                 }
             }
         } else if (!oldPerson && !newPerson) {
@@ -398,7 +447,16 @@ export class PersonState {
                 // another request already created this person
                 if (retryIfFailed) {
                     // Try once more, probably one of the two persons exists now
-                    await this.aliasDeprecated(previousDistinctId, distinctId, teamId, timestamp, isIdentifyCall, false)
+                    await this.aliasDeprecated(
+                        previousDistinctId,
+                        distinctId,
+                        teamId,
+                        timestamp,
+                        isIdentifyCall,
+                        false,
+                        0,
+                        excludeProperties
+                    )
                 }
             }
         } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
@@ -426,6 +484,7 @@ export class PersonState {
                     otherPerson: oldPerson,
                     otherPersonDistinctId: previousDistinctId,
                     timestamp: timestamp,
+                    excludeProperties,
                 })
             }
         }
@@ -439,6 +498,7 @@ export class PersonState {
         timestamp,
         totalMergeAttempts = 0,
         shouldIdentifyPerson = true,
+        excludeProperties,
     }: {
         mergeInto: Person
         mergeIntoDistinctId: string
@@ -447,6 +507,7 @@ export class PersonState {
         timestamp: DateTime
         totalMergeAttempts: number
         shouldIdentifyPerson?: boolean
+        excludeProperties: boolean
     }): Promise<void> {
         const teamId = mergeInto.team_id
 
@@ -479,7 +540,9 @@ export class PersonState {
                     mergeInto,
                     {
                         created_at: firstSeen,
-                        properties: this.updatedPersonProperties(mergeInto.properties),
+                        properties: excludeProperties
+                            ? mergeInto.properties
+                            : this.updatedPersonProperties(mergeInto.properties),
                         is_identified: true,
                     },
                     client
@@ -513,7 +576,8 @@ export class PersonState {
                     timestamp,
                     shouldIdentifyPerson,
                     false,
-                    failedAttempts
+                    failedAttempts,
+                    excludeProperties
                 )
             }
         })
@@ -555,10 +619,4 @@ export function updatePersonStateExceptProperties(
     // by some delay period before finally creating the event we will push into
     // ClickHouse.
     return new PersonState(...params).updateExceptProperties()
-}
-
-export function updatePropertiesPersonState(
-    ...params: ConstructorParameters<typeof PersonState>
-): Promise<LazyPersonContainer> {
-    return new PersonState(...params).updateProperties()
 }
