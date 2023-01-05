@@ -319,7 +319,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons = get_active_feature_flags(self.team_id, distinct_id, groups)
+        flags, reasons, _ = get_active_feature_flags(self.team_id, distinct_id, groups)
 
         flags_with_evaluation_reasons = {}
 
