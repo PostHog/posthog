@@ -43,6 +43,8 @@ export enum NodeKind {
     // Time to see data
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
+    TimeToSeeDataSessionsJSONNode = 'TimeToSeeDataSessionsJSONNode',
+    TimeToSeeDataSessionsWaterfallNode = 'TimeToSeeDataSessionsWaterfallNode',
 
     /** Used for insights that haven't been converted to the new query format yet */
     UnimplementedQuery = 'UnimplementedQuery',
@@ -299,9 +301,19 @@ export interface TimeToSeeDataQuery extends DataNode {
     /** Session start time. Defaults to current time - 2 hours */
     sessionStart?: string
     sessionEnd?: string
-
-    visualization: 'json' | 'trace'
 }
+
+export interface TimeToSeeDataJSONNode {
+    kind: NodeKind.TimeToSeeDataSessionsJSONNode
+    source: TimeToSeeDataQuery
+}
+
+export interface TimeToSeeDataWaterfallNode {
+    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode
+    source: TimeToSeeDataQuery
+}
+
+export type TimeToSeeDataNode = TimeToSeeDataJSONNode | TimeToSeeDataWaterfallNode
 
 export type InsightQueryNode =
     | TrendsQuery

@@ -1,7 +1,7 @@
 import MonacoEditor from '@monaco-editor/react'
 import { useState } from 'react'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
-import { TimeToSeeDataQuery } from '~/queries/schema'
+import { NodeKind, TimeToSeeDataNode } from '~/queries/schema'
 import { useValues } from 'kea'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { TimeToSeeSessionNode } from './types'
@@ -11,7 +11,7 @@ import { Trace } from '~/queries/nodes/TimeToSeeData/Trace/Trace'
 let uniqueNode = 0
 
 /** Default renderer for data nodes. Display the JSON in a Monaco editor.  */
-export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element {
+export function TimeToSeeData(props: { query: TimeToSeeDataNode }): JSX.Element {
     const [key] = useState(() => `TimeToSeeData.${uniqueNode++}`)
     const logic = dataNodeLogic({ query: props.query, key })
     const { response, responseLoading } = useValues(logic)
@@ -30,7 +30,7 @@ export function TimeToSeeData(props: { query: TimeToSeeDataQuery }): JSX.Element
 
     return (
         <>
-            {props.query.visualization === 'json' ? (
+            {props.query.kind === NodeKind.TimeToSeeDataSessionsJSONNode ? (
                 <AutoSizer disableWidth>
                     {({ height }) => (
                         <MonacoEditor

@@ -1,23 +1,24 @@
 import {
-    EventsNode,
     ActionsNode,
     DataTableNode,
-    LegacyQuery,
-    TrendsQuery,
+    EventsNode,
+    EventsQuery,
     FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
+    InsightQueryNode,
+    InsightVizNode,
+    LegacyQuery,
     LifecycleQuery,
-    UnimplementedQuery,
     Node,
     NodeKind,
-    InsightQueryNode,
+    PathsQuery,
     PersonsNode,
-    InsightVizNode,
-    EventsQuery,
-    TimeToSeeDataSessionsQuery,
+    RetentionQuery,
+    StickinessQuery,
     TimeToSeeDataQuery,
+    TimeToSeeDataNode,
+    TimeToSeeDataSessionsQuery,
+    TrendsQuery,
+    UnimplementedQuery,
 } from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
@@ -78,6 +79,13 @@ export function isStickinessQuery(node?: Node): node is StickinessQuery {
 
 export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
+}
+
+export function isTimeToSeeDataSessionsNode(node?: Node): node is TimeToSeeDataNode {
+    return (
+        !!node?.kind &&
+        [NodeKind.TimeToSeeDataSessionsWaterfallNode, NodeKind.TimeToSeeDataSessionsJSONNode].includes(node?.kind)
+    )
 }
 
 export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {

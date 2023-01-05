@@ -6,6 +6,7 @@ import {
     isPersonsNode,
     isTimeToSeeDataSessionsQuery,
     isTimeToSeeDataQuery,
+    isTimeToSeeDataSessionsNode,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -75,6 +76,13 @@ export async function query<N extends DataNode = DataNode>(
             session_id: query.sessionId ?? currentSessionId(),
             session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
             session_end: query.sessionEnd ?? now().toISOString(),
+        })
+    } else if (isTimeToSeeDataSessionsNode(query)) {
+        return await api.create('/api/time_to_see_data/session_events', {
+            team_id: query.source.teamId ?? getCurrentTeamId(),
+            session_id: query.source.sessionId ?? currentSessionId(),
+            session_start: query.source.sessionStart ?? now().subtract(1, 'day').toISOString(),
+            session_end: query.source.sessionEnd ?? now().toISOString(),
         })
     }
     throw new Error(`Unsupported query: ${query.kind}`)

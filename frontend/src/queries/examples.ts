@@ -14,8 +14,10 @@ import {
     RetentionQuery,
     StickinessQuery,
     TimeToSeeDataQuery,
+    TimeToSeeDataJSONNode,
     TimeToSeeDataSessionsQuery,
     TrendsQuery,
+    TimeToSeeDataWaterfallNode,
 } from '~/queries/schema'
 import {
     ChartDisplayType,
@@ -271,7 +273,26 @@ const TimeToSeeDataSessions: TimeToSeeDataSessionsQuery = {
 
 const TimeToSeeData: TimeToSeeDataQuery = {
     kind: NodeKind.TimeToSeeDataQuery,
-    visualization: 'json',
+}
+
+const TimeToSeeDataJSON: TimeToSeeDataJSONNode = {
+    kind: NodeKind.TimeToSeeDataSessionsJSONNode,
+    source: {
+        kind: NodeKind.TimeToSeeDataQuery,
+        sessionId: 'complete_me',
+        sessionStart: 'iso_date',
+        sessionEnd: 'iso_date',
+    },
+}
+
+const TimeToSeeDataWaterfall: TimeToSeeDataWaterfallNode = {
+    kind: NodeKind.TimeToSeeDataSessionsWaterfallNode,
+    source: {
+        kind: NodeKind.TimeToSeeDataQuery,
+        sessionId: 'complete_me',
+        sessionStart: 'iso_date',
+        sessionEnd: 'iso_date',
+    },
 }
 
 export const examples: Record<string, Node> = {
@@ -293,6 +314,8 @@ export const examples: Record<string, Node> = {
     InsightLifecycleQuery,
     TimeToSeeDataSessions,
     TimeToSeeData,
+    TimeToSeeDataWaterfall,
+    TimeToSeeDataJSON,
 }
 
 export const stringifiedExamples: Record<string, string> = Object.fromEntries(
