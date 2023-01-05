@@ -147,7 +147,7 @@ def get_decide(request: HttpRequest):
                 **(data.get("person_properties") or {}),
             }
 
-            feature_flags, _ = get_feature_flags(
+            feature_flags, _, feature_flag_payloads = get_feature_flags(
                 team.pk,
                 data["distinct_id"],
                 data.get("groups") or {},
@@ -155,10 +155,13 @@ def get_decide(request: HttpRequest):
                 property_value_overrides=all_property_overrides,
                 group_property_value_overrides=(data.get("group_properties") or {}),
                 only_active=(api_version < 3),
-                only_string=(api_version < 3),
             )
 
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
+
+            if api_version >= 3:
+                response["featureFlagPayloads"] = feature_flag_payloads
+
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
 
             if team.session_recording_opt_in and (

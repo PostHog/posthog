@@ -269,7 +269,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if not feature_flag_list:
             return Response(flags)
 
-        matches, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
         for feature_flag in feature_flags:
             flags.append(
                 {

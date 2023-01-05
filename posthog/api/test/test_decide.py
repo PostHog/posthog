@@ -260,9 +260,14 @@ class TestDecide(BaseTest):
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": {"color": "blue"}, "name": "First Variant", "rollout_percentage": 50},
-                        {"key": {"color": "red"}, "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": {"color": "green"}, "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                            "payload": {"color": "blue"},
+                        },
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
                     ]
                 },
             },
@@ -274,13 +279,14 @@ class TestDecide(BaseTest):
         with self.assertNumQueries(2):
             response = self._post_decide(api_version=2)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertNotIn("multivariate", response.json()["featureFlags"])
+            self.assertIn("beta-feature", response.json()["featureFlags"])
+            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
         with self.assertNumQueries(2):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
-            self.assertIn("beta-feature", response.json()["featureFlags"])
-            self.assertEqual({"color": "blue"}, response.json()["featureFlags"]["multivariate-flag"])
+            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+            self.assertEqual({"color": "blue"}, response.json()["featureFlagPayloads"]["first-variant"])
 
     def test_feature_flags_v2(self):
         self.team.app_urls = ["https://example.com"]

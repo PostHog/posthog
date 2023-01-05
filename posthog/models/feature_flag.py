@@ -64,6 +64,7 @@ class FeatureFlagMatch:
     variant: Optional[str] = None
     reason: FeatureFlagMatchReason = FeatureFlagMatchReason.NO_CONDITION_MATCH
     condition_index: Optional[int] = None
+    payload: Optional[Dict] = None
 
 
 class FeatureFlag(models.Model):
@@ -125,13 +126,8 @@ class FeatureFlag(models.Model):
         return []
 
     @property
-    def has_json_variant(self):
-        is_multivariate = self.get_filters().get("multivariate", None)
-        if is_multivariate is not None:
-            for variant in self.variants:
-                if not isinstance(variant["key"], str):
-                    return True
-        return False
+    def variants_by_key(self):
+        return {variant["key"]: variant for variant in self.variants if variant.get("key") is not None}
 
     def get_filters(self):
         if "groups" in self.filters:
@@ -353,11 +349,12 @@ class FeatureFlagMatcher:
                     variant = variant_override
                 else:
                     variant = self.get_matching_variant(feature_flag)
+
+                variant_details = feature_flag.variants_by_key.get(variant)
+                payload = variant_details.get("payload", None) if variant_details is not None else None
+
                 return FeatureFlagMatch(
-                    match=True,
-                    variant=variant,
-                    reason=evaluation_reason,
-                    condition_index=index,
+                    match=True, variant=variant, reason=evaluation_reason, condition_index=index, payload=payload
                 )
 
             highest_priority_evaluation_reason, highest_priority_index = self.get_highest_priority_match_evaluation(
@@ -368,14 +365,17 @@ class FeatureFlagMatcher:
             match=False, reason=highest_priority_evaluation_reason, condition_index=highest_priority_index
         )
 
-    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
+    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, Optional[Dict]]]:
         flags_enabled = {}
         flag_evaluation_reasons = {}
+        flag_payloads = {}
         for feature_flag in self.feature_flags:
             try:
                 flag_match = self.get_match(feature_flag)
                 if flag_match.match:
                     flags_enabled[feature_flag.key] = flag_match.variant or True
+                    if flag_match.variant is not None:
+                        flag_payloads[flag_match.variant] = flag_match.payload
 
                 flag_evaluation_reasons[feature_flag.key] = {
                     "reason": flag_match.reason,
@@ -383,7 +383,7 @@ class FeatureFlagMatcher:
                 }
             except Exception as err:
                 capture_exception(err)
-        return flags_enabled, flag_evaluation_reasons
+        return flags_enabled, flag_evaluation_reasons, flag_payloads
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
         for variant in self.variant_lookup_table(feature_flag):
@@ -591,7 +591,7 @@ def _get_active_feature_flags(
     groups: Dict[GroupTypeName, str] = {},
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, Optional[Dict]]]:
     cache = FlagsMatcherCache(team_id)
 
     if person_id is not None:
@@ -610,7 +610,7 @@ def _get_active_feature_flags(
             group_property_value_overrides,
         ).get_matches()
 
-    return {}, {}
+    return {}, {}, {}
 
 
 def get_feature_flags(
@@ -621,13 +621,12 @@ def get_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     only_active: bool = True,
-    only_string: bool = True,
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, Optional[Dict]]]:
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
     )
 
-    active_flags, active_flag_reasons = get_active_feature_flags(
+    active_flags, active_flag_reasons, active_flag_payloads = get_active_feature_flags(
         team_id,
         distinct_id,
         groups,
@@ -635,15 +634,14 @@ def get_feature_flags(
         property_value_overrides,
         group_property_value_overrides,
         feature_flags=all_feature_flags,
-        only_string=only_string,
     )
 
     if only_active:
-        return active_flags, active_flag_reasons
+        return active_flags, active_flag_reasons, active_flag_payloads
 
     all_flags_response: Dict[str, Union[str, bool]] = {flag.key: False for flag in all_feature_flags}
     all_flags_response.update(active_flags)
-    return all_flags_response, active_flag_reasons
+    return all_flags_response, active_flag_reasons, active_flag_payloads
 
 
 # Return feature flags
@@ -655,8 +653,7 @@ def get_active_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     feature_flags: Optional[QuerySet[FeatureFlag]] = None,
-    only_string: bool = True,
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, Optional[Dict]]]:
 
     all_feature_flags = (
         feature_flags
@@ -665,9 +662,6 @@ def get_active_feature_flags(
             "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
         )
     )
-
-    if only_string:
-        all_feature_flags = [flag for flag in all_feature_flags if not flag.has_json_variant]
 
     flags_have_experience_continuity_enabled = any(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
