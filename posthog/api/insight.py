@@ -296,11 +296,9 @@ class InsightSerializer(InsightBasicSerializer):
         # it will mean this dashboard becomes restricted because of the patch
         candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
         dashboard: Dashboard
+        user_permissions = self.context["view"].user_permissions
         for dashboard in candidate_dashboards:
-            if (
-                dashboard.get_effective_privilege_level(self.context["request"].user.id)
-                == Dashboard.PrivilegeLevel.CAN_VIEW
-            ):
+            if user_permissions.dashboard(dashboard).effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW:
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
         for dashboard in candidate_dashboards:
             if dashboard.team != instance.team:
