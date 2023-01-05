@@ -293,7 +293,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 setState: (_, { generatingDemoData }) => generatingDemoData,
             },
         ],
-        interval: [
+        demoDataInterval: [
             null as null | number,
             {
                 setDemoDataInterval: (_, { demoDataInterval }) => demoDataInterval,
