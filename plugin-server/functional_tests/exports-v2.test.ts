@@ -9,6 +9,10 @@ import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam, getMetric } from './api'
 import { waitForExpect } from './expectations'
 
+// Exports are coordinated by a scheduled task that runs every minute, so we
+// increase the wait time to give us a bit of leeway.
+jest.setTimeout(120_000)
+
 let producer: Producer
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let kafka: Kafka
