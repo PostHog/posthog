@@ -99,42 +99,42 @@ export const activationLogic = kea<activationLogicType>([
             false,
             {
                 loadMembersSuccess: () => true,
-                loadMembersFailure: () => true,
+                loadMembersFailure: () => false,
             },
         ],
         areInvitesLoaded: [
             false,
             {
                 loadInvitesSuccess: () => true,
-                loadInvitesFailure: () => true,
+                loadInvitesFailure: () => false,
             },
         ],
         arePluginsLoaded: [
             false,
             {
                 loadPluginsSuccess: () => true,
-                loadPluginsFailure: () => true,
+                loadPluginsFailure: () => false,
             },
         ],
         areDashboardsLoaded: [
             false,
             {
                 loadDashboardsSuccess: () => true,
-                loadDashboardsFailure: () => true,
+                loadDashboardsFailure: () => false,
             },
         ],
         areCustomEventsLoaded: [
             false,
             {
                 loadCustomEventsSuccess: () => true,
-                loadCustomEventsFailure: () => true,
+                loadCustomEventsFailure: () => false,
             },
         ],
         areInsightsLoaded: [
             false,
             {
                 loadInsightsSuccess: () => true,
-                loadInsightsFailure: () => true,
+                loadInsightsFailure: () => false,
             },
         ],
     })),
