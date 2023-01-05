@@ -1,12 +1,11 @@
 import json
-from datetime import timedelta
-from typing import Any, Dict, List, Optional, Tuple, TypeVar
+from datetime import datetime, timedelta
+from typing import Any, Dict, List, Optional, Tuple, TypeVar, cast
 
 import pytz
 from dateutil.relativedelta import relativedelta
-from django.utils import timezone
 
-from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, TRENDS_CUMULATIVE, PropertyOperatorType
+from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
@@ -22,30 +21,20 @@ from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group
 F = TypeVar("F", Filter, PropertiesTimelineFilter)
 
 
-def handle_date_to_with_interval_for_data_point_actors(filter: F, team: Team) -> F:
-    """Handle date_to for non-cumulative time-series insight data points.
-
-    We need to do some interval-aware offsetting when querying for such data points' actors, because for them
-    `date_from` and `date_to` are one and the same, and `interval` must be used for offsetting - as opposed to
-    non-time-series or cumulative time-series insights' actors, where `date_from` and `date_to` are always proper.
-    """
-    if filter.display == TRENDS_CUMULATIVE or filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-        return filter
-    date_from = filter.date_from or timezone.now()
+def offset_time_series_date_by_interval(date: datetime, *, filter: F, team: Team) -> datetime:
+    """If the insight is time-series, offset date according to the interval of the filter."""
+    if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+        return date
     if filter.interval == "month":
-        date_to = (date_from + relativedelta(months=1) - timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        date = (date + relativedelta(months=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     elif filter.interval == "week":
-        date_to = (date_from + timedelta(weeks=1) - timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        date = (date + timedelta(weeks=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     elif filter.interval == "hour":
-        date_to = date_from + timedelta(hours=1)
+        date = date + timedelta(hours=1)
     else:  # "day" is the default interval
-        date_to = date_from.replace(hour=23, minute=59, second=59, microsecond=999999)
-    date_to = date_to.replace(tzinfo=pytz.timezone(team.timezone))
-    return filter.with_data({"date_to": date_to})
+        date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    date = date.replace(tzinfo=pytz.timezone(team.timezone))
+    return date
 
 
 class TrendsActors(ActorBaseQuery):
@@ -58,7 +47,20 @@ class TrendsActors(ActorBaseQuery):
     def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
-        filter = handle_date_to_with_interval_for_data_point_actors(filter, team)
+        if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
+            # Before 2023, actors modal URLs for non-cumulative time-series insight data points had `date_to`
+            # (`filter._date_to`) equal to `date_from` (`filter._date_from`). To obtain the actual `date_to`,
+            # we always had to calculate it here by adding a `filter.interval` unit to `date_from`.
+            # This was annoying and only made it harder to reason about the API, so it's no longer how actors modal
+            # URLs behave. Now we only do this handling at this level for backwards compatibility (cached results)
+            # via the `date_from == date_to` check - all new requests have a "fully qualified" date range.
+            filter.with_data(
+                {
+                    "date_to": offset_time_series_date_by_interval(
+                        cast(datetime, filter.date_from), filter=filter, team=team
+                    )
+                }
+            )
         super().__init__(team, filter, entity, **kwargs)
 
     @cached_property
