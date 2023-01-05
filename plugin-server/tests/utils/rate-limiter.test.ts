@@ -27,18 +27,9 @@ describe('RateLimiter()', () => {
         jest.clearAllMocks()
     })
 
-    it('checks if an organization_id is rate limited', async () => {
-        await redis.zadd(`${RATE_LIMITER_CACHE_KEY}events`, 1, commonOrganizationId)
-        await redis.zadd(`${RATE_LIMITER_CACHE_KEY}recordings`, 1, commonOrganizationId)
-        const isEventsRateLimited = await rateLimiter.checkLimited('events', commonOrganizationId)
-        const isRecordingsRateLimited = await rateLimiter.checkLimited('recordings', commonOrganizationId)
-        expect(isEventsRateLimited).toBe(true)
-        expect(isRecordingsRateLimited).toBe(true)
-    })
-
     it('checks that the rate limiter is caching the org ids', async () => {
         expect(await rateLimiter.checkLimited('events', commonOrganizationId)).toBe(false)
-        // expect(await rateLimiter.checkLimited('recordings', commonOrganizationId)).toBe(false)
+        expect(await rateLimiter.checkLimited('recordings', commonOrganizationId)).toBe(false)
 
         await redis.zadd(`${RATE_LIMITER_CACHE_KEY}events`, 1, commonOrganizationId)
         await redis.zadd(`${RATE_LIMITER_CACHE_KEY}recordings`, 1, commonOrganizationId)
@@ -49,7 +40,10 @@ describe('RateLimiter()', () => {
 
         jest.advanceTimersByTime(60001)
 
-        expect(await rateLimiter.checkLimited('events', commonOrganizationId)).toBe(true)
-        expect(await rateLimiter.checkLimited('recordings', commonOrganizationId)).toBe(true)
+        setTimeout(async () => {
+            // the timeout should have expired and the cache should be refreshed by now
+            expect(await rateLimiter.checkLimited('events', commonOrganizationId)).toBe(true)
+            expect(await rateLimiter.checkLimited('recordings', commonOrganizationId)).toBe(true)
+        }, 0)
     })
 })

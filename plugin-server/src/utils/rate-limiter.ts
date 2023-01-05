@@ -9,29 +9,43 @@ export const RATE_LIMITER_CACHE_KEY = '@posthog-plugin-server/rate-limiter/'
 
 export class RateLimiter {
     private db: DB
-    public localCache: { [key: string]: string[] } = {}
-    public localCacheExpiresAt: DateTime | null = null
+    private localCache: { [key: string]: string[] } = {}
+    private localCacheExpiresAt: DateTime | null = null
+    private localCacheRefreshingPromise: Promise<void> | null = null
 
     constructor(db: DB) {
         this.db = db
     }
 
-    private async refreshCaches(): Promise<void> {
+    public async refreshLocalCache(): Promise<void> {
         if (!this.localCacheExpiresAt || DateTime.utc() > this.localCacheExpiresAt) {
-            const [events, recordings] = await Promise.all([
-                this.db.redisZRange(`${RATE_LIMITER_CACHE_KEY}events`, 0, -1),
-                this.db.redisZRange(`${RATE_LIMITER_CACHE_KEY}recordings`, 0, -1),
-            ])
-            this.localCache = {
-                events: events || [],
-                recordings: recordings || [],
+            if (!this.localCacheRefreshingPromise) {
+                // NOTE: We probably want a timeout here...
+                this.localCacheRefreshingPromise = this.refreshCaches().then(() => {
+                    this.localCacheRefreshingPromise = null
+                })
             }
-            this.localCacheExpiresAt = DateTime.utc().plus({ seconds: CACHE_TTL_SECONDS })
+
+            if (!this.localCacheExpiresAt) {
+                await this.localCacheRefreshingPromise
+            }
         }
     }
 
+    private async refreshCaches(): Promise<void> {
+        const [events, recordings] = await Promise.all([
+            this.db.redisZRange(`${RATE_LIMITER_CACHE_KEY}events`, 0, -1),
+            this.db.redisZRange(`${RATE_LIMITER_CACHE_KEY}recordings`, 0, -1),
+        ])
+        this.localCache = {
+            events: events || [],
+            recordings: recordings || [],
+        }
+        this.localCacheExpiresAt = DateTime.utc().plus({ seconds: CACHE_TTL_SECONDS })
+    }
+
     public async checkLimited(resource: RateLimitedResource, organization_id: string): Promise<boolean> {
-        await this.refreshCaches()
+        await this.refreshLocalCache()
         return this.localCache[resource]?.includes(organization_id) || false
     }
 }
