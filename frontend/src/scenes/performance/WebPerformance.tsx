@@ -60,8 +60,9 @@ const EventsWithPerformanceTable = (): JSX.Element => {
         {
             title: 'Page',
             key: 'page_url',
+            width: '45%',
             render: function render(_, item: RecentPerformancePageView) {
-                return <>{item.page_url}</>
+                return <div className={'max-w-100 overflow-auto'}>{item.page_url}</div>
             },
         },
         {
@@ -119,7 +120,11 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                                 }: {
                                     record: Required<RecentPerformancePageViewNode>['response']['results'][0]
                                 }) {
-                                    return record.page_url ? <>{record.page_url}</> : <>-</>
+                                    return record.page_url ? (
+                                        <div className={'max-w-100 overflow-auto'}>{record.page_url}</div>
+                                    ) : (
+                                        <>-</>
+                                    )
                                 },
                             },
                             duration: {
