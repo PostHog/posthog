@@ -1,8 +1,9 @@
 import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { rolesLogic } from 'scenes/organization/Settings/Permissions/Roles/rolesLogic'
-import { AccessLevel, FeatureFlagAssociatedRoleType, RoleType } from '~/types'
+import { AccessLevel, FeatureFlagAssociatedRoleType, Resource, RoleType } from '~/types'
 
 import type { featureFlagPermissionsLogicType } from './featureFlagPermissionsLogicType'
 
@@ -77,6 +78,7 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
                             newFlagAssociatedRoles.push(existingRole)
                         }
                     }
+                    eventUsageLogic.actions.reportRoleCustomAddedToAResource(Resource.FEATURE_FLAGS, rolesToAdd.length)
                     return newFlagAssociatedRoles.map((newRole) => ({
                         id: newRole.id,
                         role: newRole,

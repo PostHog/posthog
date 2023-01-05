@@ -26,6 +26,8 @@ import {
     YesOrNoResponse,
     SessionPlayerData,
     AnyPartialFilterType,
+    Resource,
+    AccessLevel,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -494,6 +496,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
+        reportRoleCreated: (role: string) => ({ role }),
+        reportResourceAccessLevelUpdated: (resourceType: Resource, roleName: string, accessLevel: AccessLevel) => ({
+            resourceType,
+            roleName,
+            accessLevel,
+        }),
+        reportRoleCustomAddedToAResource: (resourceType: Resource, rolesLength: number) => ({
+            resourceType,
+            rolesLength,
+        }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -1206,6 +1218,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportBillingUpgradeClicked: ({ plan }) => {
             posthog.capture('billing upgrade button clicked', {
                 plan,
+            })
+        },
+        reportRoleCreated: ({ role }) => {
+            posthog.capture('new role created', {
+                role,
+            })
+        },
+        reportResourceAccessLevelUpdated: ({ resourceType, roleName, accessLevel }) => {
+            posthog.capture('resource access level updated', {
+                resource_type: resourceType,
+                role_name: roleName,
+                access_level: accessLevel,
+            })
+        },
+        reportRoleCustomAddedToAResource: ({ resourceType, rolesLength }) => {
+            posthog.capture('role custom added to a resource', {
+                resource_type: resourceType,
+                roles_length: rolesLength,
             })
         },
     }),
