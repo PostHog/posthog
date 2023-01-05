@@ -446,8 +446,8 @@
          "posthog_person"."version"
   FROM "posthog_persondistinctid"
   INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user',
-                                                      'user2')
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+                                                      'user')
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
@@ -725,9 +725,9 @@
          "posthog_person"."version"
   FROM "posthog_persondistinctid"
   INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user',
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
                                                       'user3',
-                                                      'user2')
+                                                      'user')
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
