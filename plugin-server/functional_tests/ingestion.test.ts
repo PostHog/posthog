@@ -521,95 +521,75 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
     })
 })
 
-testIfDelayEnabled(
-    `person properties as per https://github.com/PostHog/posthog/pull/13505#discussion_r1061675265`,
-    async () => {
-        const teamId = await createTeam(postgres, organizationId)
-        const aliceAnonId = new UUIDT().toString()
-        const bobAnonId = new UUIDT().toString()
-        const bobId = new UUIDT().toString()
+testIfDelayEnabled(`person properties can't see properties from future events`, async () => {
+    // This is specifically to test that the merge event doesn't result in
+    // properties being picked up by events that are after it.
+    // NOTE: I tried to reproduce this with only two events but couldn't get it
+    // to fail.
 
-        const firstUuid = new UUIDT().toString()
-        await capture(producer, teamId, aliceAnonId, firstUuid, 'custom event', {
-            $set: {
+    const teamId = await createTeam(postgres, organizationId)
+    const aliceAnonId = new UUIDT().toString()
+    const bobAnonId = new UUIDT().toString()
+
+    const firstUuid = new UUIDT().toString()
+    await capture(producer, teamId, aliceAnonId, firstUuid, 'custom event', {
+        $set: {
+            k: 'v1',
+        },
+    })
+
+    const secondUuid = new UUIDT().toString()
+    await capture(producer, teamId, bobAnonId, secondUuid, 'custom event', {
+        $set: {
+            j: 'v2',
+        },
+    })
+
+    const thirdUuid = new UUIDT().toString()
+    await capture(producer, teamId, aliceAnonId, thirdUuid, '$create_alias', {
+        alias: bobAnonId,
+    })
+
+    // Now we wait to ensure that these events have been ingested.
+    const [first, second, third] = await waitForExpect(async () => {
+        const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
+        const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
+        const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
+
+        expect(first).toBeDefined()
+        expect(second).toBeDefined()
+        expect(third).toBeDefined()
+
+        return [first, second, third]
+    })
+
+    expect(first).toEqual(
+        expect.objectContaining({
+            person_id: third.person_id,
+            person_properties: {
+                $creator_event_uuid: expect.any(String),
                 k: 'v1',
             },
         })
+    )
 
-        const secondUuid = new UUIDT().toString()
-        await capture(producer, teamId, bobId, secondUuid, '$identify', {
-            $anon_distinct_id: bobAnonId,
-            $set: {
-                k: 'v2',
+    expect(second).toEqual(
+        expect.objectContaining({
+            person_id: third.person_id,
+            person_properties: {
+                $creator_event_uuid: expect.any(String),
+                j: 'v2',
             },
         })
+    )
 
-        // Now we wait to ensure that these events have been ingested.
-        const [first, second] = await waitForExpect(async () => {
-            const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
-            const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
-
-            expect(first).toBeDefined()
-            expect(second).toBeDefined()
-
-            return [first, second]
-        })
-
-        const thirdUuid = new UUIDT().toString()
-        await capture(producer, teamId, bobId, thirdUuid, 'custom event', {
-            $set: {
-                k: 'v3',
+    expect(third).toEqual(
+        expect.objectContaining({
+            person_properties: {
+                $creator_event_uuid: expect.any(String),
+                k: 'v1',
+                j: 'v2',
             },
         })
-
-        const forthUuid = new UUIDT().toString()
-        // NOTE: this test doesn't work if we switch around `bobAnonId` and
-        // `aliceAnonId`
-        await capture(producer, teamId, bobAnonId, forthUuid, '$create_alias', {
-            alias: aliceAnonId,
-        })
-
-        const [third, forth] = await waitForExpect(async () => {
-            const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
-            const [forth] = await fetchEvents(clickHouseClient, teamId, forthUuid)
-
-            expect(third).toBeDefined()
-            expect(forth).toBeDefined()
-
-            return [third, forth]
-        })
-
-        expect(first).toEqual(
-            expect.objectContaining({
-                person_properties: expect.objectContaining({
-                    k: 'v1',
-                }),
-            })
-        )
-
-        expect(second).toEqual(
-            expect.objectContaining({
-                person_properties: expect.objectContaining({
-                    k: 'v2',
-                }),
-            })
-        )
-
-        expect(third).toEqual(
-            expect.objectContaining({
-                person_id: forth.person_id,
-                person_properties: expect.objectContaining({
-                    k: 'v3',
-                }),
-            })
-        )
-
-        expect(forth).toEqual(
-            expect.objectContaining({
-                person_properties: expect.objectContaining({
-                    k: 'v3',
-                }),
-            })
-        )
-    }
-)
+    )
+})

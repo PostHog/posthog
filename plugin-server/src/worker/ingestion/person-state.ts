@@ -549,6 +549,11 @@ export function updatePersonState(...params: ConstructorParameters<typeof Person
 export function updatePersonStateExceptProperties(
     ...params: ConstructorParameters<typeof PersonState>
 ): Promise<LazyPersonContainer> {
+    // To enable the timelapsed denormalization of person_id onto events, we
+    // need a way to separate the person_id and distinct_id associations from
+    // the `person_properties` operations, such that we can update associations
+    // by some delay period before finally creating the event we will push into
+    // ClickHouse.
     return new PersonState(...params).updateExceptProperties()
 }
 
