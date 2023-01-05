@@ -1,9 +1,11 @@
 # EE extended functions for SessionRecording model
 
 import json
+from datetime import timedelta
 from typing import Optional
 
 import structlog
+from django.utils import timezone
 from sentry_sdk import capture_exception
 
 from posthog import settings
@@ -13,6 +15,9 @@ from posthog.session_recordings.session_recording_helpers import compress_to_str
 from posthog.storage import object_storage
 
 logger = structlog.get_logger(__name__)
+
+
+MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
 
 
 def persist_recording(recording_id: str, team_id: int) -> None:
@@ -31,6 +36,17 @@ def persist_recording(recording_id: str, team_id: int) -> None:
     logger.info("Persisting recording: loading metadata...", recording_id=recording_id, team_id=team_id)
 
     recording.load_metadata()
+
+    if not recording.start_time or timezone.now() < recording.start_time + MINIMUM_AGE_FOR_RECORDING:
+        # Recording is too recent to be peristed. We can save the metadata as it is still useful for querying but we can't move to S3 yet.
+        logger.info(
+            "Persisting recording: skipping as recording start time is less than MINIMUM_AGE_FOR_RECORDING",
+            recording_id=recording_id,
+            team_id=team_id,
+        )
+        recording.save()
+        return
+
     recording.load_snapshots(100000)  # TODO: Paginate rather than hardcode a limit
 
     content: PersistedRecordingV1 = {
