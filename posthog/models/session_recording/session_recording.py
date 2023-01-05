@@ -68,7 +68,15 @@ class SessionRecording(UUIDModel):
                 return
 
             self._metadata = metadata
+
+            # Some fields of the metadata are peristed fully in the model
             self.distinct_id = metadata["distinct_id"]
+            self.start_time = metadata["start_time"]
+            self.end_time = metadata["end_time"]
+            self.duration = metadata["duration"]
+            self.click_count = metadata["click_count"]
+            self.keypress_count = metadata["keypress_count"]
+            self.start_url = metadata["urls"][0] if metadata["urls"] else None
 
     def load_snapshots(self, limit=20, offset=0) -> None:
         from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
@@ -98,7 +106,7 @@ class SessionRecording(UUIDModel):
         if not data:
             return
 
-        self._metadata = {
+        self._metadata = {  # type: ignore
             "distinct_id": data["distinct_id"],
             "start_and_end_times_by_window_id": data["start_and_end_times_by_window_id"],
             "segments": data["segments"],

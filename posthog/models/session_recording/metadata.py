@@ -51,6 +51,12 @@ class RecordingMetadata(TypedDict):
     distinct_id: str
     segments: List[RecordingSegment]
     start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
+    start_time: datetime
+    end_time: datetime
+    click_count: int
+    keypress_count: int
+    urls: List[str]
+    duration: int
 
 
 class RecordingMatchingEvents(TypedDict):

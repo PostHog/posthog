@@ -121,20 +121,15 @@ class SessionRecordingEvents:
         if events_summary_by_window_id:
             # If all snapshots contain the new events_summary field...
             statsd.incr("session_recordings.metadata_parsed_from_events_summary")
-            segments, start_and_end_times_by_window_id = self._get_recording_segments_from_events_summary(
-                events_summary_by_window_id
-            )
+            metadata = self._get_metadata_from_events_summary(events_summary_by_window_id)
         else:
             # ... otherwise use the legacy method
             snapshots = self._query_recording_snapshots(include_snapshots=True)
             statsd.incr("session_recordings.metadata_parsed_from_snapshot_data")
-            segments, start_and_end_times_by_window_id = self._get_recording_segments_from_snapshot(snapshots)
+            metadata = self._get_metadata_from_snapshot_data(snapshots)
 
-        return RecordingMetadata(
-            segments=segments,
-            start_and_end_times_by_window_id=start_and_end_times_by_window_id,
-            distinct_id=cast(str, distinct_id),
-        )
+        metadata["distinct_id"] = cast(str, distinct_id)
+        return metadata
 
     def _get_events_summary_by_window_id(
         self, snapshots: List[SessionRecordingEvent]
@@ -160,9 +155,7 @@ class SessionRecordingEvents:
 
         return events_summary_by_window_id
 
-    def _get_recording_segments_from_snapshot(
-        self, snapshots: List[SessionRecordingEvent]
-    ) -> Tuple[List[RecordingSegment], Dict[WindowId, RecordingSegment]]:
+    def _get_metadata_from_snapshot_data(self, snapshots: List[SessionRecordingEvent]) -> RecordingMetadata:
         """
         !Deprecated!
         This method supports parsing of events_summary info for entries that were created before this field was added
@@ -182,11 +175,11 @@ class SessionRecordingEvents:
             for window_id, event_list in decompressed_recording_data["snapshot_data_by_window_id"].items()
         }
 
-        return self._get_recording_segments_from_events_summary(events_summary_by_window_id)
+        return self._get_metadata_from_events_summary(events_summary_by_window_id)
 
-    def _get_recording_segments_from_events_summary(
+    def _get_metadata_from_events_summary(
         self, events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]]
-    ) -> Tuple[List[RecordingSegment], Dict[WindowId, RecordingSegment]]:
+    ) -> RecordingMetadata:
         """
         This function processes the recording events into metadata.
 
@@ -273,4 +266,14 @@ class SessionRecordingEvents:
                 )
             )
 
-        return all_segments, start_and_end_times_by_window_id
+        return RecordingMetadata(
+            distinct_id="",  # Will be added by the caller
+            segments=all_segments,
+            start_and_end_times_by_window_id=start_and_end_times_by_window_id,
+            start_time=first_start_time,
+            end_time=last_end_time,
+            duration=(last_end_time - first_start_time).seconds,
+            click_count=0,
+            keypress_count=0,
+            urls=[],
+        )

@@ -117,7 +117,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
         recording: DecompressedRecordingData = SessionRecordingEvents(
             team=self.team, session_recording_id="xxx"
         ).get_snapshots(filter.limit, filter.offset)
-        self.assertEqual(recording, DecompressedRecordingData(has_next=False, snapshot_data_by_window_id={}))
+        assert not recording
 
     def test_get_chunked_snapshots(self):
         with freeze_time("2020-09-13T12:26:40.000Z"):
@@ -298,6 +298,12 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
 
             expectation = RecordingMetadata(
                 distinct_id="u",
+                duration=40,
+                click_count=0,
+                keypress_count=0,
+                urls=[],
+                start_time=now(),
+                end_time=now() + relativedelta(seconds=ACTIVITY_THRESHOLD_SECONDS * 4),
                 segments=[
                     RecordingSegment(is_active=True, window_id="2", start_time=now(), end_time=now()),
                     RecordingSegment(
@@ -352,6 +358,7 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
                     },
                 },
             )
+
             self.assertEqual(
                 recording,
                 expectation,
