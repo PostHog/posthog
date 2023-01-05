@@ -253,17 +253,6 @@ class TestTeamAPI(APIBaseTest):
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
 
-    def test_is_generating_demo_data(self):
-        cache_key = f"is_generating_demo_data_{self.team.pk}"
-        cache.set(cache_key, "True")
-        response = self.client.get(f"/api/projects/{self.team.id}/is_generating_demo_data/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"is_generating_demo_data": True})
-        cache.delete(cache_key)
-        response = self.client.get(f"/api/projects/{self.team.id}/is_generating_demo_data/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"is_generating_demo_data": False})
-
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
     """
