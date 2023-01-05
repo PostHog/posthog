@@ -286,7 +286,7 @@ class TestDecide(BaseTest):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
-            self.assertEqual({"color": "blue"}, response.json()["featureFlagPayloads"]["first-variant"])
+            self.assertEqual({"color": "blue"}, response.json()["featureFlagPayloads"]["multivariate-flag"])
 
     def test_feature_flags_v2(self):
         self.team.app_urls = ["https://example.com"]

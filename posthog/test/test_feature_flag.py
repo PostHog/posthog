@@ -907,7 +907,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(payloads, {"first-variant": {"color": "blue"}})
+        self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
         with self.assertNumQueries(3), snapshot_postgres_queries_context(
             self
@@ -958,7 +958,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(payloads, {"first-variant": {"color": "blue"}})
+        self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
     def test_multi_property_filters(self):
         Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
@@ -1699,7 +1699,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
             },
         )
 
-        self.assertEqual(payloads, {"first-variant": None})
+        self.assertEqual(payloads, {})
 
 
 class TestFeatureFlagMatcherConsistency(BaseTest):

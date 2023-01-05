@@ -374,8 +374,8 @@ class FeatureFlagMatcher:
                 flag_match = self.get_match(feature_flag)
                 if flag_match.match:
                     flags_enabled[feature_flag.key] = flag_match.variant or True
-                    if flag_match.variant is not None:
-                        flag_payloads[flag_match.variant] = flag_match.payload
+                    if flag_match.payload:
+                        flag_payloads[feature_flag.key] = flag_match.payload
 
                 flag_evaluation_reasons[feature_flag.key] = {
                     "reason": flag_match.reason,
