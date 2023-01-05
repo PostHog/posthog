@@ -7,7 +7,7 @@ import { loaders } from 'kea-loaders'
 
 import type { propertiesTimelineLogicType } from './propertiesTimelineLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { api } from '@posthog/apps-common'
+import api from 'lib/api'
 
 export interface PropertiesTimelinePoint {
     timestamp: Dayjs
