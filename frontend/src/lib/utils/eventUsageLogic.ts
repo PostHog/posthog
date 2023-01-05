@@ -29,9 +29,7 @@ import {
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlatformType, Framework } from 'scenes/ingestion/v1/types'
 import { now } from 'lib/dayjs'
@@ -44,6 +42,8 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -908,7 +908,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
                 start_time: playerData.metadata.segments[0]?.startTimeEpochMs,
                 end_time: playerData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
-                recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
+                recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
             }
             posthog.capture(`recording ${type}`, payload)
         },
