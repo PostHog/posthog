@@ -1,6 +1,6 @@
 import { LemonBadge } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import { dayjs, Dayjs } from 'lib/dayjs'
+import { Dayjs } from 'lib/dayjs'
 import { humanFriendlyDetailedTime, pluralize } from 'lib/utils'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { Spinner } from '../Spinner/Spinner'
@@ -17,8 +17,7 @@ export interface TimelineSeekbarProps {
     note: JSX.Element | string
     selectedPointIndex: number | null
     onPointSelection: (index: number | null) => void
-    from?: Dayjs
-    to?: Dayjs
+    dateRange: [Dayjs, Dayjs] | null
     loading?: boolean
     className?: string
 }
@@ -47,8 +46,7 @@ export function TimelineSeekbar({
     note,
     selectedPointIndex,
     onPointSelection,
-    from = points.length ? points[0].timestamp : dayjs(),
-    to = points.length ? points[points.length - 1].timestamp : dayjs(),
+    dateRange,
     loading,
     className,
 }: TimelineSeekbarProps): JSX.Element {
@@ -71,11 +69,15 @@ export function TimelineSeekbar({
                     <div className="TimelineSeekbar__line">
                         <Tooltip
                             title={
-                                <span>
-                                    This data point's range starts at
-                                    <br />
-                                    {humanFriendlyDetailedTime(from)}
-                                </span>
+                                dateRange ? (
+                                    <span>
+                                        This data point's range starts at
+                                        <br />
+                                        {humanFriendlyDetailedTime(dateRange[0])}
+                                    </span>
+                                ) : (
+                                    "This data point's range hasn't been loaded yet"
+                                )
                             }
                             placement="topLeft"
                             builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
@@ -85,14 +87,18 @@ export function TimelineSeekbar({
                         </Tooltip>
                         <Tooltip
                             title={
-                                <>
-                                    <p>
-                                        This data point's range ends at
-                                        <br />
-                                        {humanFriendlyDetailedTime(to)}
-                                    </p>
-                                    <em>Click to view properties as they are in the present</em>
-                                </>
+                                dateRange ? (
+                                    <>
+                                        <p>
+                                            This data point's range ends at
+                                            <br />
+                                            {humanFriendlyDetailedTime(dateRange[1])}
+                                        </p>
+                                        <em>Click to view properties as they are in the present</em>
+                                    </>
+                                ) : (
+                                    "This data point's range hasn't been loaded yet"
+                                )
                             }
                             placement="topRight"
                             builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
@@ -110,56 +116,64 @@ export function TimelineSeekbar({
                         </Tooltip>
                     </div>
                     <div className="TimelineSeekbar__points">
-                        {points.map(({ timestamp, count }, index) => (
-                            <Tooltip
-                                key={timestamp.toISOString()}
-                                title={
-                                    <span className="text-center">
-                                        Starting {humanFriendlyDetailedTime(timestamp)}
-                                        <br />
-                                        {pluralize(count, 'relevant event')} with such properties
-                                    </span>
-                                }
-                                placement="topLeft"
-                                builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
-                                delayMs={0}
-                            >
-                                <div
-                                    className="TimelineSeekbar__section"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={
-                                        {
-                                            '--timeline-seekbar-section-progress-current': `${
-                                                (timestamp.diff(from, 'ms') / to.diff(from, 'ms')) * 100
-                                            }%`,
-                                            '--timeline-seekbar-section-progress-next': `${
-                                                ((points[index + 1]?.timestamp || to).diff(timestamp, 'ms') /
-                                                    to.diff(from, 'ms')) *
-                                                100
-                                            }%`,
-                                        } as React.CSSProperties
+                        {dateRange &&
+                            points.map(({ timestamp, count }, index) => (
+                                <Tooltip
+                                    key={timestamp.toISOString()}
+                                    title={
+                                        <span className="text-center">
+                                            Starting {humanFriendlyDetailedTime(timestamp)}
+                                            <br />
+                                            {pluralize(count, 'relevant event')} with such properties
+                                        </span>
                                     }
-                                    /** Simulate slider-like behavior with mousedown and mouseenter. */
-                                    onMouseDown={(e) =>
-                                        // e.button === 0 means that the left mouse button was pressed
-                                        e.button === 0 && index !== selectedPointIndex && onPointSelection(index)
-                                    }
-                                    // For some reason Tooltip blocks onMouseEnter here, but onMouseOver works
-                                    onMouseOver={
-                                        // e.buttons === 1 means that the left mouse button, and only that one, must be pressed
-                                        (e) =>
-                                            e.buttons === 1 && index !== selectedPointIndex && onPointSelection(index)
-                                    }
+                                    placement="topLeft"
+                                    builtinPlacements={SEEKBAR_TOOLTIP_PLACEMENTS}
+                                    delayMs={0}
                                 >
-                                    <LemonBadge.Number
-                                        count={count}
-                                        size="small"
-                                        active={index === selectedPointIndex}
-                                        maxDigits={Infinity}
-                                    />
-                                </div>
-                            </Tooltip>
-                        ))}
+                                    <div
+                                        className="TimelineSeekbar__section"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={
+                                            {
+                                                '--timeline-seekbar-section-progress-current': `${
+                                                    (timestamp.diff(dateRange[0], 'ms') /
+                                                        dateRange[1].diff(dateRange[0], 'ms')) *
+                                                    100
+                                                }%`,
+                                                '--timeline-seekbar-section-progress-next': `${
+                                                    ((points[index + 1]?.timestamp || dateRange[1]).diff(
+                                                        timestamp,
+                                                        'ms'
+                                                    ) /
+                                                        dateRange[1].diff(dateRange[0], 'ms')) *
+                                                    100
+                                                }%`,
+                                            } as React.CSSProperties
+                                        }
+                                        /** Simulate slider-like behavior with mousedown and mouseenter. */
+                                        onMouseDown={(e) =>
+                                            // e.button === 0 means that the left mouse button was pressed
+                                            e.button === 0 && index !== selectedPointIndex && onPointSelection(index)
+                                        }
+                                        // For some reason Tooltip blocks onMouseEnter here, but onMouseOver works
+                                        onMouseOver={
+                                            // e.buttons === 1 means that the left mouse button, and only that one, must be pressed
+                                            (e) =>
+                                                e.buttons === 1 &&
+                                                index !== selectedPointIndex &&
+                                                onPointSelection(index)
+                                        }
+                                    >
+                                        <LemonBadge.Number
+                                            count={count}
+                                            size="small"
+                                            active={index === selectedPointIndex}
+                                            maxDigits={Infinity}
+                                        />
+                                    </div>
+                                </Tooltip>
+                            ))}
                     </div>
                 </div>
             )}

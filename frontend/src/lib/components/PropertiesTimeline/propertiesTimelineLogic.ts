@@ -24,6 +24,8 @@ export interface RawPropertiesTimelinePoint {
 export interface RawPropertiesTimelineResult {
     points: RawPropertiesTimelinePoint[]
     crucial_property_keys: string[]
+    effective_date_from: string
+    effective_date_to: string
 }
 
 export interface PropertiesTimelineProps {
@@ -51,12 +53,9 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
         ],
     }),
     loaders(({ values, props }) => ({
-        // This reducer is for loading convenience, for actual data use `points` and `crucialPropertyKeys`
+        // This reducer is for loading convenience, for actual data use `points`, `crucialPropertyKeys`, and `dateRange`
         result: [
-            {
-                points: [],
-                crucial_property_keys: [],
-            } as RawPropertiesTimelineResult,
+            null as RawPropertiesTimelineResult | null,
             {
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
@@ -79,10 +78,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                             }
                         )
                     }
-                    return {
-                        points: [],
-                        crucial_property_keys: [],
-                    }
+                    throw new Error("Properties Timeline doesn't support groups-on-events yet")
                 },
             },
         ],
@@ -91,16 +87,28 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
         points: [
             (s) => [s.result, s.timezone],
             (result, timezone) =>
-                result.points.map(
-                    (point) =>
-                        ({
-                            relevantEventCount: point.relevant_event_count,
-                            properties: point.properties,
-                            timestamp: dayjsUtcToTimezone(point.timestamp, timezone),
-                        } as PropertiesTimelinePoint)
-                ),
+                result
+                    ? result.points.map(
+                          (point): PropertiesTimelinePoint => ({
+                              relevantEventCount: point.relevant_event_count,
+                              properties: point.properties,
+                              timestamp: dayjsUtcToTimezone(point.timestamp, timezone),
+                          })
+                      )
+                    : [],
         ],
-        crucialPropertyKeys: [(s) => [s.result], (result) => result.crucial_property_keys],
+        crucialPropertyKeys: [
+            (s) => [s.result],
+            (result): (keyof Properties)[] => (result ? result.crucial_property_keys : []),
+        ],
+        dateRange: [
+            (s) => [s.result, s.timezone],
+            (result, timezone): [Dayjs, Dayjs] | null =>
+                result && [
+                    dayjsUtcToTimezone(result.effective_date_from, timezone),
+                    dayjsUtcToTimezone(result.effective_date_to, timezone),
+                ],
+        ],
     }),
     afterMount(({ actions }) => {
         actions.loadResult()
