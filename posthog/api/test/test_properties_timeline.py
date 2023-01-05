@@ -1,9 +1,9 @@
-import datetime as dt
 import json
 import random
 import uuid
 from typing import Any, Dict, Literal, Optional
 
+from freezegun.api import freeze_time
 from rest_framework import status
 
 from posthog.models.group.util import create_group
@@ -27,6 +27,8 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
     main_actor_id = uuid.UUID("12345678-0000-0000-0000-000000000001") if actor_type == "person" else "test"
 
     class TestPropertiesTimeline(ClickhouseTestMixin, APIBaseTest):
+        maxDiff = None
+
         def _create_actor(self, properties: dict) -> str:
             """Create actor of relevant type and return its UUID (for persons) or key (for groups)."""
             if actor_type == "person":
@@ -57,22 +59,23 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                 **create_event_kwargs,
             )
 
-        def _get_person_properties_timeline(
+        def _get_timeline_result(
             self,
-            person_id: str,
             *,
             events: Optional[list] = None,
             actions: Optional[list] = None,
             properties: Optional[list] = None,
-            date_from: Optional[dt.datetime] = None,
-            date_to: Optional[dt.datetime] = None,
+            date_from: Optional[str],
+            date_to: Optional[str],
+            display: str = "ActionsTable",
+            interval: Optional[str] = None,
             expected_status: int = status.HTTP_200_OK,
         ) -> PropertiesTimelineResult:
             url = (
-                f"/api/person/{person_id}/properties_timeline"  # TODO: Add support for groups-on-events
+                f"/api/person/{main_actor_id}/properties_timeline"
                 f"?events={json.dumps(events or [])}&actions={json.dumps(actions or [])}"
-                f"&properties={json.dumps(properties or [])}"
-                f"&date_from={date_from.isoformat() if date_from else ''}&date_to={date_to.isoformat() if date_to else ''}"
+                f"&properties={json.dumps(properties or [])}&display={display}"
+                f"&date_from={date_from or ''}&date_to={date_to or ''}&interval={interval or ''}"
             )
             properties_timeline = self.client.get(url)
             self.assertEqual(properties_timeline.status_code, expected_status)
@@ -81,7 +84,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
         @also_test_with_materialized_columns(**materialized_column_kwargs)
         @snapshot_clickhouse_queries
         def test_timeline_for_new_actor_with_one_event_in_range(self):
-            actor_id = self._create_actor({"foo": "abc", "bar": 123})
+            self._create_actor({"foo": "abc", "bar": 123})
             self._create_event(
                 event="$pageview",
                 actor_properties={"foo": "abc", "bar": 123},
@@ -89,16 +92,15 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             flush_persons_and_events()
 
-            timeline = self._get_person_properties_timeline(
-                actor_id,
+            timeline = self._get_timeline_result(
                 events=[
                     {
                         "id": "$pageview",
                     }
                 ],
                 properties=[{"key": "bar", "value": "xyz", "type": "person"}],
-                date_from=dt.datetime(2020, 1, 1),
-                date_to=dt.datetime(2020, 1, 5),
+                date_from="2020-01-01",
+                date_to="2020-01-05",
             )
 
             self.assertEqual(
@@ -112,13 +114,15 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                         }
                     ],
                     "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
                 },
             )
 
         @also_test_with_materialized_columns(**materialized_column_kwargs)
         @snapshot_clickhouse_queries
         def test_timeline_for_new_actor_with_one_event_before_range(self):
-            actor_id = self._create_actor({"foo": "abc", "bar": 123})
+            self._create_actor({"foo": "abc", "bar": 123})
             self._create_event(
                 event="$pageview",
                 actor_properties={"foo": "abc", "bar": 123},
@@ -126,16 +130,15 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             flush_persons_and_events()
 
-            timeline = self._get_person_properties_timeline(
-                actor_id,
+            timeline = self._get_timeline_result(
                 events=[
                     {
                         "id": "$pageview",
                     }
                 ],
                 properties=[{"key": "bar", "value": "xyz", "type": "person"}],
-                date_from=dt.datetime(2020, 1, 1),
-                date_to=dt.datetime(2020, 1, 5),
+                date_from="2020-01-01",
+                date_to="2020-01-05",
             )
 
             self.assertEqual(
@@ -143,13 +146,15 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                 {
                     "points": [],  # No relevant events in range
                     "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
                 },
             )
 
         @snapshot_clickhouse_queries
         @also_test_with_materialized_columns(**materialized_column_kwargs)
         def test_timeline_for_existing_actor_with_three_events_and_return_to_previous_value(self):
-            actor_id = self._create_actor({"foo": "abc", "bar": 123})
+            self._create_actor({"foo": "abc", "bar": 123})
             self._create_event(
                 event="$pageview",
                 actor_properties={"foo": "abc", "bar": 456},  # Initial bar
@@ -167,16 +172,15 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             flush_persons_and_events()
 
-            timeline = self._get_person_properties_timeline(
-                actor_id,
+            timeline = self._get_timeline_result(
                 events=[
                     {
                         "id": "$pageview",
                     }
                 ],
                 properties=[{"key": "bar", "value": "xyz", "type": "person"}],
-                date_from=dt.datetime(2020, 1, 1),
-                date_to=dt.datetime(2020, 1, 5),
+                date_from="2020-01-01",
+                date_to="2020-01-05",
             )
 
             self.assertEqual(
@@ -200,13 +204,260 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                         },
                     ],
                     "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+                },
+            )
+
+        @snapshot_clickhouse_queries
+        @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+        def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_day_point(self):
+            self._create_actor(properties={"foo": "abc", "bar": 123})
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 456},  # Initial bar
+                timestamp="2020-01-02T00:00:00Z",
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 123},  # Changed bar
+                timestamp="2020-01-02T07:00:00Z",
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                timestamp="2020-01-02T14:00:00Z",
+            )
+            flush_persons_and_events()
+
+            timeline = self._get_timeline_result(
+                events=[
+                    {
+                        "id": "$pageview",
+                    }
+                ],
+                properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+                display="ActionsLineGraph",
+                date_from="2020-01-02T00:00:00Z",
+                date_to="2020-01-02T00:00:00Z",
+                # For some legacy reason data point-specific date_from and date_to are the same in the persons modal
+                # The backend needs interval to offset date_from properly
+                interval="day",
+            )
+
+            self.assertEqual(
+                timeline,
+                {
+                    "points": [
+                        {
+                            "properties": {"foo": "abc", "bar": 456},
+                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "timestamp": "2020-01-02T00:00:00Z",
+                        },
+                        {
+                            "properties": {"foo": "abc", "bar": 123},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-02T07:00:00Z",
+                        },
+                        {
+                            "properties": {"foo": "abc", "bar": 456},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-02T14:00:00Z",
+                        },
+                    ],
+                    "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-02T00:00:00+00:00",
+                    "effective_date_to": "2020-01-02T23:59:59.999999+00:00",
+                },
+            )
+
+        @snapshot_clickhouse_queries
+        @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+        def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_hour_point(self):
+            self._create_actor(properties={"foo": "abc", "bar": 123})
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 456},  # Initial bar
+                timestamp="2020-01-02T00:00:00Z",
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 123},  # Changed bar
+                timestamp="2020-01-02T00:20:00Z",
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                timestamp="2020-01-02T00:40:00Z",
+            )
+            flush_persons_and_events()
+
+            timeline = self._get_timeline_result(
+                events=[
+                    {
+                        "id": "$pageview",
+                    }
+                ],
+                properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+                display="ActionsLineGraph",
+                date_from="2020-01-02T00:00:00Z",
+                date_to="2020-01-02T00:00:00Z",
+                interval="hour",
+            )
+
+            self.assertEqual(
+                timeline,
+                {
+                    "points": [
+                        {
+                            "properties": {"foo": "abc", "bar": 456},
+                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "timestamp": "2020-01-02T00:00:00Z",
+                        },
+                        {
+                            "properties": {"foo": "abc", "bar": 123},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-02T00:20:00Z",
+                        },
+                        {
+                            "properties": {"foo": "abc", "bar": 456},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-02T00:40:00Z",
+                        },
+                    ],
+                    "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-02T00:00:00+00:00",
+                    "effective_date_to": "2020-01-02T01:00:00+00:00",
+                },
+            )
+
+        @snapshot_clickhouse_queries
+        @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+        def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_at_single_month_point(
+            self,
+        ):
+            self._create_actor(properties={"foo": "abc", "bar": 123})
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 456},  # Initial bar
+                timestamp="2020-01-01T00:00:00Z",
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 123},  # Changed bar
+                timestamp="2020-01-02T00:20:00Z",
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                timestamp="2020-01-31T00:40:00Z",
+            )
+            flush_persons_and_events()
+
+            timeline = self._get_timeline_result(
+                events=[
+                    {
+                        "id": "$pageview",
+                    }
+                ],
+                properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+                display="ActionsLineGraph",
+                date_from="2020-01-01",
+                date_to="2020-01-01",
+                interval="month",
+            )
+
+            self.assertEqual(
+                timeline,
+                {
+                    "points": [
+                        {
+                            "properties": {"foo": "abc", "bar": 456},
+                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "timestamp": "2020-01-01T00:00:00Z",
+                        },
+                        {
+                            "properties": {"foo": "abc", "bar": 123},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-02T00:20:00Z",
+                        },
+                        {
+                            "properties": {"foo": "abc", "bar": 456},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-31T00:40:00Z",
+                        },
+                    ],
+                    "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-31T23:59:59.999999+00:00",
+                },
+            )
+
+        @snapshot_clickhouse_queries
+        @also_test_with_materialized_columns(person_properties=["bar"], materialize_only_with_person_on_events=True)
+        def test_timeline_for_existing_person_with_three_events_and_return_to_previous_value_using_relative_date_from(
+            self,
+        ):
+            self._create_actor(properties={"foo": "abc", "bar": 123})
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 456},  # Initial bar
+                timestamp="2020-01-02T00:00:00Z",
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 123},  # Changed bar
+                timestamp="2020-01-02T00:20:00Z",
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 456},  # Changed bar back to initial value
+                timestamp="2020-01-06T00:40:00Z",
+            )
+            flush_persons_and_events()
+
+            with freeze_time("2020-01-09T21:37:00Z"):
+                timeline = self._get_timeline_result(
+                    events=[
+                        {
+                            "id": "$pageview",
+                        }
+                    ],
+                    properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+                    date_from="-7d",
+                    date_to=None,
+                )
+
+            self.assertEqual(
+                timeline,
+                {
+                    "points": [
+                        {
+                            "properties": {"foo": "abc", "bar": 456},
+                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "timestamp": "2020-01-02T00:00:00Z",
+                        },
+                        {
+                            "properties": {"foo": "abc", "bar": 123},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-02T00:20:00Z",
+                        },
+                        {
+                            "properties": {"foo": "abc", "bar": 456},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-06T00:40:00Z",
+                        },
+                    ],
+                    "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-02T00:00:00+00:00",
+                    "effective_date_to": "2020-01-09T23:59:59.999999+00:00",
                 },
             )
 
         @snapshot_clickhouse_queries
         @also_test_with_materialized_columns(**materialized_column_kwargs)
         def test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes(self):
-            actor_id = self._create_actor({"foo": "abc", "bar": 123})
+            self._create_actor({"foo": "abc", "bar": 123})
             self._create_event(
                 event="$pageview",
                 actor_properties={"foo": "abc", "bar": 456},
@@ -239,16 +490,15 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             flush_persons_and_events()
 
-            timeline = self._get_person_properties_timeline(
-                actor_id,
+            timeline = self._get_timeline_result(
                 events=[
                     {
                         "id": "$pageview",
                     }
                 ],
                 properties=[{"key": "bar", "value": "xyz", "type": "person"}],
-                date_from=dt.datetime(2020, 1, 1),
-                date_to=dt.datetime(2020, 1, 5),
+                date_from="2020-01-01",
+                date_to="2020-01-05",
             )
 
             self.assertEqual(
@@ -272,12 +522,14 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                         },
                     ],
                     "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
                 },
             )
 
         @snapshot_clickhouse_queries
         def test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_filters(self):
-            actor_id = self._create_actor({"foo": "abc", "bar": 123})
+            self._create_actor({"foo": "abc", "bar": 123})
             self._create_event(
                 event="$pageview",
                 actor_properties={"foo": "abc", "bar": 456},
@@ -310,15 +562,14 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             flush_persons_and_events()
 
-            timeline = self._get_person_properties_timeline(
-                actor_id,
+            timeline = self._get_timeline_result(
                 events=[
                     {
                         "id": "$pageview",
                     }
                 ],
-                date_from=dt.datetime(2020, 1, 1),
-                date_to=dt.datetime(2020, 1, 5),
+                date_from="2020-01-01",
+                date_to="2020-01-05",
             )
 
             self.assertEqual(
@@ -332,12 +583,14 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                         },
                     ],
                     "crucial_property_keys": [],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
                 },
             )
 
         @snapshot_clickhouse_queries
         def test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_events(self):
-            actor_id = self._create_actor({"foo": "abc", "bar": 123})
+            self._create_actor({"foo": "abc", "bar": 123})
             self._create_event(
                 event="$pageview",
                 actor_properties={"foo": "abc", "bar": 456},
@@ -370,11 +623,10 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             )
             flush_persons_and_events()
 
-            timeline = self._get_person_properties_timeline(
-                actor_id,
+            timeline = self._get_timeline_result(
                 properties=[{"key": "bar", "value": "xyz", "type": "person"}],
-                date_from=dt.datetime(2020, 1, 1),
-                date_to=dt.datetime(2020, 1, 5),
+                date_from="2020-01-01",
+                date_to="2020-01-05",
             )
 
             self.assertEqual(
@@ -398,6 +650,8 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                         },
                     ],
                     "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
                 },
             )
 
