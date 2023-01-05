@@ -389,7 +389,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         self.create_snapshot("d1", "id_no_person", now() - relativedelta(days=1))
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/id_no_person")
         response_data = response.json()
-        self.assertEqual(response_data["result"]["person"], None)
+        self.assertEqual(response_data["person"], None)
 
     def test_session_recording_doesnt_exist(self):
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/non_existent_id")
@@ -460,19 +460,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
 
-        assert response_data == {
-            "result": {
-                "next": None,
-                "snapshot_data_by_window_id": {
-                    "": [
-                        {
-                            "texts": ["\\ud83d\udc83\\ud83c\\udffb"],
-                            "timestamp": 1640952000000.0,
-                            "has_full_snapshot": True,
-                            "type": 2,
-                            "data": {"source": 0},
-                        }
-                    ]
-                },
-            }
+        assert not response_data["next"]
+        assert response_data["snapshot_data_by_window_id"] == {
+            "": [
+                {
+                    "texts": ["\\ud83d\udc83\\ud83c\\udffb"],
+                    "timestamp": 1640952000000.0,
+                    "has_full_snapshot": True,
+                    "type": 2,
+                    "data": {"source": 0},
+                }
+            ]
         }

@@ -5,7 +5,6 @@ from django.dispatch import receiver
 
 from posthog import settings
 from posthog.celery import ee_persist_single_recording
-from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.person.person import Person
 from posthog.models.session_recording.metadata import (
     DecompressedRecordingData,
@@ -42,20 +41,24 @@ class SessionRecording(UUIDModel):
     # DYNAMIC FIELDS
 
     viewed: Optional[bool] = False
+    person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
     _snapshots: Optional[DecompressedRecordingData] = None
 
-    def load_metadata(self) -> None:
+    def load_metadata(self) -> bool:
         from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
 
         if self._metadata:
-            return
+            return True
 
         if self.object_storage_path:
             self.load_object_data()
+
+            if not self._metadata:
+                return False
         else:
             # Try to load from Clickhouse
             metadata = SessionRecordingEvents(
@@ -65,7 +68,7 @@ class SessionRecording(UUIDModel):
             ).get_metadata()
 
             if not metadata:
-                return
+                return False
 
             self._metadata = metadata
 
@@ -77,6 +80,8 @@ class SessionRecording(UUIDModel):
             self.click_count = metadata["click_count"]
             self.keypress_count = metadata["keypress_count"]
             self.start_url = metadata["urls"][0] if metadata["urls"] else None
+
+        return True
 
     def load_snapshots(self, limit=20, offset=0) -> None:
         from posthog.queries.session_recordings.session_recording_events import SessionRecordingEvents
@@ -138,25 +143,28 @@ class SessionRecording(UUIDModel):
     def storage(self):
         return "object_storage" if self.object_storage_path else "clickhouse"
 
-    @cached_property
-    def person(self) -> Optional[Person]:
-        # Move this to _property so we can set it in a bulk command as well
-        if not self.distinct_id:
-            return None
+    def load_person(self) -> Optional[Person]:
+        if self.person:
+            return self.person
 
         try:
-            return Person.objects.get(
+            self.person = Person.objects.get(
                 persondistinctid__distinct_id=self.distinct_id,
                 persondistinctid__team_id=self.team,
                 team=self.team,
             )
+            return self.person
         except Person.DoesNotExist:
             return None
 
-    def check_viewed_for_user(self, user: Any) -> None:
-        self.viewed = SessionRecordingViewed.objects.filter(
-            team=self.team, user=user, session_id=self.session_id
-        ).exists()
+    def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
+        if not save_viewed:
+            self.viewed = SessionRecordingViewed.objects.filter(
+                team=self.team, user=user, session_id=self.session_id
+            ).exists()
+        else:
+            SessionRecordingViewed.objects.get_or_create(team=self.team, user=user, session_id=self.session_id)
+            self.viewed = True
 
     def build_object_storage_path(self) -> str:
         path_parts: List[str] = [

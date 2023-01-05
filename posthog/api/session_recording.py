@@ -2,6 +2,7 @@ import json
 from typing import Any, List
 
 import structlog
+from django.db.models import Prefetch
 from django.http import JsonResponse
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -15,6 +16,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.constants import SESSION_RECORDINGS_FILTER_IDS
 from posthog.models import Filter
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
+from posthog.models.person.person import PersonDistinctId
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team.team import Team
@@ -93,17 +95,16 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
 
-        recording.load_metadata()
-        recording.check_viewed_for_user(request.user)
+        loaded = recording.load_metadata()
+
+        if not loaded:
+            raise exceptions.NotFound("Recording not found")
+
+        recording.load_person()
+        recording.check_viewed_for_user(request.user, save_viewed=request.GET.get("save_view") is not None)
 
         # recording_start_time_string = request.GET.get("recording_start_time")
         # recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
-
-        if request.GET.get("save_view"):
-            # TODO: Move this into SessionRecording model maybe?
-            SessionRecordingViewed.objects.get_or_create(
-                team=self.team, user=request.user, session_id=recording.session_id
-            )
 
         serializer = SessionRecordingSerializer(recording)
 
@@ -123,25 +124,23 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
         recording.load_snapshots(limit, offset)
 
-        if recording.snapshot_data_by_window_id:
-            if recording.can_load_more_snapshots:
-                next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
-            else:
-                next_url = None
-            res = {
+        if not recording.snapshot_data_by_window_id:
+            raise exceptions.NotFound("Snapshots not found")
+
+        if recording.can_load_more_snapshots:
+            next_url = format_query_params_absolute_url(request, offset + limit, limit) if True else None
+        else:
+            next_url = None
+
+        res = {
+            "next": next_url,
+            "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
+            # TODO: Remove this once the frontend is migrated to use the above values
+            "result": {
                 "next": next_url,
                 "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
-                # TODO: Remove this once the frontend is migrated to use the above values
-                "result": {
-                    "next": next_url,
-                    "snapshot_data_by_window_id": recording.snapshot_data_by_window_id,
-                },
-            }
-        else:
-            res = {
-                "next": None,
-                "snapshot_data_by_window_id": None,
-            }
+            },
+        }
 
         # NOTE: We have seen some issues with encoding of emojis, specifically when there is a lone "surrogate pair". See #13272 for more details
         # The Django JsonResponse handles this case, but the DRF Response does not. So we fall back to the Django JsonResponse if we encounter an error
@@ -212,19 +211,29 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
 
-    # if not request.user.is_authenticated:  # for mypy
-    #     raise exceptions.NotAuthenticated()
-    # viewed_session_recordings = set(
-    #     SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
-    # )
+    if not request.user.is_authenticated:  # for mypy
+        raise exceptions.NotAuthenticated()
 
-    # distinct_ids = map(lambda x: x["distinct_id"], ch_session_recordings)
-    # person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-    #     "person"
-    # )
-    # distinct_id_to_person = {}
-    # for person_distinct_id in person_distinct_ids:
-    #     distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
+    # Update the viewed status for all loaded recordings
+    viewed_session_recordings = set(
+        SessionRecordingViewed.objects.filter(team=team, user=request.user).values_list("session_id", flat=True)
+    )
+
+    # Get the related persons for all the recordings
+    distinct_ids = [x.distinct_id for x in recordings]
+    person_distinct_ids = (
+        PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
+        .select_related("person")
+        .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
+    )
+
+    distinct_id_to_person = {}
+    for person_distinct_id in person_distinct_ids:
+        distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person
+
+    for recording in recordings:
+        recording.viewed = recording.session_id in viewed_session_recordings
+        recording.person = distinct_id_to_person.get(recording.distinct_id)
 
     session_recording_serializer = SessionRecordingSerializer(recordings, many=True)
     results = session_recording_serializer.data
