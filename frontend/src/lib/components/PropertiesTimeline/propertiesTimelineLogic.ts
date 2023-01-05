@@ -60,7 +60,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
                         const queryId = uuid()
-                        return await apiGetWithTimeToSeeDataTracking(
+                        return await apiGetWithTimeToSeeDataTracking<RawPropertiesTimelineResult>(
                             `api/projects/${values.currentTeamId}/persons/${
                                 props.actor.uuid
                             }/properties_timeline/?${toParams(props.filter)}`,
