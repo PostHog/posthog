@@ -13,6 +13,7 @@ from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -164,6 +165,12 @@ class StructuredViewSetMixin(_GenericViewSet):
                 raise AuthenticationFailed()
 
         return team_found
+
+    @cached_property
+    def user_permissions(self) -> "UserPermissions":
+        assert not self.request.user.is_anonymous
+
+        return UserPermissions(user=self.request.user, team=self.team, organization=self.organization)
 
     # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
     # TODO: Delete below when no legacy endpoints are used anymore

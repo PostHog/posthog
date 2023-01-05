@@ -35,7 +35,7 @@ class CanEditDashboard(BasePermission):
     def has_object_permission(self, request: Request, view, dashboard) -> bool:
         if request.method in SAFE_METHODS:
             return True
-        return dashboard.can_user_edit(cast(User, request.user).id)
+        return view.user_permissions.dashboard(dashboard).can_edit
 
 
 class TextSerializer(serializers.ModelSerializer):
@@ -77,6 +77,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
     delete_insights = serializers.BooleanField(write_only=True, required=False, default=False)
     effective_privilege_level = serializers.SerializerMethodField()
+    effective_restriction_level = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
 
     class Meta:
@@ -214,8 +215,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             )
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
-        user = cast(User, self.context["request"].user)
-        can_user_restrict = instance.can_user_restrict(user.id)
+        can_user_restrict = self.context["view"].user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
@@ -234,6 +234,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         instance = super().update(instance, validated_data)
 
+        user = cast(User, self.context["request"].user)
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
             self._update_tiles(instance, tile_data, user)
@@ -318,7 +319,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         return serialized_tiles
 
     def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
-        return dashboard.get_effective_privilege_level(self.context["request"].user.id)
+        return self.context["view"].user_permissions.dashboard(dashboard).effective_priviledge_level
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
