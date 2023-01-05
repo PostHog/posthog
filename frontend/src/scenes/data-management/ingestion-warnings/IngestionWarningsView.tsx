@@ -86,10 +86,10 @@ const WARNING_TYPE_RENDERER = {
             <>
                 Timestamp computed to <code>{details.result}</code> from the following input:
                 <ul>
-                    {details.timestamp ? <li>timestamp: {details.timestamp}</li> : ''}
-                    {details.sentAt ? <li> sent_at: {details.sentAt}</li> : ''}
+                    {details.timestamp ? <li>Client provided timestamp: {details.timestamp}</li> : ''}
+                    {details.sentAt ? <li>Client provided sent_at: {details.sentAt}</li> : ''}
                     {details.offset ? <li>offset: {details.offset}</li> : ''}
-                    <li>capture time: {details.now}</li>
+                    <li>PostHog server capture time: {details.now}</li>
                 </ul>
             </>
         )
