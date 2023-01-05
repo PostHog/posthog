@@ -4,24 +4,46 @@ import { DateTime, Duration } from 'luxon'
 
 import { status } from '../../utils/status'
 
-type InvalidTimestampCallback = (field: string, value: string, reason: string) => void
+type IngestionWarningCallback = (type: string, details: Record<string, any>) => void
 
-export function parseEventTimestamp(data: PluginEvent, callback?: InvalidTimestampCallback): DateTime {
+const FutureEventHoursCutoffMillis = 23 * 3600 * 1000
+
+export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarningCallback): DateTime {
     const now = DateTime.fromISO(data['now']).toUTC() // now is set by the capture endpoint and assumed valid
 
     let sentAt: DateTime | null = null
     if (data['sent_at']) {
         sentAt = DateTime.fromISO(data['sent_at']).toUTC()
         if (!sentAt.isValid) {
-            callback?.('sent_at', data['sent_at'], sentAt.invalidExplanation || 'unknown error')
+            callback?.('ignored_invalid_timestamp', {
+                field: 'sent_at',
+                value: data['sent_at'],
+                reason: sentAt.invalidExplanation || 'unknown error',
+            })
             sentAt = null
         }
     }
 
     const parsedTs = handleTimestamp(data, now, sentAt)
     if (!parsedTs.isValid) {
-        callback?.('timestamp', data['timestamp'] ?? '', parsedTs.invalidExplanation || 'unknown error')
+        callback?.('ignored_invalid_timestamp', {
+            field: 'timestamp',
+            value: data['timestamp'] ?? '',
+            reason: parsedTs.invalidExplanation || 'unknown error',
+        })
         return DateTime.utc()
+    }
+
+    // Events in the future would indicate an instrumentation bug, lets' ingest them
+    // but publish an integration warning to help diagnose such issues.
+    if (now.isValid && parsedTs.toUTC().diff(now).toMillis() > FutureEventHoursCutoffMillis) {
+        callback?.('event_timestamp_in_future', {
+            timestamp: data['timestamp'] ?? '',
+            sentAt: data['sent_at'] ?? '',
+            offset: data['offset'] ?? '',
+            now: now,
+            result: parsedTs.toISO(),
+        })
     }
     return parsedTs
 }

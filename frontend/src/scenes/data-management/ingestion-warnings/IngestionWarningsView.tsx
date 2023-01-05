@@ -19,6 +19,7 @@ const WARNING_TYPE_TO_DESCRIPTION = {
     cannot_merge_with_illegal_distinct_id: 'Refused to merge with an illegal distinct id',
     skipping_event_invalid_uuid: 'Refused to process event with invalid uuid',
     ignored_invalid_timestamp: 'Ignored an invalid timestamp, event was still ingested',
+    event_timestamp_in_future: 'An event was sent more than 23 hours in the future',
 }
 
 const WARNING_TYPE_RENDERER = {
@@ -70,6 +71,26 @@ const WARNING_TYPE_RENDERER = {
             <>
                 Used server timestamp when ingesting event due to invalid value <code>{details.value}</code> in field{' '}
                 <code>{details.field}</code>: {details.reason}
+            </>
+        )
+    },
+    event_timestamp_in_future: function Render(warning: IngestionWarning): JSX.Element {
+        const details = warning.details as {
+            timestamp: string
+            sentAt: string
+            offset: string
+            now: string
+            result: string
+        }
+        return (
+            <>
+                Timestamp computed to <code>{details.result}</code> from the following input:
+                <ul>
+                    {details.timestamp ? <li>timestamp: {details.timestamp}</li> : ''}
+                    {details.sentAt ? <li> sent_at: {details.sentAt}</li> : ''}
+                    {details.offset ? <li>offset: {details.offset}</li> : ''}
+                    <li>capture time: {details.now}</li>
+                </ul>
             </>
         )
     },
