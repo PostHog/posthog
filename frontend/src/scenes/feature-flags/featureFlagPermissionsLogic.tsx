@@ -1,6 +1,7 @@
-import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
+import { rolesLogic } from 'scenes/organization/Settings/Permissions/Roles/rolesLogic'
 import { AccessLevel, FeatureFlagAssociatedRoleType, RoleType } from '~/types'
 
 import type { featureFlagPermissionsLogicType } from './featureFlagPermissionsLogicType'
@@ -13,6 +14,7 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
     path(['scenes', 'feature-flags', 'featureFlagPermissionsLogic']),
     props({} as FeatureFlagPermissionsLogicProps),
     key((props: FeatureFlagPermissionsLogicProps) => `${props.flagId}`),
+    connect({ values: [rolesLogic, ['roles']] }),
     actions({
         setModalOpen: (visible: boolean) => ({ visible }),
         setRolesToAdd: (roleIds: string[]) => ({ roleIds }),
@@ -68,17 +70,36 @@ export const featureFlagPermissionsLogic = kea<featureFlagPermissionsLogicType>(
                         actions.setRolesToAdd([])
                         return [...values.associatedRoles, ...newAssociatedRoles]
                     }
-                    return values.associatedRoles
+                    const newFlagAssociatedRoles: RoleType[] = []
+                    for (const roleId of rolesToAdd) {
+                        const existingRole = values.roles.find((r) => roleId === r.id)
+                        if (existingRole?.id) {
+                            newFlagAssociatedRoles.push(existingRole)
+                        }
+                    }
+                    return newFlagAssociatedRoles.map((newRole) => ({
+                        id: newRole.id,
+                        role: newRole,
+                        feature_flag: null,
+                        updated_at: '',
+                        added_at: '',
+                    }))
                 },
                 deleteAssociatedRole: async ({ roleId }) => {
                     const associatedRoleId = values.associatedRoles.find(
                         (associatedRole) => associatedRole.role.id === roleId
                     )?.id
+                    const filteredRoles = values.associatedRoles.filter(
+                        (associatedRole) => associatedRole.id !== associatedRoleId
+                    )
+
                     if (props.flagId) {
                         associatedRoleId &&
                             (await api.resourceAccessPermissions.featureFlags.delete(props.flagId, associatedRoleId))
+                    } else {
+                        actions.setRolesToAdd(filteredRoles.map((filteredRole) => filteredRole.id))
                     }
-                    return values.associatedRoles.filter((associatedRole) => associatedRole.id !== associatedRoleId)
+                    return filteredRoles
                 },
             },
         ],

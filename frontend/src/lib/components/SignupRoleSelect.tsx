@@ -18,11 +18,11 @@ export default function SignupRoleSelect({ className }: { className?: string }):
                     },
                     {
                         label: 'Executive',
-                        value: 'executive',
+                        value: 'leadership',
                     },
                     {
                         label: 'Customer Success',
-                        value: 'customer-success',
+                        value: 'customer_service',
                     },
                     {
                         label: 'Sales',
