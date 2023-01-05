@@ -155,6 +155,7 @@ def get_decide(request: HttpRequest):
                 property_value_overrides=all_property_overrides,
                 group_property_value_overrides=(data.get("group_properties") or {}),
                 only_active=(api_version < 3),
+                only_string=(api_version < 3),
             )
 
             response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())

@@ -124,6 +124,15 @@ class FeatureFlag(models.Model):
                 return variants
         return []
 
+    @property
+    def is_string_type(self):
+        is_multivariate = self.get_filters().get("multivariate", None)
+        if is_multivariate is not None:
+            for variant in self.variants:
+                if not isinstance(variant["key"], str):
+                    return False
+        return True
+
     def get_filters(self):
         if "groups" in self.filters:
             return self.filters
@@ -612,10 +621,12 @@ def get_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     only_active: bool = True,
+    only_string: bool = True,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
     )
+
     active_flags, active_flag_reasons = get_active_feature_flags(
         team_id,
         distinct_id,
@@ -623,7 +634,8 @@ def get_feature_flags(
         hash_key_override,
         property_value_overrides,
         group_property_value_overrides,
-        feature_flags=list(all_feature_flags),
+        feature_flags=all_feature_flags,
+        only_string=only_string,
     )
 
     if only_active:
@@ -642,7 +654,8 @@ def get_active_feature_flags(
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-    feature_flags: Optional[List[FeatureFlag]] = None,
+    feature_flags: Optional[QuerySet[FeatureFlag]] = None,
+    only_string: bool = True,
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
 
     all_feature_flags = (
@@ -652,6 +665,9 @@ def get_active_feature_flags(
             "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
         )
     )
+
+    if only_string:
+        all_feature_flags = [flag for flag in all_feature_flags if flag.is_string_type]
 
     flags_have_experience_continuity_enabled = any(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
