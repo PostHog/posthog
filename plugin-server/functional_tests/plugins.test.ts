@@ -2,6 +2,7 @@ import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
 import { Kafka, Partitioners, Producer } from 'kafkajs'
 import { Pool } from 'pg'
+import { v4 as uuid4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
 import { ONE_HOUR } from '../src/config/constants'
@@ -13,6 +14,7 @@ import {
     createPlugin,
     createTeam,
     fetchEvents,
+    fetchPersons,
     fetchPluginLogEntries,
 } from './api'
 import { waitForExpect } from './expectations'
@@ -114,7 +116,7 @@ test.concurrent(`plugin method tests: event captured, processed, ingested`, asyn
     })
 })
 
-test.concurrent(`plugin method tests: can update person properties via processEvent`, async () => {
+test.concurrent(`plugin method tests: can update distinct_id via processEvent`, async () => {
     // Prior to introducing
     // https://github.com/PostHog/product-internal/pull/405/files this was
     // possible so I'm including a test here to explicitly check for it.
@@ -127,12 +129,7 @@ test.concurrent(`plugin method tests: can update person properties via processEv
             export async function processEvent(event) {
                 return {
                     ...event,
-                    properties: {
-                        ...event.properties,
-                        $set: { 
-                            property: 'hell yes',
-                        }
-                    }
+                    distinct_id: 'hell yes'
                 }
             }
         `,
@@ -149,10 +146,51 @@ test.concurrent(`plugin method tests: can update person properties via processEv
         expect(events.length).toBe(1)
         expect(events[0]).toEqual(
             expect.objectContaining({
-                person_properties: expect.objectContaining({ property: 'hell yes' }),
+                distinct_id: 'hell yes',
             })
         )
     })
+})
+
+test.concurrent(`plugin method tests: can drop events via processEvent`, async () => {
+    // Plugins should be able to specify that some events are now ingested
+    const plugin = await createPlugin(postgres, {
+        organization_id: organizationId,
+        name: 'test plugin',
+        plugin_type: 'source',
+        is_global: false,
+        source__index_ts: `
+            export async function processEvent(event) {
+                return event.event === 'drop me' ? null : event
+            }
+        `,
+    })
+    const teamId = await createTeam(postgres, organizationId)
+    await createAndReloadPluginConfig(postgres, teamId, plugin.id, redis)
+    const aliceId = new UUIDT().toString()
+    const bobId = new UUIDT().toString()
+
+    // First capture the event we want to drop
+    const dropMeUuid = new UUIDT().toString()
+    await capture(producer, teamId, aliceId, dropMeUuid, 'drop me')
+
+    // Then capture a custom event that will not be dropped. We capture this
+    // second such that if we have ingested this event, we can be reasonably
+    // confident that the drop me event was also completely processed.
+    const customEventUuid = uuid4()
+    await capture(producer, teamId, bobId, customEventUuid, 'custom event')
+
+    await waitForExpect(async () => {
+        const [event] = await fetchEvents(clickHouseClient, teamId, customEventUuid)
+        expect(event).toBeDefined()
+    })
+
+    const [event] = await fetchEvents(clickHouseClient, teamId, dropMeUuid)
+    expect(event).toBeUndefined()
+
+    // Further, these events should not produce any person
+    const persons = await fetchPersons(clickHouseClient, teamId)
+    expect(persons.length).toBe(1)
 })
 
 test.concurrent(
