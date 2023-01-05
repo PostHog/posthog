@@ -22,8 +22,6 @@ export interface SpanProps {
     durationContainerWidth: number | undefined
     spanData: SpanData
     widthTrackingRef?: RefCallback<HTMLElement>
-    isExpandable?: boolean
-    onClick?: (span: SpanData) => void
 }
 
 const checkOverflow = (textContainer: HTMLSpanElement | null): boolean => {
@@ -36,7 +34,7 @@ const checkOverflow = (textContainer: HTMLSpanElement | null): boolean => {
     return false
 }
 
-function TraceBar({ spanData, maxSpan }: SpanProps): JSX.Element {
+function SpanBar({ spanData, maxSpan }: SpanProps): JSX.Element {
     const [durationWidth, setDurationWidth] = useState<number>(0)
     const [startMargin, setStartMargin] = useState<number>(0)
 
@@ -114,70 +112,60 @@ function DescribeSpan({ node }: { node: TimeToSeeNode }): JSX.Element {
     )
 }
 
-export function Span({
+function SpanBarWrapper(props: {
+    ref: RefCallback<HTMLElement> | undefined
+    durationContainerWidth: number | undefined
+    maxSpan: number
+    spanData: SpanData
+}): JSX.Element {
+    return (
+        <div
+            ref={props.ref}
+            className={'grow self-center'}
+            /* eslint-disable-next-line react/forbid-dom-props */
+            style={{
+                width: props.durationContainerWidth || '100%',
+                maxWidth: props.durationContainerWidth,
+                minWidth: props.durationContainerWidth,
+            }}
+        >
+            <SpanBar
+                maxSpan={props.maxSpan}
+                durationContainerWidth={props.durationContainerWidth}
+                spanData={props.spanData}
+            />
+        </div>
+    )
+}
+
+export function ExpandableSpan({
     maxSpan,
     durationContainerWidth,
     spanData,
     widthTrackingRef,
-    isExpandable,
-    onClick,
 }: SpanProps): JSX.Element {
-    const [isExpanded, setIsExpanded] = useState(isExpandable)
-
-    const { focussedInteraction } = useValues(traceLogic)
-
-    const onClickProps =
-        spanData.data.type === 'interaction'
-            ? {
-                  onClick: () => {
-                      return onClick?.(spanData)
-                  },
-              }
-            : undefined
-
-    const styleProps =
-        focussedInteraction?.id === spanData.id
-            ? {
-                  style: { borderColor: getSeriesColor(spanData.depth) },
-              }
-            : {}
+    const [isExpanded, setIsExpanded] = useState(true)
 
     return (
         <>
-            <div
-                className={clsx(
-                    'w-full border px-4 py-4 flex flex-row justify-between',
-                    `Span__${spanData.type}`,
-                    !!onClick && 'cursor-pointer'
-                )}
-                {...onClickProps}
-                {...styleProps}
-            >
+            <div className={clsx('w-full border px-4 py-4 flex flex-row justify-between', `Span__${spanData.type}`)}>
                 <div className={'w-100 relative flex flex-row gap-2'}>
-                    {isExpandable && (
-                        <LemonButton
-                            noPadding
-                            status="stealth"
-                            onClick={() => setIsExpanded(!isExpanded)}
-                            icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
-                            title={isExpanded ? 'Collapse span' : 'Expand span'}
-                        />
-                    )}
+                    <LemonButton
+                        noPadding
+                        status="stealth"
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        icon={isExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                        title={isExpanded ? 'Collapse span' : 'Expand span'}
+                    />
 
                     {spanData.data && <DescribeSpan node={spanData.data} />}
                 </div>
-                <div
+                <SpanBarWrapper
                     ref={widthTrackingRef}
-                    className={'grow self-center'}
-                    /* eslint-disable-next-line react/forbid-dom-props */
-                    style={{
-                        width: durationContainerWidth || '100%',
-                        maxWidth: durationContainerWidth,
-                        minWidth: durationContainerWidth,
-                    }}
-                >
-                    <TraceBar maxSpan={maxSpan} durationContainerWidth={durationContainerWidth} spanData={spanData} />
-                </div>
+                    durationContainerWidth={durationContainerWidth}
+                    maxSpan={maxSpan}
+                    spanData={spanData}
+                />
             </div>
             {isExpanded && (
                 <>
@@ -191,7 +179,7 @@ export function Span({
                     />
                     <div className={'pl-4'}>
                         {spanData.children.map((child, index) => (
-                            <Span
+                            <ExpandableSpan
                                 key={`${spanData.depth}-${index}`}
                                 maxSpan={maxSpan}
                                 durationContainerWidth={durationContainerWidth}
@@ -257,6 +245,8 @@ function TraceOverview({
 }): JSX.Element {
     const { ref: parentSpanRef, width: parentSpanWidth } = useResizeObserver()
 
+    const { focussedInteraction } = useValues(traceLogic)
+
     return (
         <>
             <div className={'flex flex-col gap-1 border rounded p-4'}>
@@ -269,17 +259,45 @@ function TraceOverview({
                         if (spanData.type === 'session') {
                             ref = parentSpanRef
                         }
+
+                        const onClickProps =
+                            spanData.data.type === 'interaction'
+                                ? {
+                                      onClick: () => {
+                                          return onClick?.(spanData)
+                                      },
+                                  }
+                                : undefined
+
+                        const styleProps =
+                            focussedInteraction?.id === spanData.id
+                                ? {
+                                      style: { borderColor: getSeriesColor(spanData.depth) },
+                                  }
+                                : {}
+
                         return (
                             <div key={i}>
-                                <Span
-                                    onClick={onClick}
-                                    isExpandable={false}
-                                    widthTrackingRef={ref}
-                                    // don't set duration container width back onto the element that is generating it
-                                    durationContainerWidth={!!ref ? undefined : parentSpanWidth}
-                                    maxSpan={timeToSeeSession.data.duration_ms}
-                                    spanData={spanData}
-                                />
+                                <div
+                                    className={clsx(
+                                        'w-full border px-4 py-4 flex flex-row justify-between',
+                                        `Span__${spanData.type}`,
+                                        spanData.type === 'interaction' && 'cursor-pointer'
+                                    )}
+                                    {...onClickProps}
+                                    {...styleProps}
+                                >
+                                    <div className={'w-100 relative flex flex-row gap-2'}>
+                                        {spanData.data && <DescribeSpan node={spanData.data} />}
+                                    </div>
+                                    <SpanBarWrapper
+                                        ref={ref}
+                                        // don't set duration container width back onto the element that is generating it
+                                        durationContainerWidth={!!ref ? undefined : parentSpanWidth}
+                                        maxSpan={timeToSeeSession.data.duration_ms}
+                                        spanData={spanData}
+                                    />
+                                </div>
                             </div>
                         )
                     })}
@@ -312,8 +330,7 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
                 />
 
                 {focussedInteraction ? (
-                    <Span
-                        isExpandable={true}
+                    <ExpandableSpan
                         widthTrackingRef={selectedSpanRef}
                         // don't set duration container width back onto the element that is generating it
                         durationContainerWidth={selectedSpanWidth}
