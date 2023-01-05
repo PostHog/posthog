@@ -1,10 +1,11 @@
-import { kea } from 'kea'
-import { Breadcrumb, EventType, MatchedRecording } from '~/types'
+import { actions, kea, listeners, path, reducers, selectors, afterMount } from 'kea'
+import { Breadcrumb, EventType, MatchedRecording, RecentPerformancePageView } from '~/types'
 import type { webPerformanceLogicType } from './webPerformanceLogicType'
 import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
+import { actionToUrl, router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
+import { loaders } from 'kea-loaders'
 
 export enum WebPerformancePage {
     TABLE = 'table',
@@ -282,16 +283,16 @@ function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
     }
 }
 
-export const webPerformanceLogic = kea<webPerformanceLogicType>({
-    path: ['scenes', 'performance'],
-    actions: {
+export const webPerformanceLogic = kea<webPerformanceLogicType>([
+    path(['scenes', 'performance']),
+    actions({
         setEventToDisplay: (eventToDisplay: EventType) => ({
             eventToDisplay,
         }),
         clearEventToDisplay: true,
         setCurrentPage: (page: WebPerformancePage) => ({ page }),
-    },
-    reducers: {
+    }),
+    reducers({
         eventToDisplay: [
             null as EventPerformanceData | null,
             {
@@ -301,20 +302,28 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
         ],
         currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
         currentPage: [WebPerformancePage.TABLE as WebPerformancePage, { setCurrentPage: (_, { page }) => page }],
-    },
-    loaders: {
+    }),
+    loaders({
+        recentPageViews: [
+            [] as RecentPerformancePageView[],
+            {
+                loadRecentPageViews: async (): Promise<RecentPerformancePageView[]> => {
+                    return (await api.performanceEvents.recentPageViews()).results
+                },
+            },
+        ],
         event: {
             loadEvent: async (id: string): Promise<EventType> => {
                 return api.events.get(id, true)
             },
         },
-    },
-    listeners: ({ actions }) => ({
+    }),
+    listeners(({ actions }) => ({
         loadEventSuccess: ({ event }) => {
             actions.setEventToDisplay(event)
         },
-    }),
-    selectors: () => ({
+    })),
+    selectors(() => ({
         sessionRecording: [
             (s) => [s.currentEvent],
             (currentEvent: EventType | null) =>
@@ -340,8 +349,8 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
                 return baseCrumb
             },
         ],
-    }),
-    actionToUrl: ({ values }) => ({
+    })),
+    actionToUrl(({ values }) => ({
         setEventToDisplay: () => {
             if (values.currentPage === WebPerformancePage.TABLE && !!values.currentEvent) {
                 //then we're navigating to the chart
@@ -363,8 +372,8 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
                 { replace: true },
             ]
         },
-    }),
-    urlToAction: ({ values, actions }) => ({
+    })),
+    urlToAction(({ values, actions }) => ({
         [urls.webPerformance()]: () => {
             if (values.currentPage !== WebPerformancePage.TABLE) {
                 actions.setCurrentPage(WebPerformancePage.TABLE)
@@ -378,5 +387,8 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>({
                 actions.loadEvent(id)
             }
         },
+    })),
+    afterMount(({ actions }) => {
+        actions.loadRecentPageViews()
     }),
-})
+])
