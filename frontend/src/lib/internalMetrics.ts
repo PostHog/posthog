@@ -48,10 +48,12 @@ export async function apiGetWithTimeToSeeDataTracking<T extends any>(
     >
 ): Promise<T> {
     let response: Response | undefined
+    let responseData: T | undefined
     let error: any
     const requestStartMs = performance.now()
     try {
         response = await api.getResponse(url)
+        responseData = await getJSONOrThrow(response)
     } catch (e) {
         error = e
     }
@@ -63,8 +65,8 @@ export async function apiGetWithTimeToSeeDataTracking<T extends any>(
         api_response_bytes: response && getResponseBytes(response),
         time_to_see_data_ms: requestDurationMs,
     })
-    if (!response) {
-        throw error // If there's no response, there must have been an error - rethrow it
+    if (!responseData) {
+        throw error // If there's no response data, there must have been an error - rethrow it
     }
-    return (await getJSONOrThrow(response)) as T
+    return responseData
 }
