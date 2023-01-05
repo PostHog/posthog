@@ -3,7 +3,7 @@ import api, { getJSONOrThrow } from 'lib/api'
 import { getResponseBytes } from 'scenes/insights/utils'
 
 export interface TimeToSeeDataPayload {
-    type: 'insight_load' | 'dashboard_load'
+    type: 'properties_timeline_load' | 'insight_load' | 'dashboard_load'
     context: 'insight' | 'dashboard'
     time_to_see_data_ms: number
     primary_interaction_id: string

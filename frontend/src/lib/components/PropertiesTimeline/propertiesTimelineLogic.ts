@@ -67,7 +67,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                             }/properties_timeline/?${toParams(props.filter)}`,
                             values.currentTeamId,
                             {
-                                type: 'insight_load',
+                                type: 'properties_timeline_load',
                                 context: 'insight',
                                 primary_interaction_id: queryId,
                                 query_id: queryId,
