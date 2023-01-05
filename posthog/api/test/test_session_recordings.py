@@ -223,9 +223,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
 
         response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
         response_data = response.json()
-        # self.assertEqual(response_data["result"]["person"]["id"], p.pk)
 
-        print(response_data)
         assert response_data == {
             "id": "session_1",
             "distinct_id": "d1",
