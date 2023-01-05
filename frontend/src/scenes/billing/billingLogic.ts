@@ -25,7 +25,6 @@ export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
     UsageLimitExceeded = 'usage_limit_exceeded',
-    FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
 export const billingLogic = kea<billingLogicType>([
