@@ -8,6 +8,7 @@ import { loaders } from 'kea-loaders'
 
 import type { propertiesTimelineLogicType } from './propertiesTimelineLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { captureException } from '@sentry/react'
 
 export interface PropertiesTimelinePoint {
     timestamp: Dayjs
@@ -48,7 +49,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             null as number | null,
             {
                 setSelectedPointIndex: (_, { index }) => index,
-                loadResultSuccess: (_, { result }) => result.points.length - 1,
+                loadResultSuccess: (_, { result }) => (result.points.length > 0 ? result.points.length - 1 : null),
             },
         ],
     }),
@@ -64,6 +65,16 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                                 props.actor.uuid
                             }/properties_timeline/?${toParams(props.filter)}`
                         )) as RawPropertiesTimelineResult
+                        if (response.points.length === 0) {
+                            // It should not be possible for a properties timeline to have zero points, as all actors
+                            // shown in the actors modal must have at least one relevant event in the period
+                            captureException(new Error('Properties Timeline returned no points'), {
+                                tags: { 'team.id': values.currentTeamId },
+                                extra: {
+                                    params: props.filter,
+                                },
+                            })
+                        }
                         return response
                     }
                     throw new Error("Properties Timeline doesn't support groups-on-events yet")
