@@ -1,8 +1,10 @@
+import time
 from ipaddress import ip_address, ip_network
 from typing import List, Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import MiddlewareNotUsed
+from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
@@ -11,7 +13,8 @@ from django.utils.cache import add_never_cache_headers
 from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
-from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries
+from posthog.clickhouse.client.execute import clickhouse_query_counter
+from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 
 from .auth import PersonalAPIKeyAuthentication
@@ -206,6 +209,36 @@ class CHQueries:
         if name in request.POST:
             return request.POST[name]
         return None
+
+
+class QueryTimeCountingMiddleware:
+    ALLOW_LIST_ROUTES = ["dashboard", "insight"]
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not (
+            settings.CAPTURE_TIME_TO_SEE_DATA
+            and "api" in request.path
+            and any(key in request.path for key in self.ALLOW_LIST_ROUTES)
+        ):
+            return self.get_response(request)
+
+        pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
+        start_time = time.perf_counter()
+        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
+            response: HttpResponse = self.get_response(request)
+
+        response.headers["Server-Timing"] = self._construct_header(
+            django=time.perf_counter() - start_time,
+            pg=pg_query_counter.query_time_ms,
+            ch=ch_query_counter.query_time_ms,
+        )
+        return response
+
+    def _construct_header(self, **kwargs):
+        return ", ".join(f"{key};dur={round(duration)}" for key, duration in kwargs.items())
 
 
 def shortcircuitmiddleware(f):

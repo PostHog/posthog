@@ -1060,8 +1060,6 @@ export enum InsightColor {
 
 export interface Cacheable {
     last_refresh: string | null
-    filters_hash: string
-    refreshing: boolean
 }
 
 export interface TileLayout extends Omit<Layout, 'i'> {
@@ -2500,7 +2498,7 @@ export interface RolesListParams {
 
 export interface FeatureFlagAssociatedRoleType {
     id: string
-    feature_flag: FeatureFlagType
+    feature_flag: FeatureFlagType | null
     role: RoleType
     updated_at: string
     added_at: string

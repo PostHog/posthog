@@ -1,12 +1,12 @@
 import { LemonButton, LemonButtonWithPopup } from 'lib/components/LemonButton'
 import { IconExport } from 'lib/components/icons'
-import { Popconfirm } from 'antd'
 import { triggerExport } from 'lib/components/ExportButton/exporter'
 import { ExporterFormat } from '~/types'
 import { DataNode, DataTableNode } from '~/queries/schema'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { getEventsEndpoint, getPersonsEndpoint } from '~/queries/query'
+import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 
 const EXPORT_LIMIT_EVENTS = 3500
 const EXPORT_LIMIT_PERSONS = 10000
@@ -66,10 +66,11 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     <ExportWithConfirmation
                         key={1}
                         placement={'topRight'}
-                        query={query}
                         onConfirm={() => {
                             startDownload(query, true)
                         }}
+                        actor={isPersonsNode(query.source) ? 'persons' : 'events'}
+                        limit={isPersonsNode(query.source) ? EXPORT_LIMIT_PERSONS : EXPORT_LIMIT_EVENTS}
                     >
                         <LemonButton fullWidth status="stealth">
                             Export current columns
@@ -78,8 +79,9 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
                     <ExportWithConfirmation
                         key={0}
                         placement={'bottomRight'}
-                        query={query}
                         onConfirm={() => startDownload(query, false)}
+                        actor={isPersonsNode(query.source) ? 'persons' : 'events'}
+                        limit={isPersonsNode(query.source) ? EXPORT_LIMIT_PERSONS : EXPORT_LIMIT_EVENTS}
                     >
                         <LemonButton fullWidth status="stealth">
                             Export all columns
@@ -92,33 +94,5 @@ export function DataTableExport({ query }: DataTableExportProps): JSX.Element | 
         >
             Export{filterCount > 0 ? ` (${filterCount} filter${filterCount === 1 ? '' : 's'})` : ''}
         </LemonButtonWithPopup>
-    )
-}
-
-interface ExportWithConfirmationProps {
-    placement: 'topRight' | 'bottomRight'
-    onConfirm: (e?: React.MouseEvent<HTMLElement>) => void
-    query: DataTableNode
-    children: React.ReactNode
-}
-
-function ExportWithConfirmation({ query, placement, onConfirm, children }: ExportWithConfirmationProps): JSX.Element {
-    const actor = isPersonsNode(query.source) ? 'events' : 'persons'
-    const limit = isPersonsNode(query.source) ? EXPORT_LIMIT_EVENTS : EXPORT_LIMIT_PERSONS
-    return (
-        <Popconfirm
-            placement={placement}
-            title={
-                <>
-                    Exporting by csv is limited to {limit} {actor}.
-                    <br />
-                    To return more, please use <a href={`https://posthog.com/docs/api/${actor}`}>the API</a>. Do you
-                    want to export by CSV?
-                </>
-            }
-            onConfirm={onConfirm}
-        >
-            {children}
-        </Popconfirm>
     )
 }

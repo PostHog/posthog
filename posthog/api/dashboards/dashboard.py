@@ -57,7 +57,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = DashboardTile
-        exclude = ["dashboard", "deleted"]
+        exclude = ["dashboard", "deleted", "filters_hash", "last_refresh", "refreshing", "refresh_attempt"]
         read_only_fields = ["id", "insight"]
         depth = 1
 
@@ -312,7 +312,6 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
             if isinstance(tile.layouts, str):
                 tile.layouts = json.loads(tile.layouts)
-            self.context.update({"filters_hash": tile.filters_hash})
             tile_data = DashboardTileSerializer(tile, many=False, context=self.context).data
             serialized_tiles.append(tile_data)
 

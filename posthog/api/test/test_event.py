@@ -17,9 +17,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -46,11 +46,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
-        expected_queries = (
-            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
-        )
-
-        with self.assertNumQueries(expected_queries):
+        with self.assertNumQueries(6):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         self.assertEqual(
             response["results"][0]["person"],
@@ -67,7 +63,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         expected_queries = (
-            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+            6  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id
         )
 
         with self.assertNumQueries(expected_queries):
@@ -82,9 +78,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        expected_queries = (
-            10  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
-        )
+        expected_queries = 8
 
         with self.assertNumQueries(expected_queries):
             response = self.client.get(
@@ -168,7 +162,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=custom_event").json()
         self.assertListEqual(sorted(events), sorted(event["name"] for event in response))
 
-    @test_with_materialized_columns(["random_prop"])
+    @also_test_with_materialized_columns(["random_prop"])
     @snapshot_clickhouse_queries
     def test_event_property_values(self):
 

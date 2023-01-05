@@ -111,10 +111,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         syncScroll: [
-            true,
+            false,
             {
-                setTab: () => true,
-                setMiniFilter: () => true,
                 setSyncScroll: (_, { syncScroll }) => syncScroll,
                 setItemExpanded: () => false,
             },
@@ -449,6 +447,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return startIndex
             },
+        ],
+
+        playbackIndicatorIndexStop: [
+            (s) => [s.playbackIndicatorIndex, s.items],
+            (playbackIndicatorIndex, items): number => (items.length + playbackIndicatorIndex) % items.length,
         ],
 
         fuse: [

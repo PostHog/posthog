@@ -14,12 +14,8 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.session_recording import list_recordings
 from posthog.api.shared import UserBasicSerializer
-from posthog.constants import (
-    SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS,
-    SESSION_RECORDINGS_PLAYLIST_FREE_COUNT,
-    AvailableFeature,
-)
-from posthog.models import SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
+from posthog.constants import SESSION_RECORDINGS_FILTER_IDS, SESSION_RECORDINGS_PLAYLIST_FREE_COUNT, AvailableFeature
+from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.filters.session_recordings_filter import SessionRecordingsFilter
 from posthog.models.team.team import get_available_features_for_team
@@ -58,17 +54,6 @@ def log_playlist_activity(
             activity=activity,
             detail=Detail(name=playlist_name, changes=changes, short_id=playlist_short_id),
         )
-
-
-class SessionRecordingPlaylistItemSerializer(serializers.Serializer):
-    session_id = serializers.CharField()
-    created_at = serializers.DateTimeField()
-
-    def to_representation(self, instance):
-        return {
-            "id": instance.session_id,
-            "created_at": instance.created_at.isoformat(),
-        }
 
 
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer):
@@ -218,15 +203,14 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
     def recordings(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         playlist = self.get_object()
         playlist_items = (
-            SessionRecordingPlaylistItem.objects.filter(playlist=playlist).exclude(deleted=True).order_by("-created_at")
+            SessionRecordingPlaylistItem.objects.filter(playlist=playlist)
+            .exclude(deleted=True)
+            .order_by("-created_at")
+            .all()
         )
 
-        serialized = SessionRecordingPlaylistItemSerializer(data=playlist_items, many=True)
-        serialized.is_valid(raise_exception=False)
-
         filter = SessionRecordingsFilter(request=request)
-        # Copy the filter and extend with the pinned recordings
-        filter = filter.with_data({SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS: json.dumps(serialized.data)})
+        filter = filter.with_data({SESSION_RECORDINGS_FILTER_IDS: json.dumps([x.recording_id for x in playlist_items])})
 
         return response.Response(list_recordings(filter, request, self.team))
 
@@ -239,18 +223,15 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
+            recording, _ = SessionRecording.objects.get_or_create(session_id=session_recording_id, team=self.team)
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
-                playlist=playlist,
-                session_id=session_recording_id,
+                playlist=playlist, recording=recording
             )
 
             return response.Response({"success": True})
 
         if request.method == "DELETE":
-            playlist_item = SessionRecordingPlaylistItem.objects.get(
-                playlist=playlist,
-                session_id=session_recording_id,
-            )
+            playlist_item = SessionRecordingPlaylistItem.objects.get(playlist=playlist, recording=session_recording_id)  # type: ignore
 
             if playlist_item:
                 playlist_item.delete()

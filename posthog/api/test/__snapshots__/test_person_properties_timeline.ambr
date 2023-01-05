@@ -1,4 +1,4 @@
-# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
@@ -23,7 +23,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-0000-0000-000000000009'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -37,7 +37,7 @@
   WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes_without_events
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_events
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
@@ -62,7 +62,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-0000-0000-000000000009'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)
@@ -75,7 +75,7 @@
   WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_six_events_but_only_two_relevant_changes_without_filters
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_six_events_but_only_two_relevant_changes_without_filters
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
@@ -100,7 +100,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-0000-0000-000000000009'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -114,7 +114,7 @@
   WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_existing_person_with_three_events_and_return_to_previous_value
+# name: TestPersonPropertiesTimeline.test_timeline_for_existing_actor_with_three_events_and_return_to_previous_value
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
@@ -139,7 +139,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-0000-0000-000000000009'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -153,7 +153,7 @@
   WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_new_person_with_one_event_before_range
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_before_range
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
@@ -178,7 +178,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-0000-0000-000000000009'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -192,7 +192,7 @@
   WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_new_person_with_one_event_before_range_materialized
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_before_range_materialized
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
@@ -218,11 +218,10 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-0000-0000-000000000009'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC') WINDOW person_events AS (
-                                                                                                                         ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)
               UNION ALL
                 (SELECT NULL AS timestamp,
@@ -234,7 +233,7 @@
   WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_new_person_with_one_event_in_range
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_in_range
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
@@ -259,7 +258,7 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-0000-0000-000000000009'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
@@ -273,7 +272,7 @@
   WHERE timestamp IS NOT NULL
   '
 ---
-# name: TestPersonPropertiesTimeline.test_timeline_for_new_person_with_one_event_in_range_materialized
+# name: TestPersonPropertiesTimeline.test_timeline_for_new_actor_with_one_event_in_range_materialized
   '
   /* user_id:0 request:_snapshot_ */
   SELECT timestamp,
@@ -299,11 +298,10 @@
                         e."person_properties" AS "person_properties"
                  FROM events e
                  WHERE team_id = 2
-                   AND person_id = '00000000-0000-4000-8000-000000000000'
+                   AND person_id = '00000000-0000-0000-0000-000000000009'
                    AND event = '$pageview'
                    AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
-                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC') WINDOW person_events AS (
-                                                                                                                         ORDER BY timestamp ASC ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING)
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 23:59:59', 'UTC')
                  ORDER BY timestamp ASC)
               UNION ALL
                 (SELECT NULL AS timestamp,

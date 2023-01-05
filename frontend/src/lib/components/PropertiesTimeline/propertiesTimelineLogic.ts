@@ -1,9 +1,9 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import api from 'lib/api'
-import { dayjs, Dayjs } from 'lib/dayjs'
+import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { toParams } from 'lib/utils'
 import { ActorType, PropertiesTimelineFilterType } from '~/types'
-import { kea, key, props, path, connect, afterMount } from 'kea'
+import { kea, key, props, path, connect, afterMount, selectors, reducers, actions } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import type { propertiesTimelineLogicType } from './propertiesTimelineLogicType'
@@ -12,16 +12,23 @@ import { teamLogic } from 'scenes/teamLogic'
 export interface PropertiesTimelinePoint {
     timestamp: Dayjs
     properties: Properties
+    relevantEventCount: number
+}
+
+export interface RawPropertiesTimelinePoint {
+    timestamp: string
+    properties: Properties
     relevant_event_count: number
 }
 
-export interface RawPropertiesTimelinePoint extends Omit<PropertiesTimelinePoint, 'timestamp'> {
-    timestamp: string
+export interface RawPropertiesTimelineResult {
+    points: RawPropertiesTimelinePoint[]
+    crucial_property_keys: string[]
 }
 
 export interface PropertiesTimelineProps {
     actor: ActorType
-    filter: PropertiesTimelineFilterType // Might want to support a filter-less timeline for Person pages
+    filter: PropertiesTimelineFilterType
 }
 
 export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
@@ -29,30 +36,61 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
     props({} as PropertiesTimelineProps),
     key((props) => `${props.actor.id}-${JSON.stringify(props.filter)}`),
     connect({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId', 'timezone']],
+    }),
+    actions({
+        setSelectedPointIndex: (index: number | null) => ({ index }),
+    }),
+    reducers({
+        selectedPointIndex: [
+            null as number | null,
+            {
+                setSelectedPointIndex: (_, { index }) => index,
+                loadResultSuccess: (_, { result }) => result.points.length - 1,
+            },
+        ],
     }),
     loaders(({ values, props }) => ({
-        points: [
-            [] as PropertiesTimelinePoint[],
+        // This reducer is for loading convenience, for actual data use `points` and `crucialPropertyKeys`
+        result: [
             {
-                loadPoints: async () => {
+                points: [],
+                crucial_property_keys: [],
+            } as RawPropertiesTimelineResult,
+            {
+                loadResult: async () => {
                     if (props.actor.type === 'person') {
-                        const response = await api.get(
+                        const response = (await api.get(
                             `api/projects/${values.currentTeamId}/persons/${
                                 props.actor.uuid
                             }/properties_timeline/?${toParams(props.filter)}`
-                        )
-                        return response.map((point: RawPropertiesTimelinePoint) => ({
-                            ...point,
-                            timestamp: dayjs(point.timestamp),
-                        }))
+                        )) as RawPropertiesTimelineResult
+                        return response
                     }
-                    return [] // TODO: Support groups
+                    return {
+                        points: [],
+                        crucial_property_keys: [],
+                    }
                 },
             },
         ],
     })),
+    selectors({
+        points: [
+            (s) => [s.result, s.timezone],
+            (result, timezone) =>
+                result.points.map(
+                    (point) =>
+                        ({
+                            relevantEventCount: point.relevant_event_count,
+                            properties: point.properties,
+                            timestamp: dayjsUtcToTimezone(point.timestamp, timezone),
+                        } as PropertiesTimelinePoint)
+                ),
+        ],
+        crucialPropertyKeys: [(s) => [s.result], (result) => result.crucial_property_keys],
+    }),
     afterMount(({ actions }) => {
-        actions.loadPoints()
+        actions.loadResult()
     }),
 ])
