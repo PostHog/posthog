@@ -21,6 +21,7 @@ from posthog.session_recordings.session_recording_helpers import (
     get_active_segments_from_event_list,
     parse_snapshot_timestamp,
 )
+from posthog.utils import flatten
 
 
 class SessionRecordingEvents:
@@ -266,6 +267,16 @@ class SessionRecordingEvents:
                 )
             )
 
+        all_events_summary: List[SessionRecordingEventSummary] = list(
+            flatten(list(events_summary_by_window_id.values()))
+        )
+
+        click_count = len([x for x in all_events_summary if x["type"] == 3 and x["data"]["source"] == 2])
+        keypress_count = len([x for x in all_events_summary if x["type"] == 3 and x["data"]["source"] == 5])
+        urls: List[str] = [
+            cast(str, x["data"]["href"]) for x in all_events_summary if isinstance(x.get("data", {}).get("href"), str)
+        ]
+
         return RecordingMetadata(
             distinct_id="",  # Will be added by the caller
             segments=all_segments,
@@ -273,7 +284,7 @@ class SessionRecordingEvents:
             start_time=first_start_time,
             end_time=last_end_time,
             duration=(last_end_time - first_start_time).seconds,
-            click_count=0,
-            keypress_count=0,
-            urls=[],
+            click_count=click_count,
+            keypress_count=keypress_count,
+            urls=urls,
         )
