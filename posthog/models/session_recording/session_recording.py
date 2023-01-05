@@ -28,7 +28,7 @@ class SessionRecording(UUIDModel):
     session_id: models.CharField = models.CharField(unique=True, max_length=200)
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, null=True, blank=True)
-    deleted: models.BooleanField = models.BooleanField(default=False)
+    deleted: models.BooleanField = models.BooleanField(default=False, null=True, blank=True)
     object_storage_path: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     distinct_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -196,7 +196,7 @@ class SessionRecording(UUIDModel):
             recording.keypress_count = ch_recording["keypress_count"]
             recording.duration = ch_recording["duration"]
             recording.distinct_id = ch_recording["distinct_id"]
-            recording.start_url = ch_recording["urls"][0]
+            recording.start_url = ch_recording["urls"][0] if ch_recording["urls"] else None
             recordings.append(recording)
 
         return recordings
