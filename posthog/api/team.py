@@ -20,6 +20,7 @@ from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminAnyPermissions,
     OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
@@ -221,7 +222,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                     raise exceptions.ValidationError("You need to belong to an organization.")
                 # To be used later by OrganizationAdminWritePermissions and TeamSerializer
                 self.organization = organization
-                base_permissions.append(OrganizationAdminWritePermissions())
+                if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
+                    base_permissions.append(OrganizationAdminWritePermissions())
+                elif "is_demo" in self.request.data:
+                    base_permissions.append(OrganizationMemberPermissions())
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 base_permissions.append(TeamMemberLightManagementPermission())
