@@ -7,7 +7,7 @@ import { loaders } from 'kea-loaders'
 
 import type { propertiesTimelineLogicType } from './propertiesTimelineLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import api from 'lib/api'
+import { apiGetWithTimeToSeeDataTracking } from 'lib/internalMetrics'
 
 export interface PropertiesTimelinePoint {
     timestamp: Dayjs
@@ -61,7 +61,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
                         const queryId = uuid()
-                        return await api.getWithTimeToSeeDataTracking(
+                        return await apiGetWithTimeToSeeDataTracking(
                             `api/projects/${values.currentTeamId}/persons/${
                                 props.actor.uuid
                             }/properties_timeline/?${toParams(props.filter)}`,

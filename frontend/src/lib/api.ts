@@ -47,8 +47,6 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/even
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
-import { captureTimeToSeeData, TimeToSeeDataPayload } from './internalMetrics'
-import { getResponseBytes } from 'scenes/insights/utils'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -1097,37 +1095,6 @@ const api = {
     async get(url: string, options?: ApiMethodOptions): Promise<any> {
         const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)
-    },
-
-    /** api.get() wrapped in captureTimeToSeeData() tracking for simple cases of fetching insights or dashboards. */
-    async getWithTimeToSeeDataTracking<T extends any>(
-        url: string,
-        teamId: number | null,
-        timeToSeeDataPayload: Omit<
-            TimeToSeeDataPayload,
-            'api_url' | 'time_to_see_data_ms' | 'status' | 'api_response_bytes'
-        >
-    ): Promise<T> {
-        let response: Response | undefined
-        let error: any
-        const requestStartMs = performance.now()
-        try {
-            response = await api.getResponse(url)
-        } catch (e) {
-            error = e
-        }
-        const requestDurationMs = performance.now() - requestStartMs
-        captureTimeToSeeData(teamId, {
-            ...timeToSeeDataPayload,
-            api_url: url,
-            status: error ? 'failure' : 'success',
-            api_response_bytes: response && getResponseBytes(response),
-            time_to_see_data_ms: requestDurationMs,
-        })
-        if (!response) {
-            throw error // If there's no response, there must have been an error - rethrow it
-        }
-        return (await getJSONOrThrow(response)) as T
     },
 
     async getResponse(url: string, options?: ApiMethodOptions): Promise<Response> {
