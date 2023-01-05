@@ -132,31 +132,6 @@ class Insight(models.Model):
             return self.filters
 
     @property
-    def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
-        dashboards = list(self.dashboards.all())
-        if not dashboards:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-        restrictions = [d.effective_restriction_level for d in dashboards]
-        restriction_set_to_only_collaborators = next(
-            (x for x in restrictions if x == Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT), None
-        )
-        if restriction_set_to_only_collaborators:
-            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        else:
-            return Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
-
-    def get_effective_privilege_level(self, user_id: int) -> Dashboard.PrivilegeLevel:
-        if self.dashboards.count() == 0:
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-
-        edit_permissions = [d.can_user_edit(user_id) for d in self.dashboards.all()]
-        if any(edit_permissions):
-            return Dashboard.PrivilegeLevel.CAN_EDIT
-        else:
-            return Dashboard.PrivilegeLevel.CAN_VIEW
-
-    @property
     def url(self):
         return absolute_uri(f"/insights/{self.short_id}")
 
