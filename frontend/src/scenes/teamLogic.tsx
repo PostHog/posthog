@@ -147,6 +147,13 @@ export const teamLogic = kea<teamLogicType>([
         deleteTeamSuccess: () => {
             lemonToast.success('Project has been deleted')
         },
+        createTeamSuccess: ({ currentTeam }) => {
+            if (window.location.href.includes('/ingestion') && currentTeam.is_demo) {
+                window.location.href = '/'
+            } else {
+                window.location.href = '/ingestion'
+            }
+        },
     })),
     events(({ actions }) => ({
         afterMount: () => {
