@@ -163,7 +163,9 @@ test.concurrent(`exports: historical exports v2`, async () => {
 
             return historicallyExportedEvents[0]
         },
-        10_000,
+        // NOTE: exports are driven by a scheduled task that runs every minute,
+        // so we need to wait a while.
+        90_000,
         1_000
     )
 
@@ -223,7 +225,9 @@ test.concurrent(`exports: historical exports v2`, async () => {
             expect(historicallyExportedEvents.length).toBe(1)
             return historicallyExportedEvents
         },
-        10_000,
+        // NOTE: exports are driven by a scheduled task that runs every minute,
+        // so we need to wait a while.
+        90_000,
         1_000
     )
 
