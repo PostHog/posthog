@@ -481,18 +481,23 @@ testIfDelayEnabled(`person properties don't see properties from descendents`, as
     })
 })
 
-testIfDelayEnabled(`person properties can't see properties form unrelated branches`, async () => {
+testIfDelayEnabled(`person properties can't see properties from merge descendants`, async () => {
     // This is specifically to test that the merge event doesn't result in
-    // properties being picked up too soon by events on another ancestor of the
-    // merge event, i.e. unrelated branches are isolated.
+    // properties being picked up on events from it's parents.
     //
-    //         Alice(k: v1)     Bob(j: v2)
+    //             Alice(k: v)
+    //                   \
+    //                    \    Bob(j: w)
     //                     \   /
     //                      \ /
-    //          AliceAndBob(k: v1, j: v2)
+    //         AliceAndBob(k: v, j: w, l: x)
     //
-    // We Want to ensure that events associated with Alice and Bob do not see
-    // the properties of the other branch.
+    // NOTE: a stronger guarantee would be to ensure that events only pick up
+    // properties from their relatives. Instead, if event e1 has a common
+    // descendant with e2, they will pick up properties from which ever was
+    // _processed_ first.
+    // TODO: change the guarantee to be that unrelated branches properties are
+    // isolated from each other.
 
     const teamId = await createTeam(postgres, organizationId)
     const aliceAnonId = new UUIDT().toString()
@@ -501,20 +506,26 @@ testIfDelayEnabled(`person properties can't see properties form unrelated branch
     const firstUuid = new UUIDT().toString()
     await capture(producer, teamId, aliceAnonId, firstUuid, 'custom event', {
         $set: {
-            k: 'v1',
+            k: 'v',
         },
     })
 
     const secondUuid = new UUIDT().toString()
     await capture(producer, teamId, bobAnonId, secondUuid, 'custom event', {
         $set: {
-            j: 'v2',
+            j: 'w',
         },
     })
 
     const thirdUuid = new UUIDT().toString()
-    await capture(producer, teamId, aliceAnonId, thirdUuid, '$create_alias', {
-        alias: bobAnonId,
+    // NOTE: $create_alias is not symmetric, so we will currently get different
+    // results according to the order of `bobAnonId` and `aliceAnonId`.
+    // TODO: make $create_alias symmetric.
+    await capture(producer, teamId, bobAnonId, thirdUuid, '$create_alias', {
+        alias: aliceAnonId,
+        $set: {
+            l: 'x',
+        },
     })
 
     // Now we wait to ensure that these events have been ingested.
@@ -535,7 +546,7 @@ testIfDelayEnabled(`person properties can't see properties form unrelated branch
             person_id: third.person_id,
             person_properties: {
                 $creator_event_uuid: expect.any(String),
-                k: 'v1',
+                k: 'v',
             },
         })
     )
@@ -545,7 +556,8 @@ testIfDelayEnabled(`person properties can't see properties form unrelated branch
             person_id: third.person_id,
             person_properties: {
                 $creator_event_uuid: expect.any(String),
-                j: 'v2',
+                k: 'v',
+                j: 'w',
             },
         })
     )
@@ -554,8 +566,9 @@ testIfDelayEnabled(`person properties can't see properties form unrelated branch
         expect.objectContaining({
             person_properties: {
                 $creator_event_uuid: expect.any(String),
-                k: 'v1',
-                j: 'v2',
+                k: 'v',
+                j: 'w',
+                l: 'x',
             },
         })
     )
