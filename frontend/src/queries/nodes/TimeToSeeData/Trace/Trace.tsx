@@ -22,6 +22,7 @@ export interface SpanProps {
     durationContainerWidth: number | undefined
     spanData: SpanData
     widthTrackingRef?: RefCallback<HTMLElement>
+    onClick: (s: SpanData) => void
 }
 
 const checkOverflow = (textContainer: HTMLSpanElement | null): boolean => {
@@ -34,7 +35,7 @@ const checkOverflow = (textContainer: HTMLSpanElement | null): boolean => {
     return false
 }
 
-function SpanBar({ spanData, maxSpan }: SpanProps): JSX.Element {
+function SpanBar({ spanData, maxSpan }: Pick<SpanProps, 'spanData' | 'maxSpan'>): JSX.Element {
     const [durationWidth, setDurationWidth] = useState<number>(0)
     const [startMargin, setStartMargin] = useState<number>(0)
 
@@ -46,7 +47,6 @@ function SpanBar({ spanData, maxSpan }: SpanProps): JSX.Element {
         const nextDurationWidth = (spanData.duration / maxSpan) * 100
         const nextStartMargin = (spanData.start / maxSpan) * 100
         if (nextDurationWidth != durationWidth) {
-            console.log('setting duration width to ', nextDurationWidth, ' with max span of ', maxSpan)
             setDurationWidth(nextDurationWidth)
         }
         if (nextStartMargin !== startMargin) {
@@ -129,11 +129,7 @@ function SpanBarWrapper(props: {
                 minWidth: props.durationContainerWidth,
             }}
         >
-            <SpanBar
-                maxSpan={props.maxSpan}
-                durationContainerWidth={props.durationContainerWidth}
-                spanData={props.spanData}
-            />
+            <SpanBar maxSpan={props.maxSpan} spanData={props.spanData} />
         </div>
     )
 }
@@ -143,12 +139,25 @@ export function ExpandableSpan({
     durationContainerWidth,
     spanData,
     widthTrackingRef,
+    onClick,
 }: SpanProps): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(true)
 
+    const { focussedNode } = useValues(traceLogic)
+    const styleProps =
+        focussedNode?.id === spanData.id
+            ? {
+                  style: { borderColor: getSeriesColor(spanData.depth) },
+              }
+            : {}
+
     return (
         <>
-            <div className={clsx('w-full border px-4 py-4 flex flex-row justify-between', `Span__${spanData.type}`)}>
+            <div
+                className={clsx('w-full border px-4 py-4 flex flex-row justify-between', `Span__${spanData.type}`)}
+                {...styleProps}
+                onClick={() => onClick(spanData)}
+            >
                 <div className={'w-100 relative flex flex-row gap-2'}>
                     <LemonButton
                         noPadding
@@ -171,6 +180,7 @@ export function ExpandableSpan({
                 <div className={'pl-4'}>
                     {spanData.children.map((child, index) => (
                         <ExpandableSpan
+                            onClick={onClick}
                             key={`${spanData.depth}-${index}`}
                             maxSpan={maxSpan}
                             durationContainerWidth={durationContainerWidth}
@@ -281,7 +291,7 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
 
     const logic = traceLogic({ sessionNode: timeToSeeSession })
     const { focussedInteraction, processedSpans, currentFacts } = useValues(logic)
-    const { showInteractionTrace } = useActions(logic)
+    const { showInteractionTrace, showNode } = useActions(logic)
 
     return (
         <BindLogic logic={traceLogic} props={{ sessionNode: timeToSeeSession }}>
@@ -301,6 +311,7 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
 
                 {focussedInteraction ? (
                     <ExpandableSpan
+                        onClick={showNode}
                         widthTrackingRef={selectedSpanRef}
                         // don't set duration container width back onto the element that is generating it
                         durationContainerWidth={selectedSpanWidth}
@@ -308,9 +319,11 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
                         maxSpan={focussedInteraction.duration}
                         spanData={focussedInteraction}
                     />
-                ) : null}
+                ) : (
+                    <>Choose an interaction in the overview above to see its details</>
+                )}
 
-                {currentFacts ? <>the facts</> : null}
+                {focussedInteraction && currentFacts ? <NodeFacts facts={currentFacts} /> : null}
             </div>
         </BindLogic>
     )
