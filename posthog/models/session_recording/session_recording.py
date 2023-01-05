@@ -32,12 +32,12 @@ class SessionRecording(UUIDModel):
     object_storage_path: models.CharField = models.CharField(max_length=200, null=True, blank=True)
 
     distinct_id: models.CharField = models.CharField(max_length=400, null=True, blank=True)
-    duration: models.IntegerField = models.IntegerField(null=True)
-    start_time: models.DateTimeField = models.DateTimeField(null=True)
-    end_time: models.DateTimeField = models.DateTimeField(null=True)
-    click_count: models.IntegerField = models.IntegerField(null=True)
-    keypress_count: models.IntegerField = models.IntegerField(null=True)
-    start_url: models.CharField = models.CharField(null=True, max_length=512)
+    duration: models.IntegerField = models.IntegerField(blank=True, null=True)
+    start_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+    end_time: models.DateTimeField = models.DateTimeField(blank=True, null=True)
+    click_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    keypress_count: models.IntegerField = models.IntegerField(blank=True, null=True)
+    start_url: models.CharField = models.CharField(blank=True, null=True, max_length=512)
 
     # DYNAMIC FIELDS
 
