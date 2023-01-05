@@ -18,7 +18,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { AppContext, AvailableFeature } from '~/types'
+import { AvailableFeature } from '~/types'
+import { useAvailableFeatures } from '~/mocks/features'
 
 const createSnapshotEndpoint = (id: number): string => `api/projects/${MOCK_TEAM_ID}/session_recordings/${id}/snapshots`
 const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
@@ -31,6 +32,7 @@ describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
     beforeEach(async () => {
+        useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
                 '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
@@ -42,6 +44,10 @@ describe('sessionRecordingDataLogic', () => {
         initKeaTests()
         logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
         logic.mount()
+        await expectLogic(logic).toMount([featureFlagLogic])
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
+            [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
+        })
     })
 
     describe('core assumptions', () => {
@@ -282,44 +288,69 @@ describe('sessionRecordingDataLogic', () => {
     })
 
     describe('loading session performance events', () => {
-        it("if feature not enabled don't call endpoint", async () => {
-            logic = sessionRecordingDataLogic({ sessionRecordingId: '3' })
-            logic.mount()
-            await expectLogic(logic).toMount([featureFlagLogic])
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
-                [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
-            })
-
+        describe("don't call performance endpoint", () => {
             jest.spyOn(api, 'get')
-            api.get.mockClear()
 
-            await expectLogic(logic, () => {
-                logic.actions.loadRecordingMeta()
-            })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadPerformanceEvents'])
-                .toMatchValues({
-                    performanceEvents: null,
+            beforeEach(async () => {
+                useAvailableFeatures([])
+                logic = sessionRecordingDataLogic({ sessionRecordingId: '3' })
+                logic.mount()
+                await expectLogic(logic).toMount(featureFlagLogic)
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
+                    [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: false,
                 })
+            })
 
-            // data, meta, events... but not performance events
-            expect(api.get).toBeCalledTimes(3)
+            it('if ff is off', async () => {
+                api.get.mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.loadRecordingMeta()
+                })
+                    .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadPerformanceEvents'])
+                    .toMatchValues({
+                        performanceEvents: null,
+                    })
+
+                // data, meta, events... but not performance events
+                expect(api.get).toBeCalledTimes(3)
+            })
+
+            it("if ff is on but user doesn't have the performance feature", async () => {
+                api.get.mockClear()
+
+                await expectLogic(logic, async () => {
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
+                        [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
+                    })
+                    logic.actions.loadRecordingMeta()
+                })
+                    .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadPerformanceEvents'])
+                    .toMatchValues({
+                        performanceEvents: null,
+                    })
+
+                // data, meta, events... but not performance events
+                expect(api.get).toBeCalledTimes(3)
+            })
         })
 
         it('load performance events', async () => {
-            window.POSTHOG_APP_CONTEXT = {
-                current_user: { organization: { available_features: [AvailableFeature.RECORDINGS_PERFORMANCE] } },
-            } as unknown as AppContext
-            initKeaTests()
             logic = sessionRecordingDataLogic({ sessionRecordingId: '4' })
             logic.mount()
-            await expectLogic(logic).toMount([featureFlagLogic])
             featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
                 [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
             })
+
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta()
             })
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess', 'loadPerformanceEvents'])
+                .toDispatchActions([
+                    'loadRecordingMeta',
+                    'loadRecordingMetaSuccess',
+                    'loadPerformanceEvents',
+                    'loadPerformanceEventsSuccess',
+                ])
                 .toMatchValues({
                     eventsApiParams: {
                         after: '2021-12-09T19:35:59Z',
