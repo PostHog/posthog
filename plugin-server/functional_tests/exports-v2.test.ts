@@ -9,6 +9,10 @@ import { UUIDT } from '../src/utils/utils'
 import { capture, createAndReloadPluginConfig, createOrganization, createPlugin, createTeam, getMetric } from './api'
 import { waitForExpect } from './expectations'
 
+// Exports are coordinated by a scheduled task that runs every minute, so we
+// increase the wait time to give us a bit of leeway.
+jest.setTimeout(120_000)
+
 let producer: Producer
 let postgres: Pool // NOTE: we use a Pool here but it's probably not necessary, but for instance `insertRow` uses a Pool.
 let kafka: Kafka
@@ -163,7 +167,9 @@ test.concurrent(`exports: historical exports v2`, async () => {
 
             return historicallyExportedEvents[0]
         },
-        10_000,
+        // NOTE: exports are driven by a scheduled task that runs every minute,
+        // so we need to wait a while.
+        90_000,
         1_000
     )
 
@@ -223,7 +229,9 @@ test.concurrent(`exports: historical exports v2`, async () => {
             expect(historicallyExportedEvents.length).toBe(1)
             return historicallyExportedEvents
         },
-        10_000,
+        // NOTE: exports are driven by a scheduled task that runs every minute,
+        // so we need to wait a while.
+        90_000,
         1_000
     )
 

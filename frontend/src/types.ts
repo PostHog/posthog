@@ -1367,16 +1367,18 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    aggregation_group_type_index?: number | undefined // Groups aggregation
+    aggregation_group_type_index?: number // Groups aggregation
 }
 
 export interface PropertiesTimelineFilterType {
     date_from?: string | null // DateMixin
     date_to?: string | null // DateMixin
+    interval?: IntervalType // IntervalMixin
     properties?: AnyPropertyFilter[] | PropertyGroupFilter // PropertyMixin
     events?: Record<string, any>[] // EntitiesMixin
     actions?: Record<string, any>[] // EntitiesMixin
-    aggregation_group_type_index?: number | undefined // GroupsAggregationMixin
+    aggregation_group_type_index?: number // GroupsAggregationMixin
+    display?: ChartDisplayType // DisplayDerivedMixin
 }
 
 export interface TrendsFilterType extends FilterType {
@@ -1465,6 +1467,7 @@ export type AnyFilterType =
     | PathsFilterType
     | RetentionFilterType
     | LifecycleFilterType
+    | PropertiesTimelineFilterType
     | FilterType
 
 export type AnyPartialFilterType =
