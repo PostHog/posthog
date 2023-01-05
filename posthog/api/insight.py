@@ -157,6 +157,7 @@ class InsightSerializer(InsightBasicSerializer):
     is_cached = serializers.SerializerMethodField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
+    effective_restriction_level = serializers.SerializerMethodField()
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
@@ -331,8 +332,11 @@ class InsightSerializer(InsightBasicSerializer):
     def get_is_cached(self, insight: Insight):
         return self.insight_result(insight).is_cached
 
+    def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
+        return self.context["view"].user_permissions.insight(insight).effective_restriction_level
+
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
-        return insight.get_effective_privilege_level(self.context["request"].user.id)
+        return self.context["view"].user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
