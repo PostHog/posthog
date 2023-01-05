@@ -1,7 +1,7 @@
 import { ComponentMeta } from '@storybook/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { useStorybookMocks } from '~/mocks/browser'
-import { PersonActorType } from '~/types'
+import { ChartDisplayType, PersonActorType } from '~/types'
 import { PropertiesTimeline } from '.'
 import { RawPropertiesTimelineResult } from './propertiesTimelineLogic'
 
@@ -61,13 +61,23 @@ export function MultiplePointsForPerson(): JSX.Element {
                     },
                 ],
                 crucial_property_keys: ['name'],
+                effective_date_from: '2021-01-01T00:00:00.000000+00:00',
+                effective_date_to: '2021-06-01T23:59:59.999999+00:00',
             } as RawPropertiesTimelineResult,
         },
     })
 
     return (
         <div className="border rounded max-w-120">
-            <PropertiesTimeline actor={EXAMPLE_PERSON} filter={{}} />
+            <PropertiesTimeline
+                actor={EXAMPLE_PERSON}
+                filter={{
+                    date_from: '2021-01-01',
+                    date_to: '2021-06-01',
+                    interval: 'day',
+                    display: ChartDisplayType.ActionsLineGraph,
+                }}
+            />
         </div>
     )
 }
