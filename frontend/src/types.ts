@@ -1310,8 +1310,6 @@ export enum InsightType {
     FUNNELS = 'FUNNELS',
     RETENTION = 'RETENTION',
     PATHS = 'PATHS',
-    /** Properties timeline is a faux insight type - only shown within the actors modal */
-    PROPERTIES_TIMELINE = 'PROPERTIES_TIMELINE',
 }
 
 export enum PathType {

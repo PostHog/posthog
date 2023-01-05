@@ -1,7 +1,7 @@
 import { Properties } from '@posthog/plugin-scaffold'
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
 import { toParams, uuid } from 'lib/utils'
-import { ActorType, InsightType, PropertiesTimelineFilterType } from '~/types'
+import { ActorType, PropertiesTimelineFilterType } from '~/types'
 import { kea, key, props, path, connect, afterMount, selectors, reducers, actions } from 'kea'
 import { loaders } from 'kea-loaders'
 
@@ -73,7 +73,8 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                                 query_id: queryId,
                                 insights_fetched: 1,
                                 insights_fetched_cached: 0, // TODO: Cache properties timeline requests eventually
-                                insight: InsightType.PROPERTIES_TIMELINE,
+                                // PROPERTIES_TIMELINE is a faux insight type - only available within the actors modal
+                                insight: 'PROPERTIES_TIMELINE',
                                 is_primary_interaction: true,
                             }
                         )
