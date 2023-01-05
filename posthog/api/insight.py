@@ -401,9 +401,13 @@ class InsightSerializer(InsightBasicSerializer):
         return self.insight_result(insight).is_cached
 
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
         return self.context["view"].user_permissions.insight(insight).effective_restriction_level
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.PrivilegeLevel.CAN_VIEW
         return self.context["view"].user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):

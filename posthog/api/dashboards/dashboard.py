@@ -318,7 +318,14 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         return serialized_tiles
 
+    def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
+        return self.context["view"].user_permissions.dashboard(dashboard).effective_restriction_level
+
     def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
+        if self.context.get("is_shared"):
+            return Dashboard.PrivilegeLevel.CAN_VIEW
         return self.context["view"].user_permissions.dashboard(dashboard).effective_privilege_level
 
     def validate(self, data):

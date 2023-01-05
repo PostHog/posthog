@@ -168,7 +168,7 @@ class StructuredViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        assert not self.request.user.is_anonymous
+        # assert not self.request.user.is_anonymous
 
         return UserPermissions(user=self.request.user, team=self.team, organization=self.organization)
 

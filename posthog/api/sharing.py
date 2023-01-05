@@ -155,7 +155,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             raise NotFound()
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path
-        context = {"view": self, "request": request}
+        context = {"view": self, "request": request, "is_shared": True}
         exported_data: Dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
         if asset:
