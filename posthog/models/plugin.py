@@ -458,12 +458,15 @@ def plugin_reload_needed(sender, instance, created=None, **kwargs):
 @mutable_receiver([post_save, post_delete], sender=PluginConfig)
 def plugin_config_reload_needed(sender, instance, created=None, **kwargs):
     reload_plugins_on_workers()
-    sync_team_inject_web_apps(instance.team)
+    try:
+        team = instance.team
+    except Team.DoesNotExist:
+        team = None
+    if team is not None:
+        sync_team_inject_web_apps(instance.team)
 
 
-def sync_team_inject_web_apps(team: Optional[Team]):
-    if not team:
-        return
+def sync_team_inject_web_apps(team: Team):
     inject_web_apps = len(get_decide_site_apps(team)) > 0
     if inject_web_apps != team.inject_web_apps:
         Team.objects.filter(pk=team.pk).update(inject_web_apps=inject_web_apps)
