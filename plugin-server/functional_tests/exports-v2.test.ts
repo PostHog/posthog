@@ -48,7 +48,11 @@ beforeAll(async () => {
             res.end()
         })
     })
-    server.listen()
+
+    await new Promise((resolve) => {
+        server.on('listening', resolve)
+        server.listen()
+    })
 })
 
 afterAll(async () => {
