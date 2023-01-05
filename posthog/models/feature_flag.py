@@ -125,13 +125,13 @@ class FeatureFlag(models.Model):
         return []
 
     @property
-    def is_string_type(self):
+    def has_json_variant(self):
         is_multivariate = self.get_filters().get("multivariate", None)
         if is_multivariate is not None:
             for variant in self.variants:
                 if not isinstance(variant["key"], str):
-                    return False
-        return True
+                    return True
+        return False
 
     def get_filters(self):
         if "groups" in self.filters:
@@ -667,7 +667,7 @@ def get_active_feature_flags(
     )
 
     if only_string:
-        all_feature_flags = [flag for flag in all_feature_flags if flag.is_string_type]
+        all_feature_flags = [flag for flag in all_feature_flags if not flag.has_json_variant]
 
     flags_have_experience_continuity_enabled = any(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags
