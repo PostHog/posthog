@@ -14,7 +14,7 @@ import { IconSad, IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
 import { getSeriesColor } from 'lib/colors'
 import { LemonButton } from 'lib/components/LemonButton'
 import { Tooltip } from 'lib/components/Tooltip'
-import { getDurationMs, SpanData, traceLogic } from '~/queries/nodes/TimeToSeeData/Trace/traceLogic'
+import { sessionNodeFacts, SpanData, traceLogic } from '~/queries/nodes/TimeToSeeData/Trace/traceLogic'
 import { BindLogic, useActions, useValues } from 'kea'
 
 export interface SpanProps {
@@ -168,27 +168,17 @@ export function ExpandableSpan({
                 />
             </div>
             {isExpanded && (
-                <>
-                    <NodeFacts
-                        facts={{
-                            ...sessionNodeFacts(spanData.data),
-                            ...interactionNodeFacts(spanData.data),
-                            ...queryNodeFacts(spanData.data),
-                            duration: `${getDurationMs(spanData.data)}ms`,
-                        }}
-                    />
-                    <div className={'pl-4'}>
-                        {spanData.children.map((child, index) => (
-                            <ExpandableSpan
-                                key={`${spanData.depth}-${index}`}
-                                maxSpan={maxSpan}
-                                durationContainerWidth={durationContainerWidth}
-                                widthTrackingRef={undefined}
-                                spanData={child}
-                            />
-                        ))}
-                    </div>
-                </>
+                <div className={'pl-4'}>
+                    {spanData.children.map((child, index) => (
+                        <ExpandableSpan
+                            key={`${spanData.depth}-${index}`}
+                            maxSpan={maxSpan}
+                            durationContainerWidth={durationContainerWidth}
+                            widthTrackingRef={undefined}
+                            spanData={child}
+                        />
+                    ))}
+                </div>
             )}
         </>
     )
@@ -196,26 +186,6 @@ export function ExpandableSpan({
 
 export interface TraceProps {
     timeToSeeSession: TimeToSeeSessionNode
-}
-
-function interactionNodeFacts(node: TimeToSeeNode): Record<string, any> {
-    return isInteractionNode(node)
-        ? {
-              type: `${node.data.action || 'load'} in ${node.data.context}`,
-              context: node.data.context,
-              action: node.data.action,
-              page: node.data.current_url,
-              cacheHitRatio: `${Math.round((node.data.insights_fetched_cached / node.data.insights_fetched) * 100)}%`,
-          }
-        : {}
-}
-
-function sessionNodeFacts(node: TimeToSeeNode): Record<string, any> {
-    return isSessionNode(node) ? { type: 'session' } : {}
-}
-
-function queryNodeFacts(node: TimeToSeeNode): Record<string, any> {
-    return isQueryNode(node) ? { type: 'Clickhouse query', hasJoins: !!node.data.has_joins ? 'true' : 'false' } : {}
 }
 
 function NodeFacts({ facts }: { facts: Record<string, any> }): JSX.Element {
@@ -310,7 +280,7 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
     const { ref: selectedSpanRef, width: selectedSpanWidth } = useResizeObserver()
 
     const logic = traceLogic({ sessionNode: timeToSeeSession })
-    const { focussedInteraction, processedSpans } = useValues(logic)
+    const { focussedInteraction, processedSpans, currentFacts } = useValues(logic)
     const { showInteractionTrace } = useActions(logic)
 
     return (
@@ -339,6 +309,8 @@ export function Trace({ timeToSeeSession }: TraceProps): JSX.Element {
                         spanData={focussedInteraction}
                     />
                 ) : null}
+
+                {currentFacts ? <>the facts</> : null}
             </div>
         </BindLogic>
     )

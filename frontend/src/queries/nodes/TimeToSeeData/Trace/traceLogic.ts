@@ -1,5 +1,8 @@
 import { actions, kea, key, props, reducers, selectors, path } from 'kea'
 import {
+    isInteractionNode,
+    isQueryNode,
+    isSessionNode,
     TimeToSeeInteractionNode,
     TimeToSeeNode,
     TimeToSeeQueryNode,
@@ -21,6 +24,37 @@ export interface SpanData {
 
 export interface TraceLogicProps {
     sessionNode: TimeToSeeSessionNode
+}
+
+function interactionNodeFacts(node: TimeToSeeNode): Record<string, any> {
+    return isInteractionNode(node)
+        ? {
+              type: `${node.data.action || 'load'} in ${node.data.context}`,
+              context: node.data.context,
+              action: node.data.action,
+              page: node.data.current_url,
+              cacheHitRatio: `${Math.round((node.data.insights_fetched_cached / node.data.insights_fetched) * 100)}%`,
+          }
+        : {}
+}
+
+export function sessionNodeFacts(node: TimeToSeeNode): Record<string, any> {
+    return isSessionNode(node) ? { type: 'session' } : {}
+}
+
+function queryNodeFacts(node: TimeToSeeNode): Record<string, any> {
+    return isQueryNode(node) ? { type: 'Clickhouse query', hasJoins: !!node.data.has_joins ? 'true' : 'false' } : {}
+}
+
+function nodeFacts(node: TimeToSeeNode): Record<string, any> {
+    if (isSessionNode(node)) {
+        return sessionNodeFacts(node)
+    } else if (isInteractionNode(node)) {
+        return interactionNodeFacts(node)
+    } else if (isQueryNode(node)) {
+        return queryNodeFacts(node)
+    }
+    throw new Error('unknown node, cannot generate facts')
 }
 
 export function getDurationMs(node: TimeToSeeNode): number {
@@ -84,6 +118,7 @@ export const traceLogic = kea<traceLogicType>([
         showInteractionTrace: (spanData: SpanData | null) => ({
             spanData,
         }),
+        showNode: (spanData: SpanData | null) => ({ spanData }),
     }),
     reducers({
         focussedInteraction: [
@@ -92,8 +127,15 @@ export const traceLogic = kea<traceLogicType>([
                 showInteractionTrace: (_, { spanData }) => (!!spanData ? { ...spanData } : null),
             },
         ],
+        focussedNode: [
+            null as SpanData | null,
+            {
+                showNode: (_, { spanData }) => (!!spanData ? { ...spanData } : null),
+            },
+        ],
     }),
     selectors(() => ({
         processedSpans: [() => [(_, props) => props.sessionNode], (sessionNode) => flattenSpans(sessionNode)],
+        currentFacts: [(s) => [s.focussedNode], (focussedNode) => (focussedNode ? nodeFacts(focussedNode.data) : {})],
     })),
 ])
