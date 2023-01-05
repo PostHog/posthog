@@ -319,7 +319,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         return serialized_tiles
 
     def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
-        return self.context["view"].user_permissions.dashboard(dashboard).effective_priviledge_level
+        return self.context["view"].user_permissions.dashboard(dashboard).effective_privilege_level
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):
