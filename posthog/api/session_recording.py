@@ -50,6 +50,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "person",
             "segments",
             "start_and_end_times_by_window_id",
+            "snapshot_data_by_window_id",
             "storage",
         ]
 
@@ -64,6 +65,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "keypress_count",
             "start_url",
             "matching_events",
+            "snapshot_data_by_window_id",
             "storage",
         ]
 

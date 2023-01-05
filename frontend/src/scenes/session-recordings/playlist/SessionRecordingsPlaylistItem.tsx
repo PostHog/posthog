@@ -7,6 +7,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
 
 export interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
@@ -153,6 +154,8 @@ export function SessionRecordingPlaylistItem({
                     </span>
                 </div>
             </div>
+
+            <RecordingDebugInfo recording={recording} className="absolute right-0 bottom-0 m-2" />
         </li>
     )
 }

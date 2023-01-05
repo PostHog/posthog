@@ -898,10 +898,13 @@ export interface SessionRecordingType {
     click_count?: number
     keypress_count?: number
     start_url?: string
+    /** Where this recording information was loaded from (S3 or Clickhouse) */
+    storage?: string
 
     // These values are only present when loaded as a full recording
     segments?: SessionRecordingSegmentType[]
     start_and_end_times_by_window_id?: Record<string, Record<string, string>>
+    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
 }
 
 export interface SessionRecordingPropertiesType {
