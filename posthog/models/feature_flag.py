@@ -365,7 +365,7 @@ class FeatureFlagMatcher:
             match=False, reason=highest_priority_evaluation_reason, condition_index=highest_priority_index
         )
 
-    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, Optional[Dict]]]:
+    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, dict]]:
         flags_enabled = {}
         flag_evaluation_reasons = {}
         flag_payloads = {}
@@ -591,7 +591,7 @@ def _get_active_feature_flags(
     groups: Dict[GroupTypeName, str] = {},
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, Optional[Dict]]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, dict]]:
     cache = FlagsMatcherCache(team_id)
 
     if person_id is not None:
@@ -621,7 +621,7 @@ def get_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     only_active: bool = True,
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, Optional[Dict]]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, dict]]:
     all_feature_flags = FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
         "id", "team_id", "filters", "key", "rollout_percentage", "ensure_experience_continuity"
     )
@@ -653,7 +653,7 @@ def get_active_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     feature_flags: Optional[QuerySet[FeatureFlag]] = None,
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, Optional[Dict]]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, dict]]:
 
     all_feature_flags = (
         feature_flags
