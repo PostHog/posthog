@@ -189,11 +189,6 @@ export const billingLogic = kea<billingLogicType>([
                 ) {
                     return BillingAlertType.UsageNearLimit
                 }
-
-                // Priority 4: Users on free account that are almost reaching free events threshold
-                if (!billing?.is_billing_active && billing?.current_usage && percentage > ALLOCATION_THRESHOLD_ALERT) {
-                    return BillingAlertType.FreeUsageNearLimit
-                }
             },
         ],
     }),
