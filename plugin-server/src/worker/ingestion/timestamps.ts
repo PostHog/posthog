@@ -41,7 +41,7 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
             timestamp: data['timestamp'] ?? '',
             sentAt: data['sent_at'] ?? '',
             offset: data['offset'] ?? '',
-            now: now,
+            now: data['now'],
             result: parsedTs.toISO(),
         })
     }

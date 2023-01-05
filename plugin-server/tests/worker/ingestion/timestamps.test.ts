@@ -52,17 +52,23 @@ describe('parseEventTimestamp()', () => {
     })
 
     it('ignores and reports invalid sent_at', () => {
-        const tomorrow = '2021-10-30T03:02:00.000Z'
         const event = {
-            timestamp: tomorrow,
+            timestamp: '2021-10-30T03:02:00.000Z',
             sent_at: 'invalid',
-            now: '2021-10-29T01:44:00.000Z',
+            now: '2021-10-30T01:44:00.000Z',
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
         const timestamp = parseEventTimestamp(event, callbackMock)
         expect(callbackMock.mock.calls).toEqual([
-            ['sent_at', 'invalid', 'the input "invalid" can\'t be parsed as ISO 8601'],
+            [
+                'ignored_invalid_timestamp',
+                {
+                    field: 'sent_at',
+                    reason: 'the input "invalid" can\'t be parsed as ISO 8601',
+                    value: 'invalid',
+                },
+            ],
         ])
 
         expect(timestamp.toISO()).toEqual('2021-10-30T03:02:00.000Z')
@@ -85,7 +91,7 @@ describe('parseEventTimestamp()', () => {
     it('captures timestamp with no sent_at', () => {
         const event = {
             timestamp: '2021-10-30T03:02:00.000Z',
-            now: '2021-10-29T01:44:00.000Z',
+            now: '2021-10-30T01:44:00.000Z',
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
@@ -132,9 +138,66 @@ describe('parseEventTimestamp()', () => {
         const callbackMock = jest.fn()
         const timestamp = parseEventTimestamp(event, callbackMock)
         expect(callbackMock.mock.calls).toEqual([
-            ['timestamp', 'notISO', 'the input "notISO" can\'t be parsed as ISO 8601'],
+            [
+                'ignored_invalid_timestamp',
+                {
+                    field: 'timestamp',
+                    reason: 'the input "notISO" can\'t be parsed as ISO 8601',
+                    value: 'notISO',
+                },
+            ],
         ])
 
         expect(timestamp.toUTC().toISO()).toEqual('2020-08-12T01:02:00.000Z')
+    })
+
+    it('reports event_timestamp_in_future with sent_at', () => {
+        const event = {
+            timestamp: '2021-10-29T02:30:00.000Z',
+            sent_at: '2021-10-28T01:00:00.000Z',
+            now: '2021-10-29T01:00:00.000Z',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'event_timestamp_in_future',
+                {
+                    now: '2021-10-29T01:00:00.000Z',
+                    offset: '',
+                    result: '2021-10-30T02:30:00.000Z',
+                    sentAt: '2021-10-28T01:00:00.000Z',
+                    timestamp: '2021-10-29T02:30:00.000Z',
+                },
+            ],
+        ])
+
+        expect(timestamp.toISO()).toEqual('2021-10-30T02:30:00.000Z')
+    })
+
+    it('reports event_timestamp_in_future with negative offset', () => {
+        const event = {
+            offset: -82860000,
+            now: '2021-10-29T01:00:00.000Z',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'event_timestamp_in_future',
+                {
+                    now: '2021-10-29T01:00:00.000Z',
+                    offset: -82860000,
+                    result: '2021-10-30T00:01:00.000Z',
+                    sentAt: '',
+                    timestamp: '',
+                },
+            ],
+        ])
+
+        expect(timestamp.toISO()).toEqual('2021-10-30T00:01:00.000Z')
     })
 })
