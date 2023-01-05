@@ -418,22 +418,25 @@ testIfDelayEnabled(`events reference same person_id if two people merged shortly
     }, 10000)
 })
 
-testIfDelayEnabled(`person properties are ordered even for identify events`, async () => {
-    // This test is specifically to validate that for the case where we set
-    // properties via a custom event, then via an identify event, the properties
-    // are ordered correctly. This is important because with the initial
-    // implementation of the delay for Person-on-Events we would treat identify
-    // events specially, and it would fail with that implementation.
+testIfDelayEnabled(`person properties don't see properties from descendents`, async () => {
+    // The only thing that should propagate to an ancestor is the person_id.
+    // Person properties should not propagate to ancestors within a branch.
+    //
+    //         P(k: v, set_once_property: value)
+    //                        |
+    //                        |
+    //      P'(k: v, j: w, set_once_property: value)
+    //
+    // The person properties of P' should not be assiciated with events tied to
+    // P.
 
     const teamId = await createTeam(postgres, organizationId)
     const firstDistinctId = new UUIDT().toString()
-    const secondDistinctId = new UUIDT().toString()
-    const personIdentifier = new UUIDT().toString()
 
     const firstUuid = new UUIDT().toString()
     await capture(producer, teamId, firstDistinctId, firstUuid, 'custom event', {
         $set: {
-            prop: 'value',
+            k: 'v',
         },
         $set_once: {
             set_once_property: 'value',
@@ -441,91 +444,55 @@ testIfDelayEnabled(`person properties are ordered even for identify events`, asy
     })
 
     const secondUuid = new UUIDT().toString()
-    await capture(producer, teamId, secondDistinctId, secondUuid, 'custom event', {
+    await capture(producer, teamId, firstDistinctId, secondUuid, 'custom event', {
         $set: {
-            prop: 'second value',
+            j: 'w',
         },
         $set_once: {
             set_once_property: 'second value',
         },
     })
 
-    const thirdUuid = new UUIDT().toString()
-    await capture(producer, teamId, personIdentifier, thirdUuid, '$identify', {
-        distinct_id: personIdentifier,
-        $anon_distinct_id: firstDistinctId,
-        $set: {
-            prop: 'identify value',
-        },
-        $set_once: {
-            set_once_property: 'identify value',
-        },
-    })
-
-    const forthUuid = new UUIDT().toString()
-    await capture(producer, teamId, personIdentifier, forthUuid, '$identify', {
-        distinct_id: personIdentifier,
-        $anon_distinct_id: secondDistinctId,
-        $set: {
-            prop: 'second identify value',
-        },
-        $set_once: {
-            set_once_property: 'second identify value',
-        },
-    })
-
     await waitForExpect(async () => {
         const [first] = await fetchEvents(clickHouseClient, teamId, firstUuid)
         const [second] = await fetchEvents(clickHouseClient, teamId, secondUuid)
-        const [third] = await fetchEvents(clickHouseClient, teamId, thirdUuid)
-        const [forth] = await fetchEvents(clickHouseClient, teamId, forthUuid)
 
         expect(first).toEqual(
             expect.objectContaining({
-                person_id: forth.person_id,
-                person_properties: expect.objectContaining({
-                    prop: 'value',
+                person_id: second.person_id,
+                person_properties: {
+                    $creator_event_uuid: expect.any(String),
+                    k: 'v',
                     set_once_property: 'value',
-                }),
+                },
             })
         )
 
         expect(second).toEqual(
             expect.objectContaining({
-                person_id: forth.person_id,
-                person_properties: expect.objectContaining({
-                    prop: 'second value',
+                person_properties: {
+                    $creator_event_uuid: expect.any(String),
+                    k: 'v',
+                    j: 'w',
                     set_once_property: 'value',
-                }),
-            })
-        )
-
-        expect(third).toEqual(
-            expect.objectContaining({
-                person_id: forth.person_id,
-                person_properties: expect.objectContaining({
-                    prop: 'identify value',
-                    set_once_property: 'value',
-                }),
-            })
-        )
-
-        expect(forth).toEqual(
-            expect.objectContaining({
-                person_properties: expect.objectContaining({
-                    prop: 'second identify value',
-                    set_once_property: 'value',
-                }),
+                },
             })
         )
     })
 })
 
-testIfDelayEnabled(`person properties can't see properties from future events`, async () => {
+testIfDelayEnabled(`person properties can't see properties form unrelated branches`, async () => {
     // This is specifically to test that the merge event doesn't result in
-    // properties being picked up by events that are after it.
-    // NOTE: I tried to reproduce this with only two events but couldn't get it
-    // to fail.
+    // properties being picked up too soon by events on another ancestor of the
+    // merge event, i.e. unrelated branches are isolated.
+    //
+    //         Alice(k: v1)     Bob(j: v2)
+    //                     \   /
+    //                      \ /
+    //          AliceAndBob(k: v1, j: v2)
+    //
+    // We Want to ensure that events associated with Alice and Bob do not see
+    // the properties of the other branch.
 
     const teamId = await createTeam(postgres, organizationId)
     const aliceAnonId = new UUIDT().toString()
