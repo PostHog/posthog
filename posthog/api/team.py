@@ -1,3 +1,4 @@
+from functools import cached_property
 from typing import Any, Dict, List, Optional, Type, cast
 
 from django.core.cache import cache
@@ -293,3 +294,9 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         team = self.get_object()
         cache_key = f"is_generating_demo_data_{team.pk}"
         return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})
+
+    @cached_property
+    def user_permissions(self):
+        return UserPermissions(
+            cast(User, self.request.user), team=self.team, organization=getattr(self.request.user, "organization", None)
+        )
