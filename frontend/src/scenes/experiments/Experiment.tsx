@@ -67,8 +67,7 @@ export function Experiment(): JSX.Element {
         taxonomicGroupTypesForSelection,
         groupTypes,
         aggregationLabel,
-        secondaryMetricResults,
-        secondaryMetricResultsLoading,
+        isExperimentRunning,
         experimentResultCalculationError,
         flagImplementationWarning,
         flagAvailabilityWarning,
@@ -89,6 +88,7 @@ export function Experiment(): JSX.Element {
         loadExperiment,
         setExposureAndSampleSize,
         setExperimentValue,
+        updateExperimentSecondaryMetrics,
     } = useActions(experimentLogic)
 
     const [showWarning, setShowWarning] = useState(true)
@@ -138,7 +138,7 @@ export function Experiment(): JSX.Element {
 
     const statusColors = { running: 'green', draft: 'default', complete: 'purple' }
     const status = (): string => {
-        if (!experiment?.start_date) {
+        if (!isExperimentRunning) {
             return 'draft'
         } else if (!experiment?.end_date) {
             return 'running'
@@ -557,7 +557,11 @@ export function Experiment(): JSX.Element {
                                                     Use secondary metrics to monitor metrics related to your experiment
                                                     goal. You can add up to three secondary metrics.{' '}
                                                 </div>
-                                                <SecondaryMetrics onMetricsChange={onChange} initialMetrics={value} />
+                                                <SecondaryMetrics
+                                                    onMetricsChange={onChange}
+                                                    initialMetrics={value}
+                                                    experimentId={experiment.id}
+                                                />
                                             </div>
                                         </Row>
                                     )}
@@ -640,7 +644,7 @@ export function Experiment(): JSX.Element {
                                     />
                                 </Row>
                                 <span className="exp-description">
-                                    {experiment.start_date ? (
+                                    {isExperimentRunning ? (
                                         <EditableField
                                             multiline
                                             name="description"
@@ -656,7 +660,7 @@ export function Experiment(): JSX.Element {
                                     )}
                                 </span>
                             </Col>
-                            {experiment && !experiment.start_date && (
+                            {experiment && !isExperimentRunning && (
                                 <div className="flex items-center">
                                     <LemonButton
                                         type="secondary"
@@ -670,7 +674,7 @@ export function Experiment(): JSX.Element {
                                     </LemonButton>
                                 </div>
                             )}
-                            {experiment && experiment.start_date && !experiment.end_date && (
+                            {experiment && isExperimentRunning && !experiment.end_date && (
                                 <div className="flex flex-row gap-2">
                                     <Popconfirm
                                         placement="topLeft"
@@ -768,19 +772,17 @@ export function Experiment(): JSX.Element {
                         <Collapse className="w-full" defaultActiveKey="experiment-details">
                             <Collapse.Panel header={<b>Experiment details</b>} key="experiment-details">
                                 <Row>
-                                    <Col span={experiment?.start_date ? 12 : 24}>
+                                    <Col span={isExperimentRunning ? 12 : 24}>
                                         <ExperimentPreview
                                             experimentId={experiment.id}
                                             trendCount={trendCount}
                                             trendExposure={experiment?.parameters.recommended_running_time}
                                             funnelSampleSize={experiment?.parameters.recommended_sample_size}
                                             funnelConversionRate={conversionRate}
-                                            funnelEntrants={
-                                                experiment?.start_date ? funnelResultsPersonsTotal : entrants
-                                            }
+                                            funnelEntrants={isExperimentRunning ? funnelResultsPersonsTotal : entrants}
                                         />
                                     </Col>
-                                    {!experimentResultsLoading && !experimentResults && experiment.start_date && (
+                                    {!experimentResultsLoading && !experimentResults && isExperimentRunning && (
                                         <Col span={12}>
                                             <ExperimentImplementationDetails experiment={experiment} />
                                         </Col>
@@ -851,130 +853,13 @@ export function Experiment(): JSX.Element {
                                             )}
                                         </Col>
                                     )}
-                                    {experiment.secondary_metrics?.length > 0 && (
-                                        <Col
-                                            className="secondary-progress"
-                                            span={
-                                                experiment?.start_date &&
-                                                (experiment?.parameters?.feature_flag_variants?.length || 0) <= 5
-                                                    ? 12
-                                                    : 24
-                                            }
-                                        >
-                                            {!!experiment?.secondary_metrics.length && (
-                                                <Col className="border-b">
-                                                    <Row align="middle" justify="space-between" className="mb-2">
-                                                        <Col className="card-secondary" span={2 * secondaryColumnSpan}>
-                                                            Secondary metrics
-                                                        </Col>
-                                                        {experiment?.parameters?.feature_flag_variants?.map(
-                                                            (variant, idx) => (
-                                                                <Col
-                                                                    key={idx}
-                                                                    span={secondaryColumnSpan}
-                                                                    style={{
-                                                                        color: getSeriesColor(
-                                                                            getIndexForVariant(
-                                                                                variant.key,
-                                                                                experimentInsightType
-                                                                            )
-                                                                        ),
-                                                                    }}
-                                                                >
-                                                                    <span className="text-sm">
-                                                                        {capitalizeFirstLetter(variant.key)}
-                                                                    </span>
-                                                                </Col>
-                                                            )
-                                                        )}
-                                                    </Row>
-
-                                                    {experiment.start_date ? (
-                                                        secondaryMetricResultsLoading ? (
-                                                            <Skeleton active paragraph={false} />
-                                                        ) : (
-                                                            <>
-                                                                {experiment.secondary_metrics.map((metric, idx) => (
-                                                                    <Row
-                                                                        className="border-t"
-                                                                        key={idx}
-                                                                        justify="space-between"
-                                                                        style={{
-                                                                            paddingTop: 8,
-                                                                            paddingBottom: 8,
-                                                                        }}
-                                                                    >
-                                                                        <Col span={2 * secondaryColumnSpan}>
-                                                                            {capitalizeFirstLetter(metric.name)}
-                                                                        </Col>
-                                                                        {experiment?.parameters?.feature_flag_variants?.map(
-                                                                            (variant, index) => (
-                                                                                <Col
-                                                                                    key={index}
-                                                                                    span={secondaryColumnSpan}
-                                                                                >
-                                                                                    {secondaryMetricResults?.[idx][
-                                                                                        variant.key
-                                                                                    ] ? (
-                                                                                        metric.filters.insight ===
-                                                                                        InsightType.FUNNELS ? (
-                                                                                            <>
-                                                                                                {(
-                                                                                                    secondaryMetricResults?.[
-                                                                                                        idx
-                                                                                                    ][variant.key] * 100
-                                                                                                ).toFixed(1)}
-                                                                                                %
-                                                                                            </>
-                                                                                        ) : (
-                                                                                            <>
-                                                                                                {humanFriendlyNumber(
-                                                                                                    secondaryMetricResults?.[
-                                                                                                        idx
-                                                                                                    ][variant.key]
-                                                                                                )}
-                                                                                            </>
-                                                                                        )
-                                                                                    ) : (
-                                                                                        <>--</>
-                                                                                    )}
-                                                                                </Col>
-                                                                            )
-                                                                        )}
-                                                                    </Row>
-                                                                ))}
-                                                            </>
-                                                        )
-                                                    ) : (
-                                                        <>
-                                                            {experiment.secondary_metrics.map((metric, idx) => (
-                                                                <Row
-                                                                    className="border-t"
-                                                                    key={idx}
-                                                                    justify="space-between"
-                                                                    style={{
-                                                                        paddingTop: 8,
-                                                                        paddingBottom: 8,
-                                                                    }}
-                                                                >
-                                                                    <Col span={2 * secondaryColumnSpan}>
-                                                                        {capitalizeFirstLetter(metric.name)}
-                                                                    </Col>
-                                                                    {experiment?.parameters?.feature_flag_variants?.map(
-                                                                        (_, index) => (
-                                                                            <Col key={index} span={secondaryColumnSpan}>
-                                                                                --
-                                                                            </Col>
-                                                                        )
-                                                                    )}
-                                                                </Row>
-                                                            ))}
-                                                        </>
-                                                    )}
-                                                </Col>
-                                            )}
-                                        </Col>
-                                    )}
+                                    <Col>
+                                        <SecondaryMetrics
+                                            experimentId={experiment.id}
+                                            onMetricsChange={(metrics) => updateExperimentSecondaryMetrics(metrics)}
+                                            initialMetrics={experiment.secondary_metrics}
+                                        />
+                                    </Col>
                                 </Row>
                             </Collapse.Panel>
                         </Collapse>

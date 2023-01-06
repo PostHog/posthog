@@ -63,7 +63,9 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                     labelClassName={inModal ? 'text-base font-semibold' : ''}
                     bordered={!inModal}
                     fullWidth={inModal}
-                    checked={!!currentTeam?.capture_console_log_opt_in}
+                    checked={
+                        !!currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_console_log_opt_in : false
+                    }
                     disabled={!currentTeam?.session_recording_opt_in}
                 />
                 <p>
@@ -83,7 +85,10 @@ export function SessionRecordingSettings({ inModal = false }: SessionRecordingSe
                         labelClassName={inModal ? 'text-base font-semibold' : ''}
                         bordered={!inModal}
                         fullWidth={inModal}
-                        checked={!!currentTeam?.capture_performance_opt_in}
+                        checked={
+                            !!currentTeam?.session_recording_opt_in ? !!currentTeam?.capture_performance_opt_in : false
+                        }
+                        disabled={!currentTeam?.session_recording_opt_in}
                     />
                     <p>
                         This setting controls if performance and network information will be captured alongside
