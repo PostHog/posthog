@@ -20,7 +20,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
-from posthog.user_permissions import UserPermissionsSerializerMixin
+from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -186,3 +186,6 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             ],
             ignore_conflicts=True,
         )
+
+    def get_serializer_context(self) -> Dict[str, Any]:
+        return {**super().get_serializer_context(), "user_permissions": UserPermissions(cast(User, self.request.user))}
