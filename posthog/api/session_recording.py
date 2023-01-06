@@ -1,5 +1,5 @@
 import json
-from typing import Any, List
+from typing import Any, List, cast
 
 import structlog
 from django.db.models import Prefetch
@@ -210,6 +210,10 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
+
+    # If we have specified session_ids we need to sort them by the order they were specified
+    if all_session_ids:
+        recordings = sorted(recordings, key=lambda x: cast(List[str], all_session_ids).index(x.session_id))
 
     if not request.user.is_authenticated:  # for mypy
         raise exceptions.NotAuthenticated()
