@@ -20,10 +20,9 @@ class UserPermissions:
     lookups.
     """
 
-    def __init__(self, user: User, organization: Optional[Organization] = None, team: Optional[Team] = None):
-        self.user_instance = user
-        self.organization_instance = organization
-        self._team = team
+    def __init__(self, user: User, team: Optional[Team] = None):
+        self.user = user
+        self._current_team = team
 
         self._tiles: Optional[List[DashboardTile]] = None
         self._team_permissions: Dict[int, UserTeamPermissions] = {}
@@ -32,33 +31,29 @@ class UserPermissions:
 
     @cached_property
     def current_team(self) -> "UserTeamPermissions":
-        if self._team is None:
+        if self._current_team is None:
             raise ValueError("Cannot call .current_team without passing it to UserPermissions")
 
-        return UserTeamPermissions(self, self._team)
+        return UserTeamPermissions(self, self._current_team)
 
     def team(self, team: Team) -> "UserTeamPermissions":
-        if self._team and team.pk == self._team.pk:
+        if self._current_team and team.pk == self._current_team.pk:
             return self.current_team
         if team.pk not in self._team_permissions:
             self._team_permissions[team.pk] = UserTeamPermissions(self, team)
         return self._team_permissions[team.pk]
 
     def dashboard(self, dashboard: Dashboard) -> "UserDashboardPermissions":
-        if self._team is None or self.organization_instance is None:
-            raise ValueError(
-                "Cannot call .dashboard without passing current organization/team to UserDashboardPermissions"
-            )
+        if self._current_team is None:
+            raise ValueError("Cannot call .dashboard without passing current team to UserPermissions")
 
         if dashboard.pk not in self._dashboard_permissions:
             self._dashboard_permissions[dashboard.pk] = UserDashboardPermissions(self, dashboard)
         return self._dashboard_permissions[dashboard.pk]
 
     def insight(self, insight: Insight) -> "UserInsightPermissions":
-        if self._team is None or self.organization_instance is None:
-            raise ValueError(
-                "Cannot call .dashboard without passing current organization/team to UserDashboardPermissions"
-            )
+        if self._current_team is None:
+            raise ValueError("Cannot call .insight without passing current team to UsePermissions")
 
         if insight.pk not in self._insight_permissions:
             self._insight_permissions[insight.pk] = UserInsightPermissions(self, insight)
@@ -74,23 +69,33 @@ class UserPermissions:
 
     # Cached properties/functions for efficient lookups in other classes
 
+    @cached_property
+    def current_organization(self) -> Optional[Organization]:
+        if self._current_team is None:
+            raise ValueError("Cannot call .current_organization without passing current team to UsePermissions")
+        return self.user.organization
+
     def get_organization(self, organization_id: UUID) -> Optional[Organization]:
-        if self.organization_instance is not None and self.organization_instance.pk == organization_id:
-            return self.organization_instance
+        if (
+            self._current_team is not None
+            and self.current_organization is not None
+            and self.current_organization.pk == organization_id
+        ):
+            return self.current_organization
 
         return self.organizations.get(organization_id)
 
     @cached_property
     def organizations(self) -> Dict[UUID, Organization]:
-        if self.organization_instance is not None:
-            return {self.organization_instance.pk: self.organization_instance}
+        if self._current_team is not None and self.current_organization is not None:
+            return {self.current_organization.pk: self.current_organization}
 
         organizations = Organization.objects.filter(pk__in=self.organization_memberships.keys())
         return {organization.pk: organization for organization in organizations}
 
     @cached_property
     def organization_memberships(self) -> Dict[UUID, OrganizationMembership]:
-        memberships = OrganizationMembership.objects.filter(user=self.user_instance)
+        memberships = OrganizationMembership.objects.filter(user=self.user)
         return {membership.organization_id: membership for membership in memberships}
 
     @cached_property
@@ -110,7 +115,7 @@ class UserPermissions:
         try:
             from ee.models import DashboardPrivilege
 
-            rows = DashboardPrivilege.objects.filter(user=self.user_instance).values_list("dashboard_id", "level")
+            rows = DashboardPrivilege.objects.filter(user=self.user).values_list("dashboard_id", "level")
             return {dashboard_id: cast(Dashboard.PrivilegeLevel, level) for dashboard_id, level in rows}
         except ImportError:
             return {}
@@ -176,7 +181,7 @@ class UserDashboardPermissions:
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
         return (
             self.dashboard.restriction_level
-            if cast(Organization, self.p.organization_instance).is_feature_available(
+            if cast(Organization, self.p.current_organization).is_feature_available(
                 AvailableFeature.DASHBOARD_PERMISSIONING
             )
             else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
@@ -188,7 +193,7 @@ class UserDashboardPermissions:
         from posthog.models.organization import OrganizationMembership
 
         # The owner (aka creator) has full permissions
-        if self.p.user_instance.pk == self.dashboard.created_by_id:
+        if self.p.user.pk == self.dashboard.created_by_id:
             return True
         effective_project_membership_level = self.p.current_team.effective_membership_level
         return (

@@ -14,10 +14,9 @@ from posthog.user_permissions import UserPermissions
 class WithPermissionsBase:
     user: User
     team: Team
-    organization: Organization
 
     def permissions(self):
-        return UserPermissions(user=self.user, team=self.team, organization=self.organization)
+        return UserPermissions(user=self.user, team=self.team)
 
 
 class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
@@ -41,8 +40,9 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
     def test_team_effective_membership_level_does_not_belong(self):
         self.organization_membership.delete()
 
+        permissions = UserPermissions(user=self.user)
         with self.assertNumQueries(1):
-            assert self.permissions().current_team.effective_membership_level is None
+            assert permissions.team(self.team).effective_membership_level is None
 
     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
         self.team.access_control = True
