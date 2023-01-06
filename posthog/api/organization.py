@@ -20,6 +20,7 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     extract_organization,
 )
+from posthog.user_permissions import UserPermissionsSerializerMixin
 
 
 class PremiumMultiorganizationPermissions(permissions.BasePermission):
@@ -58,7 +59,7 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
         )
 
 
-class OrganizationSerializer(serializers.ModelSerializer):
+class OrganizationSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     membership_level = serializers.SerializerMethodField()
     teams = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
@@ -105,18 +106,15 @@ class OrganizationSerializer(serializers.ModelSerializer):
         return organization
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
-        membership = OrganizationMembership.objects.filter(
-            organization=organization,
-            user=self.context["request"].user,
-        ).first()
+        membership = self.user_permissions.organization_memberships.get(organization.pk)
         return membership.level if membership is not None else None
 
     def get_teams(self, instance: Organization) -> List[Dict[str, Any]]:
         teams = cast(
             List[Dict[str, Any]], TeamBasicSerializer(instance.teams.all(), context=self.context, many=True).data
         )
-        visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
-        return visible_teams
+        visible_team_ids = set(self.user_permissions.team_ids_visible_for_user)
+        return [team for team in teams if team["id"] in visible_team_ids]
 
     def get_metadata(self, instance: Organization) -> Dict[str, int]:
         output = {
