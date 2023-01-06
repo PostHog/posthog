@@ -68,13 +68,11 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
                             values.currentTeamId,
                             {
                                 type: 'properties_timeline_load',
-                                context: 'insight',
+                                context: 'actors_modal',
                                 primary_interaction_id: queryId,
                                 query_id: queryId,
                                 insights_fetched: 1,
                                 insights_fetched_cached: 0, // TODO: Cache properties timeline requests eventually
-                                // PROPERTIES_TIMELINE is a faux insight type - only available within the actors modal
-                                insight: 'PROPERTIES_TIMELINE',
                                 is_primary_interaction: true,
                             }
                         )
