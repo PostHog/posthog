@@ -323,4 +323,4 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     @cached_property
     def user_permissions(self):
-        return UserPermissions(cast(User, self.request.user), team=self.team)
+        return UserPermissions(cast(User, self.request.user))
