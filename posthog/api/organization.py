@@ -5,6 +5,7 @@ from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
+from posthog import settings
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -122,6 +123,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         output = {
             "taxonomy_set_events_count": 0,
             "taxonomy_set_properties_count": 0,
+            "instance_tag": settings.INSTANCE_TAG,
         }
 
         try:
