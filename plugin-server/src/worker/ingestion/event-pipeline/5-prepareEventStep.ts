@@ -31,7 +31,7 @@ export async function prepareEventStep(
 
     await runner.hub.siteUrlManager.updateIngestionSiteUrl(site_url)
 
-    if (preIngestionEvent && preIngestionEvent.event !== '$snapshot') {
+    if (preIngestionEvent && !['$snapshot', '$performance_event'].includes(event.event)) {
         return runner.nextStep('createEventStep', preIngestionEvent, personContainer)
     } else if (preIngestionEvent && preIngestionEvent.event === '$snapshot') {
         return runner.nextStep('runAsyncHandlersStep', preIngestionEvent as PostIngestionEvent, personContainer)

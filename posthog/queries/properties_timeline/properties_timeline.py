@@ -7,6 +7,7 @@ from posthog.models.person.person import Person
 from posthog.models.property.util import extract_tables_and_properties, get_single_or_multi_property_string_expr
 from posthog.models.team.team import Team
 from posthog.queries.insight import insight_sync_execute
+from posthog.queries.trends.trends_actors import handle_date_to_with_interval_for_data_point_actors
 
 from .properties_timeline_event_query import PropertiesTimelineEventQuery
 
@@ -20,6 +21,8 @@ class PropertiesTimelinePoint(TypedDict):
 class PropertiesTimelineResult(TypedDict):
     points: List[PropertiesTimelinePoint]
     crucial_property_keys: List[str]
+    effective_date_from: str
+    effective_date_to: str
 
 
 PROPERTIES_TIMELINE_SQL = """
@@ -67,6 +70,8 @@ class PropertiesTimeline:
     def run(
         self, filter: PropertiesTimelineFilter, team: Team, actor: Union[Person, Group]
     ) -> PropertiesTimelineResult:
+        filter = handle_date_to_with_interval_for_data_point_actors(filter, team)
+
         event_query = PropertiesTimelineEventQuery(
             filter=filter,
             team=team,
@@ -108,4 +113,6 @@ class PropertiesTimeline:
                 for timestamp, properties, relevant_event_count in raw_query_result
             ],
             crucial_property_keys=crucial_property_keys,
+            effective_date_from=event_query.effective_date_from.isoformat(),
+            effective_date_to=event_query.effective_date_to.isoformat(),
         )

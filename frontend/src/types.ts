@@ -1,17 +1,19 @@
 import {
-    OrganizationMembershipLevel,
-    PluginsAccessLevel,
-    ShownAsValue,
-    RETENTION_RECURRING,
-    RETENTION_FIRST_TIME,
+    BIN_COUNT_AUTO,
+    DashboardPrivilegeLevel,
+    DashboardRestrictionLevel,
     ENTITY_MATCH_TYPE,
     FunnelLayout,
-    BIN_COUNT_AUTO,
+    OrganizationMembershipLevel,
+    PluginsAccessLevel,
+    PROPERTY_MATCH_TYPE,
+    RETENTION_FIRST_TIME,
+    RETENTION_RECURRING,
+    ShownAsValue,
     TeamMembershipLevel,
 } from 'lib/constants'
 import { PluginConfigSchema } from '@posthog/plugin-scaffold'
 import { PluginInstallationType } from 'scenes/plugins/types'
-import { PROPERTY_MATCH_TYPE, DashboardRestrictionLevel, DashboardPrivilegeLevel } from 'lib/constants'
 import { UploadFile } from 'antd/lib/upload/interface'
 import { eventWithTime } from 'rrweb/typings/types'
 import { PostHog } from 'posthog-js'
@@ -1381,16 +1383,18 @@ export interface FilterType {
     breakdowns?: Breakdown[]
     breakdown_value?: string | number
     breakdown_group_type_index?: number | null
-    aggregation_group_type_index?: number | undefined // Groups aggregation
+    aggregation_group_type_index?: number // Groups aggregation
 }
 
 export interface PropertiesTimelineFilterType {
     date_from?: string | null // DateMixin
     date_to?: string | null // DateMixin
+    interval?: IntervalType // IntervalMixin
     properties?: AnyPropertyFilter[] | PropertyGroupFilter // PropertyMixin
     events?: Record<string, any>[] // EntitiesMixin
     actions?: Record<string, any>[] // EntitiesMixin
-    aggregation_group_type_index?: number | undefined // GroupsAggregationMixin
+    aggregation_group_type_index?: number // GroupsAggregationMixin
+    display?: ChartDisplayType // DisplayDerivedMixin
 }
 
 export interface TrendsFilterType extends FilterType {
@@ -1479,6 +1483,7 @@ export type AnyFilterType =
     | PathsFilterType
     | RetentionFilterType
     | LifecycleFilterType
+    | PropertiesTimelineFilterType
     | FilterType
 
 export type AnyPartialFilterType =
@@ -2534,4 +2539,17 @@ export interface OrganizationResourcePermissionType {
     created_at: string
     updated_at: string
     created_by: UserBaseType | null
+}
+
+export interface RecordingReportLoadTimeRow {
+    size?: number
+    duration: number
+}
+
+export interface RecordingReportLoadTimes {
+    metadata: RecordingReportLoadTimeRow
+    snapshots: RecordingReportLoadTimeRow
+    events: RecordingReportLoadTimeRow
+    performanceEvents: RecordingReportLoadTimeRow
+    firstPaint: RecordingReportLoadTimeRow
 }

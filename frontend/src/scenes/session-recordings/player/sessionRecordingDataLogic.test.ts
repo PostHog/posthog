@@ -9,10 +9,17 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import recordingSnapshotsJson from '../__mocks__/recording_snapshots.json'
 import recordingMetaJson from '../__mocks__/recording_meta.json'
 import recordingEventsJson from '../__mocks__/recording_events.json'
+import recordingPerformanceEventsJson from '../__mocks__/recording_performance_events.json'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { combineUrl } from 'kea-router'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import { teamLogic } from 'scenes/teamLogic'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { userLogic } from 'scenes/userLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { AvailableFeature, SessionRecordingUsageType } from '~/types'
+import { useAvailableFeatures } from '~/mocks/features'
 
 const createSnapshotEndpoint = (id: number): string => `api/projects/${MOCK_TEAM_ID}/session_recordings/${id}/snapshots`
 const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
@@ -24,22 +31,29 @@ const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/e
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
 
-    beforeEach(() => {
+    beforeEach(async () => {
+        useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
             get: {
                 '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
                 '/api/projects/:team/session_recordings/:id': recordingMetaJson,
                 '/api/projects/:team/events': { results: recordingEventsJson },
+                '/api/projects/:team/performance_events': { results: recordingPerformanceEventsJson },
             },
         })
         initKeaTests()
         logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
         logic.mount()
+        await expectLogic(logic).toMount([featureFlagLogic])
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
+            [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
+        })
+        jest.spyOn(api, 'get')
     })
 
     describe('core assumptions', () => {
         it('mounts other logics', async () => {
-            await expectLogic(logic).toMount([eventUsageLogic])
+            await expectLogic(logic).toMount([eventUsageLogic, teamLogic, featureFlagLogic, userLogic])
         })
         it('has default values', async () => {
             await expectLogic(logic).toMatchValues({
@@ -91,7 +105,12 @@ describe('sessionRecordingDataLogic', () => {
             logic.mount()
 
             await expectLogic(logic)
-                .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaFailure'])
+                .toDispatchActionsInAnyOrder([
+                    'loadRecordingMeta',
+                    'loadRecordingSnapshots',
+                    'loadRecordingMetaFailure',
+                    'loadRecordingSnapshotsSuccess',
+                ])
                 .toFinishAllListeners()
                 .toMatchValues({
                     sessionPlayerData: {
@@ -144,6 +163,17 @@ describe('sessionRecordingDataLogic', () => {
             expect.objectContaining(recordingEventsJson[6]),
         ]
 
+        beforeEach(async () => {
+            // Test session events loading in isolation from other features
+            useAvailableFeatures([])
+            initKeaTests()
+            useAvailableFeatures([])
+            initKeaTests()
+            logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
+            logic.mount()
+            api.get.mockClear()
+        })
+
         it('load events after metadata with 1min buffer', async () => {
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta()
@@ -194,8 +224,6 @@ describe('sessionRecordingDataLogic', () => {
         })
         it('fetch all events and sort by player time', async () => {
             const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
-
-            jest.spyOn(api, 'get')
             let count = 0
             useMocks({
                 get: {
@@ -237,13 +265,12 @@ describe('sessionRecordingDataLogic', () => {
                 ],
             })
 
+            // data, meta, events, and then first next events
             expect(api.get).toBeCalledTimes(4)
         })
         it('server error mid-fetch', async () => {
             const firstNext = `${EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT}?person_id=1&before=2021-10-28T17:45:12.128000Z&after=2021-10-28T16:45:05Z`
             silenceKeaLoadersErrors()
-            jest.spyOn(api, 'get')
-            api.get.mockClear()
             api.get
                 .mockImplementationOnce(async (url: string) => {
                     if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
@@ -253,6 +280,11 @@ describe('sessionRecordingDataLogic', () => {
                 .mockImplementationOnce(async (url: string) => {
                     if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
                         return { ...recordingSnapshotsJson }
+                    }
+                })
+                .mockImplementationOnce(async (url: string) => {
+                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                        return { result: recordingSnapshotsJson }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
@@ -276,7 +308,121 @@ describe('sessionRecordingDataLogic', () => {
                 })
                 .toDispatchActions([logic.actionCreators.loadEvents(firstNext), 'loadEventsFailure'])
             resumeKeaLoadersErrors()
+
+            // data, meta, events, and then errored out on first next events
             expect(api.get).toBeCalledTimes(4)
+        })
+    })
+
+    describe('loading session performance events', () => {
+        describe("don't call performance endpoint", () => {
+            beforeEach(async () => {
+                useAvailableFeatures([])
+                initKeaTests()
+                logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
+                logic.mount()
+                await expectLogic(logic).toMount(featureFlagLogic)
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
+                    [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: false,
+                })
+                api.get.mockClear()
+            })
+
+            it('if ff is off', async () => {
+                await expectLogic(logic, () => {
+                    logic.actions.loadRecordingMeta()
+                })
+                    .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
+                    .toDispatchActionsInAnyOrder([
+                        'loadEvents',
+                        'loadEventsSuccess',
+                        'loadPerformanceEvents',
+                        'loadPerformanceEventsSuccess',
+                    ])
+                    .toMatchValues({
+                        performanceEvents: null,
+                    })
+
+                // data, meta, events... but not performance events
+                expect(api.get).toBeCalledTimes(3)
+            })
+
+            it("if ff is on but user doesn't have the performance feature", async () => {
+                api.get.mockClear()
+                await expectLogic(logic, async () => {
+                    featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
+                        [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
+                    })
+                    logic.actions.loadRecordingMeta()
+                })
+                    .toDispatchActions(['loadRecordingMeta', 'loadRecordingMetaSuccess'])
+                    .toDispatchActionsInAnyOrder([
+                        'loadEvents',
+                        'loadEventsSuccess',
+                        'loadPerformanceEvents',
+                        'loadPerformanceEventsSuccess',
+                    ])
+                    .toMatchValues({
+                        performanceEvents: null,
+                    })
+
+                // data, meta, events... but not performance events
+                expect(api.get).toBeCalledTimes(3)
+            })
+        })
+
+        it('load performance events', async () => {
+            logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
+            logic.mount()
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE], {
+                [FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]: true,
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadRecordingMeta()
+            })
+                .toDispatchActions([
+                    'loadRecordingMeta',
+                    'loadRecordingMetaSuccess',
+                    'loadPerformanceEvents',
+                    'loadPerformanceEventsSuccess',
+                ])
+                .toMatchValues({
+                    eventsApiParams: {
+                        after: '2021-12-09T19:35:59Z',
+                        before: '2021-12-09T20:23:24Z',
+                        person_id: 1,
+                        orderBy: ['timestamp'],
+                        properties: {
+                            type: 'OR',
+                            values: [
+                                {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            key: '$session_id',
+                                            operator: 'is_not_set',
+                                            type: 'event',
+                                            value: 'is_not_set',
+                                        },
+                                    ],
+                                },
+                                {
+                                    type: 'AND',
+                                    values: [
+                                        {
+                                            key: '$session_id',
+                                            operator: 'exact',
+                                            type: 'event',
+                                            value: ['2'],
+                                        },
+                                    ],
+                                },
+                            ],
+                        },
+                    },
+                    performanceEvents: recordingPerformanceEventsJson,
+                })
         })
     })
 
@@ -313,7 +459,6 @@ describe('sessionRecordingDataLogic', () => {
         it('fetch all chunks of recording', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
-            jest.spyOn(api, 'get')
             api.get.mockClear()
 
             const snapshotUrl = createSnapshotEndpoint(1)
@@ -383,7 +528,6 @@ describe('sessionRecordingDataLogic', () => {
         it('server error mid-way through recording', async () => {
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
-            jest.spyOn(api, 'get')
 
             api.get.mockClear()
             expect(api.get).toBeCalledTimes(0)
@@ -428,6 +572,41 @@ describe('sessionRecordingDataLogic', () => {
                 .toFinishAllListeners()
             resumeKeaLoadersErrors()
             expect(api.get).toBeCalledTimes(2)
+        })
+    })
+
+    describe('report usage', () => {
+        it('send `recording loaded` event only when entire recording has loaded', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEntireRecording()
+            })
+                .toDispatchActions(['loadEntireRecording'])
+                .toDispatchActionsInAnyOrder([
+                    'loadRecordingMeta',
+                    'loadRecordingMetaSuccess',
+                    'loadRecordingSnapshots',
+                    'loadRecordingSnapshotsSuccess',
+                    'loadEvents',
+                    'loadEventsSuccess',
+                    'loadPerformanceEvents',
+                    'loadPerformanceEventsSuccess',
+                ])
+                .toDispatchActions([logic.actionCreators.reportUsage(SessionRecordingUsageType.LOADED)]) // only dispatch once
+                .toNotHaveDispatchedActions([logic.actionCreators.reportUsage(SessionRecordingUsageType.LOADED)])
+        })
+        it('send `recording viewed` and `recording analyzed` event on first contentful paint', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.loadEntireRecording()
+            })
+                .toDispatchActions([
+                    'loadEntireRecording',
+                    'loadRecordingSnapshotsSuccess',
+                    eventUsageLogic.actionTypes.reportRecording,
+                    eventUsageLogic.actionTypes.reportRecording,
+                ])
+                .toMatchValues({
+                    chunkPaginationIndex: 1,
+                })
         })
     })
 })

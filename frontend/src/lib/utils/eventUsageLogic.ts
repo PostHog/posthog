@@ -26,12 +26,11 @@ import {
     YesOrNoResponse,
     SessionPlayerData,
     AnyPartialFilterType,
+    RecordingReportLoadTimes,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { EventIndex } from '@posthog/react-rrweb-player'
 import { convertPropertyGroupToProperties } from 'lib/utils'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PlatformType, Framework } from 'scenes/ingestion/v1/types'
 import { now } from 'lib/dayjs'
@@ -44,6 +43,8 @@ import {
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
 import { isGroupPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { EventIndex } from 'scenes/session-recordings/player/eventIndex'
+
 export enum DashboardEventSource {
     LongPress = 'long_press',
     MoreDropdown = 'more_dropdown',
@@ -82,12 +83,17 @@ export enum SessionRecordingFilterType {
 
 interface RecordingViewedProps {
     delay: number // Not reported: Number of delayed **seconds** to report event (useful to measure insights where users don't navigate immediately away)
-    load_time: number // How much time it took to load the session (backend) (milliseconds)
+    snapshots_load_time: number // How long it took to load all snapshots
+    metadata_load_time: number // How long it took to load all metadata
+    events_load_time: number // How long it took to load all events
+    performance_events_load_time: number // How long it took to load all performance events
     duration: number // How long is the total recording (milliseconds)
     start_time?: number // Start timestamp of the session
     end_time?: number // End timestamp of the session
     page_change_events_length: number
     recording_width?: number
+
+    load_time: number // DEPRECATE: How much time it took to load the session (backend) (milliseconds)
 }
 
 export interface RecordingViewedSummaryAnalytics {
@@ -351,10 +357,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecording: (
             playerData: SessionPlayerData,
-            loadTime: number,
+            durations: RecordingReportLoadTimes,
             type: SessionRecordingUsageType,
             delay?: number
-        ) => ({ playerData, loadTime, type, delay }),
+        ) => ({ playerData, durations, type, delay }),
         reportRecordingScrollTo: (rowIndex: number) => ({ rowIndex }),
         reportHelpButtonViewed: true,
         reportHelpButtonUsed: (help_type: HelpType) => ({ help_type }),
@@ -368,7 +374,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             action: string,
             props?: Record<string, any>
         ) => ({ correlationType, action, props }),
-        reportRecordingEventsFetched: (numEvents: number, loadTime: number) => ({ numEvents, loadTime }),
         reportCorrelationAnalysisFeedback: (rating: number) => ({ rating }),
         reportCorrelationAnalysisDetailedFeedback: (rating: number, comments: string) => ({ rating, comments }),
         reportRecordingsListFetched: (loadTime: number) => ({ loadTime }),
@@ -899,21 +904,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightNewInsightClicked: ({ insightType }) => {
             posthog.capture('saved insights new insight clicked', { insight_type: insightType })
         },
-        reportRecording: ({ playerData, loadTime, type }) => {
+        reportRecording: ({ playerData, durations, type }) => {
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
-                load_time: loadTime,
+                snapshots_load_time: durations.snapshots?.duration ?? 0,
+                metadata_load_time: durations.metadata?.duration ?? 0,
+                events_load_time: durations.events?.duration ?? 0,
+                performance_events_load_time: durations.performanceEvents?.duration ?? 0,
                 duration: eventIndex.getDuration(),
                 start_time: playerData.metadata.segments[0]?.startTimeEpochMs,
                 end_time: playerData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
                 page_change_events_length: eventIndex.pageChangeEvents().length,
-                recording_width: eventIndex.getRecordingMetadata(0)[0]?.width,
+                recording_width: eventIndex.getRecordingScreenMetadata(0)[0]?.width,
+                load_time: durations.firstPaint?.duration ?? 0, // TODO: DEPRECATED field. Keep around so dashboards don't break
             }
             posthog.capture(`recording ${type}`, payload)
-        },
-        reportRecordingEventsFetched: ({ numEvents, loadTime }) => {
-            posthog.capture(`recording events fetched`, { num_events: numEvents, load_time: loadTime })
         },
         reportRecordingScrollTo: ({ rowIndex }) => {
             posthog.capture(`recording event list scrolled`, { rowIndex })

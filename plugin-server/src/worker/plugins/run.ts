@@ -79,12 +79,18 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
     let returnedEvent: PluginEvent | null = event
 
-    const pluginsSucceeded: string[] = []
-    const pluginsFailed = []
+    const pluginsSucceeded: string[] = event.properties?.$plugins_succeeded || []
+    const pluginsFailed = event.properties?.$plugins_failed || []
     const pluginsDeferred = []
+    const pluginsAlreadyProcessed = new Set([...pluginsSucceeded, ...pluginsFailed])
     for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
         if (processEvent) {
             const timer = new Date()
+            const pluginIdentifier = `${pluginConfig.plugin?.name} (${pluginConfig.id})`
+
+            if (pluginsAlreadyProcessed.has(pluginIdentifier)) {
+                continue
+            }
 
             try {
                 returnedEvent =
@@ -101,7 +107,7 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     returnedEvent.team_id = teamId
                     throw new IllegalOperationError('Plugin tried to change event.team_id')
                 }
-                pluginsSucceeded.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+                pluginsSucceeded.push(pluginIdentifier)
                 await hub.appMetrics.queueMetric({
                     teamId,
                     pluginConfigId: pluginConfig.id,
@@ -114,7 +120,7 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
                     plugin: pluginConfig.plugin?.name ?? '?',
                     teamId: String(event.team_id),
                 })
-                pluginsFailed.push(`${pluginConfig.plugin?.name} (${pluginConfig.id})`)
+                pluginsFailed.push(pluginIdentifier)
                 await hub.appMetrics.queueError(
                     {
                         teamId,

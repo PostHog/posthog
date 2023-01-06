@@ -94,7 +94,7 @@ function PlayerInspectorListItem({
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (
-                <div className="shrink-0 text-lg text-muted-alt h-8 flex items-center justify-center gap-1">
+                <div className="shrink-0 text-lg text-muted-alt h-8 w-6 flex items-center justify-center gap-1">
                     {showIcon ? TabToIcon[item.type] : null}
                     {windowNumber ? <IconWindow value={windowNumber} className="shrink-0" /> : null}
                 </div>
@@ -290,7 +290,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                         </>
                                     }
                                     caption="Understand what is happening with network requests during your recordings to identify slow pages, API errors and more."
-                                    docsLink="https://posthog.com/docs/user-guides/session-recordings"
+                                    docsLink="https://posthog.com/docs/user-guides/recordings"
                                 />
                             </div>
                         ) : (

@@ -29,6 +29,7 @@ class AvailableFeature(str, Enum):
     RECORDINGS_PLAYLISTS = "recordings_playlists"
     ROLE_BASED_ACCESS = "role_based_access"
     RECORDINGS_FILE_EXPORT = "recordings_file_export"
+    RECORDINGS_PERFORMANCE = "recordings_performance"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
