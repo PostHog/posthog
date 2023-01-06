@@ -47,7 +47,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.save()
         return
 
-    recording.load_snapshots(100000)  # TODO: Paginate rather than hardcode a limit
+    recording.load_snapshots(100_000)  # TODO: Paginate rather than hardcode a limit
 
     content: PersistedRecordingV1 = {
         "version": "2022-12-22",
