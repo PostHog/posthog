@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 import { useValues } from 'kea'
 import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceWaterfallChart'
 import { IconPlay } from 'lib/components/icons'
-import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Query } from '~/queries/Query/Query'
@@ -39,7 +39,7 @@ function WaterfallButton(props: { record: RecentPerformancePageView; onClick: ()
                 icon={<IconPlay />}
                 type="secondary"
                 size="small"
-                onClick={props.onClick}
+                to={urls.webPerformanceWaterfall(props.record)}
             >
                 View waterfall chart
             </LemonButton>
@@ -48,7 +48,6 @@ function WaterfallButton(props: { record: RecentPerformancePageView; onClick: ()
 }
 
 const EventsWithPerformanceTable = (): JSX.Element => {
-    // const { setEventToDisplay } = useActions(webPerformanceLogic)
     const { recentPageViews, recentPageViewsLoading } = useValues(webPerformanceLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
@@ -193,9 +192,12 @@ export const WebPerformance = (): JSX.Element => {
                             <p>
                                 To capture performance information you must be using posthog-js and set{' '}
                                 <code>_capture_performance</code> to true. See the{' '}
-                                <a href="https://posthog.com/docs/integrate/client/js#config" target="_blank">
+                                <Link
+                                    to="https://posthog.com/docs/integrate/client/js#config"
+                                    disableClientSideRouting={true}
+                                >
                                     config instructions in our handbook
-                                </a>
+                                </Link>
                             </p>
                         </div>
                     ) : null

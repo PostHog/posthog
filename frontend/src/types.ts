@@ -903,12 +903,14 @@ export interface SessionRecordingEvents {
     events: RecordingEventType[]
 }
 
-export interface RecentPerformancePageView {
+export interface PerformancePageView {
     session_id: string
     pageview_id: string
+    timestamp: string
+}
+export interface RecentPerformancePageView extends PerformancePageView {
     page_url: string
     duration: number
-    timestamp: string
 }
 
 export interface PerformanceEvent {
