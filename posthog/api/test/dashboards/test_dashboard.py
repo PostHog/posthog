@@ -158,19 +158,19 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             }
 
             with self.assertNumQueries(10):
-                self.dashboard_api.get_dashboard(dashboard_id)
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(16):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(16):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
-                self.dashboard_api.get_dashboard(dashboard_id)
+            with self.assertNumQueries(16):
+                self.dashboard_api.get_dashboard(dashboard_id, query_params={"no_items_field": "true"})
 
     @snapshot_postgres_queries
     def test_listing_dashboards_is_not_nplus1(self) -> None:

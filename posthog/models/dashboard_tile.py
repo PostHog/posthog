@@ -99,6 +99,7 @@ class DashboardTile(models.Model):
                 "insight__last_modified_by",
                 "insight__team",
             )
+            .prefetch_related("dashboard")
             .exclude(deleted=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
