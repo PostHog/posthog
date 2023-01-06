@@ -104,6 +104,7 @@ export function IngestionWarningsView(): JSX.Element {
                                     <Link
                                         to={`https://posthog.com/manual/data-management#${type
                                             .toLowerCase()
+                                            .replace(',', '')
                                             .split(' ')
                                             .join('-')}`}
                                     >
