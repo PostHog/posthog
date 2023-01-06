@@ -168,9 +168,7 @@ class StructuredViewSetMixin(_GenericViewSet):
 
     @cached_property
     def user_permissions(self) -> "UserPermissions":
-        # assert not self.request.user.is_anonymous
-
-        return UserPermissions(user=self.request.user, team=self.team)
+        return UserPermissions(user=cast(User, self.request.user), team=self.team)
 
     # Stdout tracing to see what legacy endpoints (non-project-nested) are still requested by the frontend
     # TODO: Delete below when no legacy endpoints are used anymore
