@@ -119,7 +119,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
         return visible_teams
 
-    def get_metadata(self, instance: Organization) -> Dict[str, int]:
+    def get_metadata(self, instance: Organization) -> Dict[str, Any]:
         output = {
             "taxonomy_set_events_count": 0,
             "taxonomy_set_properties_count": 0,
