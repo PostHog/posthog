@@ -247,19 +247,19 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             const durations = {
                 metadata: {
                     size: values.sessionPlayerMetaData.metadata.segments.length,
-                    duration: performance.now() - cache.metaStartTime,
+                    duration: Math.round(performance.now() - cache.metaStartTime),
                 },
                 snapshots: {
                     size: Object.keys(values.sessionPlayerSnapshotData.snapshotsByWindowId).length,
-                    duration: performance.now() - cache.snapshotsStartTime,
+                    duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 },
                 events: {
                     size: values.sessionEventsData?.events?.length ?? 0,
-                    duration: performance.now() - cache.eventsStartTime,
+                    duration: Math.round(performance.now() - cache.eventsStartTime),
                 },
                 performanceEvents: {
                     size: values.performanceEvents?.length ?? 0,
-                    duration: performance.now() - cache.performanceEventsStartTime,
+                    duration: Math.round(performance.now() - cache.performanceEventsStartTime),
                 },
                 firstPaint: cache.firstPaintDurationRow,
             }
