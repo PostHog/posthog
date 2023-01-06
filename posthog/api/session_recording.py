@@ -2,6 +2,7 @@ import json
 from typing import Any, List, cast
 
 import structlog
+from dateutil import parser
 from django.db.models import Prefetch
 from django.http import JsonResponse
 from rest_framework import exceptions, request, serializers, viewsets
@@ -95,6 +96,13 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
 
+        # Optimisation step if passed to speed up retrieval of CH data
+        if not recording.start_time:
+            recording_start_time = (
+                parser.parse(request.GET["recording_start_time"]) if request.GET.get("recording_start_time") else None
+            )
+            recording.start_time = recording_start_time
+
         loaded = recording.load_metadata()
 
         if not loaded:
@@ -102,9 +110,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording.load_person()
         recording.check_viewed_for_user(request.user, save_viewed=request.GET.get("save_view") is not None)
-
-        # recording_start_time_string = request.GET.get("recording_start_time")
-        # recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
 
         serializer = SessionRecordingSerializer(recording)
 
@@ -118,10 +123,15 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
         limit = filter.limit if filter.limit else DEFAULT_RECORDING_CHUNK_LIMIT
         offset = filter.offset if filter.offset else 0
 
-        # recording_start_time_string = request.GET.get("recording_start_time")
-        # recording_start_time = parser.parse(recording_start_time_string) if recording_start_time_string else None
-
         recording = SessionRecording.get_or_build(session_id=kwargs["pk"], team=self.team)
+
+        # Optimisation step if passed to speed up retrieval of CH data
+        if not recording.start_time:
+            recording_start_time = (
+                parser.parse(request.GET["recording_start_time"]) if request.GET.get("recording_start_time") else None
+            )
+            recording.start_time = recording_start_time
+
         recording.load_snapshots(limit, offset)
 
         if not recording.snapshot_data_by_window_id:

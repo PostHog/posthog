@@ -4,6 +4,7 @@ import json
 from datetime import timedelta
 from typing import Optional
 
+import posthoganalytics
 import structlog
 from django.utils import timezone
 from sentry_sdk import capture_exception
@@ -11,6 +12,7 @@ from sentry_sdk import capture_exception
 from posthog import settings
 from posthog.models.session_recording.metadata import PersistedRecordingV1
 from posthog.models.session_recording.session_recording import SessionRecording
+from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_helpers import compress_to_string, decompress
 from posthog.storage import object_storage
 
@@ -20,10 +22,31 @@ logger = structlog.get_logger(__name__)
 MINIMUM_AGE_FOR_RECORDING = timedelta(hours=24)
 
 
+def capture(recording: SessionRecording, event: str, properties: dict):
+    """
+    Get the related playlist for a recording and return the distinct_id of the user
+    who created it as our best guess at a distinct_id
+    """
+
+    playlist_item = recording.playlist_items.select_related("playlist", "playlist__created_by").first()
+
+    if playlist_item:
+        posthoganalytics.capture(playlist_item.playlist.created_by.distinct_id, event, properties)
+
+
 def persist_recording(recording_id: str, team_id: int) -> None:
     """Persist a recording to the S3"""
 
     logger.info("Persisting recording: init", recording_id=recording_id, team_id=team_id)
+
+    start_time = timezone.now()
+    analytics_payload = {
+        "total_time_seconds": 0.0,
+        "metadata_load_time_seconds": 0.0,
+        "snapshots_load_time_seconds": 0.0,
+        "content_size_in_bytes": 0,
+        "compressed_size_in_bytes": 0,
+    }
 
     if not settings.OBJECT_STORAGE_ENABLED:
         return
@@ -37,8 +60,10 @@ def persist_recording(recording_id: str, team_id: int) -> None:
 
     recording.load_metadata()
 
+    analytics_payload["metadata_load_time"] = (timezone.now() - start_time).total_seconds()
+
     if not recording.start_time or timezone.now() < recording.start_time + MINIMUM_AGE_FOR_RECORDING:
-        # Recording is too recent to be peristed. We can save the metadata as it is still useful for querying but we can't move to S3 yet.
+        # Recording is too recent to be persisted. We can save the metadata as it is still useful for querying but we can't move to S3 yet.
         logger.info(
             "Persisting recording: skipping as recording start time is less than MINIMUM_AGE_FOR_RECORDING",
             recording_id=recording_id,
@@ -48,6 +73,9 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         return
 
     recording.load_snapshots(100_000)  # TODO: Paginate rather than hardcode a limit
+    analytics_payload["snapshots_load_time_seconds"] = (
+        timezone.now() - start_time
+    ).total_seconds() - analytics_payload["metadata_load_time"]
 
     content: PersistedRecordingV1 = {
         "version": "2022-12-22",
@@ -58,18 +86,26 @@ def persist_recording(recording_id: str, team_id: int) -> None:
     }
 
     # TODO: This is a hack workaround for datetime conversion
-    string_content = compress_to_string(json.dumps(content, indent=4, sort_keys=True, default=str))
+    string_content = json.dumps(content, default=str)
+    analytics_payload["content_size_in_bytes"] = len(string_content.encode("utf-8"))
+    string_content = compress_to_string(string_content)
+    analytics_payload["compressed_size_in_bytes"] = len(string_content.encode("utf-8"))
 
     logger.info("Persisting recording: writing to S3...", recording_id=recording_id, team_id=team_id)
+
     try:
         object_path = recording.build_object_storage_path()
         object_storage.write(object_path, string_content.encode("utf-8"))
         recording.object_storage_path = object_path
         recording.save()
 
+        analytics_payload["total_time_seconds"] = (timezone.now() - start_time).total_seconds()
+        capture(recording, "recording_persisted", analytics_payload)
+
         logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id)
     except object_storage.ObjectStorageError as ose:
         capture_exception(ose)
+        capture(recording, "recording_persist_failed", analytics_payload)
         logger.error(
             "session_recording.object-storage-error", recording_id=recording.session_id, exception=ose, exc_info=True
         )

@@ -64,7 +64,7 @@ class SessionRecording(UUIDModel):
             metadata = SessionRecordingEvents(
                 team=self.team,
                 session_recording_id=self.session_id,
-                recording_start_time=None,  # TODO Add this as an optimisation
+                recording_start_time=self.start_time,
             ).get_metadata()
 
             if not metadata:
@@ -72,7 +72,7 @@ class SessionRecording(UUIDModel):
 
             self._metadata = metadata
 
-            # Some fields of the metadata are peristed fully in the model
+            # Some fields of the metadata are persisted fully in the model
             self.distinct_id = metadata["distinct_id"]
             self.start_time = metadata["start_time"]
             self.end_time = metadata["end_time"]
@@ -93,9 +93,7 @@ class SessionRecording(UUIDModel):
             self.load_object_data()
         else:
             snapshots = SessionRecordingEvents(
-                team=self.team,
-                session_recording_id=self.session_id,
-                recording_start_time=None,  # TODO Add this as an optimisation
+                team=self.team, session_recording_id=self.session_id, recording_start_time=self.start_time
             ).get_snapshots(limit, offset)
 
             self._snapshots = snapshots
@@ -213,6 +211,6 @@ class SessionRecording(UUIDModel):
 
 
 @receiver(models.signals.post_save, sender=SessionRecording)
-def attempt_persist_recoding(sender, instance: SessionRecording, created: bool, **kwargs):
+def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
     if created:
         ee_persist_single_recording.delay(instance.session_id, instance.team_id)
