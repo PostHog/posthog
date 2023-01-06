@@ -31,6 +31,11 @@ describe('processPersonsStep()', () => {
                 db: 'hub.db',
                 statsd: 'hub.statsd',
                 personManager: 'hub.personManager',
+                kafkaProducer: {
+                    producer: {
+                        send: jest.fn(),
+                    },
+                },
             },
         }
         personContainer = new LazyPersonContainer(2, 'my_id', runner.hub)

@@ -1091,6 +1091,7 @@ const api = {
         },
     },
 
+    /** Fetch data from specified URL. The result already is JSON-parsed. */
     async get(url: string, options?: ApiMethodOptions): Promise<any> {
         const res = await api.getResponse(url, options)
         return await getJSONOrThrow(res)

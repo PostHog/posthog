@@ -53,6 +53,15 @@ describe('pluginsProcessEventStep()', () => {
         expect(response).toEqual(['processPersonsStep', event, personContainer])
     })
 
+    it('automatically forwards `$performance_event` events', async () => {
+        const event = { ...pluginEvent, event: '$performance_event' }
+
+        const response = await pluginsProcessEventStep(runner, event, personContainer)
+
+        expect(runProcessEvent).not.toHaveBeenCalled()
+        expect(response).toEqual(['processPersonsStep', event, personContainer])
+    })
+
     it('does not forward but counts dropped events by plugins', async () => {
         jest.mocked(runProcessEvent).mockResolvedValue(null)
 

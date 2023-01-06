@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, props, reducers } from 'kea'
+import { actions, connect, events, kea, listeners, path, props, key, reducers } from 'kea'
 import api from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 import {
@@ -25,6 +25,7 @@ const DEFAULT_DURATION = 14
 export interface SecondaryMetricsProps {
     onMetricsChange: (metrics: SecondaryExperimentMetric[]) => void
     initialMetrics: SecondaryExperimentMetric[]
+    experimentId: Experiment['id']
 }
 
 export interface SecondaryMetricForm {
@@ -42,7 +43,8 @@ const defaultFormValues: SecondaryMetricForm = {
 
 export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
     props({} as SecondaryMetricsProps),
-    path(['scenes', 'experiment', 'secondaryMetricsLogic']),
+    key((props) => props.experimentId || 'new'),
+    path((key) => ['scenes', 'experiment', 'secondaryMetricsLogic', key]),
     connect({ values: [teamLogic, ['currentTeamId']] }),
     actions({
         openModalToCreateSecondaryMetric: true,
@@ -131,7 +133,7 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
         },
         openModalToCreateSecondaryMetric: () => {
             actions.resetSecondaryMetricModal()
-            actions.setFilters(defaultFormValues.filters)
+            actions.createPreviewInsight(defaultFormValues.filters)
         },
         createPreviewInsight: async ({ filters }) => {
             let newInsightFilters
@@ -182,6 +184,9 @@ export const secondaryMetricsLogic = kea<secondaryMetricsLogicType>([
             }
             props.onMetricsChange(values.metrics)
             actions.closeModal()
+        },
+        deleteMetric: () => {
+            props.onMetricsChange(values.metrics)
         },
     })),
     events(({ actions }) => ({
