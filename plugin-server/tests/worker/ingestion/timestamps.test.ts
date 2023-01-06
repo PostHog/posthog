@@ -53,7 +53,7 @@ describe('parseEventTimestamp()', () => {
 
     it('ignores and reports invalid sent_at', () => {
         const event = {
-            timestamp: '2021-10-30T03:02:00.000Z',
+            timestamp: '2021-10-31T00:44:00.000Z',
             sent_at: 'invalid',
             now: '2021-10-30T01:44:00.000Z',
         } as any as PluginEvent
@@ -71,7 +71,7 @@ describe('parseEventTimestamp()', () => {
             ],
         ])
 
-        expect(timestamp.toISO()).toEqual('2021-10-30T03:02:00.000Z')
+        expect(timestamp.toISO()).toEqual('2021-10-31T00:44:00.000Z')
     })
 
     it('captures sent_at with timezone info', () => {
