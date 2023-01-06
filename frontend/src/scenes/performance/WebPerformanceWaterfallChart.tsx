@@ -55,7 +55,7 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
                 )}{' '}
                 and took {humanFriendlyMilliseconds(resourceTiming.entry.duration)} to complete
             </p>
-            {Object.entries(resourceTiming.performanceParts).length ? (
+            {!!Object.entries(resourceTiming.performanceParts).length ? (
                 <table className="performance-timings-table">
                     <thead>
                         <tr>
@@ -86,7 +86,7 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
                 </table>
             ) : null}
 
-            {asResourceTiming.decoded_body_size && asResourceTiming.encoded_body_size && (
+            {asResourceTiming.decoded_body_size !== undefined && asResourceTiming.encoded_body_size !== undefined && (
                 <>
                     <hr />
                     Resource is {humanizeBytes(asResourceTiming.decoded_body_size)}
@@ -103,7 +103,6 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
                     )}
                 </>
             )}
-            <hr />
         </>
     )
 }
@@ -120,9 +119,9 @@ const MouseTriggeredPopUp = ({
     return (
         <Popup overlay={content} visible={mouseIsOver} className="performance-popup">
             <div
+                className="h-full"
                 onMouseEnter={() => setMouseIsOver(true)}
                 onMouseLeave={() => setMouseIsOver(false)}
-                className={'flex items-center pointer'}
             >
                 {children}
             </div>
@@ -130,7 +129,7 @@ const MouseTriggeredPopUp = ({
     )
 }
 
-export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element => {
+export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element | null => {
     if (max) {
         let right = 0
         let end = 0
@@ -182,7 +181,7 @@ export const PerfBlock = ({ resourceTiming, max }: PerfBlockProps): JSX.Element 
             </MouseTriggeredPopUp>
         )
     } else {
-        return <></>
+        return null
     }
 }
 
