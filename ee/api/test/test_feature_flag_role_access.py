@@ -108,3 +108,35 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         # Should now have edit privileges
         response_flags = self.client.get(f"/api/projects/@current/feature_flags")
         self.assertEqual(response_flags.json()["results"][0]["can_edit"], True)
+
+    def test_can_always_edit_if_admin_or_higher(self):
+        OrganizationResourceAccess.objects.create(
+            resource=OrganizationResourceAccess.Resources.FEATURE_FLAGS,
+            access_level=OrganizationResourceAccess.AccessLevel.CAN_ONLY_VIEW,
+            organization=self.organization,
+        )
+        user_a = User.objects.create_and_join(self.organization, "a@potato.com", None)
+        flag = FeatureFlag.objects.create(created_by=user_a, key="flag_a", name="Flag A", team=self.team)
+
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        self.client.post(
+            f"/api/projects/@current/feature_flags/{flag.id}/role_access",
+            {"role_id": self.eng_role.id},
+        )
+
+        response_flags = self.client.get(f"/api/projects/@current/feature_flags")
+        self.assertEqual(response_flags.json()["results"][0]["can_edit"], True)
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(
+            f"/api/projects/@current/feature_flags/{flag.id}/role_access",
+            {"role_id": self.marketing_role.id},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response.json(), self.permission_denied_response("You can't edit roles for this feature flag.")
+        )
