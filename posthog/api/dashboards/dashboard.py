@@ -26,6 +26,7 @@ from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import should_ignore_dashboard_items_field
 
 logger = structlog.get_logger(__name__)
@@ -72,7 +73,7 @@ class DashboardTileSerializer(serializers.ModelSerializer):
         return representation
 
 
-class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer, UserPermissionsSerializerMixin):
     items = serializers.SerializerMethodField()
     tiles = serializers.SerializerMethodField()
     created_by = UserBasicSerializer(read_only=True)
@@ -215,7 +216,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
             )
 
     def update(self, instance: Dashboard, validated_data: Dict, *args: Any, **kwargs: Any) -> Dashboard:
-        can_user_restrict = self.context["view"].user_permissions.dashboard(instance).can_restrict
+        can_user_restrict = self.user_permissions.dashboard(instance).can_restrict
         if "restriction_level" in validated_data and not can_user_restrict:
             raise exceptions.PermissionDenied(
                 "Only the dashboard owner and project admins have the restriction rights required to change the dashboard's restriction level."
@@ -309,7 +310,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         serialized_tiles = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles)
-        self.context["view"].user_permissions.set_preloaded_dashboard_tiles(tiles)
+        self.user_permissions.set_preloaded_dashboard_tiles(tiles)
 
         for tile in tiles:
             self.context.update({"dashboard_tile": tile})
@@ -357,12 +358,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
     def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.context["view"].user_permissions.dashboard(dashboard).effective_restriction_level
+        return self.user_permissions.dashboard(dashboard).effective_restriction_level
 
     def get_effective_privilege_level(self, dashboard: Dashboard) -> Dashboard.PrivilegeLevel:
         if self.context.get("is_shared"):
             return Dashboard.PrivilegeLevel.CAN_VIEW
-        return self.context["view"].user_permissions.dashboard(dashboard).effective_privilege_level
+        return self.user_permissions.dashboard(dashboard).effective_privilege_level
 
     def validate(self, data):
         if data.get("use_dashboard", None) and data.get("use_template", None):

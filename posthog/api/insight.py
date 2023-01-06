@@ -68,6 +68,7 @@ from posthog.queries.util import get_earliest_timestamp
 from posthog.rate_limit import PassThroughClickHouseBurstRateThrottle, PassThroughClickHouseSustainedRateThrottle
 from posthog.settings import CAPTURE_TIME_TO_SEE_DATA, SITE_URL
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
+from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse, should_refresh, str_to_bool
 
 logger = structlog.get_logger(__name__)
@@ -143,7 +144,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
         return representation
 
 
-class InsightSerializer(InsightBasicSerializer):
+class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
     result = serializers.SerializerMethodField()
     last_refresh = serializers.SerializerMethodField(
         read_only=True,
@@ -297,9 +298,11 @@ class InsightSerializer(InsightBasicSerializer):
         # it will mean this dashboard becomes restricted because of the patch
         candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
         dashboard: Dashboard
-        user_permissions = self.context["view"].user_permissions
         for dashboard in candidate_dashboards:
-            if user_permissions.dashboard(dashboard).effective_privilege_level == Dashboard.PrivilegeLevel.CAN_VIEW:
+            if (
+                self.user_permissions.dashboard(dashboard).effective_privilege_level
+                == Dashboard.PrivilegeLevel.CAN_VIEW
+            ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
         for dashboard in candidate_dashboards:
             if dashboard.team != instance.team:
@@ -335,12 +338,12 @@ class InsightSerializer(InsightBasicSerializer):
     def get_effective_restriction_level(self, insight: Insight) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
             return Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT
-        return self.context["view"].user_permissions.insight(insight).effective_restriction_level
+        return self.user_permissions.insight(insight).effective_restriction_level
 
     def get_effective_privilege_level(self, insight: Insight) -> Dashboard.PrivilegeLevel:
         if self.context.get("is_shared"):
             return Dashboard.PrivilegeLevel.CAN_VIEW
-        return self.context["view"].user_permissions.insight(insight).effective_privilege_level
+        return self.user_permissions.insight(insight).effective_privilege_level
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
