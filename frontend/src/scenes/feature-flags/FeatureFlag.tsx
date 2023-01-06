@@ -1023,7 +1023,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     </div>
                                 </div>
                             )}
-                            {featureFlags[FEATURE_FLAGS.VARIANT_OVERRIDES] && nonEmptyVariants.length > 0 && (
+                            {nonEmptyVariants.length > 0 && (
                                 <>
                                     {(!readOnly || (readOnly && group.properties?.length > 0)) && (
                                         <LemonDivider className="my-3" />
