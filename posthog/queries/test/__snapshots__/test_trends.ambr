@@ -100,7 +100,7 @@
      WHERE team_id = 2
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
        AND e.person_id != toUUIDOrZero('') )
   GROUP BY actor_id
@@ -1298,7 +1298,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 07:00:00', 'US/Pacific')), 'US/Pacific')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 07:00:00', 'US/Pacific')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 08:00:00', 'US/Pacific') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
