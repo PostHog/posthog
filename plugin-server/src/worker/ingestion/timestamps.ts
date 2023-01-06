@@ -43,6 +43,8 @@ export function parseEventTimestamp(data: PluginEvent, callback?: IngestionWarni
             offset: data['offset'] ?? '',
             now: data['now'],
             result: parsedTs.toISO(),
+            eventUuid: data['uuid'],
+            eventName: data['event'],
         })
     }
     return parsedTs

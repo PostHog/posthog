@@ -156,6 +156,8 @@ describe('parseEventTimestamp()', () => {
             timestamp: '2021-10-29T02:30:00.000Z',
             sent_at: '2021-10-28T01:00:00.000Z',
             now: '2021-10-29T01:00:00.000Z',
+            event: 'test event name',
+            uuid: '12345678-1234-1234-1234-123456789abc',
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
@@ -169,6 +171,8 @@ describe('parseEventTimestamp()', () => {
                     result: '2021-10-30T02:30:00.000Z',
                     sentAt: '2021-10-28T01:00:00.000Z',
                     timestamp: '2021-10-29T02:30:00.000Z',
+                    eventUuid: '12345678-1234-1234-1234-123456789abc',
+                    eventName: 'test event name',
                 },
             ],
         ])
@@ -180,6 +184,8 @@ describe('parseEventTimestamp()', () => {
         const event = {
             offset: -82860000,
             now: '2021-10-29T01:00:00.000Z',
+            event: 'test event name',
+            uuid: '12345678-1234-1234-1234-123456789abc',
         } as any as PluginEvent
 
         const callbackMock = jest.fn()
@@ -194,6 +200,8 @@ describe('parseEventTimestamp()', () => {
                     result: '2021-10-30T00:01:00.000Z',
                     sentAt: '',
                     timestamp: '',
+                    eventUuid: '12345678-1234-1234-1234-123456789abc',
+                    eventName: 'test event name',
                 },
             ],
         ])
