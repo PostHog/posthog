@@ -309,14 +309,68 @@ function PointsInTime(props: { pointsInTime: PointInTimeMarker[] }): JSX.Element
     )
 }
 
-function WaterfallChart(): JSX.Element {
-    const {
-        // pageviewEvents,
-        pageviewEventsLoading,
-        pageviewEventsFailed,
-        waterfallData,
-        sessionRecording,
-    } = useValues(webPerformanceLogic)
+function ResourceTimingsNames(props: { timings: ResourceTiming[] }): JSX.Element {
+    return (
+        <>
+            {props.timings.map((timing) => {
+                const name = typeof timing.item === 'string' ? timing.item : timing.item.pathname
+                return (
+                    <div
+                        key={timing.entry.uuid}
+                        className={'pl-1 marker-row marker-name flex flex-row w-full items-center'}
+                    >
+                        <span className={'w-full overflow-x-auto whitespace-nowrap'}>{name}</span>
+                    </div>
+                )
+            })}
+        </>
+    )
+}
+
+function ResourceTimingSpans(props: { timings: ResourceTiming[]; maxTime: number }): JSX.Element {
+    return (
+        <>
+            {props.timings.map((timing) => {
+                return (
+                    <div key={timing.entry.uuid} className={'relative'}>
+                        <div className={'marker-row'}>
+                            <PerfBlock resourceTiming={timing} max={props.maxTime} />
+                        </div>
+                    </div>
+                )
+            })}
+        </>
+    )
+}
+
+function EventMarkers(props: { markers: PointInTimeMarker[]; maxTime: number }): JSX.Element {
+    return (
+        <>
+            {props.markers.map(({ marker, time, color }) => (
+                <VerticalMarker key={marker} position={time} max={props.maxTime} color={color} bringToFront={true} />
+            ))}
+        </>
+    )
+}
+
+function ScaleMarkers(props: { markers: number[]; maxTime: number }): JSX.Element {
+    return (
+        <>
+            {props.markers.map((gridMarker) => (
+                <VerticalMarker
+                    key={gridMarker}
+                    max={props.maxTime}
+                    position={gridMarker}
+                    color={'var(--border-light)'}
+                />
+            ))}
+        </>
+    )
+}
+
+export function WebPerformanceWaterfallChart(): JSX.Element {
+    const { pageviewEventsLoading, pageviewEventsFailed, waterfallData, sessionRecording } =
+        useValues(webPerformanceLogic)
     const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     return (
@@ -353,50 +407,18 @@ function WaterfallChart(): JSX.Element {
                             <PointsInTime pointsInTime={waterfallData.pointsInTime} />
                             <div className={'flex flex-row'}>
                                 <div className={'w-1/3'}>
-                                    {waterfallData.resourceTimings.map((timing) => {
-                                        const name =
-                                            typeof timing.item === 'string' ? timing.item : timing.item.pathname
-                                        return (
-                                            <div
-                                                key={timing.entry.uuid}
-                                                className={
-                                                    'pl-1 marker-row marker-name flex flex-row w-full items-center'
-                                                }
-                                            >
-                                                <span className={'w-full overflow-x-auto whitespace-nowrap'}>
-                                                    {name}
-                                                </span>
-                                            </div>
-                                        )
-                                    })}
+                                    <ResourceTimingsNames timings={waterfallData.resourceTimings} />
                                 </div>
                                 <div className={'w-2/3 relative'}>
-                                    {waterfallData.pointsInTime.map(({ marker, time, color }) => (
-                                        <VerticalMarker
-                                            key={marker}
-                                            position={time}
-                                            max={waterfallData?.maxTime}
-                                            color={color}
-                                            bringToFront={true}
-                                        />
-                                    ))}
-                                    {waterfallData.gridMarkers.map((gridMarker) => (
-                                        <VerticalMarker
-                                            key={gridMarker}
-                                            max={waterfallData?.maxTime}
-                                            position={gridMarker}
-                                            color={'var(--border-light)'}
-                                        />
-                                    ))}
-                                    {waterfallData.resourceTimings.map((timing) => {
-                                        return (
-                                            <div key={timing.entry.uuid} className={'relative'}>
-                                                <div className={'marker-row'}>
-                                                    <PerfBlock resourceTiming={timing} max={waterfallData?.maxTime} />
-                                                </div>
-                                            </div>
-                                        )
-                                    })}
+                                    <EventMarkers
+                                        markers={waterfallData.pointsInTime}
+                                        maxTime={waterfallData.maxTime}
+                                    />
+                                    <ScaleMarkers markers={waterfallData.gridMarkers} maxTime={waterfallData.maxTime} />
+                                    <ResourceTimingSpans
+                                        timings={waterfallData.resourceTimings}
+                                        maxTime={waterfallData.maxTime}
+                                    />
                                 </div>
                             </div>
                         </div>
@@ -404,13 +426,5 @@ function WaterfallChart(): JSX.Element {
                 </div>
             )}
         </>
-    )
-}
-
-export function WebPerformanceWaterfallChart(): JSX.Element {
-    return (
-        <div className={'w-full'}>
-            <WaterfallChart />
-        </div>
     )
 }
