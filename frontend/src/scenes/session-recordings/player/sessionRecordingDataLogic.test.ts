@@ -93,7 +93,7 @@ describe('sessionRecordingDataLogic', () => {
                 })
         })
 
-        it('fetch metadata error and snapshots success', async () => {
+        it('fetch metadata error', async () => {
             silenceKeaLoadersErrors()
             // Unmount and remount the logic to trigger fetching the data again after the mock change
             logic.unmount()
@@ -105,12 +105,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.mount()
 
             await expectLogic(logic)
-                .toDispatchActionsInAnyOrder([
-                    'loadRecordingMeta',
-                    'loadRecordingSnapshots',
-                    'loadRecordingMetaFailure',
-                    'loadRecordingSnapshotsSuccess',
-                ])
+                .toDispatchActionsInAnyOrder(['loadRecordingMeta', 'loadRecordingMetaFailure'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     sessionPlayerData: {
@@ -283,11 +278,6 @@ describe('sessionRecordingDataLogic', () => {
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                        return { result: recordingSnapshotsJson }
-                    }
-                })
-                .mockImplementationOnce(async (url: string) => {
                     if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT)) {
                         return { results: recordingEventsJson, next: firstNext }
                     }
@@ -391,7 +381,7 @@ describe('sessionRecordingDataLogic', () => {
                     eventsApiParams: {
                         after: '2021-12-09T19:35:59Z',
                         before: '2021-12-09T20:23:24Z',
-                        person_id: 1,
+                        person_id: '1',
                         orderBy: ['timestamp'],
                         properties: {
                             type: 'OR',
@@ -480,7 +470,7 @@ describe('sessionRecordingDataLogic', () => {
                 logic.actions.loadRecordingSnapshots()
             }).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
 
-            await expectLogic(logic).toMatchValues({
+            expectLogic(logic).toMatchValues({
                 sessionPlayerData: {
                     person: recordingMetaJson.person,
                     metadata: parseMetadataResponse(recordingMetaJson),
