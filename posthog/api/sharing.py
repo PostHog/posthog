@@ -16,6 +16,7 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_content_response
 from posthog.models.insight import Insight
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
+from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
 
@@ -155,7 +156,12 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
             raise NotFound()
 
         embedded = "embedded" in request.GET or "/embedded/" in request.path
-        context = {"view": self, "request": request, "is_shared": True}
+        context = {
+            "view": self,
+            "request": request,
+            "user_permissions": UserPermissions(request.user, resource.team),
+            "is_shared": True,
+        }
         exported_data: Dict[str, Any] = {"type": "embed" if embedded else "scene"}
 
         if asset:
