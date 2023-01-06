@@ -998,14 +998,14 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 Will match approximately{' '}
                                                 {affectedUsers[index] !== undefined ? (
                                                     <b>
-                                                        {`${humanFriendlyNumber(
+                                                        {`${
                                                             computeBlastRadiusPercentage(
                                                                 group.rollout_percentage,
                                                                 index
-                                                            ).toPrecision(4) * 1
+                                                            ).toPrecision(2) * 1
                                                             // Multiplying by 1 removes trailing zeros after the decimal
                                                             // point added by toPrecision
-                                                        )}% `}
+                                                        }% `}
                                                     </b>
                                                 ) : (
                                                     <Spinner className="mr-1" />
