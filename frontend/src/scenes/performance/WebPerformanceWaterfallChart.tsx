@@ -13,8 +13,9 @@ import './WebPerformance.scss'
 import { getSeriesColor } from 'lib/colors'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { IconErrorOutline } from 'lib/components/icons'
+import { IconErrorOutline, IconInfo } from 'lib/components/icons'
 import { Link } from 'lib/components/Link'
+import { Tooltip } from 'lib/components/Tooltip'
 
 interface PerfBlockProps {
     resourceTiming: ResourceTiming
@@ -113,7 +114,7 @@ const MouseTriggeredPopUp = ({ content, children }: { content: JSX.Element; chil
     return (
         <Popup overlay={content} visible={mouseIsOver} className="performance-popup">
             <div
-                className="h-full"
+                className="h-full cursor-pointer"
                 onMouseEnter={() => setMouseIsOver(true)}
                 onMouseLeave={() => setMouseIsOver(false)}
             >
@@ -253,21 +254,30 @@ const pointInTimeContentFor = (pointInTimeMarker: string): JSX.Element =>
     pointInTimeContent[pointInTimeMarker] ?? <div>Unknown marker: {pointInTimeMarker}</div>
 
 const VerticalMarker = ({
+    marker,
     max,
     position,
     color,
     bringToFront,
 }: {
+    marker?: string
     max: number | undefined
     position: number
     color: string
     bringToFront?: boolean
 }): JSX.Element | null => {
+    const { highlightedPointInTime } = useValues(webPerformanceLogic)
+
     if (max) {
         const left = (position / max) * 100
+
         return (
             <div
-                className={clsx(['vertical-marker', { 'in-front': bringToFront }])}
+                className={clsx('VerticalMarker', {
+                    'VerticalMarker__in-front': bringToFront,
+                    VerticalMarker__hidden: !!marker && marker !== highlightedPointInTime,
+                    VerticalMarker__highlighted: !!marker && marker === highlightedPointInTime,
+                })}
                 /* eslint-disable-next-line react/forbid-dom-props */
                 style={{ left: `${left}%`, backgroundColor: color }}
             />
@@ -278,26 +288,32 @@ const VerticalMarker = ({
 }
 
 function PointsInTime(props: { pointsInTime: PointInTimeMarker[] }): JSX.Element {
+    const { highlightPointInTime } = useActions(webPerformanceLogic)
     return (
         <div className={'flex flex-row justify-between flex-wrap p-4 justify-center items-center'}>
             {props.pointsInTime.map(({ marker, color, time }) => {
                 return (
                     <div key={marker}>
                         <div
-                            className={'flex pointer border rounded mb-2'}
+                            className={'flex flex-col pointer border rounded mb-2 cursor-pointer'}
                             /* eslint-disable-next-line react/forbid-dom-props */
                             style={{ borderColor: color }}
+                            onMouseEnter={() => highlightPointInTime(marker)}
+                            onMouseLeave={() => highlightPointInTime(null)}
                         >
-                            <MouseTriggeredPopUp content={pointInTimeContentFor(marker)}>
-                                <span className={'p-2'}>{marker}</span>
-                                <div
-                                    className={'color-block text-white min-w-8 text-center'}
-                                    /* eslint-disable-next-line react/forbid-dom-props */
-                                    style={{ backgroundColor: color }}
-                                >
-                                    {humanFriendlyMilliseconds(time)}
-                                </div>
-                            </MouseTriggeredPopUp>
+                            <div className={'p-2 flex flex-row items-center gap-1'}>
+                                {marker}
+                                <Tooltip title={pointInTimeContentFor(marker)} placement="top">
+                                    <IconInfo />
+                                </Tooltip>
+                            </div>
+                            <div
+                                className={'color-block text-white min-w-8 text-center'}
+                                /* eslint-disable-next-line react/forbid-dom-props */
+                                style={{ backgroundColor: color }}
+                            >
+                                {humanFriendlyMilliseconds(time)}
+                            </div>
                         </div>
                     </div>
                 )
@@ -344,7 +360,14 @@ function EventMarkers(props: { markers: PointInTimeMarker[]; maxTime: number }):
     return (
         <>
             {props.markers.map(({ marker, time, color }) => (
-                <VerticalMarker key={marker} position={time} max={props.maxTime} color={color} bringToFront={true} />
+                <VerticalMarker
+                    key={marker}
+                    marker={marker}
+                    position={time}
+                    max={props.maxTime}
+                    color={color}
+                    bringToFront={true}
+                />
             ))}
         </>
     )

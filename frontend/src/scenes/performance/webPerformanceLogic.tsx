@@ -298,8 +298,10 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
         }),
         clearDisplayedPageView: true,
         setCurrentPage: (page: WebPerformancePage) => ({ page }),
+        highlightPointInTime: (markerName: string | null) => ({ markerName }),
     }),
     reducers({
+        highlightedPointInTime: [null as string | null, { highlightPointInTime: (_, { markerName }) => markerName }],
         currentPageView: [
             null as PerformancePageView | null,
             {

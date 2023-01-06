@@ -32,10 +32,6 @@
     }
 
     .waterfall-chart {
-        .in-front {
-            z-index: 200;
-        }
-
         .marker-row {
             height: 32px;
             margin-bottom: 1px;
@@ -55,10 +51,22 @@
             margin-top: 7px;
         }
 
-        .vertical-marker {
+        .VerticalMarker {
             height: 100%;
             position: absolute;
             width: 2px;
+
+            &__hidden {
+                width: 0;
+            }
+
+            &__highlighted {
+                width: 3px;
+            }
+
+            &__in-front {
+                z-index: 200;
+            }
         }
     }
 }
