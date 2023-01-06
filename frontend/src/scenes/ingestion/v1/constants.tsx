@@ -93,5 +93,6 @@ export const thirdPartySources: ThirdPartySource[] = [
                 src={'https://raw.githubusercontent.com/PostHog/posthog-redshift-import-plugin/main/logo.png'}
             />
         ),
+        docsLink: 'https://posthog.com/docs/apps/redshift-import',
     },
 ]
