@@ -1,3 +1,4 @@
+import concurrent.futures
 from typing import cast
 
 from django.db import connection
@@ -1727,8 +1728,6 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
         Person.objects.create(
             team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
         )
-
-        import concurrent.futures
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_index = {
