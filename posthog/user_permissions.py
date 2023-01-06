@@ -1,39 +1,101 @@
 from functools import cached_property
 from typing import Dict, List, Optional, cast
+from uuid import UUID
 
 from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, DashboardTile, Insight, Organization, OrganizationMembership, Team, User
 
 
 class UserPermissions:
-    def __init__(self, user: User, team: Team, organization: Organization):
+    """
+    Class responsible for figuring out user permissions in an efficient manner.
+
+    Generally responsible for the following tasks:
+    1. Calculating whether a user has access to the current team
+    2. Calculating whether a user has access to other team(s)
+    3. Calculating permissioning of a certain object (dashboard, insight) in the team
+
+    Note that task 3 depends on task 1, so for efficiency sake the class _generally_
+    expects the current team/organization to be passed to it and will use it to skip certain
+    lookups.
+    """
+
+    def __init__(self, user: User, organization: Optional[Organization] = None, team: Optional[Team] = None):
         self.user_instance = user
-        self.team_instance = team
         self.organization_instance = organization
+        self._team = team
 
         self._tiles: Optional[List[DashboardTile]] = None
+        self._team_permissions: Dict[int, UserTeamPermissions] = {}
         self._dashboard_permissions: Dict[int, UserDashboardPermissions] = {}
         self._insight_permissions: Dict[int, UserInsightPermissions] = {}
 
     @cached_property
-    def team(self) -> "UserTeamPermissions":
-        return UserTeamPermissions(self)
+    def current_team(self) -> "UserTeamPermissions":
+        if self._team is None:
+            raise ValueError("Cannot call .current_team without passing it to UserPermissions")
+
+        return UserTeamPermissions(self, self._team)
+
+    def team(self, team: Team) -> "UserTeamPermissions":
+        if self._team and team.pk == self._team.pk:
+            return self.current_team
+        if team.pk not in self._team_permissions:
+            self._team_permissions[team.pk] = UserTeamPermissions(self, team)
+        return self._team_permissions[team.pk]
 
     def dashboard(self, dashboard: Dashboard) -> "UserDashboardPermissions":
+        if self._team is None or self.organization_instance is None:
+            raise ValueError(
+                "Cannot call .dashboard without passing current organization/team to UserDashboardPermissions"
+            )
+
         if dashboard.pk not in self._dashboard_permissions:
             self._dashboard_permissions[dashboard.pk] = UserDashboardPermissions(self, dashboard)
         return self._dashboard_permissions[dashboard.pk]
 
     def insight(self, insight: Insight) -> "UserInsightPermissions":
+        if self._team is None or self.organization_instance is None:
+            raise ValueError(
+                "Cannot call .dashboard without passing current organization/team to UserDashboardPermissions"
+            )
+
         if insight.pk not in self._insight_permissions:
             self._insight_permissions[insight.pk] = UserInsightPermissions(self, insight)
         return self._insight_permissions[insight.pk]
 
     @cached_property
-    def organization_membership(self) -> Optional[OrganizationMembership]:
-        return OrganizationMembership.objects.filter(
-            organization=self.organization_instance, user=self.user_instance
-        ).first()
+    def team_ids_visible_for_user(self) -> List[int]:
+        candidate_teams = Team.objects.filter(organization_id__in=self.organizations.keys()).only(
+            "pk", "organization_id", "access_control"
+        )
+
+        return [team.pk for team in candidate_teams if self.team(team).effective_membership_level is not None]
+
+    # Cached properties/functions for efficient lookups in other classes
+
+    def get_organization(self, organization_id: UUID) -> Optional[Organization]:
+        if self.organization_instance is not None and self.organization_instance.pk == organization_id:
+            return self.organization_instance
+
+        return self.organizations.get(organization_id)
+
+    @cached_property
+    def organizations(self) -> Dict[UUID, Organization]:
+        if self.organization_instance is not None:
+            return {self.organization_instance.pk: self.organization_instance}
+
+        organizations = Organization.objects.filter(pk__in=self.organization_memberships.keys())
+        return {organization.pk: organization for organization in organizations}
+
+    @cached_property
+    def organization_memberships(self) -> Dict[UUID, OrganizationMembership]:
+        memberships = OrganizationMembership.objects.filter(user=self.user_instance)
+        try:
+            memberships = memberships.prefetch_related("explicit_team_memberships")
+        except AttributeError:
+            pass
+        return {membership.organization_id: membership for membership in memberships}
 
     @cached_property
     def dashboard_privileges(self) -> Dict[int, Dashboard.PrivilegeLevel]:
@@ -61,8 +123,9 @@ class UserPermissions:
 
 
 class UserTeamPermissions:
-    def __init__(self, user_permissions: "UserPermissions"):
+    def __init__(self, user_permissions: "UserPermissions", team: Team):
         self.p = user_permissions
+        self.team = team
 
     @cached_property
     def effective_membership_level(self) -> Optional["OrganizationMembership.Level"]:
@@ -70,17 +133,19 @@ class UserTeamPermissions:
         None returned if the user has no explicit membership and organization access is too low for implicit membership.
         """
 
-        return self.effective_membership_level_for_parent_membership(self.p.organization_membership)
+        membership = self.p.organization_memberships.get(self.team.organization_id)
+        organization = self.p.get_organization(self.team.organization_id)
+        return self.effective_membership_level_for_parent_membership(organization, membership)
 
     def effective_membership_level_for_parent_membership(
-        self, organization_membership: Optional["OrganizationMembership"]
+        self, organization: Optional[Organization], organization_membership: Optional[OrganizationMembership]
     ) -> Optional["OrganizationMembership.Level"]:
-        if organization_membership is None:
+        if organization is None or organization_membership is None:
             return None
 
         if (
-            not self.p.organization_instance.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
-            or not self.p.team_instance.access_control
+            not organization.is_feature_available(AvailableFeature.PROJECT_BASED_PERMISSIONING)
+            or not self.team.access_control
         ):
             return organization_membership.level
 
@@ -104,7 +169,9 @@ class UserDashboardPermissions:
     def effective_restriction_level(self) -> Dashboard.RestrictionLevel:
         return (
             self.dashboard.restriction_level
-            if self.p.organization_instance.is_feature_available(AvailableFeature.DASHBOARD_PERMISSIONING)
+            if cast(Organization, self.p.organization_instance).is_feature_available(
+                AvailableFeature.DASHBOARD_PERMISSIONING
+            )
             else Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT
         )
 
@@ -116,7 +183,7 @@ class UserDashboardPermissions:
         # The owner (aka creator) has full permissions
         if self.p.user_instance.pk == self.dashboard.created_by_id:
             return True
-        effective_project_membership_level = self.p.team.effective_membership_level
+        effective_project_membership_level = self.p.current_team.effective_membership_level
         return (
             effective_project_membership_level is not None
             and effective_project_membership_level >= OrganizationMembership.Level.ADMIN
