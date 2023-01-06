@@ -73,29 +73,18 @@ class UserPermissions:
     def current_organization(self) -> Optional[Organization]:
         if self._current_team is None:
             raise ValueError("Cannot call .current_organization without passing current team to UsePermissions")
-        return self.user.organization
+        return self.get_organization(self._current_team.organization_id)
 
     def get_organization(self, organization_id: UUID) -> Optional[Organization]:
-        if (
-            self._current_team is not None
-            and self.current_organization is not None
-            and self.current_organization.pk == organization_id
-        ):
-            return self.current_organization
-
         return self.organizations.get(organization_id)
 
     @cached_property
     def organizations(self) -> Dict[UUID, Organization]:
-        if self._current_team is not None and self.current_organization is not None:
-            return {self.current_organization.pk: self.current_organization}
-
-        organizations = Organization.objects.filter(pk__in=self.organization_memberships.keys())
-        return {organization.pk: organization for organization in organizations}
+        return {member.organization_id: member.organization for member in self.organization_memberships.values()}
 
     @cached_property
     def organization_memberships(self) -> Dict[UUID, OrganizationMembership]:
-        memberships = OrganizationMembership.objects.filter(user=self.user)
+        memberships = OrganizationMembership.objects.filter(user=self.user).select_related("organization")
         return {membership.organization_id: membership for membership in memberships}
 
     @cached_property

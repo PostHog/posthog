@@ -25,6 +25,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization.available_features = [
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
         ]
+        self.organization.save()
 
     def test_team_effective_membership_level(self):
         with self.assertNumQueries(1):
@@ -325,7 +326,7 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
             models.append((organization, membership, team))
 
         user_permissions = UserPermissions(user)
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             assert len(user_permissions.team_ids_visible_for_user) == 10
 
             for _, _, team in models:
