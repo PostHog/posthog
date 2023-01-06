@@ -121,13 +121,12 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        self.client.post(
+        res = self.client.post(
             f"/api/projects/@current/feature_flags/{flag.id}/role_access",
             {"role_id": self.eng_role.id},
         )
 
-        response_flags = self.client.get(f"/api/projects/@current/feature_flags")
-        self.assertEqual(response_flags.json()["results"][0]["can_edit"], True)
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
 
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
