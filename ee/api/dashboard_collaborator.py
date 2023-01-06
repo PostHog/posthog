@@ -70,7 +70,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
             organization=self.context["view"].organization,
             current_team=self.context["view"].team,
         )
-        if modified_user_permissions.effective_membership_level is None:
+        if modified_user_permissions.current_team.effective_membership_level is None:
             raise exceptions.ValidationError("Cannot add collaborators that have no access to the project.")
         if modified_user_permissions.dashboard(dashboard).can_restrict:
             raise exceptions.ValidationError(

@@ -242,3 +242,15 @@ class UserInsightPermissions:
             DashboardTile.objects.filter(insight=self.insight.pk).values_list("dashboard_id", flat=True)
         )
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
+
+
+class UserPermissionsSerializerMixin:
+    """
+    Mixin for getting easy access to UserPermissions within a mixin
+    """
+
+    @cached_property
+    def user_permissions(self) -> UserPermissions:
+        if "user_permissions" in self.context:
+            return self.context["user_permissions"]
+        return self.context["view"].user_permissions

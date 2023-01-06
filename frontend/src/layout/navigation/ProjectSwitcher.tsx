@@ -109,7 +109,6 @@ function OtherProjectButton({ team }: { team: TeamBasicType }): JSX.Element {
             title={`Switch to project ${team.name}`}
             status="stealth"
             fullWidth
-            disabled={!team.effective_membership_level}
         >
             <ProjectName team={team} />
         </LemonButtonWithSideAction>

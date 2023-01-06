@@ -26,7 +26,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
-from posthog.user_permissions import UserPermissions
+from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -88,7 +88,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         ]
 
 
-class TeamSerializer(serializers.ModelSerializer):
+class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
     groups_on_events_querying_enabled = serializers.SerializerMethodField()
@@ -144,7 +144,7 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return self.context["view"].user_permissions.team(team).effective_membership_level
+        return self.user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
