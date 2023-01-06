@@ -171,7 +171,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
         sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
         sender.add_periodic_task(crontab(hour=2, minute=randrange(0, 40)), ee_persist_finished_recordings.s())
 
-
         sender.add_periodic_task(
             settings.COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS,
             count_tiles_with_no_hash.s(),
