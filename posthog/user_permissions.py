@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 from uuid import UUID
 
 from posthog.constants import AvailableFeature
@@ -91,11 +91,19 @@ class UserPermissions:
     @cached_property
     def organization_memberships(self) -> Dict[UUID, OrganizationMembership]:
         memberships = OrganizationMembership.objects.filter(user=self.user_instance)
-        try:
-            memberships = memberships.prefetch_related("explicit_team_memberships")
-        except AttributeError:
-            pass
         return {membership.organization_id: membership for membership in memberships}
+
+    @cached_property
+    def explicit_team_memberships(self) -> Dict[UUID, Any]:
+        try:
+            from ee.models import ExplicitTeamMembership
+        except ImportError:
+            return {}
+
+        memberships = ExplicitTeamMembership.objects.filter(
+            parent_membership_id__in=[membership.pk for membership in self.organization_memberships.values()]
+        ).only("parent_membership_id", "level")
+        return {membership.parent_membership_id: membership.level for membership in memberships}
 
     @cached_property
     def dashboard_privileges(self) -> Dict[int, Dashboard.PrivilegeLevel]:
@@ -149,14 +157,13 @@ class UserTeamPermissions:
         ):
             return organization_membership.level
 
-        try:
-            explicit_membership = organization_membership.explicit_team_memberships.all()[0]
-            return explicit_membership.effective_level
-        # Thrown if ee model is inaccessible or no explicit membership set
-        except (AttributeError, IndexError):
-            # Only organizations admins and above get implicit project membership
-            if organization_membership.level < OrganizationMembership.Level.ADMIN:
-                return None
+        explicit_membership_level = self.p.explicit_team_memberships.get(organization_membership.pk)
+        if explicit_membership_level is not None:
+            return max(explicit_membership_level, organization_membership.level)
+        # Only organizations admins and above get implicit project membership
+        elif organization_membership.level < OrganizationMembership.Level.ADMIN:
+            return None
+        else:
             return organization_membership.level
 
 

@@ -28,14 +28,14 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         ]
 
     def test_team_effective_membership_level(self):
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_updated(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(1):
             assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_does_not_belong(self):
@@ -298,7 +298,7 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
         user_permissions = self.permissions()
         user_permissions.set_preloaded_dashboard_tiles(tiles)
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(3):
             assert user_permissions.current_team.effective_membership_level is not None
             assert user_permissions.dashboard(dashboard).effective_restriction_level is not None
             assert user_permissions.dashboard(dashboard).can_restrict is not None
@@ -310,12 +310,6 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
                 assert user_permissions.insight(insight).effective_privilege_level is not None
 
     def test_team_lookup_efficiency(self):
-        self.organization.available_features = [
-            AvailableFeature.PROJECT_BASED_PERMISSIONING,
-            AvailableFeature.DASHBOARD_PERMISSIONING,
-        ]
-        self.organization.save()
-
         user = User.objects.create(email="test2@posthog.com")
         models = []
         for _ in range(10):
@@ -324,6 +318,9 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
             )
             membership.level = OrganizationMembership.Level.ADMIN  # type: ignore
             membership.save()  # type: ignore
+
+            organization.available_features = [AvailableFeature.PROJECT_BASED_PERMISSIONING]
+            organization.save()
 
             models.append((organization, membership, team))
 
