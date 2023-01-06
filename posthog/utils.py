@@ -345,7 +345,7 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
 
         if request.user.pk:
             user = cast(User, request.user)
-            user_permissions = UserPermissions(user)
+            user_permissions = UserPermissions(user=user, team=user.team)
             user_serialized = UserSerializer(
                 request.user, context={"request": request, "user_permissions": user_permissions}, many=False
             )
