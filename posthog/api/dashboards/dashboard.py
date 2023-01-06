@@ -308,7 +308,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         serialized_tiles = []
 
-        for tile in DashboardTile.dashboard_queryset(dashboard.tiles):
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles)
+        self.context["view"].user_permissions.set_preloaded_dashboard_tiles(tiles)
+
+        for tile in tiles:
             self.context.update({"dashboard_tile": tile})
 
             if isinstance(tile.layouts, str):
