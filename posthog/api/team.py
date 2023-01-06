@@ -26,6 +26,7 @@ from posthog.permissions import (
     TeamMemberStrictManagementPermission,
 )
 from posthog.tasks.demo_create_data import create_data_for_demo_team
+from posthog.user_permissions import UserPermissions
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -120,7 +121,7 @@ class TeamSerializer(serializers.ModelSerializer):
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
-        return team.get_effective_membership_level(self.context["request"].user.id)
+        return self.context["view"].user_permissions.team(team).effective_membership_level
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
@@ -194,13 +195,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     def get_queryset(self):
         # This is actually what ensures that a user cannot read/update a project for which they don't have permission
-        visible_teams_ids = [
-            team.id
-            for team in super()
-            .get_queryset()
-            .filter(organization__in=cast(User, self.request.user).organizations.all())
-            if team.get_effective_membership_level(self.request.user.id) is not None
-        ]
+        visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         return super().get_queryset().filter(id__in=visible_teams_ids)
 
     def get_serializer_class(self) -> Type[serializers.BaseSerializer]:

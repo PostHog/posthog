@@ -28,21 +28,21 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         ]
 
     def test_team_effective_membership_level(self):
-        with self.assertNumQueries(1):
-            assert self.permissions().team.effective_membership_level == OrganizationMembership.Level.MEMBER
+        with self.assertNumQueries(2):
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
 
     def test_team_effective_membership_level_updated(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        with self.assertNumQueries(1):
-            assert self.permissions().team.effective_membership_level == OrganizationMembership.Level.ADMIN
+        with self.assertNumQueries(2):
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_does_not_belong(self):
         self.organization_membership.delete()
 
         with self.assertNumQueries(1):
-            assert self.permissions().team.effective_membership_level is None
+            assert self.permissions().current_team.effective_membership_level is None
 
     def test_team_effective_membership_level_with_explicit_membership_returns_current_level(self):
         self.team.access_control = True
@@ -51,7 +51,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.save()
 
         with self.assertNumQueries(2):
-            assert self.permissions().team.effective_membership_level == OrganizationMembership.Level.ADMIN
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
     def test_team_effective_membership_level_with_member(self):
         self.team.access_control = True
@@ -60,7 +60,7 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         self.organization_membership.save()
 
         with self.assertNumQueries(2):
-            assert self.permissions().team.effective_membership_level is None
+            assert self.permissions().current_team.effective_membership_level is None
 
     def test_team_effective_membership_level_with_explicit_membership_returns_explicit_membership(self):
         self.team.access_control = True
@@ -73,7 +73,26 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
         )
 
         with self.assertNumQueries(2):
-            assert self.permissions().team.effective_membership_level == OrganizationMembership.Level.ADMIN
+            assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_ids_visible_for_user(self):
+        assert self.permissions().team_ids_visible_for_user == [self.team.pk]
+
+    def test_team_ids_visible_for_user_no_explicit_permissions(self):
+        self.team.access_control = True
+        self.team.save()
+
+        assert self.permissions().team_ids_visible_for_user == []
+
+    def test_team_ids_visible_for_user_explicit_permission(self):
+        self.team.access_control = True
+        self.team.save()
+
+        ExplicitTeamMembership.objects.create(
+            team=self.team, parent_membership=self.organization_membership, level=ExplicitTeamMembership.Level.ADMIN
+        )
+
+        assert self.permissions().team_ids_visible_for_user == [self.team.pk]
 
 
 class TestUserDashboardPermissions(BaseTest, WithPermissionsBase):
@@ -259,7 +278,7 @@ class TestUserInsightPermissions(BaseTest, WithPermissionsBase):
 
 
 class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
-    def test_efficiency(self):
+    def test_dashboard_efficiency(self):
         self.organization.available_features = [
             AvailableFeature.PROJECT_BASED_PERMISSIONING,
             AvailableFeature.DASHBOARD_PERMISSIONING,
@@ -279,8 +298,8 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
         user_permissions = self.permissions()
         user_permissions.set_preloaded_dashboard_tiles(tiles)
 
-        with self.assertNumQueries(3):
-            assert user_permissions.team.effective_membership_level is not None
+        with self.assertNumQueries(4):
+            assert user_permissions.current_team.effective_membership_level is not None
             assert user_permissions.dashboard(dashboard).effective_restriction_level is not None
             assert user_permissions.dashboard(dashboard).can_restrict is not None
             assert user_permissions.dashboard(dashboard).effective_privilege_level is not None
@@ -289,3 +308,28 @@ class TestUserPermissionsEfficiency(BaseTest, WithPermissionsBase):
             for insight in insights:
                 assert user_permissions.insight(insight).effective_restriction_level is not None
                 assert user_permissions.insight(insight).effective_privilege_level is not None
+
+    def test_team_lookup_efficiency(self):
+        self.organization.available_features = [
+            AvailableFeature.PROJECT_BASED_PERMISSIONING,
+            AvailableFeature.DASHBOARD_PERMISSIONING,
+        ]
+        self.organization.save()
+
+        user = User.objects.create(email="test2@posthog.com")
+        models = []
+        for _ in range(10):
+            organization, membership, team = Organization.objects.bootstrap(
+                user=user, team_fields={"access_control": True}
+            )
+            membership.level = OrganizationMembership.Level.ADMIN  # type: ignore
+            membership.save()  # type: ignore
+
+            models.append((organization, membership, team))
+
+        user_permissions = UserPermissions(user)
+        with self.assertNumQueries(4):
+            assert len(user_permissions.team_ids_visible_for_user) == 10
+
+            for _, _, team in models:
+                assert user_permissions.team(team).effective_membership_level == OrganizationMembership.Level.ADMIN
