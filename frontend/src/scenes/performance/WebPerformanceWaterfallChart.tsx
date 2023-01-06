@@ -1,7 +1,7 @@
 import { PointInTimeMarker, ResourceTiming, webPerformanceLogic } from 'scenes/performance/webPerformanceLogic'
 import { Typography } from 'antd'
 import { areObjectValuesEmpty, humanFriendlyMilliseconds, humanizeBytes } from 'lib/utils'
-import { useState } from 'react'
+import { ReactNode, useState } from 'react'
 import { Popup } from 'lib/components/Popup/Popup'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
@@ -107,13 +107,7 @@ const overlayFor = (resourceTiming: ResourceTiming): JSX.Element => {
     )
 }
 
-const MouseTriggeredPopUp = ({
-    content,
-    children,
-}: {
-    content: JSX.Element
-    children: React.ReactNode
-}): JSX.Element => {
+const MouseTriggeredPopUp = ({ content, children }: { content: JSX.Element; children: ReactNode }): JSX.Element => {
     const [mouseIsOver, setMouseIsOver] = useState(false)
 
     return (
@@ -268,7 +262,7 @@ const VerticalMarker = ({
     position: number
     color: string
     bringToFront?: boolean
-}): JSX.Element => {
+}): JSX.Element | null => {
     if (max) {
         const left = (position / max) * 100
         return (
@@ -279,7 +273,7 @@ const VerticalMarker = ({
             />
         )
     } else {
-        return <></>
+        return null
     }
 }
 
@@ -289,16 +283,20 @@ function PointsInTime(props: { pointsInTime: PointInTimeMarker[] }): JSX.Element
             {props.pointsInTime.map(({ marker, color, time }) => {
                 return (
                     <div key={marker}>
-                        <div className={'flex p-2 pointer'}>
+                        <div
+                            className={'flex pointer border rounded mb-2'}
+                            /* eslint-disable-next-line react/forbid-dom-props */
+                            style={{ borderColor: color }}
+                        >
                             <MouseTriggeredPopUp content={pointInTimeContentFor(marker)}>
-                                <span className={'pr-1'}>{marker}</span>
-                                <span
-                                    className={'color-block text-white min-w-8 px-1 text-center'}
+                                <span className={'p-2'}>{marker}</span>
+                                <div
+                                    className={'color-block text-white min-w-8 text-center'}
                                     /* eslint-disable-next-line react/forbid-dom-props */
                                     style={{ backgroundColor: color }}
                                 >
                                     {humanFriendlyMilliseconds(time)}
-                                </span>
+                                </div>
                             </MouseTriggeredPopUp>
                         </div>
                     </div>
