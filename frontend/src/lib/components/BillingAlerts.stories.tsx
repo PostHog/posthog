@@ -35,10 +35,8 @@ const Template = (): JSX.Element => {
             should_setup_billing: false,
             subscription_url: 'https://posthog.com',
 
-            // BillingAlertType.UsageLimitExceeded
             billing_limit_exceeded: false,
 
-            // BillingAlertType.FreeUsageNearLimit
             is_billing_active: true,
             current_usage: 0,
 
@@ -70,11 +68,6 @@ const Template = (): JSX.Element => {
             payload.event_allocation = 100
         }
 
-        if (alertType === BillingAlertType.FreeUsageNearLimit) {
-            payload.is_billing_active = false
-            payload.current_usage = 10000000000000000
-        }
-
         loadBillingSuccess(payload)
     }, [alertType])
 
@@ -87,7 +80,6 @@ const Template = (): JSX.Element => {
                 onChange={setAlertType}
                 options={[
                     { value: BillingAlertType.SetupBilling, label: 'SetupBilling' },
-                    { value: BillingAlertType.FreeUsageNearLimit, label: 'FreeUsageNearLimit' },
                     { value: BillingAlertType.UsageLimitExceeded, label: 'UsageLimitExceeded' },
                     { value: BillingAlertType.UsageNearLimit, label: 'UsageNearLimit' },
                 ]}

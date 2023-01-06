@@ -9,6 +9,8 @@ import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 const DEMO_TEAM_NAME: string = 'Hedgebox'
 
@@ -67,7 +69,11 @@ export function DemoProjectButton({ text, subtext }: { text: string; subtext?: s
     const { currentOrganization } = useValues(organizationLogic)
     const { updateCurrentTeam } = useActions(userLogic)
     const { reportIngestionTryWithDemoDataClicked, reportProjectCreationSubmitted } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
+    if (featureFlags[FEATURE_FLAGS.ONBOARDING_V2_DEMO] !== 'test') {
+        return <></>
+    }
     return (
         <LemonButton
             onClick={() => {

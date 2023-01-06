@@ -19,7 +19,6 @@ specifiers:
   '@monaco-editor/react': ^4.1.3
   '@playwright/test': ^1.28.1
   '@posthog/plugin-scaffold': ^1.3.2
-  '@posthog/react-rrweb-player': ^1.1.3
   '@posthog/simmerjs': ^0.7.7
   '@react-hook/size': ^2.1.2
   '@sentry/react': ^7.22.0
@@ -42,7 +41,6 @@ specifiers:
   '@types/chart.js': ^2.9.34
   '@types/chartjs-plugin-crosshair': ^1.1.1
   '@types/clone': ^2.1.1
-  '@types/cypress': ^1.1.3
   '@types/d3': ^7.0.0
   '@types/d3-sankey': ^0.11.2
   '@types/jest': ^29.2.3
@@ -139,7 +137,7 @@ specifiers:
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
-  posthog-js: 1.38.1
+  posthog-js: 1.39.2
   posthog-js-lite: 2.0.0-alpha5
   prettier: ^2.3.1
   prop-types: ^15.7.2
@@ -194,7 +192,6 @@ dependencies:
   '@monaco-editor/react': 4.4.6_vtctfwvicljpcdx2mjoqbo4tly
   '@playwright/test': 1.28.1
   '@posthog/plugin-scaffold': 1.3.4
-  '@posthog/react-rrweb-player': 1.1.3_wcqkhtmu7mswc6yz4uyexck3ty
   '@posthog/simmerjs': 0.7.7
   '@react-hook/size': 2.1.2_react@16.14.0
   '@sentry/react': 7.24.2_react@16.14.0
@@ -239,7 +236,7 @@ dependencies:
   md5: 2.3.0
   moment: 2.29.4
   monaco-editor: 0.23.0
-  posthog-js: 1.38.1
+  posthog-js: 1.39.2
   posthog-js-lite: 2.0.0-alpha5
   prettier: 2.7.1
   prop-types: 15.8.1
@@ -309,7 +306,6 @@ devDependencies:
   '@types/chart.js': 2.9.37
   '@types/chartjs-plugin-crosshair': 1.1.1
   '@types/clone': 2.1.1
-  '@types/cypress': 1.1.3
   '@types/d3': 7.4.0
   '@types/jest': 29.2.4
   '@types/node': 18.11.9
@@ -2603,24 +2599,6 @@ packages:
       '@maxmind/geoip2-node': 3.5.0
     dev: false
 
-  /@posthog/react-rrweb-player/1.1.3_wcqkhtmu7mswc6yz4uyexck3ty:
-    resolution: {integrity: sha512-yTg6Na7C6YE7VmFrFwR8okKQxKKWtIKNCbaBeBiBfgDvgVtl6YO1XW5GRyGKxXaVoPafaz+NVKLbf47LTTsTDw==}
-    engines: {node: '>=10'}
-    peerDependencies:
-      react: ^16.0.0
-    dependencies:
-      rc-slider: 9.7.5_wcqkhtmu7mswc6yz4uyexck3ty
-      rc-tooltip: 5.2.2_wcqkhtmu7mswc6yz4uyexck3ty
-      react: 16.14.0
-      react-transition-group: 4.4.5_wcqkhtmu7mswc6yz4uyexck3ty
-      rrweb: 1.1.3
-      screenfull: 5.2.0
-      use-debounce: 5.2.1_react@16.14.0
-      use-local-storage-state: 6.0.3_react@16.14.0
-    transitivePeerDependencies:
-      - react-dom
-    dev: false
-
   /@posthog/simmerjs/0.7.7:
     resolution: {integrity: sha512-NZCTf5DXZGERfic2xYxxU8FCsML9uxDYsdWe1UzwA7fFBBhqDa6KEV/H/j7Y0N9mJMdnbbDF57JRb0p0nKyM6Q==}
     dependencies:
@@ -4132,13 +4110,6 @@ packages:
   /@types/css-font-loading-module/0.0.7:
     resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
     dev: false
-
-  /@types/cypress/1.1.3:
-    resolution: {integrity: sha512-OXe0Gw8LeCflkG1oPgFpyrYWJmEKqYncBsD/J0r17r0ETx/TnIGDNLwXt/pFYSYuYTpzcq1q3g62M9DrfsBL4g==}
-    deprecated: This is a stub types definition for cypress (https://cypress.io). cypress provides its own type definitions, so you don't need @types/cypress installed!
-    dependencies:
-      cypress: 10.11.0
-    dev: true
 
   /@types/d3-array/3.0.3:
     resolution: {integrity: sha512-Reoy+pKnvsksN0lQUlcH6dOGjRZ/3WRwXR//m+/8lt1BXeI4xyaUZoqULNjyXXRuh0Mj4LNpkCvhUpQlY3X5xQ==}
@@ -13686,8 +13657,8 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js/1.38.1:
-    resolution: {integrity: sha512-9YK+QPnilKkDOq3G2hMsHfzu3c30pOIQUzg239u1GHm4BuOBCYtyUwSW5D5zUeEyXz6w3BcA+GkeTw0k+Nttog==}
+  /posthog-js/1.39.2:
+    resolution: {integrity: sha512-IKdG5smnezeq0VHyx6JmIF2UjUvkKCpwvK5OOhwwhv4J5oq9+dpfI88B7eF07sSwc77uuGwE6+RhX1vhCYddew==}
     dependencies:
       '@sentry/types': 7.22.0
       fflate: 0.4.8
@@ -17011,15 +16982,6 @@ packages:
       react: 16.14.0
     dev: false
 
-  /use-debounce/5.2.1_react@16.14.0:
-    resolution: {integrity: sha512-BQG5uEypYHd/ASF6imzYR8tJHh5qGn28oZG/5iVAbljV6MUrfyT4jzxA8co+L+WLCT1U8VBwzzvlb3CHmUDpEA==}
-    engines: {node: '>= 10.0.0'}
-    peerDependencies:
-      react: '>=16.8.0'
-    dependencies:
-      react: 16.14.0
-    dev: false
-
   /use-debounce/6.0.1_react@16.14.0:
     resolution: {integrity: sha512-kpvIxpa0vOLz/2I2sfNJ72mUeaT2CMNCu5BT1f2HkV9qZK27UVSOFf1sSSu+wjJE4TcR2VTXS2SM569+m3TN7Q==}
     engines: {node: '>= 10.0.0'}
@@ -17054,15 +17016,6 @@ packages:
       '@types/react': 16.14.34
       react: 16.14.0
       use-isomorphic-layout-effect: 1.1.2_edij4neeagymnxmr7qklvezyj4
-    dev: false
-
-  /use-local-storage-state/6.0.3_react@16.14.0:
-    resolution: {integrity: sha512-VvaMTPhBcV+pT/MSkJKG1gdU9jTdY+liJ7XUXsuCcOKa2+P/WBB7Fe5/k+20XzgqCG8AloIiTOuoHfV9FlnYmQ==}
-    engines: {node: '>=10'}
-    peerDependencies:
-      react: '>=16.8.0'
-    dependencies:
-      react: 16.14.0
     dev: false
 
   /use-resize-observer/8.0.0_wcqkhtmu7mswc6yz4uyexck3ty:

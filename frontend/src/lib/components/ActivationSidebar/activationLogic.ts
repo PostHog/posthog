@@ -56,14 +56,20 @@ export const activationLogic = kea<activationLogicType>([
             ['rawDashboards'],
         ],
         actions: [
+            membersLogic,
+            ['loadMembersSuccess', 'loadMembersFailure'],
             inviteLogic,
-            ['showInviteModal'],
+            ['showInviteModal', 'loadInvitesSuccess', 'loadInvitesFailure'],
+            pluginsLogic,
+            ['loadPluginsSuccess', 'loadPluginsFailure'],
             navigationLogic,
             ['toggleActivationSideBar', 'showActivationSideBar', 'hideActivationSideBar'],
             eventUsageLogic,
             ['reportActivationSideBarShown'],
             savedInsightsLogic,
             ['loadInsights', 'loadInsightsSuccess', 'loadInsightsFailure'],
+            dashboardsModel,
+            ['loadDashboardsSuccess', 'loadDashboardsFailure'],
         ],
     })),
     actions({
@@ -89,18 +95,46 @@ export const activationLogic = kea<activationLogicType>([
                 setShowSessionRecordingConfig: (_, { value }) => value,
             },
         ],
+        areMembersLoaded: [
+            false,
+            {
+                loadMembersSuccess: () => true,
+                loadMembersFailure: () => false,
+            },
+        ],
+        areInvitesLoaded: [
+            false,
+            {
+                loadInvitesSuccess: () => true,
+                loadInvitesFailure: () => false,
+            },
+        ],
+        arePluginsLoaded: [
+            false,
+            {
+                loadPluginsSuccess: () => true,
+                loadPluginsFailure: () => false,
+            },
+        ],
+        areDashboardsLoaded: [
+            false,
+            {
+                loadDashboardsSuccess: () => true,
+                loadDashboardsFailure: () => false,
+            },
+        ],
         areCustomEventsLoaded: [
             false,
             {
                 loadCustomEventsSuccess: () => true,
-                loadCustomEventsFailure: () => true,
+                loadCustomEventsFailure: () => false,
             },
         ],
         areInsightsLoaded: [
             false,
             {
                 loadInsightsSuccess: () => true,
-                loadInsightsFailure: () => true,
+                loadInsightsFailure: () => false,
             },
         ],
     })),
@@ -130,8 +164,34 @@ export const activationLogic = kea<activationLogicType>([
     })),
     selectors({
         isReady: [
-            (s) => [s.areCustomEventsLoaded, s.areInsightsLoaded],
-            (areCustomEventsLoaded, areInsightsLoaded) => areCustomEventsLoaded && areInsightsLoaded,
+            (s) => [
+                s.currentTeam,
+                s.areMembersLoaded,
+                s.areInvitesLoaded,
+                s.areDashboardsLoaded,
+                s.arePluginsLoaded,
+                s.areCustomEventsLoaded,
+                s.areInsightsLoaded,
+            ],
+            (
+                currentTeam,
+                areMembersLoaded,
+                areInvitesLoaded,
+                areDashboardsLoaded,
+                arePluginsLoaded,
+                areCustomEventsLoaded,
+                areInsightsLoaded
+            ) => {
+                return (
+                    !!currentTeam &&
+                    areCustomEventsLoaded &&
+                    areInsightsLoaded &&
+                    areMembersLoaded &&
+                    areInvitesLoaded &&
+                    areDashboardsLoaded &&
+                    arePluginsLoaded
+                )
+            },
         ],
         currentTeamSkippedTasks: [
             (s) => [s.skippedTasks, s.currentTeam],
