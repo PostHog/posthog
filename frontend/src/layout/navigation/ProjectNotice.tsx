@@ -27,7 +27,7 @@ export function ProjectNotice(): JSX.Element | null {
 
     const [projectNoticeVariant, isClosable] = projectNoticeVariantWithClosability
 
-    const altTeamForIngestion = currentOrganization?.teams?.find((team) => !team.is_demo && team.ingested_event)
+    const altTeamForIngestion = currentOrganization?.teams?.find((team) => !team.is_demo && !team.ingested_event)
 
     const NOTICES: Record<'demo_project' | 'real_project_with_no_events' | 'invite_teammates', ProjectNoticeBlueprint> =
         {
