@@ -148,7 +148,9 @@ class SessionRecordingEvents:
             events_summary_by_window_id[snapshot["window_id"]].extend(
                 [cast(SessionRecordingEventSummary, x) for x in snapshot["events_summary"]]
             )
-            events_summary_by_window_id[snapshot["window_id"]].sort(key=lambda x: x["timestamp"])
+
+        for window_id in events_summary_by_window_id:
+            events_summary_by_window_id[window_id].sort(key=lambda x: x["timestamp"])
 
         # If any of the snapshots are missing the events_summary field, we fallback to the old parsing method
         if any(len(x) == 0 for x in events_summary_by_window_id.values()):
