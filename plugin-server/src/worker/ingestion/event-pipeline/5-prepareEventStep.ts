@@ -12,13 +12,11 @@ export async function prepareEventStep(
     personContainer: LazyPersonContainer
 ): Promise<StepResult> {
     const { ip, site_url, team_id, uuid } = event
-    const invalidTimestampCallback = function (field: string, value: string, reason: string) {
-        runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id) })
-        captureIngestionWarning(runner.hub.db, team_id, 'ignored_invalid_timestamp', {
-            field: field,
-            value: value,
-            reason: reason,
-        })
+    const invalidTimestampCallback = function (type: string, details: Record<string, any>) {
+        // TODO: make that metric name more generic when transitionning to prometheus
+        runner.hub.statsd?.increment('process_event_invalid_timestamp', { teamId: String(team_id), type: type })
+
+        captureIngestionWarning(runner.hub.db, team_id, type, details)
     }
     const preIngestionEvent = await runner.hub.eventsProcessor.processEvent(
         String(event.distinct_id),
