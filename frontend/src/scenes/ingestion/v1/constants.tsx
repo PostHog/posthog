@@ -85,7 +85,7 @@ export const thirdPartySources: ThirdPartySource[] = [
     {
         name: 'Redshift',
         type: ThirdPartySourceType.Plugin,
-        pluginName: 'redshift-import-plugin-(beta)',
+        pluginName: 'redshift-import',
         labels: ['beta'],
         icon: (
             <img
@@ -93,6 +93,5 @@ export const thirdPartySources: ThirdPartySource[] = [
                 src={'https://raw.githubusercontent.com/PostHog/posthog-redshift-import-plugin/main/logo.png'}
             />
         ),
-        docsLink: 'https://posthog.com/docs/apps/redshift-import',
     },
 ]
