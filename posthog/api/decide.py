@@ -95,7 +95,6 @@ def get_decide(request: HttpRequest):
             )
 
         token = get_token(data, request)
-
         team = Team.objects.get_team_from_token(token)
         if team is None and token:
             project_id = get_project_id(data, request)

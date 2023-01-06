@@ -694,7 +694,12 @@ def set_feature_flag_hash_key_overrides(
             )
 
     if new_overrides:
-        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
+        # :TRICKY: regarding the ignore_conflicts parameter:
+        # This can happen if the same person is being processed by multiple workers
+        # / we got multiple requests for the same person
+        # at the same time. In this case, we can safely ignore the error.
+        # We don't want to return an error response for `/decide` just because of this.
+        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)
 
 
 def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_index: Optional[GroupTypeIndex] = None):
