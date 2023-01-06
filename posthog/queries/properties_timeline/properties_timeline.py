@@ -8,7 +8,7 @@ from posthog.models.person.person import Person
 from posthog.models.property.util import extract_tables_and_properties, get_single_or_multi_property_string_expr
 from posthog.models.team.team import Team
 from posthog.queries.insight import insight_sync_execute
-from posthog.queries.trends.trends_actors import offset_time_series_date_by_interval
+from posthog.queries.trends.util import offset_time_series_date_by_interval
 
 from .properties_timeline_event_query import PropertiesTimelineEventQuery
 
@@ -73,7 +73,7 @@ class PropertiesTimeline:
     ) -> PropertiesTimelineResult:
         if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
             # Search for `offset_time_series_date_by_interval` in the `TrendsActors` class for context on this handling
-            filter.with_data(
+            filter = filter.with_data(
                 {
                     "date_to": offset_time_series_date_by_interval(
                         cast(datetime.datetime, filter.date_from), filter=filter, team=team

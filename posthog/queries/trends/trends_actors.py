@@ -1,40 +1,23 @@
+import datetime
 import json
-from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple, TypeVar, cast
+from typing import Any, Dict, List, Optional, Tuple, cast
 
-import pytz
-from dateutil.relativedelta import relativedelta
-
-from posthog.constants import NON_TIME_SERIES_DISPLAY_TYPES, PropertyOperatorType
+from posthog.constants import PropertyOperatorType
 from posthog.models.cohort import Cohort
 from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
-from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.person.sql import GET_ACTORS_FROM_EVENT_QUERY
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
-from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS, is_series_group_based, process_math
-
-F = TypeVar("F", Filter, PropertiesTimelineFilter)
-
-
-def offset_time_series_date_by_interval(date: datetime, *, filter: F, team: Team) -> datetime:
-    """If the insight is time-series, offset date according to the interval of the filter."""
-    if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
-        return date
-    if filter.interval == "month":
-        date = (date + relativedelta(months=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    elif filter.interval == "week":
-        date = (date + timedelta(weeks=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-    elif filter.interval == "hour":
-        date = date + timedelta(hours=1)
-    else:  # "day" is the default interval
-        date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
-    date = date.replace(tzinfo=pytz.timezone(team.timezone))
-    return date
+from posthog.queries.trends.util import (
+    PROPERTY_MATH_FUNCTIONS,
+    is_series_group_based,
+    offset_time_series_date_by_interval,
+    process_math,
+)
 
 
 class TrendsActors(ActorBaseQuery):
@@ -54,10 +37,10 @@ class TrendsActors(ActorBaseQuery):
             # This was annoying and only made it harder to reason about the API, so it's no longer how actors modal
             # URLs behave. Now we only do this handling at this level for backwards compatibility (cached results)
             # via the `date_from == date_to` check - all new requests have a "fully qualified" date range.
-            filter.with_data(
+            filter = filter.with_data(
                 {
                     "date_to": offset_time_series_date_by_interval(
-                        cast(datetime, filter.date_from), filter=filter, team=team
+                        cast(datetime.datetime, filter.date_from), filter=filter, team=team
                     )
                 }
             )
