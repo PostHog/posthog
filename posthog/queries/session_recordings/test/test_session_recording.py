@@ -1,5 +1,8 @@
+from datetime import datetime, timedelta, timezone
 import math
+import random
 from typing import Tuple
+from unittest.mock import patch
 from urllib.parse import urlencode
 
 from dateutil.relativedelta import relativedelta
@@ -8,7 +11,12 @@ from django.utils.timezone import now
 from freezegun import freeze_time
 from rest_framework.request import Request
 
-from posthog.helpers.session_recording import ACTIVITY_THRESHOLD_SECONDS, DecompressedRecordingData, RecordingSegment
+from posthog.helpers.session_recording import (
+    ACTIVITY_THRESHOLD_SECONDS,
+    DecompressedRecordingData,
+    RecordingSegment,
+    SessionRecordingEvent,
+)
 from posthog.models import Filter
 from posthog.models.team import Team
 from posthog.queries.session_recordings.session_recording import RecordingMetadata, SessionRecording
@@ -425,3 +433,70 @@ class TestClickhouseSessionRecording(ClickhouseTestMixin, APIBaseTest):
             ).get_snapshots(filter.limit, filter.offset)
 
             self.assertEqual(len(recording["snapshot_data_by_window_id"][""]), 1)
+
+    def test_should_parse_metadata_efficiently(self):
+        """
+        We can end up with a lot of metadata events so it is important to see if any of our parsing slows things down at scale.
+        """
+
+        start_timestamp = round(datetime(2023, 1, 1).timestamp() * 1000)
+        random_event_times = list(range(0, 100000))
+        end_time = datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(seconds=len(random_event_times) - 1)
+
+        # Create a bunch of mock events in the wrong order
+        random.shuffle(random_event_times)
+        mock_events = [
+            SessionRecordingEvent(
+                session_id="18586b7d1d3c52-0d746e4c6fc6b3-17525635-384000-18586b7d1d4276e",
+                window_id="18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760",
+                distinct_id="123456789123456789",
+                timestamp=datetime(2023, 1, 1) - timedelta(seconds=x),
+                events_summary=[
+                    {
+                        "timestamp": start_timestamp + (x * 1000),
+                        "type": 4,
+                        "data": {"href": "http://localhost:8000", "width": 1920, "height": 929},
+                    },
+                    {"timestamp": start_timestamp + (x * 1000), "type": 2, "data": {}},
+                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 0}},
+                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 1}},
+                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 0}},
+                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 1}},
+                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 0}},
+                    {"timestamp": start_timestamp + (x * 1000), "type": 3, "data": {"source": 0}},
+                ],
+                snapshot_data={},
+            )
+            for x in random_event_times
+        ]
+
+        req, _ = create_recording_request_and_filter("1")
+        task = SessionRecording(team=self.team, session_recording_id="1", request=req, recording_start_time=now())
+
+        time = datetime.now()
+        with patch.object(task, "_query_recording_snapshots", return_value=mock_events):
+            metadata = task.get_metadata()
+            assert metadata == RecordingMetadata(
+                segments=[
+                    {
+                        "start_time": datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc),
+                        "end_time": end_time,
+                        "window_id": "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760",
+                        "is_active": True,
+                    }
+                ],
+                start_and_end_times_by_window_id={
+                    "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760": {
+                        "window_id": "18586b7d1d528f6-026e4b0f3a575c-17525635-384000-18586b7d1d6760",
+                        "start_time": datetime(2023, 1, 1, 0, 0, tzinfo=timezone.utc),
+                        "end_time": end_time,
+                        "is_active": False,
+                    }
+                },
+                distinct_id="123456789123456789",
+            )
+
+        duration = datetime.now() - time
+        print("Took " + str(duration.total_seconds()) + " seconds to parse metadata.")  # noqa
+
+        assert duration < timedelta(seconds=5)
