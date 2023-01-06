@@ -20,7 +20,7 @@ export async function emitToBufferStep(
 
     const personContainer = new LazyPersonContainer(event.team_id, event.distinct_id, runner.hub)
 
-    if (event.event === '$snapshot') {
+    if (['$snapshot', '$performance_event'].includes(event.event)) {
         return runner.nextStep('processPersonsStep', event, personContainer)
     }
 
