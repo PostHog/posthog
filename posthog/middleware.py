@@ -238,7 +238,7 @@ class QueryTimeCountingMiddleware:
         return response
 
     def _construct_header(self, **kwargs):
-        return ", ".join(f"{key}:dur={round(duration)}" for key, duration in kwargs.items())
+        return ", ".join(f"{key};dur={round(duration)}" for key, duration in kwargs.items())
 
 
 def shortcircuitmiddleware(f):

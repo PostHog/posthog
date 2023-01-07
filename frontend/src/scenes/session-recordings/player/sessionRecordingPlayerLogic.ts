@@ -59,9 +59,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'sessionPlayerData',
                 'sessionPlayerSnapshotDataLoading',
                 'sessionPlayerMetaDataLoading',
-                'loadMetaTimeMs',
-                'loadFirstSnapshotTimeMs',
-                'loadAllSnapshotsTimeMs',
             ],
             playerSettingsLogic,
             ['speed', 'skipInactivitySetting', 'isFullScreen'],
@@ -682,13 +679,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                                   (1000 * 60 * 60 * 24)
                           )
                         : undefined,
-                meta_data_load_time_ms: values.loadMetaTimeMs ?? undefined,
-                first_snapshot_load_time_ms: values.loadFirstSnapshotTimeMs ?? undefined,
-                first_snapshot_and_meta_load_time_ms:
-                    values.loadFirstSnapshotTimeMs !== null && values.loadMetaTimeMs !== null
-                        ? Math.max(values.loadFirstSnapshotTimeMs, values.loadMetaTimeMs)
-                        : undefined,
-                all_snapshots_load_time_ms: values.loadAllSnapshotsTimeMs ?? undefined,
                 rrweb_warning_count: values.warningCount,
                 error_count_during_recording_playback: values.errorCount,
             })

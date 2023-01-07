@@ -43,7 +43,11 @@ beforeAll(async () => {
             res.end()
         })
     })
-    server.listen()
+
+    await new Promise((resolve) => {
+        server.on('listening', resolve)
+        server.listen()
+    })
 })
 
 afterAll(async () => {
@@ -78,26 +82,30 @@ test.concurrent(`exports: exporting events on ingestion`, async () => {
     })
 
     // Then check that the exportEvents function was called
-    await waitForExpect(() => {
-        const exportEvents = webHookCalledWith[`/${teamId}`]
-        expect(exportEvents.length).toBeGreaterThan(0)
-        const exportedEvents = exportEvents[0]
+    await waitForExpect(
+        () => {
+            const exportEvents = webHookCalledWith[`/${teamId}`]
+            expect(exportEvents.length).toBeGreaterThan(0)
+            const exportedEvents = exportEvents[0]
 
-        expect(exportedEvents).toEqual([
-            expect.objectContaining({
-                distinct_id: distinctId,
-                team_id: teamId,
-                event: 'custom event',
-                properties: expect.objectContaining({
-                    name: 'hehe',
+            expect(exportedEvents).toEqual([
+                expect.objectContaining({
+                    distinct_id: distinctId,
+                    team_id: teamId,
+                    event: 'custom event',
+                    properties: expect.objectContaining({
+                        name: 'hehe',
+                        uuid: uuid,
+                    }),
+                    timestamp: expect.any(String),
                     uuid: uuid,
+                    elements: [],
                 }),
-                timestamp: expect.any(String),
-                uuid: uuid,
-                elements: [],
-            }),
-        ])
-    }, 20_000)
+            ])
+        },
+        60_000,
+        1_000
+    )
 })
 
 test.concurrent(`exports: exporting $autocapture events on ingestion`, async () => {
@@ -129,35 +137,39 @@ test.concurrent(`exports: exporting $autocapture events on ingestion`, async () 
     })
 
     // Then check that the exportEvents function was called
-    await waitForExpect(() => {
-        const exportEvents = webHookCalledWith[`/${teamId}`]
-        expect(exportEvents.length).toBeGreaterThan(0)
-        const exportedEvents = exportEvents[0]
-        expect(exportedEvents).toEqual([
-            expect.objectContaining({
-                distinct_id: distinctId,
-                team_id: teamId,
-                event: '$autocapture',
-                properties: expect.objectContaining({
-                    name: 'hehe',
+    await waitForExpect(
+        () => {
+            const exportEvents = webHookCalledWith[`/${teamId}`]
+            expect(exportEvents.length).toBeGreaterThan(0)
+            const exportedEvents = exportEvents[0]
+            expect(exportedEvents).toEqual([
+                expect.objectContaining({
+                    distinct_id: distinctId,
+                    team_id: teamId,
+                    event: '$autocapture',
+                    properties: expect.objectContaining({
+                        name: 'hehe',
+                        uuid: uuid,
+                    }),
+                    timestamp: expect.any(String),
                     uuid: uuid,
+                    elements: [
+                        {
+                            tag_name: 'div',
+                            nth_child: 1,
+                            nth_of_type: 2,
+                            order: 0,
+                            $el_text: '💻',
+                            text: '💻',
+                            attributes: {},
+                        },
+                    ],
                 }),
-                timestamp: expect.any(String),
-                uuid: uuid,
-                elements: [
-                    {
-                        tag_name: 'div',
-                        nth_child: 1,
-                        nth_of_type: 2,
-                        order: 0,
-                        $el_text: '💻',
-                        text: '💻',
-                        attributes: {},
-                    },
-                ],
-            }),
-        ])
-    }, 20_000)
+            ])
+        },
+        60_000,
+        1_000
+    )
 })
 
 test.concurrent(`exports: historical exports`, async () => {
@@ -191,11 +203,15 @@ test.concurrent(`exports: historical exports`, async () => {
     })
 
     // Then check that the exportEvents function was called
-    const [exportedEvent] = await waitForExpect(() => {
-        const exportEvents = webHookCalledWith[`/${teamId}`]
-        expect(exportEvents.length).toBeGreaterThan(0)
-        return exportEvents[0]
-    }, 20_000)
+    const [exportedEvent] = await waitForExpect(
+        () => {
+            const exportEvents = webHookCalledWith[`/${teamId}`]
+            expect(exportEvents.length).toBeGreaterThan(0)
+            return exportEvents[0]
+        },
+        60_000,
+        1_000
+    )
 
     // NOTE: the frontend doesn't actually push to this queue but rather
     // adds directly to PostgreSQL using the graphile-worker stored
@@ -243,7 +259,7 @@ test.concurrent(`exports: historical exports`, async () => {
                 }),
             ])
         },
-        20_000,
+        60_000,
         1_000
     )
 })

@@ -12,6 +12,7 @@
       <env name="PRINT_SQL" value="1" />
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+      <env name="BILLING_SERVICE_URL" value="https://billing.dev.posthog.dev" />
       <env name="CAPTURE_TIME_TO_SEE_DATA" value="1" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />

@@ -67,9 +67,14 @@ export class EventPipelineRunner {
     hub: Hub
     originalEvent: PipelineEvent | ProcessedPluginEvent
 
-    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent) {
+    // See https://github.com/PostHog/product-internal/pull/405 for an overview
+    // of the implementation.
+    onlyUpdatePersonIdAssociations: boolean
+
+    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, onlyUpdatePersonIdAssociations = false) {
         this.hub = hub
         this.originalEvent = originalEvent
+        this.onlyUpdatePersonIdAssociations = onlyUpdatePersonIdAssociations
     }
 
     // KLUDGE: This is a temporary entry point for the pipeline while we transition away from
