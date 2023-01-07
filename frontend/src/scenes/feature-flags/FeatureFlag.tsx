@@ -261,12 +261,11 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                         <FeatureFlagReleaseConditions />
                         <Divider />
                         {featureFlags[FEATURE_FLAGS.AUTO_ROLLBACK_FEATURE_FLAGS] && <FeatureFlagAutoRollback />}
-                        {featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
+                        {isNewFeatureFlag && featureFlags[FEATURE_FLAGS.ROLE_BASED_ACCESS] && (
                             <Card title="Permissions" className="mb-4">
                                 <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                                     <ResourcePermission
                                         resourceType={Resource.FEATURE_FLAGS}
-                                        isNewResource={id === 'new'}
                                         onChange={(roleIds) => setRolesToAdd(roleIds)}
                                         rolesToAdd={rolesToAdd}
                                         addableRoles={addableRoles}
@@ -419,7 +418,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                             <PayGateMini feature={AvailableFeature.ROLE_BASED_ACCESS}>
                                                 <ResourcePermission
                                                     resourceType={Resource.FEATURE_FLAGS}
-                                                    isNewResource={id === 'new'}
                                                     onChange={(roleIds) => setRolesToAdd(roleIds)}
                                                     rolesToAdd={rolesToAdd}
                                                     addableRoles={addableRoles}
@@ -1000,12 +998,14 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                                 Will match approximately{' '}
                                                 {affectedUsers[index] !== undefined ? (
                                                     <b>
-                                                        {`${humanFriendlyNumber(
+                                                        {`${
                                                             computeBlastRadiusPercentage(
                                                                 group.rollout_percentage,
                                                                 index
-                                                            )
-                                                        )}% `}
+                                                            ).toPrecision(2) * 1
+                                                            // Multiplying by 1 removes trailing zeros after the decimal
+                                                            // point added by toPrecision
+                                                        }% `}
                                                     </b>
                                                 ) : (
                                                     <Spinner className="mr-1" />
@@ -1025,7 +1025,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                     </div>
                                 </div>
                             )}
-                            {featureFlags[FEATURE_FLAGS.VARIANT_OVERRIDES] && nonEmptyVariants.length > 0 && (
+                            {nonEmptyVariants.length > 0 && (
                                 <>
                                     {(!readOnly || (readOnly && group.properties?.length > 0)) && (
                                         <LemonDivider className="my-3" />

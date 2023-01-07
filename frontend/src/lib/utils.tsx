@@ -5,6 +5,7 @@ import {
     ActionType,
     ActorType,
     AnyCohortCriteriaType,
+    AnyFilterType,
     AnyPropertyFilter,
     BehavioralCohortType,
     BehavioralEventType,
@@ -13,7 +14,6 @@ import {
     DateMappingOption,
     EventType,
     FilterLogicalOperator,
-    FilterType,
     GroupActorType,
     IntervalType,
     PropertyFilter,
@@ -27,7 +27,7 @@ import {
 import * as Sentry from '@sentry/react'
 import equal from 'fast-deep-equal'
 import { tagColors } from 'lib/colors'
-import { WEBHOOK_SERVICES } from 'lib/constants'
+import { NON_TIME_SERIES_DISPLAY_TYPES, WEBHOOK_SERVICES } from 'lib/constants'
 import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
@@ -1150,10 +1150,14 @@ export const disableHourFor: Record<string, boolean> = {
     other: false,
 }
 
-export function autocorrectInterval(filters: Partial<FilterType>): IntervalType {
+export function autocorrectInterval(filters: Partial<AnyFilterType>): IntervalType | undefined {
+    if ('display' in filters && filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)) {
+        // Non-time-series insights should not have an interval
+        return undefined
+    }
     if (!filters.interval) {
         return 'day'
-    } // undefined/uninitialized
+    }
 
     // @ts-expect-error - Old legacy interval support
     const minute_disabled = filters.interval === 'minute'

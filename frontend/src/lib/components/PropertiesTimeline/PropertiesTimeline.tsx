@@ -1,5 +1,4 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import { dayjsUtcToTimezone } from 'lib/dayjs'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { useActions, useValues } from 'kea'
 import { LemonDivider } from '@posthog/lemon-ui'
@@ -12,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): JSX.Element {
     const logic = propertiesTimelineLogic({ actor, filter })
-    const { points, crucialPropertyKeys, resultLoading, selectedPointIndex, timezone } = useValues(logic)
+    const { points, crucialPropertyKeys, dateRange, resultLoading, selectedPointIndex } = useValues(logic)
     const { setSelectedPointIndex } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
 
@@ -62,8 +61,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                 }
                 selectedPointIndex={selectedPointIndex}
                 onPointSelection={setSelectedPointIndex}
-                from={filter.date_from ? dayjsUtcToTimezone(filter.date_from, timezone) : undefined}
-                to={filter.date_to ? dayjsUtcToTimezone(filter.date_to, timezone) : undefined}
+                dateRange={dateRange}
                 loading={resultLoading}
             />
             <LemonDivider className="h-0" />

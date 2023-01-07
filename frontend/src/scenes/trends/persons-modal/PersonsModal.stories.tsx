@@ -56,6 +56,8 @@ export const PersonsModal: Story = () => {
                         },
                     ],
                     crucial_property_keys: ['$geoip_country_code'],
+                    effective_date_from: '2022-12-01T00:00:00.000+00:00',
+                    effective_date_to: '2022-12-13T23:59:59.999999+00:00',
                 } as RawPropertiesTimelineResult,
         },
     })

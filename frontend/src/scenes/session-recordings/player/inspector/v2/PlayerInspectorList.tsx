@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { UnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
-import { colonDelimitedDuration } from 'lib/utils'
+import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
@@ -122,8 +122,9 @@ function PlayerInspectorListItem({
                     noPadding
                     status="primary-alt"
                     onClick={() => {
-                        // NOTE: We offset by 1 second so that the playback startsjust before the event occurs
-                        seekToTime(item.timeInRecording - 1000)
+                        // NOTE: We offset by 1 second so that the playback starts just before the event occurs.
+                        // Ceiling second is used since this is what's displayed to the user.
+                        seekToTime(ceilMsToClosestSecond(item.timeInRecording) - 1000)
                     }}
                 >
                     <span className="p-1 text-xs">
@@ -151,7 +152,9 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, syncScroll, tab, loading } = useValues(playerInspectorLogic(props))
+    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab, loading } = useValues(
+        playerInspectorLogic(props)
+    )
     const { setSyncScroll } = useActions(playerInspectorLogic(props))
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
@@ -186,7 +189,10 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
 
     useEffect(() => {
         if (listRef.current) {
-            const offset = range(playbackIndicatorIndex).reduce((acc, x) => acc + cellMeasurerCache.getHeight(x, 0), 0)
+            const offset = range(playbackIndicatorIndexStop).reduce(
+                (acc, x) => acc + cellMeasurerCache.getHeight(x, 0),
+                0
+            )
             document
                 .getElementById('PlayerInspectorListMarker')
                 ?.setAttribute('style', `transform: translateY(${offset}px)`)
