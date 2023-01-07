@@ -10,7 +10,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import Dashboard, User
 from posthog.permissions import TeamMemberAccessPermission
-from posthog.user_permissions import UserPermissions
+from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 
 
 class CanEditDashboardCollaborator(BasePermission):
@@ -27,7 +27,7 @@ class CanEditDashboardCollaborator(BasePermission):
         return view.user_permissions.dashboard(dashboard).can_edit
 
 
-class DashboardCollaboratorSerializer(serializers.ModelSerializer):
+class DashboardCollaboratorSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin):
     user = UserBasicSerializer(read_only=True)
     dashboard_id = serializers.IntegerField(read_only=True)
 
@@ -48,7 +48,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs: Dict[str, Any]) -> Dict[str, Any]:
         dashboard: Dashboard = self.context["dashboard"]
-        dashboard_permissions = self.context["view"].user_permissions.dashboard(dashboard)
+        dashboard_permissions = self.user_permissions.dashboard(dashboard)
         if dashboard_permissions.effective_restriction_level <= Dashboard.RestrictionLevel.EVERYONE_IN_PROJECT_CAN_EDIT:
             raise exceptions.ValidationError("Cannot add collaborators to a dashboard on the lowest restriction level.")
         attrs = super().validate(attrs)
