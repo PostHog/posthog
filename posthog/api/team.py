@@ -323,4 +323,5 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
 
     @cached_property
     def user_permissions(self):
-        return UserPermissions(cast(User, self.request.user))
+        team = self.get_object() if self.action == "reset_token" else None
+        return UserPermissions(cast(User, self.request.user), team)
