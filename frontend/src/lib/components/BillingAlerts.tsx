@@ -5,12 +5,13 @@ import { IconWarning } from './icons'
 import clsx from 'clsx'
 
 export function BillingAlerts(): JSX.Element | null {
-    const { billing } = useValues(billingLogic)
+    const { billing, billingVersion } = useValues(billingLogic)
     const { alertToShow, percentage, strokeColor } = useValues(billingLogic)
 
-    if (!alertToShow) {
+    if (!alertToShow || billingVersion !== 'v1') {
         return null
     }
+
     let message: JSX.Element | undefined
     let isWarning = false
     let isAlert = false

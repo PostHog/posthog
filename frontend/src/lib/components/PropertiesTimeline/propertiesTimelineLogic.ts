@@ -1,13 +1,14 @@
 import { Properties } from '@posthog/plugin-scaffold'
-import api from 'lib/api'
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
-import { toParams } from 'lib/utils'
+import { toParams, uuid } from 'lib/utils'
 import { ActorType, PropertiesTimelineFilterType } from '~/types'
 import { kea, key, props, path, connect, afterMount, selectors, reducers, actions } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import type { propertiesTimelineLogicType } from './propertiesTimelineLogicType'
 import { teamLogic } from 'scenes/teamLogic'
+import { apiGetWithTimeToSeeDataTracking } from 'lib/internalMetrics'
+import { captureException } from '@sentry/react'
 
 export interface PropertiesTimelinePoint {
     timestamp: Dayjs
@@ -48,7 +49,7 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             null as number | null,
             {
                 setSelectedPointIndex: (_, { index }) => index,
-                loadResultSuccess: (_, { result }) => result.points.length - 1,
+                loadResultSuccess: (_, { result }) => (result.points.length > 0 ? result.points.length - 1 : null),
             },
         ],
     }),
@@ -59,11 +60,32 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             {
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
-                        const response = (await api.get(
+                        const queryId = uuid()
+                        const response = await apiGetWithTimeToSeeDataTracking<RawPropertiesTimelineResult>(
                             `api/projects/${values.currentTeamId}/persons/${
                                 props.actor.uuid
-                            }/properties_timeline/?${toParams(props.filter)}`
-                        )) as RawPropertiesTimelineResult
+                            }/properties_timeline/?${toParams(props.filter)}`,
+                            values.currentTeamId,
+                            {
+                                type: 'properties_timeline_load',
+                                context: 'actors_modal',
+                                primary_interaction_id: queryId,
+                                query_id: queryId,
+                                insights_fetched: 1,
+                                insights_fetched_cached: 0, // TODO: Cache properties timeline requests eventually
+                                is_primary_interaction: true,
+                            }
+                        )
+                        if (response.points.length === 0) {
+                            // It should not be possible for a properties timeline to have zero points, as all actors
+                            // shown in the actors modal must have at least one relevant event in the period
+                            captureException(new Error('Properties Timeline returned no points'), {
+                                tags: { 'team.id': values.currentTeamId },
+                                extra: {
+                                    params: props.filter,
+                                },
+                            })
+                        }
                         return response
                     }
                     throw new Error("Properties Timeline doesn't support groups-on-events yet")
