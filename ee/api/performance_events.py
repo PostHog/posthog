@@ -25,6 +25,7 @@ from posthog.permissions import (
 class PerformanceEventSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     session_id = serializers.CharField()
+    window_id = serializers.CharField()
     pageview_id = serializers.CharField(required=False, allow_blank=True)
     distinct_id = serializers.CharField()
     current_url = serializers.CharField()
