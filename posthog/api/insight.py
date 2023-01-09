@@ -163,7 +163,7 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
         many=True,
         required=False,
-        queryset=Dashboard.objects.all(),
+        queryset=Dashboard.objects.exclude(deleted=True).all(),
     )
 
     class Meta:
@@ -292,29 +292,49 @@ class InsightSerializer(InsightBasicSerializer):
 
         ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
         ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
-        # does this user have permission on dashboards to add... if they are restricted
-        # it will mean this dashboard becomes restricted because of the patch
         candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
         dashboard: Dashboard
         for dashboard in candidate_dashboards:
+            # does this user have permission on dashboards to add... if they are restricted
+            # it will mean this dashboard becomes restricted because of the patch
             if (
                 dashboard.get_effective_privilege_level(self.context["request"].user.id)
                 == Dashboard.PrivilegeLevel.CAN_VIEW
             ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
-        for dashboard in candidate_dashboards:
+
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
+
             tile, _ = DashboardTile.objects.get_or_create(insight=instance, dashboard=dashboard)
+
             if tile.deleted:
                 tile.deleted = False
                 tile.save()
 
         if ids_to_remove:
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
-        # also update dashboards set so activity log can detect the change
-        changes_to_apply = [d for d in dashboards if not d.deleted]
-        instance.dashboards.set(changes_to_apply, clear=True)
+
+        # activity log cannot detect the dashboards change
+        # so, we add it here
+        log_insight_activity(
+            activity="updated",
+            insight=instance,
+            insight_id=instance.id,
+            insight_short_id=instance.short_id,
+            organization_id=cast(User, self.context["request"].user).current_organization_id,
+            team_id=self.context["team_id"],
+            user=self.context["request"].user,
+            changes=[
+                Change(
+                    type="Insight",
+                    action="changed",
+                    field="dashboards",
+                    before=old_dashboard_ids,
+                    after=new_dashboard_ids,
+                )
+            ],
+        )
 
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
@@ -338,6 +358,9 @@ class InsightSerializer(InsightBasicSerializer):
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
+
+        # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
+        representation["dashboards"] = [dt.dashboard_id for dt in instance.dashboard_tiles.filter()]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
@@ -426,6 +449,12 @@ class InsightViewSet(
             "dashboards__created_by",
             "dashboards__team",
             "dashboards__team__organization",
+            Prefetch(
+                "dashboard_tiles",
+                queryset=DashboardTile.objects.exclude(deleted=True)
+                .exclude(dashboard__deleted=True)
+                .select_related("dashboard"),
+            ),
         )
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")

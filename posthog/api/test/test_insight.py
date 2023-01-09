@@ -526,8 +526,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         _, update_response = self.dashboard_api.update_insight(
             insight_id,
             {"dashboards": [dashboard_id, deleted_dashboard_id, new_dashboard_id]},
+            expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        assert sorted(update_response["dashboards"]) == [dashboard_id, new_dashboard_id]
+
+        insight_json = self.dashboard_api.get_insight(insight_id)
+        assert insight_json["dashboards"] == [dashboard_id]
 
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboard_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
@@ -590,12 +593,60 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert insight_json["dashboards"] == [dashboard_id]
 
         # accidentally include a deleted dashboard
-        _, update_response = self.dashboard_api.update_insight(insight_id, {"dashboards": [deleted_dashboard_id]})
-        assert update_response["dashboards"] == []
+        _, update_response = self.dashboard_api.update_insight(
+            insight_id, {"dashboards": [deleted_dashboard_id]}, expected_status=status.HTTP_400_BAD_REQUEST
+        )
 
-        # confirm it's gone when reloaded
+        # confirm no updates happened
         insight_json = self.dashboard_api.get_insight(insight_id)
-        assert insight_json["dashboards"] == []
+        assert insight_json["dashboards"] == [dashboard_id]
+
+    def test_can_update_insight_dashboards_without_deleting_tiles(self) -> None:
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({})
+
+        insight_id, _ = self.dashboard_api.create_insight(
+            {
+                "dashboards": [dashboard_one_id, dashboard_two_id],
+            }
+        )
+
+        self.dashboard_api.set_tile_layout(dashboard_one_id, 1)
+
+        dashboard_one_json = self.dashboard_api.get_dashboard(dashboard_one_id)
+        original_tiles = dashboard_one_json["tiles"]
+
+        # update the insight without changing anything
+        self.dashboard_api.update_insight(
+            insight_id,
+            {
+                "dashboards": [dashboard_one_id, dashboard_two_id],
+            },
+        )
+
+        dashboard_one_json = self.dashboard_api.get_dashboard(dashboard_one_id)
+        after_update_tiles = dashboard_one_json["tiles"]
+
+        assert [t["id"] for t in original_tiles] == [t["id"] for t in after_update_tiles]
+        assert after_update_tiles[0]["layouts"] is not None
+
+        # update the insight, removing a tile
+        self.dashboard_api.update_insight(
+            insight_id,
+            {
+                "dashboards": [dashboard_one_id],
+            },
+        )
+
+        dashboard_one_json = self.dashboard_api.get_dashboard(dashboard_one_id)
+        after_update_tiles = dashboard_one_json["tiles"]
+
+        assert len(after_update_tiles) == 1
+        assert original_tiles[0]["id"] == after_update_tiles[0]["id"]  # tile has not been recreated in DB
+        assert after_update_tiles[0]["layouts"] is not None  # tile has not been recreated in DB
+        assert original_tiles[0]["insight"]["id"] == after_update_tiles[0]["insight"]["id"]
+        assert original_tiles[0]["insight"]["dashboards"] == [dashboard_one_id, dashboard_two_id]
+        assert after_update_tiles[0]["insight"]["dashboards"] == [dashboard_one_id]  # removed dashboard is removed
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_logs_derived_name_if_there_is_no_name(self) -> None:
