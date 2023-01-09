@@ -46,9 +46,17 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
         }
     }, [!!billing])
 
+    useEffect(() => {
+        if (!preflight?.cloud) {
+            setEnterprisePackage(true)
+        }
+    })
+
     if (!billing && billingLoading) {
         return <SpinnerOverlay />
     }
+
+    const plan = !preflight?.cloud ? 'enterprise-self-hosted' : enterprisePackage ? 'enterprise' : 'standard'
 
     const supportLink = (
         <Link
@@ -168,9 +176,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                         ) : (
                             <div className="space-y-4">
                                 <LemonButton
-                                    to={`/api/billing-v2/activation?plan=${
-                                        enterprisePackage ? 'enterprise' : 'standard'
-                                    }&redirect_path=${redirectPath}`}
+                                    to={`/api/billing-v2/activation?plan=${plan}&redirect_path=${redirectPath}`}
                                     type="primary"
                                     size="large"
                                     fullWidth
@@ -180,20 +186,22 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                                     Setup payment
                                 </LemonButton>
 
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <LemonLabel>Enterprise package</LemonLabel>
-                                        <LemonSwitch
-                                            className="flex items-center justify-between"
-                                            checked={enterprisePackage}
-                                            onChange={setEnterprisePackage}
-                                        />
+                                {preflight?.cloud && (
+                                    <div className="space-y-2">
+                                        <div className="flex items-center justify-between">
+                                            <LemonLabel>Enterprise package</LemonLabel>
+                                            <LemonSwitch
+                                                className="flex items-center justify-between"
+                                                checked={enterprisePackage}
+                                                onChange={setEnterprisePackage}
+                                            />
+                                        </div>
+                                        <p>
+                                            Starts at <b>$450/mo</b> and comes with SSO, advanced permissions, and a
+                                            dedicated Slack channel for support
+                                        </p>
                                     </div>
-                                    <p>
-                                        Starts at <b>$450/mo</b> and comes with SSO, advanced permissions, and a
-                                        dedicated Slack channel for support
-                                    </p>
-                                </div>
+                                )}
                             </div>
                         )}
 
