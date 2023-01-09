@@ -250,6 +250,11 @@ function OverViewTab(): JSX.Element {
                 dataSource={searchedFeatureFlags}
                 columns={columns}
                 rowKey="key"
+                defaultSorting={{
+                    columnKey: 'created_at',
+                    order: -1,
+                }}
+                noSortingCancellation
                 loading={featureFlagsLoading}
                 pagination={{ pageSize: 100 }}
                 nouns={['feature flag', 'feature flags']}
