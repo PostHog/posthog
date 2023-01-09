@@ -181,9 +181,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             .indexOf('timestamp')
                         if (sortColumnIndex !== -1) {
                             const typedResults = (response as EventsQuery['response'])?.results
-                            const firstTimestamp = typedResults?.[0][sortColumnIndex]
-                            const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
-                            return nextQuery
+                            const firstTimestamp = typedResults?.[0]?.[sortColumnIndex]
+                            if (firstTimestamp) {
+                                const nextQuery: EventsQuery = { ...query, after: firstTimestamp }
+                                return nextQuery
+                            }
                         }
                     }
                 }
@@ -203,9 +205,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                 .indexOf('timestamp')
                             if (sortColumnIndex !== -1) {
                                 const typedResults = (response as EventsQuery['response'])?.results
-                                const lastTimestamp = typedResults?.[typedResults.length - 1][sortColumnIndex]
-                                const newQuery: EventsQuery = { ...query, before: lastTimestamp }
-                                return newQuery
+                                const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
+                                if (lastTimestamp) {
+                                    const newQuery: EventsQuery = { ...query, before: lastTimestamp }
+                                    return newQuery
+                                }
                             }
                         }
                     }
