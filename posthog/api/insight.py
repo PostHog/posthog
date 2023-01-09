@@ -315,27 +315,6 @@ class InsightSerializer(InsightBasicSerializer):
         if ids_to_remove:
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
 
-        # activity log cannot detect the dashboards change
-        # so, we add it here
-        log_insight_activity(
-            activity="updated",
-            insight=instance,
-            insight_id=instance.id,
-            insight_short_id=instance.short_id,
-            organization_id=self.context["request"].user.current_organization_id,
-            team_id=self.context["team_id"],
-            user=self.context["request"].user,
-            changes=[
-                Change(
-                    type="Insight",
-                    action="changed",
-                    field="dashboards",
-                    before=old_dashboard_ids,
-                    after=new_dashboard_ids,
-                )
-            ],
-        )
-
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
 
