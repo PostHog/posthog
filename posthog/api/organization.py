@@ -1,4 +1,4 @@
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
@@ -119,7 +119,7 @@ class OrganizationSerializer(serializers.ModelSerializer):
         visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
         return visible_teams
 
-    def get_metadata(self, instance: Organization) -> Dict[str, Union[int,str]]:
+    def get_metadata(self, instance: Organization) -> Dict[str, Union[int, str]]:
         output = {
             "taxonomy_set_events_count": 0,
             "taxonomy_set_properties_count": 0,
