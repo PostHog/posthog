@@ -50,6 +50,9 @@ export function TimelineSeekbar({
     loading,
     className,
 }: TimelineSeekbarProps): JSX.Element {
+    const selectedPoint: TimelinePoint | undefined =
+        selectedPointIndex !== null ? points[selectedPointIndex] : undefined
+
     return (
         <div className={clsx('TimelineSeekbar', className)}>
             <div className="TimelineSeekbar__meta">
@@ -58,10 +61,7 @@ export function TimelineSeekbar({
                     {loading && <Spinner className="ml-1 text-xl" />}
                 </div>
                 <div className="TimelineSeekbar__current">
-                    As of{' '}
-                    {selectedPointIndex !== null
-                        ? humanFriendlyDetailedTime(points[selectedPointIndex].timestamp)
-                        : 'now'}
+                    As of {selectedPoint ? humanFriendlyDetailedTime(selectedPoint.timestamp) : 'now'}
                 </div>
             </div>
             {points.length > 0 && (

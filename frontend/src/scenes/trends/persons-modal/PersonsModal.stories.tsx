@@ -1,8 +1,7 @@
 import { Meta, Story } from '@storybook/react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/propertiesTimelineLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlags, useStorybookMocks } from '~/mocks/browser'
+import { useStorybookMocks } from '~/mocks/browser'
 import { PersonsModal as PersonsModalComponent } from './PersonsModal'
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
 
@@ -61,7 +60,6 @@ export const PersonsModal: Story = () => {
                 } as RawPropertiesTimelineResult,
         },
     })
-    useFeatureFlags([FEATURE_FLAGS.ACTOR_PROPERTIES_TIMELINE])
 
     return (
         <div className="flex max-h-200">
