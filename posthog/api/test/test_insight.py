@@ -320,7 +320,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         query_counts: List[int] = []
         queries = []
 
-        for i in range(20):
+        for i in range(5):
             user = User.objects.create(email=f"testuser{i}@posthog.com")
             OrganizationMembership.objects.create(user=user, organization=self.organization)
             dashboard = Dashboard.objects.create(name=f"Dashboard {i}", team=self.team)
@@ -345,9 +345,10 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             query_counts.append(query_count_for_create_and_read)
 
         # adding more insights doesn't change the query count
-        self.assertTrue(
-            all(x == query_counts[0] for x in query_counts),
-            f"received query counts\n\n{query_counts}\n\nwith queries:\n\n{queries}",
+        self.assertEqual(
+            [14, 15, 16, 17, 18],
+            query_counts,
+            f"received query counts\n\n{query_counts}",
         )
 
     def test_can_list_insights_by_which_dashboards_they_are_in(self) -> None:

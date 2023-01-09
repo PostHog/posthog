@@ -322,7 +322,7 @@ class InsightSerializer(InsightBasicSerializer):
             insight=instance,
             insight_id=instance.id,
             insight_short_id=instance.short_id,
-            organization_id=cast(User, self.context["request"].user).current_organization_id,
+            organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
             changes=[
@@ -360,7 +360,10 @@ class InsightSerializer(InsightBasicSerializer):
         representation = super().to_representation(instance)
 
         # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
-        representation["dashboards"] = [dt.dashboard_id for dt in instance.dashboard_tiles.filter()]
+        # adds one query to viewing the insight by checking for newly deleted tiles
+        representation["dashboards"] = [
+            dt.dashboard_id for dt in instance.dashboard_tiles.exclude(deleted=True).exclude(dashboard__deleted=True)
+        ]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
