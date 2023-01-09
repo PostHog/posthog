@@ -309,6 +309,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
 
         self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
+        self.user_permissions.reset_insights_dashboard_cached_results()
+
         return updated_insight
 
     def _log_insight_update(self, before_update, dashboards_before_change, updated_insight):
