@@ -4,12 +4,12 @@
 # same during development and in CI.
 #
 
-FROM mcr.microsoft.com/playwright:v1.28.0-focal
+FROM mcr.microsoft.com/playwright:v1.29.2-focal
 
 RUN curl -f https://get.pnpm.io/v6.16.js | node - add --global pnpm
 
 WORKDIR /work
 
-RUN pnpm install -D @playwright/test
+RUN pnpm install playwright@1.29.2 @playwright/test@1.29.2
 
 COPY playwright.config.ts ./

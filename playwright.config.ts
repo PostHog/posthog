@@ -48,6 +48,10 @@ const config: PlaywrightTestConfig = {
             name: 'chromium',
             use: {
                 ...devices['Desktop Chrome'],
+                viewport: {
+                    width: 1280,
+                    height: 720,
+                },
             },
         },
 
