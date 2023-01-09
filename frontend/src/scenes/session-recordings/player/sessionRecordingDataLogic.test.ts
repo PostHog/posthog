@@ -27,6 +27,12 @@ const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
 )
 const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
 const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events`
+const recordingGetDataMocks = {
+    '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
+    '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+    '/api/projects/:team/events': { results: recordingEventsJson },
+    '/api/projects/:team/performance_events': { results: recordingPerformanceEventsJson },
+}
 
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
@@ -34,12 +40,7 @@ describe('sessionRecordingDataLogic', () => {
     beforeEach(async () => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
-            get: {
-                '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
-                '/api/projects/:team/session_recordings/:id': recordingMetaJson,
-                '/api/projects/:team/events': { results: recordingEventsJson },
-                '/api/projects/:team/performance_events': { results: recordingPerformanceEventsJson },
-            },
+            get: recordingGetDataMocks,
         })
         initKeaTests()
         logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
@@ -447,24 +448,31 @@ describe('sessionRecordingDataLogic', () => {
         })
 
         it('fetch all chunks of recording', async () => {
+            let nthSnapshotCall = 0
+            logic.unmount()
+            useAvailableFeatures([])
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id/snapshots': (req) => {
+                        if (req.url.pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                            const payload = {
+                                ...recordingSnapshotsJson,
+                                next: nthSnapshotCall === 0 ? firstNext : undefined,
+                            }
+                            nthSnapshotCall += 1
+                            return [200, payload]
+                        }
+                    },
+                },
+            })
+            logic.mount()
+
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
             api.get.mockClear()
 
-            const snapshotUrl = createSnapshotEndpoint(1)
+            const snapshotUrl = createSnapshotEndpoint(3)
             const firstNext = `${snapshotUrl}/?offset=200&limit=200`
-
-            api.get
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                        return { ...recordingSnapshotsJson, next: firstNext }
-                    }
-                })
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                        return { ...recordingSnapshotsJson }
-                    }
-                })
 
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
@@ -516,24 +524,36 @@ describe('sessionRecordingDataLogic', () => {
         })
 
         it('server error mid-way through recording', async () => {
+            let nthSnapshotCall = 0
+            logic.unmount()
+            useAvailableFeatures([])
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id/snapshots': (req) => {
+                        if (req.url.pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                            if (nthSnapshotCall === 0) {
+                                const payload = {
+                                    ...recordingSnapshotsJson,
+                                    next: firstNext,
+                                }
+                                nthSnapshotCall += 1
+                                return [200, payload]
+                            } else {
+                                throw new Error('Error in second request')
+                            }
+                        }
+                    },
+                },
+            })
+            logic.mount()
+
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
-
             api.get.mockClear()
-            expect(api.get).toBeCalledTimes(0)
 
             const snapshotUrl = createSnapshotEndpoint(1)
             const firstNext = `${snapshotUrl}/?offset=200&limit=200`
             silenceKeaLoadersErrors()
-            api.get
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                        return { ...recordingSnapshotsJson, next: firstNext }
-                    }
-                })
-                .mockImplementationOnce(async () => {
-                    throw new Error('Error in second request')
-                })
 
             await expectLogic(logic, async () => {
                 await logic.actions.loadRecordingSnapshots()
