@@ -257,6 +257,8 @@ class UserPermissionsSerializerMixin:
     Mixin for getting easy access to UserPermissions within a mixin
     """
 
+    context: Any
+
     @cached_property
     def user_permissions(self) -> UserPermissions:
         if "user_permissions" in self.context:

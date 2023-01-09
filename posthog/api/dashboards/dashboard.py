@@ -311,7 +311,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         serialized_tiles = []
 
         tiles = DashboardTile.dashboard_queryset(dashboard.tiles)
-        self.user_permissions.set_preloaded_dashboard_tiles(tiles)
+        self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
         for tile in tiles:
             self.context.update({"dashboard_tile": tile})
