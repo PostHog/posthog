@@ -290,10 +290,10 @@ const VerticalMarker = ({
 function PointsInTime(props: { pointsInTime: PointInTimeMarker[] }): JSX.Element {
     const { highlightPointInTime } = useActions(webPerformanceLogic)
     return (
-        <div className={'flex flex-row justify-between flex-wrap p-4 justify-center items-center'}>
+        <div className={'flex flex-row gap-1 justify-around flex-wrap p-4 justify-center items-center'}>
             {props.pointsInTime.map(({ marker, color, time }) => {
                 return (
-                    <div key={marker}>
+                    <div key={marker} className={'min-w-1/5'}>
                         <div
                             className={'flex flex-col pointer border rounded mb-2 cursor-pointer'}
                             /* eslint-disable-next-line react/forbid-dom-props */
@@ -301,7 +301,7 @@ function PointsInTime(props: { pointsInTime: PointInTimeMarker[] }): JSX.Element
                             onMouseEnter={() => highlightPointInTime(marker)}
                             onMouseLeave={() => highlightPointInTime(null)}
                         >
-                            <div className={'p-2 flex flex-row items-center gap-1'}>
+                            <div className={'p-2 flex flex-row items-center gap-1 self-center'}>
                                 {marker}
                                 <Tooltip title={pointInTimeContentFor(marker)} placement="top">
                                     <IconInfo />
