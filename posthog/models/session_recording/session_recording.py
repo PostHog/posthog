@@ -43,6 +43,7 @@ class SessionRecording(UUIDModel):
     viewed: Optional[bool] = False
     person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
+    pinned_on_count: Optional[int] = None
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -140,6 +141,13 @@ class SessionRecording(UUIDModel):
     @property
     def storage(self):
         return "object_storage" if self.object_storage_path else "clickhouse"
+
+    def load_pinned_on_count(self):
+        if self.pinned_on_count is not None:
+            return self.pinned_on_count
+
+        self.pinned_on_count = self.playlist_items.count()
+        return self.pinned_on_count
 
     def load_person(self) -> Optional[Person]:
         if self.person:

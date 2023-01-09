@@ -55,6 +55,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "start_and_end_times_by_window_id",
             "snapshot_data_by_window_id",
             "storage",
+            "pinned_on_count",
         ]
 
         read_only_fields = [
@@ -70,6 +71,7 @@ class SessionRecordingSerializer(serializers.ModelSerializer):
             "matching_events",
             "snapshot_data_by_window_id",
             "storage",
+            "pinned_on_count",
         ]
 
 
@@ -110,6 +112,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording.load_person()
         recording.check_viewed_for_user(request.user, save_viewed=request.GET.get("save_view") is not None)
+        recording.load_pinned_on_count()
 
         serializer = SessionRecordingSerializer(recording)
 
@@ -207,6 +210,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         persisted_recordings = (
             SessionRecording.objects.filter(team=team, session_id__in=all_session_ids)
             .exclude(object_storage_path=None)
+            .prefetch_related("playlist_items")
             .all()
         )
 
@@ -248,6 +252,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     for recording in recordings:
         recording.viewed = recording.session_id in viewed_session_recordings
         recording.person = distinct_id_to_person.get(recording.distinct_id)
+        recording.pinned_on_count = (recording.playlist_items and recording.playlist_items.count()) or 0
 
     session_recording_serializer = SessionRecordingSerializer(recordings, many=True)
     results = session_recording_serializer.data
