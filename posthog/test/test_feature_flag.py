@@ -1,6 +1,8 @@
+import concurrent.futures
 from typing import cast
 
 from django.db import connection
+from django.test import TransactionTestCase
 from django.utils import timezone
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
@@ -15,6 +17,9 @@ from posthog.models.feature_flag import (
     set_feature_flag_hash_key_overrides,
 )
 from posthog.models.group import Group
+from posthog.models.organization import Organization
+from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries_context
 
 
@@ -1679,6 +1684,67 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
                 },
             },
         )
+
+
+class TestHashKeyOverridesRaceConditions(TransactionTestCase):
+    def test_hash_key_overrides_with_race_conditions(self):
+        org = Organization.objects.create(name="test")
+        user = User.objects.create_and_join(org, "a@b.com", "kkk")
+        team = Team.objects.create(organization=org)
+
+        FeatureFlag.objects.create(
+            team=team,
+            rollout_percentage=30,
+            name="Beta feature",
+            key="beta-feature",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=user,
+            ensure_experience_continuity=True,
+        )
+
+        Person.objects.create(
+            team=team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com", "team": "posthog"}
+        )
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            future_to_index = {
+                executor.submit(
+                    get_active_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"
+                ): index
+                for index in range(5)
+            }
+            for future in concurrent.futures.as_completed(future_to_index):
+                flags, reasons = future.result()
+                assert flags == {
+                    "beta-feature": True,
+                    "multivariate-flag": "first-variant",
+                    "default-flag": True,
+                }
+
+                # the failure mode is when this raises an `IntegrityError` because the hash key override was racy
 
 
 class TestFeatureFlagMatcherConsistency(BaseTest):

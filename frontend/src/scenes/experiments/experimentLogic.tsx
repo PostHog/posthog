@@ -20,7 +20,7 @@ import {
     SecondaryExperimentMetric,
     AvailableFeature,
     SignificanceCode,
-    SecondaryMetricResult,
+    SecondaryMetricAPIResult,
 } from '~/types'
 import type { experimentLogicType } from './experimentLogicType'
 import { router, urlToAction } from 'kea-router'
@@ -59,6 +59,16 @@ const NEW_EXPERIMENT: Experiment = {
 
 export interface ExperimentLogicProps {
     experimentId?: Experiment['id']
+}
+
+interface SecondaryMetricResult {
+    insightType: InsightType
+    result: number
+}
+
+export interface TabularSecondaryMetricResults {
+    variant: string
+    results?: SecondaryMetricResult[]
 }
 
 export const experimentLogic = kea<experimentLogicType>([
@@ -100,12 +110,12 @@ export const experimentLogic = kea<experimentLogicType>([
         setFilters: (filters: Partial<FilterType>) => ({ filters }),
         removeExperimentGroup: (idx: number) => ({ idx }),
         setEditExperiment: (editing: boolean) => ({ editing }),
-        setSecondaryMetrics: (secondaryMetrics: SecondaryExperimentMetric[]) => ({ secondaryMetrics }),
         setExperimentResultCalculationError: (error: string) => ({ error }),
         setFlagImplementationWarning: (warning: boolean) => ({ warning }),
         setFlagAvailabilityWarning: (warning: boolean) => ({ warning }),
         setExposureAndSampleSize: (exposure: number, sampleSize: number) => ({ exposure, sampleSize }),
         updateExperimentGoal: (filters: Partial<FilterType>) => ({ filters }),
+        updateExperimentSecondaryMetrics: (metrics: SecondaryExperimentMetric[]) => ({ metrics }),
         launchExperiment: true,
         endExperiment: true,
         addExperimentGroup: true,
@@ -201,6 +211,13 @@ export const experimentLogic = kea<experimentLogicType>([
             {
                 updateExperimentGoal: () => true,
                 loadExperimentResults: () => false,
+            },
+        ],
+        changingSecondaryMetrics: [
+            false,
+            {
+                updateExperimentSecondaryMetrics: () => true,
+                loadSecondaryMetricResults: () => false,
             },
         ],
         experimentResultCalculationError: [
@@ -363,6 +380,9 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.updateExperiment({ filters })
             actions.closeExperimentGoalModal()
         },
+        updateExperimentSecondaryMetrics: async ({ metrics }) => {
+            actions.updateExperiment({ secondary_metrics: metrics })
+        },
         closeExperimentGoalModal: () => {
             if (values.experimentChanged) {
                 actions.loadExperiment()
@@ -377,6 +397,10 @@ export const experimentLogic = kea<experimentLogicType>([
 
             if (values.changingGoalMetric) {
                 actions.loadExperimentResults()
+            }
+
+            if (values.changingSecondaryMetrics) {
+                actions.loadSecondaryMetricResults()
             }
         },
         setExperiment: async ({ experiment }) => {
@@ -518,7 +542,7 @@ export const experimentLogic = kea<experimentLogicType>([
             },
         ],
         secondaryMetricResults: [
-            null as SecondaryMetricResult[] | null,
+            null as SecondaryMetricAPIResult[] | null,
             {
                 loadSecondaryMetricResults: async () => {
                     return await Promise.all(
@@ -547,6 +571,12 @@ export const experimentLogic = kea<experimentLogicType>([
             (s) => [s.experiment],
             (experiment): InsightType => {
                 return experiment?.filters?.insight || InsightType.TRENDS
+            },
+        ],
+        isExperimentRunning: [
+            (s) => [s.experiment],
+            (experiment): boolean => {
+                return !!experiment?.start_date
             },
         ],
         breadcrumbs: [
@@ -788,6 +818,28 @@ export const experimentLogic = kea<experimentLogicType>([
                     return sortedResults
                 }
                 return []
+            },
+        ],
+        tabularSecondaryMetricResults: [
+            (s) => [s.experiment, s.secondaryMetricResults],
+            (experiment, secondaryMetricResults): TabularSecondaryMetricResults[] => {
+                const variantsWithResults: TabularSecondaryMetricResults[] = []
+                experiment?.parameters?.feature_flag_variants?.forEach((variant) => {
+                    const metricResults: SecondaryMetricResult[] = []
+                    experiment?.secondary_metrics?.forEach((metric, idx) => {
+                        metricResults.push({
+                            insightType: metric.filters.insight || InsightType.TRENDS,
+                            result: secondaryMetricResults?.[idx]?.[variant.key],
+                        })
+                    })
+
+                    variantsWithResults.push({
+                        variant: variant.key,
+                        results: metricResults,
+                    })
+                })
+
+                return variantsWithResults
             },
         ],
     }),
