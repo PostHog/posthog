@@ -23,6 +23,7 @@ from posthog.constants import INSIGHT_TRENDS, AvailableFeature
 from posthog.event_usage import report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.models import Dashboard, DashboardTile, Insight, Team, Text
+from posthog.models.tagged_item import TaggedItem
 from posthog.models.team.team import get_available_features_for_team
 from posthog.models.user import User
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
@@ -310,7 +311,11 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         serialized_tiles = []
 
-        tiles = DashboardTile.dashboard_queryset(dashboard.tiles)
+        tiles = DashboardTile.dashboard_queryset(dashboard.tiles).prefetch_related(
+            Prefetch(
+                "insight__tagged_items", queryset=TaggedItem.objects.select_related("tag"), to_attr="prefetched_tags"
+            )
+        )
         self.user_permissions.set_preloaded_dashboard_tiles(list(tiles))
 
         for tile in tiles:
