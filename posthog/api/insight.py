@@ -283,6 +283,8 @@ class InsightSerializer(InsightBasicSerializer, UserPermissionsSerializerMixin):
             changes=changes,
         )
 
+        self.user_permissions.reset_insights_dashboard_cached_results()
+
         return updated_insight
 
     def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
