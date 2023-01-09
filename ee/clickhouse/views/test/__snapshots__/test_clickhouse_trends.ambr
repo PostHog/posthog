@@ -600,7 +600,7 @@
                           person_id,
                           breakdown_value) e
               WHERE e.timestamp <= d.timestamp
-                AND e.timestamp > d.timestamp - INTERVAL 6 DAY
+                AND e.timestamp > d.timestamp - INTERVAL 7 DAY
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp)
