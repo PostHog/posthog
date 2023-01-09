@@ -188,7 +188,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 14:00:00",
-                "date_to": "2020-01-04 14:00:00",  # TODO: Offset
+                "date_to": "2020-01-04 14:59:59",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -198,7 +198,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 14:00:00",
-                "date_to": "2020-01-04 14:00:00",  # TODO: Offset
+                "date_to": "2020-01-04 14:59:59",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
@@ -213,7 +213,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 16:00:00",
-                "date_to": "2020-01-04 16:00:00",  # TODO: Offset
+                "date_to": "2020-01-04 16:59:59",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -223,7 +223,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 16:00:00",
-                "date_to": "2020-01-04 16:00:00",  # TODO: Offset
+                "date_to": "2020-01-04 16:59:59",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
@@ -250,7 +250,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-04",
-                "date_to": "2020-01-04",  # TODO: Offset
+                "date_to": "2020-01-04 23:59:59",
                 ENTITY_TYPE: "actions",
                 "interval": "day",
                 ENTITY_ID: sign_up_action.id,
@@ -260,7 +260,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-04",
-                "date_to": "2020-01-04",  # TODO: Offset
+                "date_to": "2020-01-04 23:59:59",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
                 "interval": "day",
@@ -286,7 +286,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-03",
-                "date_to": "2020-01-04",  # TODO: Offset
+                "date_to": "2020-01-04 23:59:59",
                 ENTITY_TYPE: "actions",
                 "interval": "day",
                 ENTITY_ID: sign_up_action.id,
@@ -297,7 +297,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-03",
-                "date_to": "2020-01-04",  # TODO: Offset
+                "date_to": "2020-01-04 23:59:59",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
                 "interval": "day",
@@ -325,7 +325,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "week",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",  # TODO: Offset
+                "date_to": "2019-11-07",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -335,7 +335,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "week",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",  # TODO: Offset
+                "date_to": "2019-11-07",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
@@ -364,7 +364,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "month",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",  # TODO: Offset
+                "date_to": "2019-11-30",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -374,7 +374,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "month",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",  # TODO: Offset
+                "date_to": "2019-11-30",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
