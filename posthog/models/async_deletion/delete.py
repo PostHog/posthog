@@ -38,7 +38,10 @@ class AsyncDeletionProcess(ABC):
     def _fetch_unverified_deletions_grouped(self):
         result = defaultdict(list)
         for item in AsyncDeletion.objects.filter(delete_verified_at__isnull=True):
-            key = (item.deletion_type, item.group_type_index)
+            key = (
+                item.deletion_type,
+                item.group_type_index,
+            )  # group_type_index only relevant for "group" deletion type
             result[key].append(item)
         return result
 
