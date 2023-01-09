@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, List, TypedDict, Union
+from typing import Any, Dict, List, Set, TypedDict, Union, cast
 
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group
@@ -52,20 +52,31 @@ WHERE timestamp IS NOT NULL /* Remove sentinel row */
 
 
 class PropertiesTimeline:
-    def extract_crucial_property_keys(self, filter: PropertiesTimelineFilter) -> List[str]:
+    def extract_crucial_property_keys(self, filter: PropertiesTimelineFilter) -> Set[str]:
         is_filter_relevant = lambda property_type, property_group_type_index: (
             (property_type == "person")
             if filter.aggregation_group_type_index is None
             else (property_type == "group" and property_group_type_index == filter.aggregation_group_type_index)
         )
 
-        return [
+        property_filters = filter.property_groups.flat
+        for event in filter.entities:
+            property_filters.extend(event.property_groups.flat)
+        all_property_identifiers = extract_tables_and_properties(property_filters)
+
+        crucial_property_keys = {
             property_key
-            for property_key, property_type, property_group_type_index in extract_tables_and_properties(
-                filter.property_groups.flat
-            )
+            for property_key, property_type, property_group_type_index in all_property_identifiers
             if is_filter_relevant(property_type, property_group_type_index)
-        ]
+        }
+
+        if filter.breakdown and filter.breakdown_type == "person":
+            if isinstance(filter.breakdown, list):
+                crucial_property_keys.update(cast(List[str], filter.breakdown))
+            else:
+                crucial_property_keys.add(filter.breakdown)
+
+        return crucial_property_keys
 
     def run(
         self, filter: PropertiesTimelineFilter, team: Team, actor: Union[Person, Group]
@@ -112,7 +123,7 @@ class PropertiesTimeline:
                 )
                 for timestamp, properties, relevant_event_count in raw_query_result
             ],
-            crucial_property_keys=crucial_property_keys,
+            crucial_property_keys=list(sorted(crucial_property_keys)),
             effective_date_from=event_query.effective_date_from.isoformat(),
             effective_date_to=event_query.effective_date_to.isoformat(),
         )

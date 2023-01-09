@@ -1,6 +1,6 @@
 import { kea, connect, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
 import api from 'lib/api'
-import { ActorType, ChartDisplayType, IntervalType, PropertiesTimelineFilterType } from '~/types'
+import { ActorType, BreakdownType, ChartDisplayType, IntervalType, PropertiesTimelineFilterType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -163,6 +163,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
                         ? parseInt(aggregationGroupTypeIndexString)
                         : undefined,
                     display: (params.get('display') || undefined) as ChartDisplayType | undefined,
+                    breakdown: params.get('breakdown') || undefined,
+                    breakdown_type: (params.get('breakdown_type') || undefined) as BreakdownType | undefined,
                 }
                 return cleanFilters(filter)
             },
