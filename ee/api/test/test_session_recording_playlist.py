@@ -159,7 +159,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
         assert len(result["results"]) == 2
         assert {x["id"] for x in result["results"]} == {"session1", "session2"}
-        assert {x["pinned_on_count"] for x in result["results"]} == {1, 1}
+        assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
     def test_fetch_playlist_recordings(self):
 
@@ -258,15 +258,15 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             team_id=self.team.id, session_id=recording1_session_id
         ).first()
         assert session_recording_obj_1 is not None
-        session_recording_obj_1.load_pinned_on_count()
-        assert session_recording_obj_1.pinned_on_count == 1
+        session_recording_obj_1.load_pinned_count()
+        assert session_recording_obj_1.pinned_count == 1
 
         session_recording_obj_2 = SessionRecording.objects.filter(
             team_id=self.team.id, session_id=recording2_session_id
         ).first()
         assert session_recording_obj_2 is not None
-        session_recording_obj_2.load_pinned_on_count()
-        assert session_recording_obj_2.pinned_on_count == 2
+        session_recording_obj_2.load_pinned_count()
+        assert session_recording_obj_2.pinned_count == 2
 
         # Delete playlist items
         result = self.client.delete(
