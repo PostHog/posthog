@@ -63,11 +63,11 @@ SELECT counts AS total, timestamp AS day_start FROM (
        but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
     CROSS JOIN (
         SELECT
-            toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
+            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)) AS timestamp,
             {aggregator} AS actor_id
         {event_query_base}
         GROUP BY timestamp, actor_id
-    ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
+    ) e WHERE e.timestamp <= d.timestamp AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
     GROUP BY d.timestamp
     ORDER BY d.timestamp
 ) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}

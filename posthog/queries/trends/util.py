@@ -105,8 +105,7 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
     date_to = filter.date_to
 
     format_params = {
-        # Not 7 and 30 because the day of the date marker is included already in the query (`+ INTERVAL 1 DAY`)
-        "prev_interval": "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY",
+        "prev_interval": "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 DAY",
         "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)",
     }
     # For time-series display types, we need to adjust date_from to be 7/30 days earlier.
