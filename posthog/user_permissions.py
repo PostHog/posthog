@@ -123,6 +123,13 @@ class UserPermissions:
         dashboard_ids = set(tile.dashboard_id for tile in self._tiles)
         return list(Dashboard.objects.filter(pk__in=dashboard_ids))
 
+    def reset_insights_dashboard_cached_results(self):
+        """
+        Resets cached results for insights/dashboards. Useful for update methods.
+        """
+        self._dashboard_permissions = {}
+        self._insight_permissions = {}
+
 
 class UserTeamPermissions:
     def __init__(self, user_permissions: "UserPermissions", team: Team):

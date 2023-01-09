@@ -248,6 +248,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if "request" in self.context:
             report_user_action(user, "dashboard updated", instance.get_analytics_metadata())
 
+        self.user_permissions.reset_insights_dashboard_cached_results()
         return instance
 
     @staticmethod
