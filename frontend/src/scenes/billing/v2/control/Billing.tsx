@@ -217,7 +217,7 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                             </div>
                         ) : null}
 
-                        {!preflight?.cloud && !billing?.has_active_subscription ? (
+                        {!preflight?.cloud && !billing?.has_active_subscription && !billing?.license?.plan ? (
                             <LemonButton
                                 fullWidth
                                 center
