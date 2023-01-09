@@ -122,6 +122,8 @@ export interface EventsQuery extends DataNode {
     event?: string
     /** Number of rows to return */
     limit?: number
+    /** Number of rows to skip before returning rows */
+    offset?: number
     /** Show events matching a given action */
     actionId?: number
     /** Show events for a given person */

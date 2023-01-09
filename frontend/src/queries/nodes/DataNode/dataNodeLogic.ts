@@ -199,18 +199,24 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 if (isEventsQuery(query)) {
                     if ((response as EventsQuery['response'])?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? '-timestamp'
+                        const typedResults = (response as EventsQuery['response'])?.results
                         if (sortKey === '-timestamp') {
                             const sortColumnIndex = query.select
                                 .map((hql) => removeExpressionComment(hql))
                                 .indexOf('timestamp')
                             if (sortColumnIndex !== -1) {
-                                const typedResults = (response as EventsQuery['response'])?.results
                                 const lastTimestamp = typedResults?.[typedResults.length - 1]?.[sortColumnIndex]
                                 if (lastTimestamp) {
                                     const newQuery: EventsQuery = { ...query, before: lastTimestamp }
                                     return newQuery
                                 }
                             }
+                        } else {
+                            const newQuery: EventsQuery = {
+                                ...query,
+                                offset: typedResults?.length || 0,
+                            }
+                            return newQuery
                         }
                     }
                 }

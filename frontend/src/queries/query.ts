@@ -92,6 +92,7 @@ export function getEventsEndpoint(query: EventsQuery): string {
             ...(query.before ? { before: query.before } : {}),
             ...(query.after ? { after: query.after } : {}),
             ...(query.orderBy ? { orderBy: query.orderBy } : {}),
+            ...(query.offset ? { offset: query.offset } : {}),
         },
         query.limit ?? DEFAULT_QUERY_LIMIT
     )

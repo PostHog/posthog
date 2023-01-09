@@ -1489,6 +1489,7 @@ export interface EventsListQueryParams {
     after?: string
     before?: string
     limit?: number
+    offset?: number
 }
 
 export interface RecordingEventsFilters {
