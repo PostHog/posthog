@@ -16,7 +16,8 @@ export function GeneratingDemoDataPanel(): JSX.Element {
                     </div>
                     <h1 className="ingestion-title pt-4">Generating demo data...</h1>
                     <p className="prompt-text mx-0">
-                        This will take just a moment - we'll redirect you when your demo data is ready.
+                        Your demo data is on the way! This can take up to one minute - we'll redirect you when your demo
+                        data is ready.
                     </p>
                     <AlertMessage type="info" className="my-6">
                         We're using a demo project. Your other <b>{currentOrganization?.name}</b> projects won't be

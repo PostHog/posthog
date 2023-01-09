@@ -497,8 +497,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null,
-    formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatDate = 'MMMM DD, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -511,9 +511,9 @@ export function humanFriendlyDetailedTime(
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
