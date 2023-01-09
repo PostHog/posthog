@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
+from unittest import mock
 from unittest.case import skip
 from unittest.mock import patch
 
@@ -602,6 +603,104 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]
 
+    def test_adding_insight_to_dashboard_updates_activity_log(self) -> None:
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dash 1"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dash 2"})
+
+        insight_id, insight_json = self.dashboard_api.create_insight(
+            {
+                "name": "have to have a name to hit the activity log",
+                "dashboards": [dashboard_one_id, dashboard_two_id],
+            }
+        )
+
+        # then remove from one of them
+        self.dashboard_api.update_insight(
+            insight_id,
+            {
+                "dashboards": [dashboard_one_id],
+            },
+        )
+
+        # then add one
+        self.dashboard_api.update_insight(
+            insight_id,
+            {
+                "dashboards": [dashboard_one_id, dashboard_two_id],
+            },
+        )
+
+        self.assert_insight_activity(
+            # expected activity is
+            # * added dash 2
+            # * removed dash 2
+            # * created insight
+            insight_id,
+            [
+                {
+                    "activity": "updated",
+                    "created_at": mock.ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "before": [{"id": dashboard_one_id, "name": "dash 1"}],
+                                "after": [
+                                    {"id": dashboard_one_id, "name": "dash 1"},
+                                    {"id": dashboard_two_id, "name": "dash 2"},
+                                ],
+                                "field": "dashboards",
+                                "type": "Insight",
+                            }
+                        ],
+                        "name": "have to have a name to hit the activity log",
+                        "short_id": insight_json["short_id"],
+                        "trigger": None,
+                    },
+                    "item_id": str(insight_id),
+                    "scope": "Insight",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+                {
+                    "activity": "updated",
+                    "created_at": mock.ANY,
+                    "detail": {
+                        "changes": [
+                            {
+                                "action": "changed",
+                                "before": [
+                                    {"id": dashboard_one_id, "name": "dash 1"},
+                                    {"id": dashboard_two_id, "name": "dash 2"},
+                                ],
+                                "after": [{"id": dashboard_one_id, "name": "dash 1"}],
+                                "field": "dashboards",
+                                "type": "Insight",
+                            }
+                        ],
+                        "name": "have to have a name to hit the activity log",
+                        "short_id": insight_json["short_id"],
+                        "trigger": None,
+                    },
+                    "item_id": str(insight_id),
+                    "scope": "Insight",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+                {
+                    "activity": "created",
+                    "created_at": mock.ANY,
+                    "detail": {
+                        "changes": None,
+                        "name": "have to have a name to hit the activity log",
+                        "short_id": insight_json["short_id"],
+                        "trigger": None,
+                    },
+                    "item_id": str(insight_id),
+                    "scope": "Insight",
+                    "user": {"email": "user1@posthog.com", "first_name": ""},
+                },
+            ],
+        )
+
     def test_can_update_insight_dashboards_without_deleting_tiles(self) -> None:
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({})
         dashboard_two_id, _ = self.dashboard_api.create_dashboard({})
@@ -646,7 +745,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert original_tiles[0]["id"] == after_update_tiles[0]["id"]  # tile has not been recreated in DB
         assert after_update_tiles[0]["layouts"] is not None  # tile has not been recreated in DB
         assert original_tiles[0]["insight"]["id"] == after_update_tiles[0]["insight"]["id"]
-        assert original_tiles[0]["insight"]["dashboards"] == [dashboard_one_id, dashboard_two_id]
+        assert sorted(original_tiles[0]["insight"]["dashboards"]) == sorted([dashboard_one_id, dashboard_two_id])
         assert after_update_tiles[0]["insight"]["dashboards"] == [dashboard_one_id]  # removed dashboard is removed
 
     @freeze_time("2012-01-14T03:21:34.000Z")
@@ -2104,4 +2203,4 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         activity: List[Dict] = activity_response["results"]
 
         self.maxDiff = None
-        self.assertEqual(activity, expected)
+        assert activity == expected
