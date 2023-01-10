@@ -16,3 +16,4 @@ storybook-static
 dist/
 node_modules/
 pnpm-lock.yaml
+posthog/templates/email/*
