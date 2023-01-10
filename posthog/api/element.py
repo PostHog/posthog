@@ -12,6 +12,7 @@ from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.query_date_range import QueryDateRange
+from posthog.utils import format_query_params_absolute_url
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -85,7 +86,12 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             }
             for elements in result
         ]
-        return response.Response({"results": serialized_elements})
+
+        _should_paginate = len(serialized_elements) > 0
+        next_url = format_query_params_absolute_url(request, offset + limit) if _should_paginate else None
+        previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
+
+        return response.Response({"results": serialized_elements, "next": next_url, "previous": previous_url})
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:

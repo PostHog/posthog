@@ -81,19 +81,19 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             elements=[Element(tag_name="img")],
         )
 
-        with self.assertNumQueries(6):
-            # Django session, PostHog user, PostHog team, PostHog org membership
+        with self.assertNumQueries(7):
+            # Django session, PostHog user, ee license, PostHog team, PostHog org membership
             # then 2 for inserting person in test setup
             response = self.client.get("/api/element/stats/").json()
-        self.assertEqual(response[0]["count"], 2)
-        self.assertEqual(response[0]["elements"][0]["tag_name"], "a")
-        self.assertEqual(response[1]["count"], 1)
+        self.assertEqual(response["results"][0]["count"], 2)
+        self.assertEqual(response["results"][0]["elements"][0]["tag_name"], "a")
+        self.assertEqual(response["results"][1]["count"], 1)
 
         response = self.client.get(
             "/api/element/stats/?properties=%s"
             % json.dumps([{"key": "$current_url", "value": "http://example.com/demo"}])
         ).json()
-        self.assertEqual(len(response), 1)
+        self.assertEqual(len(response["results"]), 1)
 
     def test_element_stats_clamps_date_from_to_start_of_day(self) -> None:
         event_start = "2012-01-14T03:21:34.000Z"
@@ -131,8 +131,8 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
-            self.assertEqual(response_json[0]["count"], 2)
-            self.assertEqual(response_json[0]["elements"][0]["tag_name"], "a")
+            self.assertEqual(response_json["results"][0]["count"], 2)
+            self.assertEqual(response_json["results"][0]["elements"][0]["tag_name"], "a")
 
     def test_element_stats_obeys_limit_parameter(self) -> None:
         _create_event(
@@ -161,17 +161,22 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        assert len(response_json) == 2  # there are 2 events
-        assert [e["count"] for e in response_json] == [1, 1]  # each of 1 click
-        assert [len(e["elements"]) for e in response_json] == [2, 2]  # each click has a chain of 2 selectors
+        assert response_json["next"] == "http://testserver/api/element/stats/?offset=100"
+        results = response_json["results"]
+        assert len(results) == 2  # there are 2 events
+        assert [e["count"] for e in results] == [1, 1]  # each of 1 click
+        assert [len(e["elements"]) for e in results] == [2, 2]  # each click has a chain of 2 selectors
 
         response = self.client.get(f"/api/element/stats/?limit=1")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        assert len(response_json) == 1  # there is now 1 events
-        assert [e["count"] for e in response_json] == [1]  # of 1 click
-        assert [len(e["elements"]) for e in response_json] == [2]  # with a chain of 2 selectors
+        assert response_json["next"] == "http://testserver/api/element/stats/?limit=1&offset=1"
+        limit_to_one_results = response_json["results"]
+        assert len(limit_to_one_results) == 1  # there is now 1 event
+        assert [e["count"] for e in limit_to_one_results] == [1]  # of 1 click
+        assert [len(e["elements"]) for e in limit_to_one_results] == [2]  # with a chain of 2 selectors
+        assert limit_to_one_results[0]["elements"][0]["href"] == "https://posthog.com/event-1"
 
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")
