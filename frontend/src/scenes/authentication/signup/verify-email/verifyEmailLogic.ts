@@ -23,7 +23,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             {
                 validateEmailToken: async ({ uuid, token }: { uuid: string; token: string }) => {
                     try {
-                        await api.get(`api/reset/${uuid}/?token=${token}`)
+                        await api.get(`api/verify/${uuid}/?token=${token}`)
                         return { success: true, token, uuid }
                     } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }

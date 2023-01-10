@@ -140,6 +140,10 @@ urlpatterns = [
         "api/reset/<str:user_uuid>/",
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
+    path(
+        "api/verify/<str:user_uuid>/",
+        authentication.VerifyEmailViewSet.as_view({"get": "retrieve", "post": "create"}),
+    ),
     re_path(r"^api.+", api_not_found),
     path("authorize_and_redirect/", login_required(authorize_and_redirect)),
     path("shared_dashboard/<str:access_token>", sharing.SharingViewerPageViewSet.as_view({"get": "retrieve"})),
