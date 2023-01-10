@@ -12,7 +12,7 @@ from posthog.models.feature_flag import (
     FeatureFlagMatcher,
     FeatureFlagMatchReason,
     FlagsMatcherCache,
-    get_active_feature_flags,
+    get_all_feature_flags,
     hash_key_overrides,
     set_feature_flag_hash_key_overrides,
 )
@@ -1657,7 +1657,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
-        flags, reasons = get_active_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        flags, reasons = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
         self.assertEqual(
             flags,
             {
@@ -1731,9 +1731,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_index = {
-                executor.submit(
-                    get_active_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"
-                ): index
+                executor.submit(get_all_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"): index
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):
