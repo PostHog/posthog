@@ -2,6 +2,7 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 from unittest.mock import patch
+from urllib.parse import parse_qsl, urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -5047,6 +5048,26 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
             )
             self.assertEqual(response[0]["data"], [0.0, 0.0, 0.0, 0.0, 0, 0, 0, 1, 1, 0, 0])
+
+            self.assertEqual(
+                dict(parse_qsl(urlparse(response[0]["persons_urls"][7]["url"]).query)),
+                {
+                    "breakdown_attribution_type": "first_touch",
+                    "breakdown_normalize_url": "False",
+                    "date_from": "2020-01-05T07:00:00-08:00",
+                    "date_to": "2020-01-05T08:00:00-08:00",
+                    "display": "ActionsLineGraph",
+                    "entity_id": "sign up",
+                    "entity_math": "dau",
+                    "entity_type": "events",
+                    "events": '[{"id": "sign up", "type": "events", "order": null, "name": "sign '
+                    'up", "custom_name": null, "math": "dau", "math_property": null, '
+                    '"math_group_type_index": null, "properties": {}}]',
+                    "insight": "TRENDS",
+                    "interval": "hour",
+                    "smoothing_intervals": "1",
+                },
+            )
             persons = self.client.get("/" + response[0]["persons_urls"][7]["url"]).json()
             self.assertEqual(persons["results"][0]["count"], 1)
 
@@ -5829,7 +5850,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
+                "date_from": "2020-01-01",
                 "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
@@ -5848,7 +5869,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["count"], 1)
 
             filter = filter.with_data(
-                {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
+                {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02"}
             )
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
             res = self._get_trend_people(filter, entity)
