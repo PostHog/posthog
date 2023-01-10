@@ -1,4 +1,4 @@
-import { useActions } from 'kea'
+import { useActions, useValues } from 'kea'
 import { ingestionLogicV2 } from 'scenes/ingestion/v2/ingestionLogicV2'
 import { LemonButton } from 'lib/components/LemonButton'
 import './Panels.scss'
@@ -6,10 +6,13 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { IconChevronRight } from 'lib/components/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DemoProjectButton } from './PanelComponents'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 export function TeamInvitedPanel(): JSX.Element {
     const { completeOnboarding } = useActions(ingestionLogicV2)
     const { reportIngestionContinueWithoutVerifying } = useActions(eventUsageLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     return (
         <div>
@@ -17,10 +20,12 @@ export function TeamInvitedPanel(): JSX.Element {
             <p className="prompt-text">You can still explore PostHog while you wait for your team members to join.</p>
             <LemonDivider thick dashed className="my-6" />
             <div className="flex flex-col mb-6">
-                <DemoProjectButton
-                    text="Quickly try PostHog with some demo data."
-                    subtext="Explore insights, create dashboards, try out cohorts, and more."
-                />
+                {featureFlags[FEATURE_FLAGS.ONBOARDING_DEMO_EXPERIMENT] === 'test' ? (
+                    <DemoProjectButton
+                        text="Quickly try PostHog with some demo data."
+                        subtext="Explore insights, create dashboards, try out cohorts, and more."
+                    />
+                ) : null}
                 <LemonButton
                     onClick={() => {
                         completeOnboarding()
