@@ -245,6 +245,8 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/@current/property_definitions/?$",
                 "^/?api/projects/\\d+/event_definitions/?$",
                 "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
+                # insights API with no ID but with query params
+                "^/?api/projects/\\d+/insights/??",
                 "^/?api/projects/\\d+/insights/\\d+/?$",
                 "^/?api/projects/\\d+/dashboards/\\d+/?$",
                 "^/?api/projects/\\d+/actions/?$",
@@ -254,6 +256,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/year_in_posthog/.*$",
+                "^/api/element/stats/?$",
             ]
         ),
     )
