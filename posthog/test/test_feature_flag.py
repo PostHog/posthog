@@ -875,6 +875,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "group_match": True,
                 "variant": "first-variant",
                 "group_property_match": True,
+                "never_match": False,
+                "group_no_match": False,
+                "group_property_different_match": False,
                 # never_match and group_no_match don't match
                 # group_property_different_match doesn't match because we're dealing with a different group key
             },
@@ -923,6 +926,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "always_match": True,
                 "variant": "first-variant",
                 "group_property_different_match": True,
+                "never_match": False,
+                "group_no_match": False,
+                "group_match": False,
+                "group_property_match": False,
                 # never_match and group_no_match don't match
                 # group_match doesn't match because no project (group type index 1) given.
                 # group_property_match doesn't match because we're dealing with a different group key
