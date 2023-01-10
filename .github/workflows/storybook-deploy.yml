@@ -52,7 +52,7 @@ jobs:
 
             - name: Set commit message
               id: commit-message
-              run: echo "msg='Storybook build '$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+              run: echo "msg=Storybook build for $(git rev-parse --short ${{ github.sha }})" >> $GITHUB_OUTPUT
 
             - name: Commit update
               uses: stefanzweifel/git-auto-commit-action@v4
