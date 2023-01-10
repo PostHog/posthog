@@ -575,11 +575,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight_id, _ = self.dashboard_api.create_insight(
             {
-                "filters": {
-                    "events": [{"id": "$pageview"}],
-                    "properties": [{"key": "$browser", "value": "Mac OS X"}],
-                    "date_from": "-90d",
-                },
+                "name": "the insight",
                 "dashboards": [dashboard_id, deleted_dashboard_id],
             }
         )
@@ -589,7 +585,8 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         dashboard_in_db.deleted = True
         dashboard_in_db.save(update_fields=["deleted"])
 
-        assert DashboardTile.objects.filter(dashboard_id=deleted_dashboard_id).exists()
+        assert not DashboardTile.objects.filter(dashboard_id=deleted_dashboard_id).exists()
+        assert DashboardTile.including_soft_deleted.filter(dashboard_id=deleted_dashboard_id).exists()
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]

@@ -112,8 +112,10 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboardtile"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
@@ -260,7 +262,8 @@
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.17
@@ -283,7 +286,8 @@
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.18
@@ -385,7 +389,8 @@
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.21
@@ -408,7 +413,8 @@
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.22
@@ -498,8 +504,10 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
   WHERE (NOT ("posthog_dashboardtile"."deleted"
               AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -816,8 +824,10 @@
          AND "posthog_dashboard"."id" IN
            (SELECT U0."dashboard_id"
             FROM "posthog_dashboardtile" U0
-            WHERE NOT (U0."deleted"
-                       AND U0."deleted" IS NOT NULL))
+            INNER JOIN "posthog_dashboard" U1 ON (U0."dashboard_id" = U1."id")
+            WHERE (NOT (U0."deleted"
+                        AND U0."deleted" IS NOT NULL)
+                   AND NOT (U1."deleted")))
          AND "posthog_dashboardtile"."insight_id" IN (1,
                                                       2,
                                                       3,
@@ -1121,11 +1131,12 @@
          "posthog_dashboard"."share_token",
          "posthog_dashboard"."is_shared"
   FROM "posthog_dashboard"
-  WHERE "posthog_dashboard"."id" IN (1,
-                                     2,
-                                     3,
-                                     4,
-                                     5 /* ... */) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboard"."id" IN (1,
+                                          2,
+                                          3,
+                                          4,
+                                          5 /* ... */)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.9

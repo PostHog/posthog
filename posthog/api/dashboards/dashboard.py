@@ -229,10 +229,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         initial_data = dict(self.initial_data)
 
-        instance = super().update(instance, validated_data)
-
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
+
+        instance = super().update(instance, validated_data)
 
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
@@ -281,12 +281,12 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if delete_related_insights:
             insights_to_update = []
             for insight in Insight.objects.filter(dashboard_tiles__dashboard=instance.id):
-                if insight.dashboard_tiles.exclude(deleted=True).count() == 1:
+                if insight.dashboard_tiles.count() == 1:
                     insight.deleted = True
                     insights_to_update.append(insight)
 
             Insight.objects.bulk_update(insights_to_update, ["deleted"])
-        DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=True)
+        DashboardTile.including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
@@ -378,10 +378,11 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
     ]
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-        if not self.action.endswith("update"):
-            # Soft-deleted dashboards can be brought back with a PATCH request
-            queryset = queryset.filter(deleted=False)
+        if "deleted" in self.request.data and not self.request.data.get("deleted"):
+            # being undeleted
+            queryset = Dashboard.including_soft_deleted
+        else:
+            queryset = super().get_queryset()
 
         queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
             "team__organization",
@@ -394,9 +395,9 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                     "caching_states",
                     Prefetch(
                         "insight__dashboards",
-                        queryset=Dashboard.objects.exclude(deleted=True)
-                        .filter(id__in=DashboardTile.objects.values_list("dashboard_id", flat=True))
-                        .select_related("team__organization"),
+                        queryset=Dashboard.objects.filter(
+                            id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
+                        ).select_related("team__organization"),
                     ),
                 )
             )

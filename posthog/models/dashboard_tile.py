@@ -24,7 +24,7 @@ class Text(models.Model):
 
 class DashboardTileManager(models.Manager):
     def get_queryset(self):
-        return super().get_queryset().exclude(deleted=True)
+        return super().get_queryset().exclude(deleted=True).exclude(dashboard__deleted=True)
 
 
 class DashboardTile(models.Model):

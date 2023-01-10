@@ -182,7 +182,7 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
         many=True,
         required=False,
-        queryset=Dashboard.objects.exclude(deleted=True).all(),
+        queryset=Dashboard.objects.all(),
     )
 
     class Meta:
@@ -479,14 +479,12 @@ class InsightViewSet(
         queryset = queryset.prefetch_related(
             Prefetch(
                 "dashboards",
-                queryset=Dashboard.objects.exclude(deleted=True).filter(
-                    id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
-                ),
+                queryset=Dashboard.objects.filter(id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)),
             ),
             "dashboards__team__organization",
             Prefetch(
                 "dashboard_tiles",
-                queryset=DashboardTile.objects.exclude(dashboard__deleted=True).select_related("dashboard"),
+                queryset=DashboardTile.objects.select_related("dashboard"),
             ),
         )
 
