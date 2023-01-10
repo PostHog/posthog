@@ -17,7 +17,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.queries.util import get_earliest_timestamp
+from posthog.queries.util import TIME_IN_SECONDS, get_earliest_timestamp
 
 logger = structlog.get_logger(__name__)
 
@@ -119,7 +119,12 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
     # global range – and is basically distinct persons who have an event in the 7/30 days before date_to.
     # Why use date_to in this case? We don't have thorough research to back this, but it felt a bit more intuitive.
     relevant_start_date = date_from if filter.display not in NON_TIME_SERIES_DISPLAY_TYPES else date_to
-    query_params = {"date_from_active_users_adjusted": (relevant_start_date - diff).strftime("%Y-%m-%d %H:%M:%S")}
+
+    query_params = {
+        "date_from_active_users_adjusted": (relevant_start_date - diff).strftime("%Y-%m-%d %H:%M:%S"),
+        "increment_seconds": TIME_IN_SECONDS[filter.interval],
+        "days": 7 if entity.math == WEEKLY_ACTIVE else 30,
+    }
 
     return format_params, query_params
 

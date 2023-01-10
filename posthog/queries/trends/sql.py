@@ -51,32 +51,26 @@ SELECT {aggregate_operation} as data FROM (
 # This query performs poorly due to aggregation happening outside of subqueries.
 # :TODO: Fix this!
 # Query intuition:
-# 1. Get all the buckets we care about (subquery `d`) based on the chosen interval (e.g. per hour, per week)
-# 2. Get all events within the insight's range by the actor_id based on the filters (subquery `e`)
-# 3. Cross join the two, making a table with a mapping of every event <> every bucket
-# 4. For each bucket, determine if the event's timestamp falls within the bucket i.e. happened within a week/month of the bucket
-# 5. Count up the unique actor IDs per bucket
+# 1. Get all the relevant events within the range by actor_id
+# 2. For each event, compute the buckets it falls in
+# 3. Count the number of distinct actor IDs per bucket
 ACTIVE_USERS_SQL = """
-SELECT counts AS total, timestamp AS day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT actor_id) AS counts FROM (
-        /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
-           and not `events`, because we cannot rely on there being an event for each period (this assumption previously
-           caused active user counts to be off for sparse events). */
-        SELECT {interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number) {start_of_week_fix}) AS timestamp
-        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s) {start_of_week_fix}), toDateTime(%(date_to)s, %(timezone)s)))
-    ) d
-    /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
-       but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
-    CROSS JOIN (
-        SELECT
-            toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
-            {aggregator} AS actor_id
-        {event_query_base}
-        GROUP BY timestamp, actor_id
-    ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
-    GROUP BY d.timestamp
-    ORDER BY d.timestamp
-) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
+SELECT
+    count(DISTINCT actor_id) AS counts,
+    arrayJoin(timeSlots(
+        toDateTime({interval}(timestamp)) - INTERVAL 1 DAY,
+        toUInt32(3600 * 24 * %(days)s),
+        %(increment_seconds)s
+    )) as day_start
+FROM (
+    SELECT
+        {aggregator} AS actor_id,
+        toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp
+    {event_query_base}
+)
+WHERE day_start >= toDateTime(%(date_from)s, 'UTC') AND day_start <= toDateTime(%(date_to)s, 'UTC')
+GROUP BY day_start
+ORDER BY day_start
 """
 
 ACTIVE_USERS_AGGREGATE_SQL = """
