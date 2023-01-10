@@ -1,4 +1,4 @@
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 from dateutil.parser import parse
@@ -12,10 +12,16 @@ from posthog.models import Organization, Person
 from posthog.models.session_recording_event import SessionRecordingViewed
 from posthog.models.team import Team
 from posthog.session_recordings.test.test_factory import create_session_recording_events
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    flush_persons_and_events,
+    snapshot_postgres_queries,
+)
 
 
-class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
+class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
     def setUp(self):
         super().setUp()
 
@@ -131,6 +137,33 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(second_session["recording_duration"], "30.0")
         self.assertEqual(second_session["viewed"], False)
         self.assertEqual(second_session["person"]["id"], p.pk)
+
+    @snapshot_postgres_queries
+    def test_listing_recordings_is_not_nplus1_for_persons(self):
+        # request once without counting queries to cache an ee.license lookup that makes results vary otherwise
+        self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+
+        self._person_with_snapshots(base_time=base_time, distinct_id="user", session_id="1")
+        with self.assertNumQueries(10):
+            self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+
+        self._person_with_snapshots(base_time=base_time, distinct_id="user2", session_id="2")
+        with self.assertNumQueries(10):
+            self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+
+        self._person_with_snapshots(base_time=base_time, distinct_id="user3", session_id="3")
+        with self.assertNumQueries(10):
+            self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+
+    def _person_with_snapshots(self, base_time: datetime, distinct_id: str = "user", session_id: str = "1") -> None:
+        Person.objects.create(
+            team=self.team, distinct_ids=[distinct_id], properties={"$some_prop": "something", "email": "bob@bob.com"}
+        )
+        self.create_snapshot(distinct_id, session_id, base_time)
+        self.create_snapshot(distinct_id, session_id, base_time + relativedelta(seconds=10))
+        flush_persons_and_events()
 
     def test_session_recordings_dont_leak_teams(self):
         another_team = Team.objects.create(organization=self.organization)
