@@ -1,7 +1,7 @@
 from ee.clickhouse.materialized_columns.columns import materialize
 from ee.clickhouse.queries.column_optimizer import EnterpriseColumnOptimizer
 from posthog.models import Action, ActionStep
-from posthog.models.filters import Filter
+from posthog.models.filters import Filter, RetentionFilter
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, cleanup_materialized_columns
 
 PROPERTIES_OF_ALL_TYPES = [
@@ -161,6 +161,12 @@ class TestColumnOptimizer(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(
             EnterpriseColumnOptimizer(filter, self.team.id).properties_used_in_filter,
             {("$current_url", "event", None): 1, ("$browser", "person", None): 1},
+        )
+
+        retention_filter = RetentionFilter(data={"target_entity": {"id": action.id, "type": "actions"}})
+        self.assertEqual(
+            EnterpriseColumnOptimizer(retention_filter, self.team.id).properties_used_in_filter,
+            {("$current_url", "event", None): 2, ("$browser", "person", None): 2},
         )
 
     def test_materialized_columns_checks(self):

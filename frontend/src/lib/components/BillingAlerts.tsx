@@ -5,29 +5,16 @@ import { IconWarning } from './icons'
 import clsx from 'clsx'
 
 export function BillingAlerts(): JSX.Element | null {
-    const { billing } = useValues(billingLogic)
+    const { billing, billingVersion } = useValues(billingLogic)
     const { alertToShow, percentage, strokeColor } = useValues(billingLogic)
 
-    if (!alertToShow) {
+    if (!alertToShow || billingVersion !== 'v1') {
         return null
     }
+
     let message: JSX.Element | undefined
     let isWarning = false
     let isAlert = false
-
-    if (percentage && alertToShow === BillingAlertType.FreeUsageNearLimit) {
-        isWarning = true
-        message = (
-            <p>
-                <b>Warning!</b> You have already used <b className="text-warning">{percentage * 100}%</b> of your 1
-                million free events this month.{' '}
-                <Link to="/organization/billing" data-attr="alert_free_usage_near_limit">
-                    {billing?.plan?.custom_setup_billing_message ||
-                        'To avoid losing data or access to it, upgrade your billing plan now.'}
-                </Link>
-            </p>
-        )
-    }
 
     if (billing?.subscription_url && alertToShow === BillingAlertType.SetupBilling) {
         isWarning = true

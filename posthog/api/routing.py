@@ -63,7 +63,7 @@ class StructuredViewSetMixin(_GenericViewSet):
             return team.id
         return self.parents_query_dict["team_id"]
 
-    @property
+    @cached_property
     def team(self) -> Team:
         team_from_token = self._get_team_from_request()
         if team_from_token:
@@ -86,7 +86,7 @@ class StructuredViewSetMixin(_GenericViewSet):
         except KeyError:
             return str(self.team.organization_id)
 
-    @property
+    @cached_property
     def organization(self) -> Organization:
         try:
             return Organization.objects.get(id=self.organization_id)

@@ -1,4 +1,7 @@
-from typing import Any, Dict, Tuple
+import datetime as dt
+from typing import Any, Dict, Optional, Tuple
+
+import pytz
 
 from posthog.models.entity.util import get_entity_filtering_params
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
@@ -8,19 +11,28 @@ from posthog.queries.query_date_range import QueryDateRange
 
 
 class PropertiesTimelineEventQuery(EventQuery):
+    effective_date_from: dt.datetime
+    effective_date_to: dt.datetime
+
     _filter: PropertiesTimelineFilter
+    _group_type_index: Optional[int]  # If the parent insight is group-based, this is the index of the group type
 
     def __init__(self, filter: PropertiesTimelineFilter, *args, **kwargs):
         super().__init__(filter, *args, **kwargs)
+        self._group_type_index = filter.aggregation_group_type_index
 
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         real_fields = [f"{self.EVENT_TABLE_ALIAS}.timestamp AS timestamp"]
         sentinel_fields = ["NULL AS timestamp"]
 
-        for column_name in sorted(self._column_optimizer.person_on_event_columns_to_query | {"person_properties"}):
-            real_fields.append(f'{self.EVENT_TABLE_ALIAS}."{column_name}" AS "{column_name}"')
-            sentinel_fields.append(f"'' AS \"{column_name}\"")
-        for column_name in sorted(self._column_optimizer.group_on_event_columns_to_query):
+        if self._group_type_index is None:
+            columns_to_query = self._column_optimizer.person_on_event_columns_to_query | {"person_properties"}
+        else:
+            columns_to_query = self._column_optimizer.group_on_event_columns_to_query | {
+                f"group_{self._group_type_index}_properties"
+            }
+
+        for column_name in sorted(columns_to_query):
             real_fields.append(f'{self.EVENT_TABLE_ALIAS}."{column_name}" AS "{column_name}"')
             sentinel_fields.append(f"'' AS \"{column_name}\"")
 
@@ -33,13 +45,15 @@ class PropertiesTimelineEventQuery(EventQuery):
         entity_query, entity_params = self._get_entity_query()
         self.params.update(entity_params)
 
+        actor_id_column = "person_id" if self._group_type_index is None else f"$group_{self._group_type_index}"
+
         query = f"""
             (
                 SELECT {real_fields_combined}
                 FROM events {self.EVENT_TABLE_ALIAS}
                 WHERE
                     team_id = %(team_id)s
-                    AND person_id = %(person_id)s
+                    AND {actor_id_column} = %(actor_id)s
                     {entity_query}
                     {date_query}
                 ORDER BY timestamp ASC
@@ -62,6 +76,13 @@ class PropertiesTimelineEventQuery(EventQuery):
     def _get_date_filter(self) -> Tuple[str, Dict]:
         query_params: Dict[str, Any] = {}
         query_date_range = QueryDateRange(self._filter, self._team)
+        effective_timezone = pytz.timezone(self._team.timezone)
+        # Get effective date range from QueryDateRange
+        # We need to explicitly replace tzinfo in those datetimes with the team's timezone, because QueryDateRange
+        # does not reliably make those datetimes timezone-aware. That's annoying, but it'd be a significant effort
+        # to refactor QueryDateRange fo full timezone awareness - before that happens, it's simpler to override here.
+        self.effective_date_from = query_date_range.date_from_param.replace(tzinfo=effective_timezone)
+        self.effective_date_to = query_date_range.date_to_param.replace(tzinfo=effective_timezone)
         parsed_date_from, date_from_params = query_date_range.date_from
         parsed_date_to, date_to_params = query_date_range.date_to
 
@@ -77,9 +98,7 @@ class PropertiesTimelineEventQuery(EventQuery):
             allowed_entities=self._filter.entities,
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
-            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
-            if self._using_person_on_events
-            else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
         )
 
         return entity_format_params.get("entity_query", ""), entity_params

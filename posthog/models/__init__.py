@@ -34,6 +34,7 @@ from .plugin import Plugin, PluginAttachment, PluginConfig, PluginSourceFile
 from .prompt.prompt import Prompt, PromptSequence, UserPromptState
 from .property import Property
 from .property_definition import PropertyDefinition
+from .session_recording import SessionRecording
 from .session_recording_playlist import SessionRecordingPlaylist
 from .session_recording_playlist_item import SessionRecordingPlaylistItem
 from .sharing_configuration import SharingConfiguration
@@ -95,6 +96,7 @@ __all__ = [
     "Property",
     "PropertyDefinition",
     "RetentionFilter",
+    "SessionRecording",
     "SessionRecordingPlaylist",
     "SessionRecordingPlaylistItem",
     "SharingConfiguration",

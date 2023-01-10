@@ -170,6 +170,16 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
+            - uses: actions/checkout@v3
+              with:
+                  ref: master
+
+            - name: Run migrations up to master
+              run: |
+                  python manage.py migrate
+
+            - uses: actions/checkout@v3
+
             - name: Check migrations
               run: |
                   python manage.py makemigrations --check --dry-run

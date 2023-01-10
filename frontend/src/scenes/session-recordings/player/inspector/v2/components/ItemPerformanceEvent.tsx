@@ -49,6 +49,20 @@ export function ItemPerformanceEvent({
         ...otherProps
     } = item
 
+    // NOTE: This is a bit of a quick-fix for the fact that each event has all values despite most not applying.
+    // We should probably do a specific mapping depending on the event type to display it properly (and probably give an info indicator what it all means...)
+
+    const sanitizedProps = Object.entries(otherProps).reduce((acc, [key, value]) => {
+        if (value === 0 || value === '') {
+            return acc
+        }
+
+        return {
+            ...acc,
+            [key]: typeof value === 'number' ? Math.round(value) : value,
+        }
+    }, {} as Record<string, any>)
+
     return (
         <div>
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
@@ -171,7 +185,7 @@ export function ItemPerformanceEvent({
                         </>
                     ) : null}
                     <LemonDivider dashed />
-                    <SimpleKeyValueList item={otherProps} />
+                    <SimpleKeyValueList item={sanitizedProps} />
                 </div>
             )}
         </div>

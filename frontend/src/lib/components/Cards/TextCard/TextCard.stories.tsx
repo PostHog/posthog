@@ -28,8 +28,6 @@ const makeTextTile = (body: string, color: InsightColor | null = null): Dashboar
         layouts: {},
         color,
         last_refresh: null,
-        filters_hash: '',
-        refreshing: false,
     }
 }
 

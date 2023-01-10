@@ -29,13 +29,14 @@ class AvailableFeature(str, Enum):
     RECORDINGS_PLAYLISTS = "recordings_playlists"
     ROLE_BASED_ACCESS = "role_based_access"
     RECORDINGS_FILE_EXPORT = "recordings_file_export"
+    RECORDINGS_PERFORMANCE = "recordings_performance"
 
 
 TREND_FILTER_TYPE_ACTIONS = "actions"
 TREND_FILTER_TYPE_EVENTS = "events"
 
 SESSION_RECORDINGS_FILTER_TYPE_DURATION = "session_recording_duration"
-SESSION_RECORDINGS_FILTER_STATIC_RECORDINGS = "static_recordings"
+SESSION_RECORDINGS_FILTER_IDS = "session_ids"
 SESSION_RECORDINGS_PLAYLIST_FREE_COUNT = 5
 
 TRENDS_CUMULATIVE = "ActionsLineGraphCumulative"
