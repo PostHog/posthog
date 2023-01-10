@@ -2,9 +2,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { BuilderHog2 } from 'lib/components/hedgehogs'
 import { SceneExport } from 'scenes/sceneTypes'
+import { verifyEmailLogic } from './verifyEmailLogic'
 
 export const scene: SceneExport = {
     component: VerifyEmail,
+    logic: verifyEmailLogic,
 }
 
 export function VerifyEmail(): JSX.Element {
