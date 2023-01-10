@@ -50,11 +50,15 @@ jobs:
                   rm -rf storybook-build/docs
                   cp -a posthog/storybook-static storybook-build/docs
 
+            - name: Set commit message
+              id: commit-message
+              run: echo "msg='Storybook build '$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
             - name: Commit update
               uses: stefanzweifel/git-auto-commit-action@v4
               with:
                   repository: storybook-build
-                  commit_message: 'Storybook build'
+                  commit_message: ${{ steps.commit-message.outputs.msg }}
                   commit_user_name: PostHog Bot
                   commit_user_email: hey@posthog.com
                   commit_author: PostHog Bot <hey@posthog.com>
