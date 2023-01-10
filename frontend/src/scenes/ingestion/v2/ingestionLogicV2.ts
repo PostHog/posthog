@@ -538,31 +538,31 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 actions.setState(viewToState(INGESTION_VIEWS.TEAM_INVITED, values.currentState as IngestionState))
             }
         },
-        createTeamSuccess: ({ currentTeam }) => {
-            console.log('createTeamSuccess.currentTeam: ', currentTeam)
-            console.log('window.location.href: ', window.location.href)
-            console.log('urls.ingestion(): ', urls.ingestion())
-            console.log('currentTeam.is_demo: ', currentTeam.is_demo)
-            if (window.location.href.includes(urls.ingestion()) && currentTeam.is_demo) {
-                console.log('branch a')
-                const interval = window.setInterval(async () => {
-                    const res = await api.get('api/projects/@current/is_generating_demo_data')
-                    console.log('response in interval: ', res)
-                    if (!res.is_generating_demo_data) {
-                        actions.setIsDemoDataReady(true)
-                    }
-                }, 1000)
-                actions.setDemoDataInterval(interval)
-            } else {
-                console.log('branch b')
-                window.location.href = urls.ingestion()
-            }
-        },
-        setIsDemoDataReady: ({ isDemoDataReady }) => {
-            if (isDemoDataReady) {
-                window.location.href = urls.default()
-            }
-        },
+        // createTeamSuccess: ({ currentTeam }) => {
+        //     console.log('createTeamSuccess.currentTeam: ', currentTeam)
+        //     console.log('window.location.href: ', window.location.href)
+        //     console.log('urls.ingestion(): ', urls.ingestion())
+        //     console.log('currentTeam.is_demo: ', currentTeam.is_demo)
+        //     if (window.location.href.includes(urls.ingestion()) && currentTeam.is_demo) {
+        //         console.log('branch a')
+        //         const interval = window.setInterval(async () => {
+        //             const res = await api.get('api/projects/@current/is_generating_demo_data')
+        //             console.log('response in interval: ', res)
+        //             if (!res.is_generating_demo_data) {
+        //                 actions.setIsDemoDataReady(true)
+        //             }
+        //         }, 1000)
+        //         actions.setDemoDataInterval(interval)
+        //     } else {
+        //         console.log('branch b')
+        //         window.location.href = urls.ingestion()
+        //     }
+        // },
+        // setIsDemoDataReady: ({ isDemoDataReady }) => {
+        //     if (isDemoDataReady) {
+        //         window.location.href = urls.default()
+        //     }
+        // },
     })),
     subscriptions(({ actions, values }) => ({
         showBillingStep: (value) => {
