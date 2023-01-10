@@ -17,7 +17,7 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-       AND e.person_id != toUUIDOrZero('')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -66,9 +66,9 @@
              AND event = 'sign up'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND e.person_id != toUUIDOrZero('')
+             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
-             AND e.person_id != toUUIDOrZero('')
+             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -102,7 +102,7 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-03 23:59:59', 'UTC')
        AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-       AND e.person_id != toUUIDOrZero('') )
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -130,7 +130,7 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
-       AND e.person_id != toUUIDOrZero('')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -180,9 +180,9 @@
              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-             AND e.person_id != toUUIDOrZero('')
+             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
-             AND e.person_id != toUUIDOrZero('')
+             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -646,7 +646,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
           AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
                AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
-          AND e.person_id != toUUIDOrZero('')
+          AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -683,7 +683,7 @@
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
             AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', ''))))
-       AND e.person_id != toUUIDOrZero('') )
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -721,7 +721,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
           AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
                AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
-          AND e.person_id != toUUIDOrZero('')
+          AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1354,7 +1354,7 @@
           AND event = 'sign up'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-          AND e.person_id != toUUIDOrZero('')
+          AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -1375,7 +1375,7 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND e.person_id != toUUIDOrZero('') )
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -1398,7 +1398,7 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND e.person_id != toUUIDOrZero('') )
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -1421,7 +1421,7 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-04 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-       AND e.person_id != toUUIDOrZero('') )
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
