@@ -10,10 +10,11 @@ import {
 import type { playlistPopupLogicType } from './playlistPopupLogicType'
 import { SessionRecordingPlaylistType } from '~/types'
 import { forms } from 'kea-forms'
-import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 import { addRecordingToPlaylist, removeRecordingFromPlaylist } from 'scenes/session-recordings/player/playerUtils'
 import { createPlaylist } from 'scenes/session-recordings/playlist/playlistUtils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
+import { sessionRecordingsListLogic } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
 
 export const playlistPopupLogic = kea<playlistPopupLogicType>([
     path((key) => ['scenes', 'session-recordings', 'player', 'playlist-popup', 'playlistPopupLogic', key]),
@@ -23,6 +24,8 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         actions: [
             sessionRecordingPlayerLogic(props),
             ['setPause'],
+            sessionRecordingDataLogic(props),
+            ['addDiffToRecordingMetaPinnedCount'],
             eventUsageLogic,
             ['reportRecordingPinnedToList', 'reportRecordingPlaylistCreated'],
         ],
@@ -84,7 +87,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 setShowPlaylistPopup: (_, { show }) => show,
             },
         ],
-        modifiyingPlaylist: [
+        modifyingPlaylist: [
             null as SessionRecordingPlaylistType | null,
             {
                 addToPlaylist: (_, { playlist }) => playlist,
@@ -139,6 +142,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         },
         addToPlaylistSuccess: ({ payload }) => {
             if (payload?.playlist.short_id) {
+                actions.addDiffToRecordingMetaPinnedCount(1)
                 sessionRecordingsListLogic
                     .findMounted({ playlistShortId: payload?.playlist.short_id })
                     ?.actions.loadPinnedRecordings({})
@@ -146,6 +150,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         },
         removeFromPlaylistSuccess: ({ payload }) => {
             if (payload?.playlist.short_id) {
+                actions.addDiffToRecordingMetaPinnedCount(-1)
                 // TODO: Change this around for the list logic to listen out for the player changing it
                 // or at least that it doesn't trigger a load...
                 sessionRecordingsListLogic

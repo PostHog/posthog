@@ -2,7 +2,7 @@ import { SessionRecordingType } from '~/types'
 import { colonDelimitedDuration } from 'lib/utils'
 import clsx from 'clsx'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { IconAutocapture, IconKeyboard, IconSchedule } from 'lib/components/icons'
+import { IconAutocapture, IconKeyboard, IconPin, IconSchedule } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -102,8 +102,19 @@ export function SessionRecordingPlaylistItem({
             </div>
             <div className="grow overflow-hidden space-y-px">
                 <div className="flex items-center justify-between gap-2">
-                    <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person)}</div>
-
+                    <div className="flex items-center gap-1 shrink">
+                        {(recording.pinned_count ?? 0) > 0 && (
+                            <Tooltip
+                                placement="topRight"
+                                title={`This recording is pinned on ${recording.pinned_count} playlists`}
+                            >
+                                <IconPin className="text-xs text-orange" />
+                            </Tooltip>
+                        )}
+                        <div className="truncate font-medium text-primary ph-no-capture">
+                            {asDisplay(recording.person)}
+                        </div>
+                    </div>
                     <div className="flex-1" />
                     <div className="flex items-center flex-1 justify-end font-semibold">
                         <IconSchedule className={iconClassnames} />

@@ -555,10 +555,10 @@ export interface RecordingStartAndEndTime {
 }
 
 export interface SessionRecordingMeta {
+    pinnedCount: number
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
-    playlists?: SessionRecordingPlaylistType['id'][]
 }
 
 export interface SessionPlayerSnapshotData {
@@ -900,6 +900,8 @@ export interface SessionRecordingType {
     click_count?: number
     keypress_count?: number
     start_url?: string
+    /** Count of number of playlists this recording is pinned to. **/
+    pinned_count?: number
     /** Where this recording information was loaded from (S3 or Clickhouse) */
     storage?: string
 
@@ -2060,10 +2062,10 @@ export interface ExperimentResults {
     significance_code: SignificanceCode
     expected_loss?: number
     p_value?: number
-    secondary_metric_results?: SecondaryMetricResult[]
+    secondary_metric_results?: SecondaryMetricAPIResult[]
 }
 
-export interface SecondaryMetricResult {
+export interface SecondaryMetricAPIResult {
     name: string
     result: Record<string, number>
 }

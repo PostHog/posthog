@@ -69,10 +69,10 @@ export const parseMetadataResponse = (recording: SessionRecordingType): SessionR
         }
     })
     return {
+        pinnedCount: recording.pinned_count ?? 0,
         segments,
         startAndEndTimesByWindowId,
         recordingDurationMs: sum(segments.map((s) => s.durationMs)),
-        playlists: recording.playlists ?? [],
     }
 }
 
@@ -126,10 +126,10 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         sessionPlayerMetaData: {
             person: null,
             metadata: {
+                pinnedCount: 0,
                 segments: [],
                 startAndEndTimesByWindowId: {},
                 recordingDurationMs: 0,
-                playlists: [],
             },
             bufferedTo: null,
         } as SessionPlayerMetaData,
@@ -138,6 +138,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         setFilters: (filters: Partial<RecordingEventsFilters>) => ({ filters }),
         loadEntireRecording: true,
         loadRecordingMeta: true,
+        addDiffToRecordingMetaPinnedCount: (diffCount: number) => ({ diffCount }),
         loadRecordingSnapshots: (nextUrl?: string) => ({ nextUrl }),
         loadEvents: (nextUrl?: string) => ({ nextUrl }),
         loadPerformanceEvents: (nextUrl?: string) => ({ nextUrl }),
@@ -305,6 +306,15 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
                     ...values.sessionPlayerMetaData,
                     person: response.person || null,
                     metadata,
+                }
+            },
+            addDiffToRecordingMetaPinnedCount: ({ diffCount }) => {
+                return {
+                    ...values.sessionPlayerMetaData,
+                    metadata: {
+                        ...values.sessionPlayerMetaData.metadata,
+                        pinnedCount: Math.max(values.sessionPlayerMetaData.metadata.pinnedCount + diffCount, 0),
+                    },
                 }
             },
         },

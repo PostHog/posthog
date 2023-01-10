@@ -26,6 +26,8 @@ import {
     YesOrNoResponse,
     SessionPlayerData,
     AnyPartialFilterType,
+    Resource,
+    AccessLevel,
     RecordingReportLoadTimes,
 } from '~/types'
 import type { Dayjs } from 'lib/dayjs'
@@ -87,6 +89,7 @@ interface RecordingViewedProps {
     metadata_load_time: number // How long it took to load all metadata
     events_load_time: number // How long it took to load all events
     performance_events_load_time: number // How long it took to load all performance events
+    first_paint_load_time: number // How long it took to first contentful paint (time it takes for user to see first frame)
     duration: number // How long is the total recording (milliseconds)
     start_time?: number // Start timestamp of the session
     end_time?: number // End timestamp of the session
@@ -499,6 +502,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         ) => ({ activeTasksCount, completedTasksCount, completionPercent }),
         reportActivationSideBarTaskClicked: (key: string) => ({ key }),
         reportBillingUpgradeClicked: (plan: string) => ({ plan }),
+        reportRoleCreated: (role: string) => ({ role }),
+        reportResourceAccessLevelUpdated: (resourceType: Resource, roleName: string, accessLevel: AccessLevel) => ({
+            resourceType,
+            roleName,
+            accessLevel,
+        }),
+        reportRoleCustomAddedToAResource: (resourceType: Resource, rolesLength: number) => ({
+            resourceType,
+            rolesLength,
+        }),
     },
     listeners: ({ values }) => ({
         reportAxisUnitsChanged: (properties) => {
@@ -908,10 +921,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
             // @ts-expect-error
             const eventIndex = new EventIndex(playerData?.snapshots || [])
             const payload: Partial<RecordingViewedProps> = {
-                snapshots_load_time: durations.snapshots?.duration ?? 0,
-                metadata_load_time: durations.metadata?.duration ?? 0,
-                events_load_time: durations.events?.duration ?? 0,
-                performance_events_load_time: durations.performanceEvents?.duration ?? 0,
+                snapshots_load_time: durations.snapshots?.duration,
+                metadata_load_time: durations.metadata?.duration,
+                events_load_time: durations.events?.duration,
+                performance_events_load_time: durations.performanceEvents?.duration,
+                first_paint_load_time: durations.firstPaint?.duration,
                 duration: eventIndex.getDuration(),
                 start_time: playerData.metadata.segments[0]?.startTimeEpochMs,
                 end_time: playerData.metadata.segments.slice(-1)[0]?.endTimeEpochMs,
@@ -1212,6 +1226,24 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportBillingUpgradeClicked: ({ plan }) => {
             posthog.capture('billing upgrade button clicked', {
                 plan,
+            })
+        },
+        reportRoleCreated: ({ role }) => {
+            posthog.capture('new role created', {
+                role,
+            })
+        },
+        reportResourceAccessLevelUpdated: ({ resourceType, roleName, accessLevel }) => {
+            posthog.capture('resource access level updated', {
+                resource_type: resourceType,
+                role_name: roleName,
+                access_level: accessLevel,
+            })
+        },
+        reportRoleCustomAddedToAResource: ({ resourceType, rolesLength }) => {
+            posthog.capture('role custom added to a resource', {
+                resource_type: resourceType,
+                roles_length: rolesLength,
             })
         },
     }),

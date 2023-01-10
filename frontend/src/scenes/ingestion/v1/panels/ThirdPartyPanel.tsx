@@ -12,7 +12,6 @@ import { PluginInstallationType, PluginRepositoryEntryType, PluginTypeWithConfig
 import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
-import { Link } from 'lib/components/Link'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 export function ThirdPartyPanel(): JSX.Element {
@@ -176,8 +175,8 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                             <p>
                                                 The{' '}
                                                 <a target="_blank" href={thirdPartyIntegrationSource.docsLink}>
-                                                    official {thirdPartyIntegrationSource.name} docs page for the
-                                                    PostHog integration
+                                                    {thirdPartyIntegrationSource.name} docs page for the PostHog
+                                                    integration
                                                 </a>{' '}
                                                 provides a detailed overview of how to set up this integration.
                                             </p>
@@ -191,16 +190,16 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                         type="secondary"
                                         fullWidth
                                         center
-                                        onClick={() => window.open(`https://${thirdPartyIntegrationSource.name}.com`)}
+                                        onClick={() => window.open(thirdPartyIntegrationSource.docsLink)}
                                         sideIcon={<IconOpenInNew style={{ color: 'var(--primary)' }} />}
                                     >
-                                        Take me to {thirdPartyIntegrationSource.name}
+                                        Take me to the {thirdPartyIntegrationSource.name} docs
                                     </LemonButton>
                                     <div className="mb-6 mt-4">
                                         <h4>Steps:</h4>
                                         <ol className="pl-4">
                                             <li>
-                                                Complete the steps in the {thirdPartyIntegrationSource.name}{' '}
+                                                Complete the steps for the {thirdPartyIntegrationSource.name}{' '}
                                                 integration.
                                             </li>
                                             <li>
@@ -208,18 +207,6 @@ export function IntegrationInstructionsModal(): JSX.Element {
                                                 for events.
                                             </li>
                                         </ol>
-                                        <p className="text-muted">
-                                            <b>
-                                                In order to access the session recordings feature, you'll also have to{' '}
-                                                <Link
-                                                    to="https://posthog.com/docs/integrate/third-party/segment#full-segment-setup-all-features-supported"
-                                                    target="blank"
-                                                >
-                                                    integrate posthog js
-                                                </Link>
-                                                .
-                                            </b>
-                                        </p>
                                     </div>
                                 </div>
                             ) : (
