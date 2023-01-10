@@ -236,7 +236,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.17
@@ -1008,7 +1010,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.3
@@ -1049,7 +1053,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.31
@@ -1066,7 +1072,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_adding_insights_is_not_nplus1_for_gets.4
@@ -1357,7 +1365,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -1733,7 +1743,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_listing_dashboards_is_not_nplus1.25
@@ -2295,7 +2307,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.100
@@ -2312,7 +2326,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -2672,7 +2688,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.114
@@ -2993,9 +3011,9 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND NOT ("posthog_dashboardtile"."deleted"
-                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboard"."deleted")
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
@@ -3201,7 +3219,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -3569,7 +3589,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.139
@@ -4375,7 +4397,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.152
@@ -4392,7 +4416,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.153
@@ -4409,7 +4435,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.154
@@ -4426,7 +4454,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_dashboards-detail',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%28%3FP%3Cpk%3E%5B%5E/.%5D%2B%29/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.16
@@ -4499,7 +4529,9 @@
   '
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.19
@@ -4556,7 +4588,9 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."insight_id" IS NULL)) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
@@ -4638,7 +4672,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.25
@@ -4782,9 +4818,9 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND NOT ("posthog_dashboardtile"."deleted"
-                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboard"."deleted")
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
@@ -5252,7 +5288,9 @@
   '
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.40
@@ -5269,7 +5307,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -5469,7 +5509,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -5871,7 +5913,9 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."insight_id" IS NULL)) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
@@ -5975,7 +6019,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.64
@@ -6380,7 +6426,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -6734,7 +6782,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.89
@@ -7160,7 +7210,9 @@
   '
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2)
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard.1
@@ -7750,7 +7802,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.11
@@ -7894,9 +7948,9 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND NOT ("posthog_dashboardtile"."deleted"
-                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboard"."deleted")
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
@@ -8057,7 +8111,9 @@
   '
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.19
@@ -8114,7 +8170,9 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."insight_id" IS NULL)) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
@@ -8196,7 +8254,9 @@
          "posthog_dashboardtile"."refresh_attempt",
          "posthog_dashboardtile"."deleted"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.25
@@ -8340,9 +8400,9 @@
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T6 ON ("posthog_dashboarditem"."last_modified_by_id" = T6."id")
   LEFT OUTER JOIN "posthog_text" ON ("posthog_dashboardtile"."text_id" = "posthog_text"."id")
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
-         AND NOT ("posthog_dashboardtile"."deleted"
-                  AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboard"."deleted")
          AND (NOT "posthog_dashboarditem"."deleted"
               OR "posthog_dashboardtile"."insight_id" IS NULL))
@@ -8647,7 +8707,9 @@
   '
   SELECT "posthog_dashboardtile"."id"
   FROM "posthog_dashboardtile"
-  WHERE "posthog_dashboardtile"."dashboard_id" = 2 /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---
 # name: TestDashboard.test_retrieve_dashboard_list.5
@@ -8675,7 +8737,9 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboardtile"
-  WHERE ("posthog_dashboardtile"."dashboard_id" = 2
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND "posthog_dashboardtile"."dashboard_id" = 2
          AND NOT ("posthog_dashboardtile"."insight_id" IS NULL)) /*controller='project_dashboards-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/dashboards/%3F%24'*/
   '
 ---

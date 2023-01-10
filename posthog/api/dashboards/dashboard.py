@@ -148,11 +148,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         elif use_dashboard:
             try:
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
-                existing_tiles = (
-                    DashboardTile.objects.filter(dashboard=existing_dashboard)
-                    .exclude(deleted=True)
-                    .select_related("insight")
-                )
+                existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
                 for existing_tile in existing_tiles:
                     if self.initial_data.get("duplicate_tiles", False):
                         self._deep_duplicate_tiles(dashboard, existing_tile)
@@ -294,7 +290,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
-        DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=False)
+        DashboardTile.including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
         insights_to_undelete = []
         for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
             if tile.insight and tile.insight.deleted:
@@ -399,9 +395,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                     Prefetch(
                         "insight__dashboards",
                         queryset=Dashboard.objects.exclude(deleted=True)
-                        .filter(
-                            id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
-                        )
+                        .filter(id__in=DashboardTile.objects.values_list("dashboard_id", flat=True))
                         .select_related("team__organization"),
                     ),
                 )

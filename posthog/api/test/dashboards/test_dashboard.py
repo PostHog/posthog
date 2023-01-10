@@ -338,7 +338,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
         self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_200_OK)
 
-        tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=insight_id)
+        tile = DashboardTile.including_soft_deleted.get(dashboard_id=dashboard_id, insight_id=insight_id)
         assert tile.deleted is True
 
     def test_delete_dashboard_can_delete_tiles(self):
