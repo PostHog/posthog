@@ -82,7 +82,7 @@ class TrendsEventQueryBase(EventQuery):
     def _get_not_null_actor_condition(self) -> str:
         if self._entity.math_group_type_index is None:
             # If aggregating by person, exclude events with null/zero person IDs
-            return f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
+            return f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
         else:
             # If aggregating by group, exclude events that aren't associated with a group
             return f"""AND "$group_{self._entity.math_group_type_index}" != ''"""
