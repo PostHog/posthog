@@ -31,7 +31,7 @@ export const organizationLogic = kea<organizationLogicType>({
         hasDashboardCollaboration: [
             (s) => [s.currentOrganization],
             (currentOrganization) =>
-                currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION) || false,
+                currentOrganization?.available_features?.includes(AvailableFeature.DASHBOARD_COLLABORATION),
         ],
         hasIngestionTaxonomy: [
             (s) => [s.currentOrganization],
