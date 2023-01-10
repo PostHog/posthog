@@ -144,12 +144,6 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
-        # use the dashboard_tiles set to filter them
-        # representation["dashboards"] = [
-        #     id for id in representation["dashboards"] if id in self._dashboard_tiles(instance)
-        # ]
-
         filters = instance.dashboard_filters()
 
         if not filters.get("date_from"):
