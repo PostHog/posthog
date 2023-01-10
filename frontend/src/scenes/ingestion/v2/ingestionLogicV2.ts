@@ -298,7 +298,11 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             {
                 setDemoDataInterval: (_, { demoDataInterval }) => demoDataInterval,
                 setIsDemoDataReady: (current, { isDemoDataReady }) => {
+                    console.log('setIsDemoReady.isDemoDataReady', isDemoDataReady)
+                    console.log('setIsDemoReady.current', current)
+                    // TODO: This should probably live in a listener, as reducers should be pure functions i.e. no side effects
                     if (isDemoDataReady && current) {
+                        console.log('clearing interval')
                         clearInterval(current)
                     }
                     return null
@@ -535,15 +539,22 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             }
         },
         createTeamSuccess: ({ currentTeam }) => {
+            console.log('createTeamSuccess.currentTeam: ', currentTeam)
+            console.log('window.location.href: ', window.location.href)
+            console.log('urls.ingestion(): ', urls.ingestion())
+            console.log('currentTeam.is_demo: ', currentTeam.is_demo)
             if (window.location.href.includes(urls.ingestion()) && currentTeam.is_demo) {
+                console.log('branch a')
                 const interval = window.setInterval(async () => {
                     const res = await api.get('api/projects/@current/is_generating_demo_data')
+                    console.log('response in interval: ', res)
                     if (!res.is_generating_demo_data) {
                         actions.setIsDemoDataReady(true)
                     }
                 }, 1000)
                 actions.setDemoDataInterval(interval)
             } else {
+                console.log('branch b')
                 window.location.href = urls.ingestion()
             }
         },

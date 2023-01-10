@@ -5,6 +5,7 @@ on:
         branches:
             - master
             - main
+            - fix-storybook-build
 
 jobs:
     storybook-deployment:
