@@ -839,9 +839,24 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "groups": [{"properties": [], "rollout_percentage": None}],
                 "multivariate": {
                     "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                        {
+                            "key": "first-variant",
+                            "name": "First Variant",
+                            "rollout_percentage": 50,
+                            "payload": {"color": "blue"},
+                        },
+                        {
+                            "key": "second-variant",
+                            "name": "Second Variant",
+                            "rollout_percentage": 25,
+                            "payload": {"color": "green"},
+                        },
+                        {
+                            "key": "third-variant",
+                            "name": "Third Variant",
+                            "rollout_percentage": 25,
+                            "payload": {"color": "red"},
+                        },
                     ]
                 },
             },
@@ -851,7 +866,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(4), snapshot_postgres_queries_context(
             self
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-            matches, reasons = FeatureFlagMatcher(
+            matches, reasons, payloads = FeatureFlagMatcher(
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -900,10 +915,12 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
             },
         )
 
+        self.assertEqual(payloads, {"variant": {"color": "blue"}})
+
         with self.assertNumQueries(3), snapshot_postgres_queries_context(
             self
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-            matches, reasons = FeatureFlagMatcher(
+            matches, reasons, payloads = FeatureFlagMatcher(
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -918,6 +935,8 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 {"organization": "foo2"},
                 FlagsMatcherCache(self.team.id),
             ).get_matches()
+
+        self.assertEqual(payloads, {"variant": {"color": "blue"}})
 
         self.assertEqual(
             matches,
@@ -1664,7 +1683,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
-        flags, reasons = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        flags, reasons, payloads = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
         self.assertEqual(
             flags,
             {
@@ -1691,6 +1710,8 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
                 },
             },
         )
+
+        self.assertEqual(payloads, {})
 
 
 class TestHashKeyOverridesRaceConditions(TransactionTestCase):
