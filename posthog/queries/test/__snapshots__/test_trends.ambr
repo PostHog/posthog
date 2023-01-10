@@ -1298,7 +1298,7 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = 'sign up'
-       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfHour(toDateTime('2020-01-05 07:00:00', 'US/Pacific')), 'US/Pacific')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-05 07:00:00', 'US/Pacific')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-05 08:00:00', 'US/Pacific') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
