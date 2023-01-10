@@ -383,7 +383,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             # Soft-deleted dashboards can be brought back with a PATCH request
             queryset = queryset.filter(deleted=False)
 
-        queryset = queryset.prefetch_related("sharingconfiguration_set",).select_related(
+        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
             "team__organization",
             "created_by",
         )

@@ -161,15 +161,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(15):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(16):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(17):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
@@ -202,8 +202,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
 
-        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["items"]) == 1
-        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["items"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["tiles"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["tiles"]) == 1
 
         response = self.dashboard_api.list_dashboards(query_params={"limit": 100})
 
