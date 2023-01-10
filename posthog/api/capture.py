@@ -30,7 +30,7 @@ from posthog.helpers.session_recording import preprocess_session_recording_event
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
 from posthog.logging.timing import timed
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
@@ -175,14 +175,15 @@ def _ensure_web_feature_flags_in_properties(
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
         statsd.incr("active_feature_flags_missing")
-        flags, _ = get_active_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
-        flag_keys = list(flags.keys())
+        all_flags, _ = get_all_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
+        active_flags = {key: value for key, value in all_flags.items() if value}
+        flag_keys = list(active_flags.keys())
         event["properties"]["$active_feature_flags"] = flag_keys
 
         if len(flag_keys) > 0:
             statsd.incr("active_feature_flags_added")
 
-            for k, v in flags.items():
+            for k, v in active_flags.items():
                 event["properties"][f"$feature/{k}"] = v
 
 
