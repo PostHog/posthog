@@ -30,6 +30,9 @@ jobs:
             - name: Build Storybook
               run: pnpm build-storybook --quiet
 
+            - name: Update apt-get
+              run: sudo apt update && sudo apt upgrade -y
+
             - name: Install Playwright Browsers
               run: pnpm exec playwright install --with-deps
 
