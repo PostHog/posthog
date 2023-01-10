@@ -157,14 +157,15 @@ def get_decide(request: HttpRequest):
             )
             active_flags = {key: value for key, value in feature_flags.items() if value}
 
-            if api_version <= 1:
-                response["featureFlags"] = list(active_flags.keys())
-            elif api_version == 2:
+            if api_version == 2:
                 response["featureFlags"] = active_flags
-            else:
+            elif api_version == 3:
                 # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
                 response["featureFlags"] = feature_flags
                 response["errorsWhileComputingFlags"] = False  # TODO: add code to compute this
+            else:
+                # default v1
+                response["featureFlags"] = list(active_flags.keys())
 
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
 
