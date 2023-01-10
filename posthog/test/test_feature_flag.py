@@ -1763,7 +1763,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):
-                flags, reasons = future.result()
+                flags, reasons, payloads = future.result()
                 assert flags == {
                     "beta-feature": True,
                     "multivariate-flag": "first-variant",
