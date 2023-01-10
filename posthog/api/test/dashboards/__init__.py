@@ -72,7 +72,8 @@ class DashboardAPI:
             team_id = self.team.id
 
         if query_params is None:
-            query_params = {}
+            # default to no items field
+            query_params = {"no_items_field": True}
 
         response = self.client.get(f"/api/projects/{team_id}/dashboards/{dashboard_id}", query_params)
         self.assertEqual(response.status_code, expected_status)
@@ -93,6 +94,24 @@ class DashboardAPI:
             query_params = {}
 
         response = self.client.get(f"/api/projects/{team_id}/dashboards/", query_params)
+        self.assertEqual(response.status_code, expected_status)
+
+        response_json = response.json()
+        return response_json
+
+    def list_insights(
+        self,
+        team_id: Optional[int] = None,
+        expected_status: int = status.HTTP_200_OK,
+        query_params: Optional[Dict] = None,
+    ) -> Dict:
+        if team_id is None:
+            team_id = self.team.id
+
+        if query_params is None:
+            query_params = {}
+
+        response = self.client.get(f"/api/projects/{team_id}/insights/", {"basic": True, "limit": 30, **query_params})
         self.assertEqual(response.status_code, expected_status)
 
         response_json = response.json()
