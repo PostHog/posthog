@@ -347,6 +347,7 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion()]: Scene.Ingestion,
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.verifyEmail()]: Scene.VerifyEmail,
+    [urls.verifyEmail(':uuid', ':token')]: Scene.VerifyEmail,
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
     [urls.query()]: Scene.Query,

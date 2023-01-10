@@ -90,7 +90,8 @@ export const urls = {
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,
     preflight: (): string => '/preflight',
     signup: (): string => '/signup',
-    verifyEmail: (): string => '/verify_email',
+    verifyEmail: (userUuid: string = '', token: string = ''): string =>
+        `/verify_email${userUuid ? `/${userUuid}` : ''}${token ? `/${token}` : ''}`,
     inviteSignup: (id: string): string => `/signup/${id}`,
     ingestion: (): string => '/ingestion',
     // Cloud only
