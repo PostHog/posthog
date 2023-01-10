@@ -386,8 +386,9 @@ class InsightSerializer(InsightBasicSerializer):
         representation = super().to_representation(instance)
 
         # the ORM doesn't know about deleted dashboard tiles
-        # when the list has just been updated
-        # we can use that list to avoid refreshing from the DB
+        # when they have just been updated
+        # we store them and can use that list to correct the response
+        # and avoid refreshing from the DB
         if self.context.get("after_dashboard_changes"):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
