@@ -74,6 +74,7 @@ export function DemoProjectButton({ text, subtext }: { text: string; subtext?: s
     if (featureFlags[FEATURE_FLAGS.ONBOARDING_V2_DEMO] !== 'test') {
         return <></>
     }
+
     return (
         <LemonButton
             onClick={() => {

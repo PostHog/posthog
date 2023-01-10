@@ -59,12 +59,7 @@ export function InviteTeamPanel(): JSX.Element {
                         </p>
                     </div>
                 </LemonButton>
-               {featureFlags[FEATURE_FLAGS.ONBOARDING_V2_DEMO] !== 'test' ? (
-                    <DemoProjectButton
-                        text="Quickly try PostHog with some demo data."
-                        subtext="Explore insights, create dashboards, try out cohorts, and more."
-                    />
-                ) : null}
+
             </div>
         </div>
     )
