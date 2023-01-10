@@ -27,8 +27,11 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
 
+            - name: Clear cache?!
+              run: find . -name ".cache" -type d -prune -exec rm -rf '{}' +
+
             - name: Build Storybook
-              run: pnpm build-storybook --quiet
+              run: pnpm build-storybook
 
             - name: Install Playwright Browsers
               run: pnpm exec playwright install --with-deps

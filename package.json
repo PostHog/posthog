@@ -44,7 +44,7 @@
         "format:js": "pnpm prettier && pnpm eslint --fix",
         "format": "pnpm format:python && pnpm format:js",
         "storybook": "export NODE_OPTIONS=--openssl-legacy-provider; start-storybook -p 6006",
-        "build-storybook": "export NODE_OPTIONS=--openssl-legacy-provider; build-storybook",
+        "build-storybook": "export NODE_OPTIONS=--openssl-legacy-provider; build-storybook --loglevel verbose",
         "dev:migrate:postgres": "export DEBUG=1 && source env/bin/activate && python manage.py migrate",
         "dev:migrate:clickhouse": "export DEBUG=1 && source env/bin/activate && python manage.py migrate_clickhouse",
         "prepare": "husky install"
