@@ -49,7 +49,10 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             null as number | null,
             {
                 setSelectedPointIndex: (_, { index }) => index,
-                loadResultSuccess: (_, { result }) => (result.points.length > 0 ? result.points.length - 1 : null),
+                loadResultSuccess: (_, { result }) =>
+                    result.crucial_property_keys.length > 0 && result.points.length > 0
+                        ? result.points.length - 1
+                        : null,
             },
         ],
     }),

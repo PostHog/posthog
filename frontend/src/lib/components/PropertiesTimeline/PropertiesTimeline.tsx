@@ -26,7 +26,7 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
         <div className="flex flex-col px-2">
             <TimelineSeekbar
                 points={
-                    points
+                    crucialPropertyKeys.length > 0 && points
                         ? points.map(({ timestamp, relevantEventCount }) => ({
                               timestamp,
                               count: relevantEventCount,
@@ -35,23 +35,29 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                 }
                 note={
                     <>
-                        <span>Relevant properties over time</span>
+                        <span>
+                            {!resultLoading
+                                ? crucialPropertyKeys.length > 0
+                                    ? 'Key person properties over time'
+                                    : 'No key person properties'
+                                : 'Loading key person properties…'}
+                        </span>
                         {!resultLoading && (
                             <Tooltip
                                 title={
                                     crucialPropertyKeys.length > 0
-                                        ? `${crucialPropertyKeys.length === 1 ? 'Property' : 'Properties'} ${humanList(
-                                              crucialPropertyKeys.map((key) => `\`${key}\``)
-                                          )} ${
+                                        ? `Person ${
+                                              crucialPropertyKeys.length === 1 ? 'property' : 'properties'
+                                          } ${humanList(crucialPropertyKeys.map((key) => `\`${key}\``))} ${
                                               crucialPropertyKeys.length === 1 ? 'is' : 'are'
                                           } relevant to this insight's results, because ${
                                               crucialPropertyKeys.length === 1 ? "it's" : "they're"
-                                          } used in its filters. This timeline higlights how ${
+                                          } used in its query definition. This timeline higlights how ${
                                               crucialPropertyKeys.length === 1
-                                                  ? 'that crucial property has'
-                                                  : 'those crucial properties have'
-                                          } been changing within this data point's time range.`
-                                        : "This insight doesn't rely on any actor properties in its filters, so this timeline only shows properties for the first relevant event."
+                                                  ? 'that key property has'
+                                                  : 'those key properties have'
+                                          } been changing within this data point's timeframe.`
+                                        : "This insight doesn't rely on any person properties in its query definition. If it did, a timeline showing the values of those key properties would be shown here."
                                 }
                             >
                                 <IconInfo className="ml-1 text-muted text-xl shrink-0" />
