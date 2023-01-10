@@ -146,9 +146,9 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
         # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
         # use the dashboard_tiles set to filter them
-        representation["dashboards"] = [
-            id for id in representation["dashboards"] if id in self._dashboard_tiles(instance)
-        ]
+        # representation["dashboards"] = [
+        #     id for id in representation["dashboards"] if id in self._dashboard_tiles(instance)
+        # ]
 
         filters = instance.dashboard_filters()
 
@@ -391,9 +391,9 @@ class InsightSerializer(InsightBasicSerializer):
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
 
-        # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
-        # when the list has been updated we can use that list to avoid refreshing from the DB
-        # the list is also filtered in the super InsightBasicSerializer
+        # the ORM doesn't know about deleted dashboard tiles
+        # when the list has just been updated
+        # we can use that list to avoid refreshing from the DB
         if self.context.get("after_dashboard_changes"):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
