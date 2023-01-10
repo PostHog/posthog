@@ -54,16 +54,22 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         date_to, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
         date_params.update(date_to_params)
+
         try:
-            limit = int(request.GET.get("limit", 100))
+            limit = int(request.query_params.get("limit", 100))
         except ValueError:
             raise ValidationError("Limit must be an integer")
+
+        try:
+            offset = int(request.query_params.get("offset", 0))
+        except ValueError:
+            raise ValidationError("offset must be an integer")
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups
         )
         result = sync_execute(
-            GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters, limit=limit),
+            GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters, limit=limit, offset=offset),
             {
                 "team_id": self.team.pk,
                 "timezone": self.team.timezone,
@@ -71,16 +77,15 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 **date_params,
             },
         )
-        return response.Response(
-            [
-                {
-                    "count": elements[1],
-                    "hash": None,
-                    "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
-                }
-                for elements in result
-            ]
-        )
+        serialized_elements = [
+            {
+                "count": elements[1],
+                "hash": None,
+                "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
+            }
+            for elements in result
+        ]
+        return response.Response({"results": serialized_elements})
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
