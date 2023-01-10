@@ -16,7 +16,7 @@ import ReactJson from 'react-json-view'
 export function renderColumn(
     key: string,
     value: any,
-    record: EventType | PersonType | any[],
+    record: Record<string, any> | any[],
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext

@@ -13,7 +13,7 @@ import {
 } from 'kea'
 import { loaders } from 'kea-loaders'
 import type { dataNodeLogicType } from './dataNodeLogicType'
-import { DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
+import { AnyDataNode, DataNode, EventsQuery, PersonsNode } from '~/queries/schema'
 import { query } from '~/queries/query'
 import { isInsightQueryNode, isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { subscriptions } from 'kea-subscriptions'
@@ -34,12 +34,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     props({} as DataNodeLogicProps),
     key((props) => props.key),
     propsChanged(({ actions, props }, oldProps) => {
+        if (props.query?.kind && oldProps.query?.kind && props.query.kind !== oldProps.query.kind) {
+            actions.clearResponse()
+        }
         if (!objectsEqual(props.query, oldProps.query)) {
             actions.loadData()
         }
     }),
     actions({
         abortQuery: true,
+        clearResponse: true,
         startAutoLoad: true,
         stopAutoLoad: true,
         toggleAutoLoad: true,
@@ -48,8 +52,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
-            null as DataNode['response'] | null,
+            null as AnyDataNode['response'] | null,
             {
+                clearResponse: () => null,
                 loadData: async (refresh: boolean = false, breakpoint) => {
                     // TODO: cancel with queryId, combine with abortQuery action
                     cache.abortController?.abort()
@@ -239,8 +244,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         lastRefresh: [
             (s, p) => [p.query, s.response],
-            (query, response) => {
-                return isInsightQueryNode(query) && response?.last_refresh
+            (query, response): string | null => {
+                return isInsightQueryNode(query) && response && 'last_refresh' in response
+                    ? response.last_refresh
+                    : null
             },
         ],
     }),

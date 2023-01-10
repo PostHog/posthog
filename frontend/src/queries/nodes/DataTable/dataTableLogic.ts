@@ -1,17 +1,21 @@
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { DataTableNode, HogQLExpression } from '~/queries/schema'
-import { getColumnsForQuery } from './utils'
-import { sortedKeys } from 'lib/utils'
+import { DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
+import { getColumnsForQuery, removeExpressionComment } from './utils'
+import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isEventsQuery } from '~/queries/utils'
 import { Sorting } from 'lib/components/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { dayjs } from 'lib/dayjs'
 
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
 }
+
+export const categoryRowKey = Symbol('__categoryRow__')
 
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
@@ -21,12 +25,61 @@ export const dataTableLogic = kea<dataTableLogicType>([
     reducers(({ props }) => ({
         columns: [getColumnsForQuery(props.query), { setColumns: (_, { columns }) => columns }],
     })),
-    connect({
-        values: [featureFlagLogic, ['featureFlags']],
-    }),
+    connect((props: DataTableLogicProps) => ({
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            dataNodeLogic({ key: props.key, query: props.query.source }),
+            ['response'],
+        ],
+    })),
     selectors({
+        sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
+        orderBy: [
+            (_, p) => [p.query],
+            (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || null : null),
+            { resultEqualityCheck: objectsEqual },
+        ],
+        resultsWithCategoryRows: [
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columns],
+            (sourceKind, orderBy, response, columns): any[] | null => {
+                if (sourceKind === NodeKind.EventsQuery) {
+                    const results = (response as EventsQuery['response'] | null)?.results
+                    if (results) {
+                        const orderKey =
+                            (orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]) || 'timestamp'
+                        if (orderKey === 'timestamp') {
+                            const orderKeyIndex = columns.findIndex(
+                                (column) =>
+                                    removeExpressionComment(column) === orderKey ||
+                                    removeExpressionComment(column) === `-${orderKey}`
+                            )
+                            if (orderKeyIndex !== -1) {
+                                let lastResult: any | null = null
+                                const newResults: any[] = []
+                                for (const result of results) {
+                                    if (
+                                        result &&
+                                        lastResult &&
+                                        !dayjs(result[orderKeyIndex]).isSame(lastResult[orderKeyIndex], 'day')
+                                    ) {
+                                        newResults.push({
+                                            [categoryRowKey]: dayjs(result[orderKeyIndex]).format('LL'),
+                                        })
+                                    }
+                                    newResults.push(result)
+                                    lastResult = result
+                                }
+                                return newResults
+                            }
+                        }
+                    }
+                }
+                return response && 'results' in response ? (response as any).results ?? null : null
+            },
+        ],
         queryWithDefaults: [
-            (s) => [(_, props) => props.query, s.columns, s.featureFlags],
+            (s, p) => [p.query, s.columns, s.featureFlags],
             (query: DataTableNode, columns, featureFlags): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full

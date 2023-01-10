@@ -48,12 +48,11 @@ export enum NodeKind {
     UnimplementedQuery = 'UnimplementedQuery',
 }
 
+export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode
+
 export type QuerySchema =
     // Data nodes (see utils.ts)
-    | EventsNode
-    | EventsQuery
-    | ActionsNode
-    | PersonsNode
+    | AnyDataNode
 
     // Interface nodes
     | DataTableNode
