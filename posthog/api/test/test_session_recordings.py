@@ -261,6 +261,7 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "id": "session_1",
             "distinct_id": "d1",
             "viewed": False,
+            "pinned_count": 0,
             "recording_duration": 30,
             "start_time": base_time.replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "end_time": (base_time + relativedelta(seconds=30)).strftime("%Y-%m-%dT%H:%M:%SZ"),
