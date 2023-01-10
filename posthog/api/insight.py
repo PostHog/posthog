@@ -143,12 +143,23 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
+
+        # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
+        # use the dashboard_tiles set to filter them
+        representation["dashboards"] = [
+            id for id in representation["dashboards"] if id in self._dashboard_tiles(instance)
+        ]
+
         filters = instance.dashboard_filters()
 
         if not filters.get("date_from"):
             filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
         representation["filters"] = filters
         return representation
+
+    @lru_cache(maxsize=1)
+    def _dashboard_tiles(self, instance):
+        return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -381,10 +392,12 @@ class InsightSerializer(InsightBasicSerializer):
         representation = super().to_representation(instance)
 
         # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
-        # adds one query to viewing the insight by checking for newly deleted tiles
-        representation["dashboards"] = [
-            dt.dashboard_id for dt in instance.dashboard_tiles.exclude(deleted=True).exclude(dashboard__deleted=True)
-        ]
+        # when the list has been updated we can use that list to avoid refreshing from the DB
+        # the list is also filtered in the super InsightBasicSerializer
+        if self.context.get("after_dashboard_changes"):
+            representation["dashboards"] = [
+                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
+            ]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
@@ -470,8 +483,6 @@ class InsightViewSet(
                     id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
                 ),
             ),
-            "dashboards__created_by",
-            "dashboards__team",
             "dashboards__team__organization",
             Prefetch(
                 "dashboard_tiles",

@@ -347,7 +347,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [14, 15, 16, 17, 18],
+            [13, 13, 13, 13, 13],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -602,6 +602,33 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # confirm no updates happened
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]
+
+    def test_dashboards_relation_is_tile_soft_deletion_aware(self) -> None:
+        dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dash 1"})
+        dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dash 2"})
+
+        insight_id, insight_json = self.dashboard_api.create_insight(
+            {
+                "name": "start with two dashboards",
+                "dashboards": [dashboard_one_id, dashboard_two_id],
+            }
+        )
+
+        # then remove from one of them
+        _, on_update_insight_json = self.dashboard_api.update_insight(
+            insight_id,
+            {
+                "dashboards": [dashboard_one_id],
+            },
+        )
+        assert on_update_insight_json["dashboards"] == [dashboard_one_id]
+
+        insight_json = self.dashboard_api.get_insight(insight_id)
+        assert insight_json["dashboards"] == [dashboard_one_id]
+
+        insights_list = self.dashboard_api.list_insights()
+        assert insights_list["count"] == 1
+        assert [i["dashboards"] for i in insights_list["results"]] == [[dashboard_one_id]]
 
     def test_adding_insight_to_dashboard_updates_activity_log(self) -> None:
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dash 1"})

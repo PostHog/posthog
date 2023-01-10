@@ -161,15 +161,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(15):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(16):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(17):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
