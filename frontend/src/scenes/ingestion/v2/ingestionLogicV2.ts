@@ -298,7 +298,6 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             {
                 setDemoDataInterval: (_, { demoDataInterval }) => demoDataInterval,
                 setIsDemoDataReady: (current, { isDemoDataReady }) => {
-                    // TODO: This should probably live in a listener, as reducers should be pure functions i.e. no side effects
                     if (isDemoDataReady && current) {
                         clearInterval(current)
                     }
