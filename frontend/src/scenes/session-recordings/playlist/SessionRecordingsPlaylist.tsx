@@ -55,7 +55,7 @@ export function SessionRecordingsPlaylist({
         filters,
         totalFiltersCount,
         showFilters,
-        pinnedRecordingsResponse,
+        pinnedRecordings,
         pinnedRecordingsResponseLoading,
     } = useValues(logic)
     const { setSelectedRecordingId, loadNext, loadPrev, setFilters, reportRecordingsListFilterAdded, setShowFilters } =
@@ -194,16 +194,16 @@ export function SessionRecordingsPlaylist({
                                     listKey="pinned"
                                     title="Pinned Recordings"
                                     titleRight={
-                                        pinnedRecordingsResponse?.results?.length ? (
+                                        pinnedRecordings.length ? (
                                             <span className="rounded py-1 px-2 mr-1 text-xs bg-border-light font-semibold">
-                                                {pinnedRecordingsResponse?.results?.length}
+                                                {pinnedRecordings.length}
                                             </span>
                                         ) : null
                                     }
                                     onRecordingClick={onRecordingClick}
                                     onPropertyClick={onPropertyClick}
                                     collapsable
-                                    recordings={pinnedRecordingsResponse?.results}
+                                    recordings={pinnedRecordings}
                                     loading={pinnedRecordingsResponseLoading}
                                     info={
                                         <>

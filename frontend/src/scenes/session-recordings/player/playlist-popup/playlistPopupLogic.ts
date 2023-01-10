@@ -38,6 +38,10 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
         removeFromPlaylist: (playlist: SessionRecordingPlaylistType) => ({ playlist }),
         setNewFormShowing: (show: boolean) => ({ show }),
         setShowPlaylistPopup: (show: boolean) => ({ show }),
+        updateRecordingsPinnedCounts: (
+            diffCount: number,
+            playlistShortId?: SessionRecordingPlaylistType['short_id']
+        ) => ({ diffCount, playlistShortId }),
     })),
     loaders(({ values, props, actions }) => ({
         playlists: {
@@ -123,7 +127,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             },
         },
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, props }) => ({
         setSearchQuery: () => {
             actions.loadPlaylists()
         },
@@ -140,22 +144,30 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
                 actions.setPause()
             }
         },
+
         addToPlaylistSuccess: ({ payload }) => {
-            if (payload?.playlist.short_id) {
-                actions.addDiffToRecordingMetaPinnedCount(1)
-                sessionRecordingsListLogic
-                    .findMounted({ playlistShortId: payload?.playlist.short_id })
-                    ?.actions.loadPinnedRecordings({})
-            }
+            actions.updateRecordingsPinnedCounts(1, payload?.playlist?.short_id)
         },
+
         removeFromPlaylistSuccess: ({ payload }) => {
-            if (payload?.playlist.short_id) {
-                actions.addDiffToRecordingMetaPinnedCount(-1)
-                // TODO: Change this around for the list logic to listen out for the player changing it
-                // or at least that it doesn't trigger a load...
+            actions.updateRecordingsPinnedCounts(-1, payload?.playlist?.short_id)
+        },
+
+        updateRecordingsPinnedCounts: ({ diffCount, playlistShortId }) => {
+            actions.addDiffToRecordingMetaPinnedCount(diffCount)
+
+            // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
+            if (!!playlistShortId && sessionRecordingsListLogic.isMounted({ playlistShortId })) {
+                // On playlist page
+                sessionRecordingsListLogic({ playlistShortId }).actions.addDiffToRecordingMetaPinnedCount(
+                    props.sessionRecordingId,
+                    diffCount
+                )
+            } else {
+                // In any other context (recent recordings, single modal, single recording page)
                 sessionRecordingsListLogic
-                    .findMounted({ playlistShortId: payload?.playlist.short_id })
-                    ?.actions.loadPinnedRecordings({})
+                    .findMounted({ updateSearchParams: true })
+                    ?.actions?.addDiffToRecordingMetaPinnedCount(props.sessionRecordingId, diffCount)
             }
         },
     })),
