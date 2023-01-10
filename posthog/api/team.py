@@ -20,7 +20,6 @@ from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminAnyPermissions,
     OrganizationAdminWritePermissions,
-    OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
@@ -154,9 +153,7 @@ class TeamSerializer(serializers.ModelSerializer):
         organization = self.context["view"].organization  # Use the org we used to validate permissions
         if validated_data.get("is_demo", False):
             team = Team.objects.create(**validated_data, organization=organization)
-            cache_key = f"is_generating_demo_data_{team.pk}"
-            cache.set(cache_key, "True")  # create an item in the cache that we can use to see if the demo data is ready
-            create_data_for_demo_team.delay(team.pk, request.user.pk, cache_key)
+            create_data_for_demo_team.delay(team.pk, request.user.pk)
         else:
             team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
@@ -222,10 +219,7 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                     raise exceptions.ValidationError("You need to belong to an organization.")
                 # To be used later by OrganizationAdminWritePermissions and TeamSerializer
                 self.organization = organization
-                if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
-                    base_permissions.append(OrganizationAdminWritePermissions())
-                elif "is_demo" in self.request.data:
-                    base_permissions.append(OrganizationMemberPermissions())
+                base_permissions.append(OrganizationAdminWritePermissions())
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 base_permissions.append(TeamMemberLightManagementPermission())
@@ -285,16 +279,3 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
         team.api_token = generate_random_token_project()
         team.save()
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @action(
-        methods=["GET"],
-        detail=True,
-        permission_classes=[
-            permissions.IsAuthenticated,
-            ProjectMembershipNecessaryPermissions,
-        ],
-    )
-    def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
-        team = self.get_object()
-        cache_key = f"is_generating_demo_data_{team.pk}"
-        return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})

@@ -253,25 +253,6 @@ class TestTeamAPI(APIBaseTest):
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
 
-    def test_is_generating_demo_data(self):
-        cache_key = f"is_generating_demo_data_{self.team.pk}"
-        cache.set(cache_key, "True")
-        response = self.client.get(f"/api/projects/{self.team.id}/is_generating_demo_data/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"is_generating_demo_data": True})
-        cache.delete(cache_key)
-        response = self.client.get(f"/api/projects/{self.team.id}/is_generating_demo_data/")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"is_generating_demo_data": False})
-
-    @patch("posthog.api.team.create_data_for_demo_team.delay")
-    def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
-        mock_create_data_for_demo_team.assert_called_once()
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:
     """
