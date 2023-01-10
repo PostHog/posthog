@@ -202,8 +202,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
 
-        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["items"]) == 1
-        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["items"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["tiles"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["tiles"]) == 1
 
         response = self.dashboard_api.list_dashboards(query_params={"limit": 100})
 
