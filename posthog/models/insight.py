@@ -15,11 +15,19 @@ from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 logger = structlog.get_logger(__name__)
 
 
+class InsightManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
+
 class Insight(models.Model):
     """
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.
     """
+
+    objects = InsightManager()
+    including_soft_deleted = models.Manager()
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)

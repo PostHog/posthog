@@ -515,6 +515,7 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
+  WHERE NOT ("posthog_dashboarditem"."deleted")
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.27
@@ -658,9 +659,8 @@
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
-  WHERE ("posthog_dashboarditem"."team_id" = 2
-         AND NOT "posthog_dashboarditem"."deleted"
-         AND NOT "posthog_dashboarditem"."deleted") /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  WHERE (NOT ("posthog_dashboarditem"."deleted")
+         AND "posthog_dashboarditem"."team_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.32
@@ -771,9 +771,8 @@
   INNER JOIN "posthog_team" ON ("posthog_dashboarditem"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_user" ON ("posthog_dashboarditem"."created_by_id" = "posthog_user"."id")
   LEFT OUTER JOIN "posthog_user" T4 ON ("posthog_dashboarditem"."last_modified_by_id" = T4."id")
-  WHERE ("posthog_dashboarditem"."team_id" = 2
-         AND NOT "posthog_dashboarditem"."deleted"
-         AND NOT "posthog_dashboarditem"."deleted")
+  WHERE (NOT ("posthog_dashboarditem"."deleted")
+         AND "posthog_dashboarditem"."team_id" = 2)
   ORDER BY "posthog_dashboarditem"."order" ASC
   LIMIT 100 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
@@ -1064,7 +1063,8 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 2
+  WHERE (NOT ("posthog_dashboarditem"."deleted")
+         AND "posthog_dashboarditem"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---

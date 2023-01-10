@@ -470,11 +470,11 @@ class InsightViewSet(
         return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
-        if not self.action.endswith("update"):
-            # Soft-deleted insights can be brought back with a PATCH request
-            queryset = queryset.filter(deleted=False)
+        if "deleted" in self.request.data and not self.request.data.get("deleted"):
+            # being undeleted
+            queryset: QuerySet = Insight.including_soft_deleted
+        else:
+            queryset = super().get_queryset()
 
         queryset = queryset.prefetch_related(
             Prefetch(
@@ -490,7 +490,7 @@ class InsightViewSet(
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.filter(deleted=False).prefetch_related("tagged_items__tag")
+            queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)

@@ -2137,7 +2137,8 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 2
+  WHERE (NOT ("posthog_dashboarditem"."deleted")
+         AND "posthog_dashboarditem"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -3086,7 +3087,8 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 2
+  WHERE (NOT ("posthog_dashboarditem"."deleted")
+         AND "posthog_dashboarditem"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -5192,7 +5194,8 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 2
+  WHERE (NOT ("posthog_dashboarditem"."deleted")
+         AND "posthog_dashboarditem"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -6335,7 +6338,8 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 2
+  WHERE (NOT ("posthog_dashboarditem"."deleted")
+         AND "posthog_dashboarditem"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -7138,7 +7142,8 @@
          "posthog_dashboarditem"."deprecated_tags",
          "posthog_dashboarditem"."tags"
   FROM "posthog_dashboarditem"
-  WHERE "posthog_dashboarditem"."id" = 2
+  WHERE (NOT ("posthog_dashboarditem"."deleted")
+         AND "posthog_dashboarditem"."id" = 2)
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
