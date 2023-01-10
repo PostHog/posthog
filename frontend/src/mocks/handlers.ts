@@ -38,7 +38,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/persons/properties/': apiResults(MOCK_PERSON_PROPERTIES),
         '/api/personal_api_keys/': [],
         '/api/license/': apiResults([MOCK_DEFAULT_LICENSE]),
-        '/api/users/@me/': [
+        '/api/users/@me/': (): MockSignature => [
             200,
             {
                 ...MOCK_DEFAULT_USER,
