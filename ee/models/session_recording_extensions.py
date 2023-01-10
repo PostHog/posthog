@@ -12,7 +12,6 @@ from sentry_sdk import capture_exception
 from posthog import settings
 from posthog.models.session_recording.metadata import PersistedRecordingV1
 from posthog.models.session_recording.session_recording import SessionRecording
-from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
 from posthog.session_recordings.session_recording_helpers import compress_to_string, decompress
 from posthog.storage import object_storage
 
