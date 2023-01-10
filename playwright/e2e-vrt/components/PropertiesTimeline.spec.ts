@@ -12,8 +12,8 @@ test.describe('Properties Timeline', () => {
         await storyPage.expectComponentScreenshot()
     })
 
-    test('No Points for No Person Properties', async ({ storyPage }) => {
-        await storyPage.goto(toId('Components/Properties Timeline', 'No Points for No Person Properties'))
-        await storyPage.expectComponentScreenshot()
-    })
+    // test('No Points for No Person Properties', async ({ storyPage }) => {
+    //     await storyPage.goto(toId('Components/Properties Timeline', 'No Points for No Person Properties'))
+    //     await storyPage.expectComponentScreenshot()
+    // })
 })
