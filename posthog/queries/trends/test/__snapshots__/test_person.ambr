@@ -17,7 +17,7 @@
      WHERE team_id = 2
        AND event = 'pageview'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-22 23:59:59', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC')
        AND "$group_0" != '' )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
@@ -57,7 +57,7 @@
      WHERE team_id = 2
        AND event = 'pageview'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2021-01-21 00:00:00', 'UTC')
-       AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-22 23:59:59', 'UTC') )
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-01-21 23:59:59', 'UTC') )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
