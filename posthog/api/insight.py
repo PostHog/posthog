@@ -464,8 +464,13 @@ class InsightViewSet(
         return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
-        if "deleted" in self.request.data and not self.request.data.get("deleted"):
-            # being undeleted
+        if (
+            self.action == "partial_update"
+            and "deleted" in self.request.data
+            and not self.request.data.get("deleted")
+            and len(self.request.data) == 1
+        ):
+            # an insight can be un-deleted by patching {"deleted": False}
             queryset: QuerySet = Insight.including_soft_deleted
         else:
             queryset = super().get_queryset()
