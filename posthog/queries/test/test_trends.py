@@ -5850,7 +5850,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         filter = Filter(
             data={
-                "date_from": "2020-01-01T00:00:00Z",
+                "date_from": "2020-01-01",
                 "date_to": "2020-01-12",
                 "breakdown": "industry",
                 "breakdown_type": "group",
@@ -5869,7 +5869,7 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response[1]["count"], 1)
 
             filter = filter.with_data(
-                {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-03"}
+                {"breakdown_value": "technology", "date_from": "2020-01-02T00:00:00Z", "date_to": "2020-01-02"}
             )
             entity = Entity({"id": "sign up", "name": "sign up", "type": "events", "order": 0})
             res = self._get_trend_people(filter, entity)
