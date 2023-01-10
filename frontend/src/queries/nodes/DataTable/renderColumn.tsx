@@ -133,12 +133,13 @@ export function renderColumn(
         return <Property value={eventRecord.person?.properties?.[propertyKey]} />
     } else if (key === 'person' && isEventsQuery(query.source)) {
         const personRecord = value as PersonType
-        return (
+        return !!personRecord.distinct_ids.length ? (
             <Link to={urls.person(personRecord.distinct_ids[0])}>
                 <PersonHeader noLink withIcon person={personRecord} />
             </Link>
+        ) : (
+            <PersonHeader noLink withIcon person={value} />
         )
-        return <PersonHeader noLink withIcon person={value} />
     } else if (key === 'person' && isPersonsNode(query.source)) {
         const personRecord = record as PersonType
         return (
