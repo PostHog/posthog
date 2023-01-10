@@ -1,4 +1,4 @@
-import { kea, path, reducers } from 'kea'
+import { actions, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 import api from 'lib/api'
@@ -16,7 +16,10 @@ export interface ValidatedTokenResponseType extends ResponseType {
 }
 
 export const verifyEmailLogic = kea<verifyEmailLogicType>([
-    path(['scenes', 'authentication', 'passwordResetLogic']),
+    path(['scenes', 'authentication', 'verifyEmailLogic']),
+    actions({
+        setView: (view: 'verify' | 'pending' | 'invalid' | null) => ({ view }),
+    }),
     loaders(({}) => ({
         validatedEmailToken: [
             null as ValidatedTokenResponseType | null,
@@ -33,12 +36,33 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
             },
         ],
     })),
-    reducers({}),
+    listeners(({ actions }) => ({
+        validateEmailTokenFailure: () => {
+            actions.setView('invalid')
+        },
+    })),
+    reducers({
+        view: [
+            null as 'pending' | 'verify' | 'invalid' | null,
+            {
+                setView: (_, { view }) => view,
+            },
+        ],
+    }),
     urlToAction(({ actions }) => ({
+        '/verify_email/:uuid': ({ uuid }) => {
+            if (uuid) {
+                actions.setView('pending')
+            }
+        },
         '/verify_email/:uuid/:token': ({ uuid, token }) => {
             if (token && uuid) {
+                actions.setView('verify')
                 actions.validateEmailToken({ uuid, token })
             }
+        },
+        '/verify_email': ({}) => {
+            actions.setView('invalid')
         },
     })),
 ])
