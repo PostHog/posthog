@@ -81,8 +81,8 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             elements=[Element(tag_name="img")],
         )
 
-        with self.assertNumQueries(7):
-            # Django session, PostHog user, ee license, PostHog team, PostHog org membership
+        with self.assertNumQueries(6):
+            # Django session, PostHog user, PostHog team, PostHog org membership
             # then 2 for inserting person in test setup
             response = self.client.get("/api/element/stats/").json()
         self.assertEqual(response["results"][0]["count"], 2)
