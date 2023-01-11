@@ -117,6 +117,7 @@ projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags",
 router.register(r"login", authentication.LoginViewSet)
 router.register(r"login/precheck", authentication.LoginPrecheckViewSet)
 router.register(r"reset", authentication.PasswordResetViewSet, "password_reset")
+router.register(r"verify", authentication.RequestVerifyEmailViewSet, "verify_email")
 router.register(r"users", user.UserViewSet)
 router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "personal_api_keys")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")

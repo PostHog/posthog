@@ -292,3 +292,35 @@ class VerifyEmailViewSet(NonCreatingViewSetMixin, mixins.RetrieveModelMixin, vie
         response = super().retrieve(request, *args, **kwargs)
         response.status_code = self.SUCCESS_STATUS_CODE
         return response
+
+
+class RequestVerifyEmailSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField(write_only=True)
+
+    def create(self, validated_data):
+        uuid = validated_data.pop("uuid")
+
+        if not is_email_available():
+            raise serializers.ValidationError(
+                "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",
+                code="email_not_available",
+            )
+
+        try:
+            user = User.objects.filter(is_active=True).get(uuid=uuid)
+        except User.DoesNotExist:
+            user = None
+
+        if user:
+            send_email_verification(user.id)
+
+        # TODO: Limit number of requests for verification emails
+
+        return True
+
+
+class RequestVerifyEmailViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
+    queryset = User.objects.none()
+    serializer_class = RequestVerifyEmailSerializer
+    permission_classes = (permissions.AllowAny,)
+    SUCCESS_STATUS_CODE = status.HTTP_204_NO_CONTENT

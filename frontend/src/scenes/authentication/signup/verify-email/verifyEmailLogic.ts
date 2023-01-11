@@ -20,6 +20,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
     actions({
         setView: (view: 'verify' | 'pending' | 'invalid' | null) => ({ view }),
         setUuid: (uuid: string | null) => ({ uuid }),
+        requestVerificationLink: (uuid: string) => ({ uuid }),
     }),
     loaders(({}) => ({
         validatedEmailToken: [
@@ -32,6 +33,19 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                         return { success: true, token, uuid }
                     } catch (e: any) {
                         return { success: false, errorCode: e.code, errorDetail: e.detail }
+                    }
+                },
+            },
+        ],
+        newlyRequestedVerificationLink: [
+            null as boolean | null,
+            {
+                requestVerificationLink: async ({ uuid }: { uuid: string }) => {
+                    try {
+                        await api.create(`api/verify/`, { uuid })
+                        return true
+                    } catch (e: any) {
+                        return false
                     }
                 },
             },
