@@ -33,7 +33,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { userLogic } from 'scenes/userLogic'
-import { createPerformanceSummaryEvents } from 'scenes/session-recordings/player/inspector/v2/utils'
+import { createPerformanceSummaryEvents } from './inspector/v2/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 

@@ -28,6 +28,7 @@ const performanceSummaryCards = [
             </div>
         ),
         key: 'first_contentful_paint',
+        scoreBenchmarks: [1800, 3000],
     },
     {
         label: 'Time to Interactive',
@@ -41,6 +42,7 @@ const performanceSummaryCards = [
             </div>
         ),
         key: 'time_to_interactive',
+        scoreBenchmarks: [3800, 7300],
     },
     {
         label: 'Total Blocking Time',
@@ -55,8 +57,22 @@ const performanceSummaryCards = [
             </div>
         ),
         key: 'total_blocking_time',
+        scoreBenchmarks: [200, 600],
     },
 ]
+
+function renderTimeBenchmark(milliseconds: number): JSX.Element {
+    return (
+        <span
+            className={clsx('font-semibold', {
+                'text-danger-dark': milliseconds >= 2000,
+                'text-warning-dark': milliseconds >= 500 && milliseconds < 2000,
+            })}
+        >
+            {humanFriendlyMilliseconds(milliseconds)}
+        </span>
+    )
+}
 
 export function ItemPerformanceEvent({
     item,
@@ -114,7 +130,7 @@ export function ItemPerformanceEvent({
                     {item.entry_type === 'performance-summary' ? (
                         <>
                             <div className="flex items-center p-2">
-                                {performanceSummaryCards.map(({ label, description, key }, index) => (
+                                {performanceSummaryCards.map(({ label, description, key, scoreBenchmarks }, index) => (
                                     <Fragment key={key}>
                                         {index !== 0 && <LemonDivider vertical dashed />}
                                         <div className="flex-1 p-2 text-center">
@@ -125,7 +141,20 @@ export function ItemPerformanceEvent({
                                                 </Tooltip>
                                             </div>
                                             <div className="text-lg">
-                                                {item?.[key] === undefined ? '-' : humanFriendlyMilliseconds(item[key])}
+                                                {item?.[key] === undefined ? (
+                                                    '-'
+                                                ) : (
+                                                    <span
+                                                        className={clsx({
+                                                            'text-danger-dark': item[key] >= scoreBenchmarks[1],
+                                                            'text-warning-dark':
+                                                                item[key] >= scoreBenchmarks[0] &&
+                                                                item[key] < scoreBenchmarks[1],
+                                                        })}
+                                                    >
+                                                        {humanFriendlyMilliseconds(item[key])}
+                                                    </span>
+                                                )}
                                             </div>
                                         </div>
                                     </Fragment>
@@ -137,41 +166,20 @@ export function ItemPerformanceEvent({
                             <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
                                 Navigated to {eventName}
                             </span>
-                            <span
-                                className={clsx('font-semibold', {
-                                    'text-danger-dark': duration >= 2000,
-                                    'text-warning-dark': duration > 500 && duration < 2000,
-                                })}
-                            >
-                                {humanFriendlyMilliseconds(duration)}
-                            </span>
+                            {renderTimeBenchmark(duration)}
                         </div>
                     ) : item.entry_type === 'paint' ? (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
                             <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
                                 {capitalizeFirstLetter(eventName?.replace(/-/g, ' ') || '')}
-                            </span>
-                            <span
-                                className={clsx('font-semibold', {
-                                    'text-danger-dark': startTime >= 2000,
-                                    'text-warning-dark': startTime > 500 && startTime < 2000,
-                                })}
-                            >
-                                {humanFriendlyMilliseconds(startTime)}
-                            </span>
+                            </span>{' '}
+                            {renderTimeBenchmark(startTime)}
                         </div>
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
                             <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>{eventName}</span>
                             <span className={clsx('font-semibold')}>{bytes}</span>
-                            <span
-                                className={clsx('font-semibold', {
-                                    'text-danger-dark': duration >= 2000,
-                                    'text-warning-dark': duration > 500 && duration < 2000,
-                                })}
-                            >
-                                {humanFriendlyMilliseconds(duration)}
-                            </span>
+                            {renderTimeBenchmark(duration)}
                         </div>
                     )}
                 </div>
