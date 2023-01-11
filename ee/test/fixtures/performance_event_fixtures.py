@@ -15,6 +15,7 @@ def create_performance_event(
     window_id: str = "window_1",
     current_url: str = "https://posthog.com",
     timestamp: Optional[datetime] = None,
+    entry_type="resource",
     **kwargs,
 ) -> str:
     timestamp_str = cast_timestamp_or_now(timestamp)
@@ -28,7 +29,7 @@ def create_performance_event(
         "pageview_id": window_id,
         "current_url": current_url,
         "timestamp": timestamp_str,
-        "entry_type": "resource",
+        "entry_type": entry_type,
         "name": "https://posthog.com/static/js/1.0.0/PostHog.js",
     }
 

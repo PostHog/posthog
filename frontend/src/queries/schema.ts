@@ -44,6 +44,9 @@ export enum NodeKind {
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
 
+    /** Performance */
+    RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
+
     /** Used for insights that haven't been converted to the new query format yet */
     UnimplementedQuery = 'UnimplementedQuery',
 }
@@ -67,6 +70,9 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+    // Performance
+    | RecentPerformancePageViewNode
 
     // Misc
     | TimeToSeeDataSessionsQuery
@@ -161,10 +167,11 @@ export interface PersonsNode extends DataNode {
 
 // Data table node
 
+export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode
+    source: EventsNode | EventsQuery | PersonsNode | RecentPerformancePageViewNode
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -299,6 +306,11 @@ export interface TimeToSeeDataQuery extends DataNode {
     /** Session start time. Defaults to current time - 2 hours */
     sessionStart?: string
     sessionEnd?: string
+}
+
+export interface RecentPerformancePageViewNode extends DataNode {
+    kind: NodeKind.RecentPerformancePageViewNode
+    numberOfDays?: number // defaults to 7
 }
 
 export type InsightQueryNode =
