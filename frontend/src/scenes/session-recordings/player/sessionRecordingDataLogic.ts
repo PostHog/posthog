@@ -214,7 +214,7 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
             if (values.chunkPaginationIndex === 1) {
                 cache.firstPaintDurationRow = {
                     size: Object.keys(values.sessionPlayerSnapshotData.snapshotsByWindowId).length,
-                    duration: cache.snapshotsStartTime - performance.now(),
+                    duration: Math.round(performance.now() - cache.snapshotsStartTime),
                 }
 
                 actions.reportUsage(SessionRecordingUsageType.VIEWED)
