@@ -23,12 +23,7 @@ export const chartFilterLogic = kea<chartFilterLogicType>({
     key: keyForInsightLogicProps('new'),
     path: (key) => ['lib', 'components', 'ChartFilter', 'chartFilterLogic', key],
     connect: (props: InsightLogicProps) => ({
-        actions: [
-            insightLogic(props),
-            ['setFilters'],
-            insightDataLogic(props),
-            ['updateQuerySource', 'updateInsightFilter'],
-        ],
+        actions: [insightLogic(props), ['setFilters'], insightDataLogic(props), ['updateInsightFilter']],
         values: [insightLogic(props), ['filters'], insightDataLogic(props), ['querySource']],
     }),
 
