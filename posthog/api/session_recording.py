@@ -3,7 +3,7 @@ from typing import Any, List, cast
 
 import structlog
 from dateutil import parser
-from django.db.models import Prefetch, Count
+from django.db.models import Count, Prefetch
 from django.http import JsonResponse
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
