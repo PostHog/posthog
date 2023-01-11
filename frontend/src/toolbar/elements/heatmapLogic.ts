@@ -9,11 +9,14 @@ import { posthog } from '~/toolbar/posthog'
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { FilterType, PropertyOperator } from '~/types'
+import { PaginatedResponse } from 'lib/api'
 
 export const heatmapLogic = kea<heatmapLogicType>({
     path: ['toolbar', 'elements', 'heatmapLogic'],
     actions: {
-        getEvents: true,
+        getElementStats: (url?: string | null) => ({
+            url,
+        }),
         enableHeatmap: true,
         disableHeatmap: true,
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
@@ -27,16 +30,16 @@ export const heatmapLogic = kea<heatmapLogicType>({
             {
                 enableHeatmap: () => true,
                 disableHeatmap: () => false,
-                getEventsFailure: () => false,
+                getElementStatsFailure: () => false,
             },
         ],
         heatmapLoading: [
             false,
             {
-                getEvents: () => true,
-                getEventsSuccess: () => false,
-                getEventsFailure: () => false,
-                resetEvents: () => false,
+                getElementStats: () => true,
+                getElementStatsSuccess: () => false,
+                getElementStatsFailure: () => false,
+                resetElementStats: () => false,
             },
         ],
         showHeatmapTooltip: [
@@ -57,43 +60,72 @@ export const heatmapLogic = kea<heatmapLogicType>({
                 setHeatmapFilter: (_, { filter }) => filter,
             },
         ],
+        accumulatedElementStats: [
+            [] as ElementsEventType[],
+            {
+                getElementStatsSuccess: (state, { elementStats }) =>
+                    !!elementStats?.results?.length ? [...state, ...elementStats.results] : state,
+                resetElementStats: () => [],
+            },
+        ],
+        pagesLoaded: [
+            0,
+            {
+                getElementStatsSuccess: (state) => {
+                    return ++state
+                },
+                resetElementStatsSuccess: () => 0,
+            },
+        ],
     },
 
     loaders: ({ values }) => ({
-        events: [
-            [] as ElementsEventType[],
+        elementStats: [
+            null as PaginatedResponse<ElementsEventType> | null,
             {
-                resetEvents: () => [],
-                getEvents: async (_, breakpoint) => {
-                    const { href, wildcardHref } = currentPageLogic.values
-
-                    const params: Partial<FilterType> = {
-                        properties: [
-                            wildcardHref === href
-                                ? { key: '$current_url', value: href, operator: PropertyOperator.Exact }
-                                : {
-                                      key: '$current_url',
-                                      value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
-                                      operator: PropertyOperator.Regex,
-                                  },
-                        ],
-                        ...values.heatmapFilter,
+                resetElementStats: () => ({ results: [] }),
+                getElementStats: async ({ url }, breakpoint) => {
+                    if (url && values.pagesLoaded > 10) {
+                        posthog.capture('exceeded max page limit loading toolbar element stats pages', {
+                            pageNumber: values.pagesLoaded,
+                            nextURL: url,
+                        })
+                        return { next: undefined, results: [] } // stop paging
                     }
-                    const response = await toolbarFetch(`/api/element/stats/${encodeParams(params, '?')}`)
-                    const results = await response.json()
+
+                    const { href, wildcardHref } = currentPageLogic.values
+                    let defaultUrl: string = ''
+                    if (!url) {
+                        const params: Partial<FilterType> = {
+                            properties: [
+                                wildcardHref === href
+                                    ? { key: '$current_url', value: href, operator: PropertyOperator.Exact }
+                                    : {
+                                          key: '$current_url',
+                                          value: `^${wildcardHref.split('*').map(escapeRegex).join('.*')}$`,
+                                          operator: PropertyOperator.Regex,
+                                      },
+                            ],
+                            ...values.heatmapFilter,
+                        }
+                        defaultUrl = `/api/element/stats/${encodeParams(params, '?')}`
+                    }
+
+                    const response = await toolbarFetch(url || defaultUrl, 'GET', undefined, !!url)
 
                     if (response.status === 403) {
                         toolbarLogic.actions.authenticate()
-                        return []
+                        return { next: null, results: [] }
                     }
 
+                    const paginatedResults = await response.json()
                     breakpoint()
 
-                    if (!Array.isArray(results)) {
+                    if (!Array.isArray(paginatedResults.results)) {
                         throw new Error('Error loading HeatMap data!')
                     }
 
-                    return results
+                    return paginatedResults
                 },
             },
         ],
@@ -101,12 +133,12 @@ export const heatmapLogic = kea<heatmapLogicType>({
 
     selectors: {
         elements: [
-            (selectors) => [selectors.events, toolbarLogic.selectors.dataAttributes],
-            (events, dataAttributes) => {
+            (selectors) => [selectors.accumulatedElementStats, toolbarLogic.selectors.dataAttributes],
+            (elementStats, dataAttributes) => {
                 // cache all elements in shadow roots
                 const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
-                events.forEach((event) => {
+                elementStats.forEach((event) => {
                     let combinedSelector: string
                     let lastSelector: string | undefined
                     for (let i = 0; i < event.elements.length; i++) {
@@ -225,7 +257,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
     events: ({ actions, values, cache }) => ({
         afterMount() {
             if (values.heatmapEnabled) {
-                actions.getEvents()
+                actions.getElementStats()
             }
             cache.keyDownListener = (event: KeyboardEvent) => {
                 if (event.shiftKey && !values.shiftPressed) {
@@ -249,27 +281,35 @@ export const heatmapLogic = kea<heatmapLogicType>({
     listeners: ({ actions, values }) => ({
         [currentPageLogic.actionTypes.setHref]: () => {
             if (values.heatmapEnabled) {
-                actions.resetEvents()
-                actions.getEvents()
+                actions.resetElementStats()
+                actions.getElementStats()
             }
         },
         [currentPageLogic.actionTypes.setWildcardHref]: async (_, breakpoint) => {
             await breakpoint(100)
             if (values.heatmapEnabled) {
-                actions.resetEvents()
-                actions.getEvents()
+                actions.resetElementStats()
+                actions.getElementStats()
             }
         },
         enableHeatmap: () => {
-            actions.getEvents()
+            actions.getElementStats()
             posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: true })
         },
         disableHeatmap: () => {
-            actions.resetEvents()
+            actions.resetElementStats()
             actions.setShowHeatmapTooltip(false)
             posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
-        getEventsSuccess: () => {
+        getElementStatsSuccess: ({ elementStats }) => {
+            if (elementStats?.next) {
+                actions.getElementStats(elementStats.next)
+            } else {
+                posthog.capture('loaded every toolbar element stats pages', {
+                    pageNumber: values.pagesLoaded,
+                    finalPage: elementStats?.previous,
+                })
+            }
             actions.setShowHeatmapTooltip(true)
         },
         setShowHeatmapTooltip: async ({ showHeatmapTooltip }, breakpoint) => {
@@ -279,7 +319,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
             }
         },
         setHeatmapFilter: () => {
-            actions.getEvents()
+            actions.getElementStats()
         },
     }),
 })
