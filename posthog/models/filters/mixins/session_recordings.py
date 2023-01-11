@@ -1,9 +1,14 @@
 import json
 from typing import List, Optional
 
-from posthog.constants import PERSON_UUID_FILTER, SESSION_RECORDINGS_FILTER_IDS, SESSION_RECORDINGS_FILTER_TYPE_DURATION
+from posthog.constants import (
+    PERSON_UUID_FILTER,
+    SESSION_RECORDINGS_FILTER_EXCLUDE_PINNED,
+    SESSION_RECORDINGS_FILTER_IDS,
+    SESSION_RECORDINGS_FILTER_TYPE_DURATION,
+)
 from posthog.models.filters.mixins.common import BaseParamMixin
-from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.filters.mixins.utils import cached_property, process_bool
 from posthog.models.property import Property
 
 
@@ -21,6 +26,11 @@ class SessionRecordingsMixin(BaseParamMixin):
             filter_data = json.loads(duration_filter_data_str)
             return Property(**filter_data)
         return None
+
+    @cached_property
+    def exclude_pinned(self) -> Optional[bool]:
+        _exclude_pinned = self._data.get(SESSION_RECORDINGS_FILTER_EXCLUDE_PINNED, None)
+        return process_bool(_exclude_pinned)
 
     @cached_property
     def session_ids(self) -> Optional[List[str]]:

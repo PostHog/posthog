@@ -149,6 +149,7 @@ export interface OrganizationBasicType {
 interface OrganizationMetadata {
     taxonomy_set_events_count: number
     taxonomy_set_properties_count: number
+    instance_tag?: string
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -1397,6 +1398,8 @@ export interface PropertiesTimelineFilterType {
     actions?: Record<string, any>[] // EntitiesMixin
     aggregation_group_type_index?: number // GroupsAggregationMixin
     display?: ChartDisplayType // DisplayDerivedMixin
+    breakdown_type?: BreakdownType | null
+    breakdown?: BreakdownKeyType
 }
 
 export interface TrendsFilterType extends FilterType {

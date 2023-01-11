@@ -100,6 +100,7 @@ class DashboardTile(models.Model):
                 "insight__team",
             )
             .exclude(deleted=True)
+            .exclude(dashboard__deleted=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
         )

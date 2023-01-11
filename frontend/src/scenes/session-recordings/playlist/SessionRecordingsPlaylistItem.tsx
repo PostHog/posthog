@@ -108,7 +108,7 @@ export function SessionRecordingPlaylistItem({
                                 placement="topRight"
                                 title={`This recording is pinned on ${recording.pinned_count} playlists`}
                             >
-                                <IconPin className="text-xs text-orange" />
+                                <IconPin className="text-sm text-orange" />
                             </Tooltip>
                         )}
                         <div className="truncate font-medium text-primary ph-no-capture">

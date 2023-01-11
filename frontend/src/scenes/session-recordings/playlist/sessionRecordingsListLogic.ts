@@ -129,6 +129,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
+        loadAllRecordings: true,
         loadNext: true,
         loadPrev: true,
     }),
@@ -144,6 +145,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
+                        exclude_pinned: !!props.playlistShortId,
                     }
 
                     const params = toParams(paramsDict)
@@ -202,22 +204,19 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             [] as SessionRecordingType[],
             {
                 getSessionRecordingsSuccess: (_, { sessionRecordingsResponse }) => {
-                    return [...sessionRecordingsResponse.results]
+                    return [...(sessionRecordingsResponse?.results ?? [])]
                 },
-                setSelectedRecordingId: (prevSessionRecordings, { id }) => {
-                    return [
-                        ...prevSessionRecordings.map((s) => {
-                            if (s.id === id) {
-                                return {
-                                    ...s,
-                                    viewed: true,
-                                }
-                            } else {
-                                return { ...s }
+                setSelectedRecordingId: (prevSessionRecordings, { id }) =>
+                    prevSessionRecordings.map((s) => {
+                        if (s.id === id) {
+                            return {
+                                ...s,
+                                viewed: true,
                             }
-                        }),
-                    ]
-                },
+                        } else {
+                            return { ...s }
+                        }
+                    }),
             },
         ],
         selectedRecordingId: [
@@ -228,6 +227,10 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        loadAllRecordings: () => {
+            actions.getSessionRecordings({})
+            actions.loadPinnedRecordings({})
+        },
         setFilters: () => {
             actions.getSessionRecordings({})
         },

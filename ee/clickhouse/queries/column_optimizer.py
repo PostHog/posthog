@@ -43,7 +43,7 @@ class EnterpriseColumnOptimizer(FOSSColumnOptimizer):
         "Returns collection of properties + types that this query would use"
         counter: TCounter[PropertyIdentifier] = extract_tables_and_properties(self.filter.property_groups.flat)
 
-        if not isinstance(self.filter, (StickinessFilter, PropertiesTimelineFilter)):
+        if not isinstance(self.filter, StickinessFilter):
             # Some breakdown types read properties
             #
             # See ee/clickhouse/queries/trends/breakdown.py#get_query or

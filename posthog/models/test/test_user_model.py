@@ -37,6 +37,7 @@ class TestUser(BaseTest):
                     "has_social_auth": False,
                     "social_providers": [],
                     "instance_url": "http://localhost:8000",
+                    "instance_tag": "none",
                 },
             )
 
@@ -70,5 +71,6 @@ class TestUser(BaseTest):
                     "has_social_auth": False,
                     "social_providers": [],
                     "instance_url": "http://localhost:8000",
+                    "instance_tag": "none",
                 },
             )

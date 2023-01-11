@@ -20,7 +20,7 @@ from posthog.models.cohort import Cohort
 from posthog.models.feature_flag import (
     FeatureFlagMatcher,
     can_user_edit_feature_flag,
-    get_active_feature_flags,
+    get_all_feature_flags,
     get_user_blast_radius,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -319,7 +319,7 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons = get_active_feature_flags(self.team_id, distinct_id, groups)
+        flags, reasons = get_all_feature_flags(self.team_id, distinct_id, groups)
 
         flags_with_evaluation_reasons = {}
 
