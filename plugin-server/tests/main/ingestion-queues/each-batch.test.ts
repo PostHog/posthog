@@ -45,6 +45,18 @@ const captureEndpointEvent = {
     sent_at: null,
 }
 
+const pipelineEvent = {
+    distinct_id: 'id',
+    event: 'event',
+    properties: {},
+    ip: null,
+    now: null,
+    sent_at: null,
+    site_url: null,
+    team_id: 1,
+    uuid: 'uuid1',
+}
+
 describe('eachBatchX', () => {
     let queue: any
 
@@ -134,17 +146,7 @@ describe('eachBatchX', () => {
             const batch = createBatch(captureEndpointEvent)
             await eachBatchIngestion(batch, queue)
 
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
-                distinct_id: 'id',
-                event: 'event',
-                properties: {},
-                ip: null,
-                now: null,
-                sent_at: null,
-                site_url: null,
-                team_id: 1,
-                uuid: 'uuid1',
-            })
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith(pipelineEvent)
             expect(queue.pluginsServer.statsd.timing).toHaveBeenCalledWith(
                 'kafka_queue.each_batch_ingestion',
                 expect.any(Date)
@@ -156,16 +158,16 @@ describe('eachBatchX', () => {
             const batch = createBatchWithMultipleEvents([
                 captureEndpointEvent,
                 { ...captureEndpointEvent, team_id: 3 },
-                { ...captureEndpointEvent, team_id: 3 },
                 { ...captureEndpointEvent, team_id: 3, event: '$snapshot' },
                 { ...captureEndpointEvent, team_id: 5 },
-                { ...captureEndpointEvent, team_id: 5 },
-                { ...captureEndpointEvent, team_id: 5, event: '$snapshot' },
                 { ...captureEndpointEvent, team_id: 5, event: '$snapshot' },
             ])
             await eachBatchIngestion(batch, queue)
 
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(5)
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(3)
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith(pipelineEvent)
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({ ...pipelineEvent, team_id: 3 })
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({ ...pipelineEvent, team_id: 5 })
         })
 
         it('drops events if specified', async () => {
@@ -174,11 +176,16 @@ describe('eachBatchX', () => {
                 captureEndpointEvent,
                 { ...captureEndpointEvent, team_id: 3 },
                 { ...captureEndpointEvent, team_id: 3, event: '$snapshot' },
-                { ...captureEndpointEvent, team_id: 3, event: '$snapshot' },
             ])
             await eachBatchIngestion(batch, queue)
 
-            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(3)
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(2)
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith(pipelineEvent)
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledWith({
+                ...pipelineEvent,
+                team_id: 3,
+                event: '$snapshot',
+            })
         })
 
         it('breaks up by teamId:distinctId for enabled teams', async () => {
