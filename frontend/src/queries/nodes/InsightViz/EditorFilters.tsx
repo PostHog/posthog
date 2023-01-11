@@ -5,7 +5,14 @@ import { useValues } from 'kea'
 import { QueryInsightEditorFilterGroup, QueryInsightEditorFilter, QueryEditorFilterProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { isFunnelsQuery, isLifecycleQuery } from '~/queries/utils'
+import {
+    isTrendsQuery,
+    isFunnelsQuery,
+    isRetentionQuery,
+    isPathsQuery,
+    isStickinessQuery,
+    isLifecycleQuery,
+} from '~/queries/utils'
 import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
@@ -18,10 +25,17 @@ export interface EditorFiltersProps {
 }
 
 export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Element {
-    const isFunnels = isFunnelsQuery(query)
-    const isLifecycle = isLifecycleQuery(query)
     const showFilters = true // TODO: implement with insightVizLogic
-    const isTrendsLike = true
+
+    const isTrends = isTrendsQuery(query)
+    const isFunnels = isFunnelsQuery(query)
+    const isRetention = isRetentionQuery(query)
+    const isPaths = isPathsQuery(query)
+    const isStickiness = isStickinessQuery(query)
+    const isLifecycle = isLifecycleQuery(query)
+
+    const isTrendsLike = isTrends || isLifecycle || isStickiness
+    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
 
@@ -61,6 +75,15 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                           label: 'Lifecycle Toggles',
                           position: 'right',
                           component: LifecycleToggles as (props: QueryEditorFilterProps) => JSX.Element | null,
+                      }
+                    : null,
+                hasPropertyFilters
+                    ? {
+                          key: 'properties',
+                          label: 'Filters',
+                          position: 'right',
+                          //   component: GlobalAndOrFilters,
+                          component: () => <div>GlobalAndOrFilters</div>,
                       }
                     : null,
             ]),
