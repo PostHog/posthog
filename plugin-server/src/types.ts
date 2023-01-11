@@ -161,6 +161,8 @@ export interface PluginsServerConfig extends Record<string, any> {
     APP_METRICS_GATHERED_FOR_ALL: boolean
     MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: number
     USE_KAFKA_FOR_SCHEDULED_TASKS: boolean
+    DROP_EVENTS_TEAMS: string
+    DROP_SNAPSHOTS_TEAMS: string
 }
 
 export interface Hub extends PluginsServerConfig {
@@ -204,6 +206,8 @@ export interface Hub extends PluginsServerConfig {
     lastActivityType: string
     statelessVms: StatelessVmMap
     conversionBufferEnabledTeams: Set<number>
+    dropSnapshotsTeams: Set<number>
+    dropEventsTeams: Set<number>
 }
 
 export interface PluginServerCapabilities {

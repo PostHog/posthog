@@ -105,6 +105,8 @@ export function getDefaultConfig(): PluginsServerConfig {
         APP_METRICS_GATHERED_FOR_ALL: isDevEnv() ? true : false,
         MAX_TEAM_ID_TO_BUFFER_ANONYMOUS_EVENTS_FOR: 0,
         USE_KAFKA_FOR_SCHEDULED_TASKS: true,
+        DROP_EVENTS_TEAMS: '',
+        DROP_SNAPSHOTS_TEAMS: '',
     }
 }
 
