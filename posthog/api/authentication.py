@@ -15,10 +15,11 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from social_django.views import auth
 
+from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.models import OrganizationDomain, User
-from posthog.tasks.email import send_password_reset
+from posthog.tasks.email import send_email_verification, send_password_reset
 from posthog.utils import get_instance_available_sso_providers
 
 
@@ -87,6 +88,14 @@ class LoginSerializer(serializers.Serializer):
 
         if not user:
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
+
+        # TODO: Put this behind a feature flag for release
+        if is_cloud() and not user.is_verified:
+            send_email_verification(user.id)
+            raise serializers.ValidationError(
+                "Your account awaiting verification. Please check your email for a verification link.",
+                code="not_verified",
+            )
 
         login(request, user, backend="django.contrib.auth.backends.ModelBackend")
         report_user_logged_in(user, social_provider="")
