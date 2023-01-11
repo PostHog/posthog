@@ -39,7 +39,6 @@ specifiers:
   '@testing-library/jest-dom': ^5.16.2
   '@testing-library/react': ^12.1.2
   '@testing-library/user-event': ^13.5.0
-  '@types/chart.js': ^2.9.34
   '@types/chartjs-plugin-crosshair': ^1.1.1
   '@types/clone': ^2.1.1
   '@types/d3': ^7.0.0
@@ -305,7 +304,6 @@ devDependencies:
   '@testing-library/jest-dom': 5.16.5
   '@testing-library/react': 12.1.5_wcqkhtmu7mswc6yz4uyexck3ty
   '@testing-library/user-event': 13.5.0_aaq3sbffpfe3jnxzm2zngsddei
-  '@types/chart.js': 2.9.37
   '@types/chartjs-plugin-crosshair': 1.1.1
   '@types/clone': 2.1.1
   '@types/d3': 7.4.0
