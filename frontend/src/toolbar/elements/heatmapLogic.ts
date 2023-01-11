@@ -11,6 +11,17 @@ import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { FilterType, PropertyOperator } from '~/types'
 import { PaginatedResponse } from 'lib/api'
 
+export interface ElementStatsPages extends PaginatedResponse<ElementsEventType> {
+    pagesLoaded: number
+}
+
+const emptyElementsStatsPages: ElementStatsPages = {
+    next: undefined,
+    previous: undefined,
+    results: [],
+    pagesLoaded: 0,
+}
+
 export const heatmapLogic = kea<heatmapLogicType>({
     path: ['toolbar', 'elements', 'heatmapLogic'],
     actions: {
@@ -60,37 +71,20 @@ export const heatmapLogic = kea<heatmapLogicType>({
                 setHeatmapFilter: (_, { filter }) => filter,
             },
         ],
-        accumulatedElementStats: [
-            [] as ElementsEventType[],
-            {
-                getElementStatsSuccess: (state, { elementStats }) =>
-                    !!elementStats?.results?.length ? [...state, ...elementStats.results] : state,
-                resetElementStats: () => [],
-            },
-        ],
-        pagesLoaded: [
-            0,
-            {
-                getElementStatsSuccess: (state) => {
-                    return ++state
-                },
-                resetElementStatsSuccess: () => 0,
-            },
-        ],
     },
 
     loaders: ({ values }) => ({
         elementStats: [
-            null as PaginatedResponse<ElementsEventType> | null,
+            null as ElementStatsPages | null,
             {
-                resetElementStats: () => ({ results: [] }),
+                resetElementStats: () => emptyElementsStatsPages,
                 getElementStats: async ({ url }, breakpoint) => {
-                    if (url && values.pagesLoaded > 10) {
+                    if (url && (values.elementStats?.pagesLoaded || 0) > 10) {
                         posthog.capture('exceeded max page limit loading toolbar element stats pages', {
-                            pageNumber: values.pagesLoaded,
+                            pageNumber: values.elementStats?.pagesLoaded || 0,
                             nextURL: url,
                         })
-                        return { next: undefined, results: [] } // stop paging
+                        return { ...values.elementStats, next: undefined } as ElementStatsPages // stop paging
                     }
 
                     const { href, wildcardHref } = currentPageLogic.values
@@ -115,7 +109,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
 
                     if (response.status === 403) {
                         toolbarLogic.actions.authenticate()
-                        return { next: null, results: [] }
+                        return emptyElementsStatsPages
                     }
 
                     const paginatedResults = await response.json()
@@ -125,7 +119,12 @@ export const heatmapLogic = kea<heatmapLogicType>({
                         throw new Error('Error loading HeatMap data!')
                     }
 
-                    return paginatedResults
+                    return {
+                        results: [...(values.elementStats?.results || []), ...paginatedResults.results],
+                        next: paginatedResults.next,
+                        previous: paginatedResults.previous,
+                        pagesLoaded: (values.elementStats?.pagesLoaded || 0) + 1,
+                    } as ElementStatsPages
                 },
             },
         ],
@@ -133,12 +132,12 @@ export const heatmapLogic = kea<heatmapLogicType>({
 
     selectors: {
         elements: [
-            (selectors) => [selectors.accumulatedElementStats, toolbarLogic.selectors.dataAttributes],
+            (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes],
             (elementStats, dataAttributes) => {
                 // cache all elements in shadow roots
                 const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
-                elementStats.forEach((event) => {
+                elementStats?.results.forEach((event) => {
                     let combinedSelector: string
                     let lastSelector: string | undefined
                     for (let i = 0; i < event.elements.length; i++) {
@@ -306,7 +305,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                 actions.getElementStats(elementStats.next)
             } else {
                 posthog.capture('loaded every toolbar element stats pages', {
-                    pageNumber: values.pagesLoaded,
+                    pageNumber: elementStats?.pagesLoaded,
                     finalPage: elementStats?.previous,
                 })
             }
