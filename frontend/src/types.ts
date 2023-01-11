@@ -896,8 +896,6 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
-    /** List of static playlists that this recording is referenced on */
-    playlists?: SessionRecordingPlaylistType['id'][]
     click_count?: number
     keypress_count?: number
     start_url?: string

@@ -3,7 +3,7 @@ from typing import Any, List, cast
 
 import structlog
 from dateutil import parser
-from django.db.models import Prefetch
+from django.db.models import Prefetch, Count
 from django.http import JsonResponse
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -112,7 +112,6 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
 
         recording.load_person()
         recording.check_viewed_for_user(request.user, save_viewed=request.GET.get("save_view") is not None)
-        recording.load_pinned_count()
 
         serializer = SessionRecordingSerializer(recording)
 
@@ -210,7 +209,7 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
         persisted_recordings_queryset = (
             SessionRecording.objects.filter(team=team, session_id__in=all_session_ids)
             .exclude(object_storage_path=None)
-            .prefetch_related("playlist_items")
+            .annotate(pinned_count=Count("playlist_items"))
         )
 
         persisted_recordings = persisted_recordings_queryset.all()
@@ -253,7 +252,6 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     for recording in recordings:
         recording.viewed = recording.session_id in viewed_session_recordings
         recording.person = distinct_id_to_person.get(recording.distinct_id)
-        recording.pinned_count = (recording.playlist_items and recording.playlist_items.count()) or 0
 
     session_recording_serializer = SessionRecordingSerializer(recordings, many=True)
     results = session_recording_serializer.data

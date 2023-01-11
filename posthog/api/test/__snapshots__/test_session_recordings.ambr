@@ -85,13 +85,36 @@
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.12
   '
+  SELECT "posthog_sessionrecording"."id",
+         "posthog_sessionrecording"."session_id",
+         "posthog_sessionrecording"."team_id",
+         "posthog_sessionrecording"."created_at",
+         "posthog_sessionrecording"."deleted",
+         "posthog_sessionrecording"."object_storage_path",
+         "posthog_sessionrecording"."distinct_id",
+         "posthog_sessionrecording"."duration",
+         "posthog_sessionrecording"."start_time",
+         "posthog_sessionrecording"."end_time",
+         "posthog_sessionrecording"."click_count",
+         "posthog_sessionrecording"."keypress_count",
+         "posthog_sessionrecording"."start_url",
+         COUNT("posthog_sessionrecordingplaylistitem"."id") AS "pinned_count"
+  FROM "posthog_sessionrecording"
+  LEFT OUTER JOIN "posthog_sessionrecordingplaylistitem" ON ("posthog_sessionrecording"."session_id" = "posthog_sessionrecordingplaylistitem"."recording_id")
+  WHERE ("posthog_sessionrecording"."session_id" IN ('1')
+         AND "posthog_sessionrecording"."team_id" = 2)
+  GROUP BY "posthog_sessionrecording"."id" /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  '
+---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.13
+  '
   SELECT "posthog_sessionrecordingviewed"."session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 2
          AND "posthog_sessionrecordingviewed"."user_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.13
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.14
   '
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -114,7 +137,7 @@
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.14
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.15
   '
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -129,7 +152,7 @@
                                                    5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.15
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.16
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -173,7 +196,7 @@
   LIMIT 21
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.16
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.17
   '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -199,7 +222,7 @@
   LIMIT 21 /**/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.17
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.18
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -236,7 +259,7 @@
   LIMIT 21 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.18
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.19
   '
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -263,17 +286,6 @@
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
   LIMIT 21 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
-  '
----
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.19
-  '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:AGGREGATE_BY_DISTINCT_IDS_TEAMS'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.2
@@ -311,12 +323,47 @@
          "posthog_instancesetting"."key",
          "posthog_instancesetting"."raw_value"
   FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:MATERIALIZED_COLUMNS_ENABLED'
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:AGGREGATE_BY_DISTINCT_IDS_TEAMS'
   ORDER BY "posthog_instancesetting"."id" ASC
   LIMIT 1 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.21
+  '
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:MATERIALIZED_COLUMNS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  '
+---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.22
+  '
+  SELECT "posthog_sessionrecording"."id",
+         "posthog_sessionrecording"."session_id",
+         "posthog_sessionrecording"."team_id",
+         "posthog_sessionrecording"."created_at",
+         "posthog_sessionrecording"."deleted",
+         "posthog_sessionrecording"."object_storage_path",
+         "posthog_sessionrecording"."distinct_id",
+         "posthog_sessionrecording"."duration",
+         "posthog_sessionrecording"."start_time",
+         "posthog_sessionrecording"."end_time",
+         "posthog_sessionrecording"."click_count",
+         "posthog_sessionrecording"."keypress_count",
+         "posthog_sessionrecording"."start_url",
+         COUNT("posthog_sessionrecordingplaylistitem"."id") AS "pinned_count"
+  FROM "posthog_sessionrecording"
+  LEFT OUTER JOIN "posthog_sessionrecordingplaylistitem" ON ("posthog_sessionrecording"."session_id" = "posthog_sessionrecordingplaylistitem"."recording_id")
+  WHERE ("posthog_sessionrecording"."session_id" IN ('1',
+                                                     '2')
+         AND "posthog_sessionrecording"."team_id" = 2)
+  GROUP BY "posthog_sessionrecording"."id" /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  '
+---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.23
   '
   SELECT "posthog_sessionrecordingviewed"."session_id"
   FROM "posthog_sessionrecordingviewed"
@@ -324,7 +371,7 @@
          AND "posthog_sessionrecordingviewed"."user_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.22
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.24
   '
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -343,12 +390,12 @@
          "posthog_person"."version"
   FROM "posthog_persondistinctid"
   INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
-                                                      'user')
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user',
+                                                      'user2')
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.23
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.25
   '
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -363,7 +410,7 @@
                                                    5 /* ... */) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.24
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.26
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -407,7 +454,7 @@
   LIMIT 21
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.25
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.27
   '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -433,7 +480,7 @@
   LIMIT 21 /**/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.26
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.28
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -470,7 +517,7 @@
   LIMIT 21 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.27
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.29
   '
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -499,28 +546,6 @@
   LIMIT 21 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.28
-  '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:AGGREGATE_BY_DISTINCT_IDS_TEAMS'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
-  '
----
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.29
-  '
-  SELECT "posthog_instancesetting"."id",
-         "posthog_instancesetting"."key",
-         "posthog_instancesetting"."raw_value"
-  FROM "posthog_instancesetting"
-  WHERE "posthog_instancesetting"."key" = 'constance:posthog:MATERIALIZED_COLUMNS_ENABLED'
-  ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
-  '
----
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.3
   '
   SELECT "posthog_instancesetting"."id",
@@ -534,13 +559,60 @@
 ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.30
   '
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:AGGREGATE_BY_DISTINCT_IDS_TEAMS'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  '
+---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.31
+  '
+  SELECT "posthog_instancesetting"."id",
+         "posthog_instancesetting"."key",
+         "posthog_instancesetting"."raw_value"
+  FROM "posthog_instancesetting"
+  WHERE "posthog_instancesetting"."key" = 'constance:posthog:MATERIALIZED_COLUMNS_ENABLED'
+  ORDER BY "posthog_instancesetting"."id" ASC
+  LIMIT 1 /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  '
+---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.32
+  '
+  SELECT "posthog_sessionrecording"."id",
+         "posthog_sessionrecording"."session_id",
+         "posthog_sessionrecording"."team_id",
+         "posthog_sessionrecording"."created_at",
+         "posthog_sessionrecording"."deleted",
+         "posthog_sessionrecording"."object_storage_path",
+         "posthog_sessionrecording"."distinct_id",
+         "posthog_sessionrecording"."duration",
+         "posthog_sessionrecording"."start_time",
+         "posthog_sessionrecording"."end_time",
+         "posthog_sessionrecording"."click_count",
+         "posthog_sessionrecording"."keypress_count",
+         "posthog_sessionrecording"."start_url",
+         COUNT("posthog_sessionrecordingplaylistitem"."id") AS "pinned_count"
+  FROM "posthog_sessionrecording"
+  LEFT OUTER JOIN "posthog_sessionrecordingplaylistitem" ON ("posthog_sessionrecording"."session_id" = "posthog_sessionrecordingplaylistitem"."recording_id")
+  WHERE ("posthog_sessionrecording"."session_id" IN ('1',
+                                                     '3',
+                                                     '2')
+         AND "posthog_sessionrecording"."team_id" = 2)
+  GROUP BY "posthog_sessionrecording"."id" /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
+  '
+---
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.33
+  '
   SELECT "posthog_sessionrecordingviewed"."session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 2
          AND "posthog_sessionrecordingviewed"."user_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.31
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.34
   '
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",
@@ -559,13 +631,13 @@
          "posthog_person"."version"
   FROM "posthog_persondistinctid"
   INNER JOIN "posthog_person" ON ("posthog_persondistinctid"."person_id" = "posthog_person"."id")
-  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user2',
+  WHERE ("posthog_persondistinctid"."distinct_id" IN ('user',
                                                       'user3',
-                                                      'user')
+                                                      'user2')
          AND "posthog_persondistinctid"."team_id" = 2) /*controller='project_session_recordings-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/session_recordings/%3F%24'*/
   '
 ---
-# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.32
+# name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons.35
   '
   SELECT "posthog_persondistinctid"."id",
          "posthog_persondistinctid"."team_id",

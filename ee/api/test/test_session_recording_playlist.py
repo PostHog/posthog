@@ -254,18 +254,12 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         )
         assert playlist_item is not None
 
-        session_recording_obj_1 = SessionRecording.objects.filter(
-            team_id=self.team.id, session_id=recording1_session_id
-        ).first()
-        assert session_recording_obj_1 is not None
-        session_recording_obj_1.load_pinned_count()
+        session_recording_obj_1 = SessionRecording.get_or_build(team=self.team, session_id=recording1_session_id)
+        assert session_recording_obj_1
         assert session_recording_obj_1.pinned_count == 1
 
-        session_recording_obj_2 = SessionRecording.objects.filter(
-            team_id=self.team.id, session_id=recording2_session_id
-        ).first()
-        assert session_recording_obj_2 is not None
-        session_recording_obj_2.load_pinned_count()
+        session_recording_obj_2 = SessionRecording.get_or_build(team=self.team, session_id=recording2_session_id)
+        assert session_recording_obj_2
         assert session_recording_obj_2.pinned_count == 2
 
         # Delete playlist items

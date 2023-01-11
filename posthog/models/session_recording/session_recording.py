@@ -2,6 +2,7 @@ from typing import Any, List, Optional
 
 from django.db import models
 from django.dispatch import receiver
+from django.db.models import Count
 
 from posthog import settings
 from posthog.celery import ee_persist_single_recording
@@ -43,7 +44,7 @@ class SessionRecording(UUIDModel):
     viewed: Optional[bool] = False
     person: Optional[Person] = None
     matching_events: Optional[RecordingMatchingEvents] = None
-    pinned_count: Optional[int] = None
+    pinned_count: int = 0
 
     # Metadata can be loaded from Clickhouse or S3
     _metadata: Optional[RecordingMetadata] = None
@@ -142,13 +143,6 @@ class SessionRecording(UUIDModel):
     def storage(self):
         return "object_storage" if self.object_storage_path else "clickhouse"
 
-    def load_pinned_count(self):
-        if self.pinned_count is not None:
-            return self.pinned_count
-
-        self.pinned_count = self.playlist_items.count()
-        return self.pinned_count
-
     def load_person(self) -> Optional[Person]:
         if self.person:
             return self.person
@@ -184,7 +178,9 @@ class SessionRecording(UUIDModel):
     @staticmethod
     def get_or_build(session_id: str, team: Team) -> "SessionRecording":
         try:
-            return SessionRecording.objects.get(session_id=session_id, team=team)
+            return SessionRecording.objects.annotate(pinned_count=Count("playlist_items")).get(
+                session_id=session_id, team=team
+            )
         except SessionRecording.DoesNotExist:
             return SessionRecording(session_id=session_id, team=team)
 
@@ -194,7 +190,9 @@ class SessionRecording(UUIDModel):
 
         recordings_by_id = {
             recording.session_id: recording
-            for recording in SessionRecording.objects.filter(session_id__in=session_ids, team=team).all()
+            for recording in SessionRecording.objects.filter(session_id__in=session_ids, team=team)
+            .annotate(pinned_count=Count("playlist_items"))
+            .all()
         }
 
         recordings = []
@@ -214,6 +212,7 @@ class SessionRecording(UUIDModel):
             recordings.append(recording)
 
         return recordings
+
 
 @receiver(models.signals.post_save, sender=SessionRecording)
 def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
