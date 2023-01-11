@@ -62,7 +62,11 @@ export class IngestionConsumer {
         const topics = []
 
         if (this.pluginsServer.capabilities.ingestion) {
-            topics.push(this.ingestionTopic)
+            // TODO: separate consumer groups for ingestion and session
+            // recording events. At the time of writing we use a single consumer
+            // group, and largely the same code path, but this is mainly to keep
+            // the amount of changes to a minimum for now.
+            topics.push(this.ingestionTopic, this.sessionRecordingEvents)
         }
 
         if (this.pluginsServer.capabilities.processAsyncHandlers) {

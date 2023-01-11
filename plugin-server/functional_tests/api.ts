@@ -27,13 +27,14 @@ export const capture = async (
     token: string | null = null,
     sentAt: Date = new Date(),
     eventTime: Date = new Date(),
-    now: Date = new Date()
+    now: Date = new Date(),
+    topic = 'events_plugin_ingestion'
 ) => {
     // WARNING: this capture method is meant to simulate the ingestion of events
     // from the capture endpoint, but there is no guarantee that is is 100%
     // accurate.
     await producer.send({
-        topic: 'events_plugin_ingestion',
+        topic: topic,
         messages: [
             {
                 key: teamId ? teamId.toString() : '',

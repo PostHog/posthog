@@ -45,7 +45,7 @@ afterAll(async () => {
 })
 
 test.concurrent(
-    `session recording ingestion: snapshot captured, processed, ingested`,
+    `snapshot captured, processed, ingested via events_plugin_ingestion topic`,
     async () => {
         const teamId = await createTeam(postgres, organizationId)
         const distinctId = new UUIDT().toString()
@@ -55,6 +55,41 @@ test.concurrent(
             $session_id: '1234abc',
             $snapshot_data: 'yes way',
         })
+
+        await waitForExpect(async () => {
+            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+
+            // processEvent did not modify
+            expect(events[0].snapshot_data).toEqual('yes way')
+        })
+    },
+    20000
+)
+
+test.concurrent(
+    `snapshot captured, processed, ingested via session_recording_events topic`,
+    async () => {
+        const teamId = await createTeam(postgres, organizationId)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+
+        await capture(
+            producer,
+            teamId,
+            distinctId,
+            uuid,
+            '$snapshot',
+            {
+                $session_id: '1234abc',
+                $snapshot_data: 'yes way',
+            },
+            null,
+            new Date(),
+            new Date(),
+            new Date(),
+            'session_recording_events'
+        )
 
         await waitForExpect(async () => {
             const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
