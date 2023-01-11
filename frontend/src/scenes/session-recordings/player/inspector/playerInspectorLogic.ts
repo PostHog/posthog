@@ -255,7 +255,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             (miniFiltersByKey['performance-document']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'navigation'
+                            ['navigation', 'performance-summary'].includes(event.entry_type || '')
                         ) {
                             include = true
                         }

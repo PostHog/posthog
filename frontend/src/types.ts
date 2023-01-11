@@ -972,6 +972,11 @@ export interface PerformanceEvent {
     navigation_type?: string
     unload_event_end?: number
     unload_event_start?: number
+
+    // Performance summary fields calculated on frontend
+    first_contentful_paint?: number // https://web.dev/fcp/
+    time_to_interactive?: number // https://web.dev/tti/
+    total_blocking_time?: number // https://web.dev/tbt/
 }
 
 export interface CurrentBillCycleType {
