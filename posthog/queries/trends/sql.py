@@ -59,7 +59,7 @@ SELECT counts AS total,
     timestamp AS day_start
 FROM (
     SELECT
-        count(DISTINCT {aggregator}) AS total,
+        count(DISTINCT {aggregator}) AS counts,
         arrayJoin(
             arrayMap(
                 x -> {interval}(toDateTime(x, %(timezone)s)),
