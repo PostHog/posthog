@@ -60,14 +60,10 @@ export async function ingestEvent(
         ) {
             server.statsd?.increment('kafka_queue_ingest_event_hit', {
                 pipeline: 'droppedBadActor',
-                team_id: event.team_id.toString(),
-                isSnapshot: String(isSnapshot),
             })
         } else {
             server.statsd?.increment('kafka_queue_ingest_event_hit', {
                 pipeline: 'runEventPipeline',
-                team_id: event.team_id.toString(),
-                isSnapshot: String(isSnapshot),
             })
             // we've confirmed team_id exists so can assert event as PluginEvent
             await workerMethods.runEventPipeline(event as PluginEvent)
