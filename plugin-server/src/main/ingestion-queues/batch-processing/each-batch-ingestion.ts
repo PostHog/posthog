@@ -12,6 +12,7 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: Ingesti
 }
 
 export async function eachBatchIngestion(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
+    const snapshotMessages: KafkaMessage[] = []
     function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
         // Once we see a distinct ID we've already seen break up the batch
         const batches = []
@@ -19,6 +20,18 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
         let currentBatch: KafkaMessage[] = []
         for (const message of kafkaMessages) {
             const pluginEvent = formPipelineEvent(message)
+
+            // If we receive a $snaphot event on the events_plugin_ingestion
+            // pipeline, push to the session_recording_events topic instead. We
+            // already push to the session_recording_events topic from capture
+            // but on there may be in flight session recording events that we
+            // can divert there instead. We do this to avoid session recordings
+            // slowing down ingestion of events.
+            if (pluginEvent.event === '$snapshot') {
+                snapshotMessages.push(message)
+                continue
+            }
+
             const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
             if (currentBatch.length === batchSize || seenIds.has(seenKey)) {
                 seenIds.clear()
@@ -32,6 +45,24 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
             batches.push(currentBatch)
         }
         return batches
+    }
+
+    if (snapshotMessages.length) {
+        await queue.pluginsServer.kafkaProducer.producer.send({
+            topic: 'session_recording_events',
+            messages: snapshotMessages,
+        })
+    }
+
+    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
+}
+
+export async function eachBatchSessionRecordings(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
+    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], _: number): KafkaMessage[][] {
+        // We don't want to group session recordings into batches
+        // as session recordings do not need to be processed in order. We don't
+        // need to consider ordering within distinct id.
+        return [kafkaMessages]
     }
 
     await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
