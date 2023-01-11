@@ -28,7 +28,6 @@ def capture(recording: SessionRecording, event: str, properties: dict):
     """
 
     playlist_item = recording.playlist_items.select_related("playlist", "playlist__created_by").first()
-
     if playlist_item:
         posthoganalytics.capture(playlist_item.playlist.created_by.distinct_id, event, properties)
 
@@ -59,7 +58,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
 
     recording.load_metadata()
 
-    analytics_payload["metadata_load_time"] = (timezone.now() - start_time).total_seconds()
+    analytics_payload["metadata_load_time_seconds"] = (timezone.now() - start_time).total_seconds()
 
     if not recording.start_time or timezone.now() < recording.start_time + MINIMUM_AGE_FOR_RECORDING:
         # Recording is too recent to be persisted. We can save the metadata as it is still useful for querying but we can't move to S3 yet.
@@ -74,7 +73,7 @@ def persist_recording(recording_id: str, team_id: int) -> None:
     recording.load_snapshots(100_000)  # TODO: Paginate rather than hardcode a limit
     analytics_payload["snapshots_load_time_seconds"] = (
         timezone.now() - start_time
-    ).total_seconds() - analytics_payload["metadata_load_time"]
+    ).total_seconds() - analytics_payload["metadata_load_time_seconds"]
 
     content: PersistedRecordingV1 = {
         "version": "2022-12-22",
@@ -99,12 +98,12 @@ def persist_recording(recording_id: str, team_id: int) -> None:
         recording.save()
 
         analytics_payload["total_time_seconds"] = (timezone.now() - start_time).total_seconds()
-        capture(recording, "recording_persisted", analytics_payload)
+        capture(recording, "session recording persisted", analytics_payload)
 
         logger.info("Persisting recording: done!", recording_id=recording_id, team_id=team_id)
     except object_storage.ObjectStorageError as ose:
         capture_exception(ose)
-        capture(recording, "recording_persist_failed", analytics_payload)
+        capture(recording, "session recording persist failed", analytics_payload)
         logger.error(
             "session_recording.object-storage-error", recording_id=recording.session_id, exception=ose, exc_info=True
         )

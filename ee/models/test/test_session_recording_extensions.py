@@ -5,6 +5,8 @@ from freezegun import freeze_time
 
 from ee.models.session_recording_extensions import load_persisted_recording, persist_recording
 from posthog.models.session_recording.session_recording import SessionRecording
+from posthog.models.session_recording_playlist.session_recording_playlist import SessionRecordingPlaylist
+from posthog.models.session_recording_playlist_item.session_recording_playlist_item import SessionRecordingPlaylistItem
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
@@ -86,10 +88,24 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
     @patch("ee.models.session_recording_extensions.posthoganalytics.capture")
     def test_persist_tracks_correct_to_posthog(self, mock_capture):
         with freeze_time("2022-01-01T12:00:00Z"):
+            playlist = SessionRecordingPlaylist.objects.create(team=self.team, name="playlist", created_by=self.user)
             recording = SessionRecording.objects.create(team=self.team, session_id="s1")
+            SessionRecordingPlaylistItem.objects.create(playlist=playlist, recording=recording)
+
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=48))
             self.create_snapshot(recording.session_id, recording.created_at - timedelta(hours=46))
 
         persist_recording(recording.session_id, recording.team_id)
 
-        mock_capture.assert_called_once_with("")
+        assert mock_capture.call_args_list[0][0][0] == self.user.distinct_id
+        assert mock_capture.call_args_list[0][0][1] == "session recording persisted"
+
+        for x in [
+            "total_time_seconds",
+            "metadata_load_time_seconds",
+            "snapshots_load_time_seconds",
+            "content_size_in_bytes",
+            "compressed_size_in_bytes",
+        ]:
+            print(x)  # noqa T201
+            assert mock_capture.call_args_list[0][0][2][x] > 0

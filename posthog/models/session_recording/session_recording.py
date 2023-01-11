@@ -1,8 +1,8 @@
 from typing import Any, List, Optional
 
 from django.db import models
-from django.dispatch import receiver
 from django.db.models import Count
+from django.dispatch import receiver
 
 from posthog import settings
 from posthog.celery import ee_persist_single_recording
