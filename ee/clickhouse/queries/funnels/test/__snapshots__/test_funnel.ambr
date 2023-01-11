@@ -18,7 +18,7 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
-       AND e.person_id != toUUIDOrZero('')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -137,7 +137,7 @@
                                AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
-                               AND e.person_id != toUUIDOrZero('') ) events
+                               AND notEmpty(e.person_id) ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
@@ -1059,7 +1059,7 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
-       AND e.person_id != toUUIDOrZero('')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1178,7 +1178,7 @@
                                AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
-                               AND e.person_id != toUUIDOrZero('') ) events
+                               AND notEmpty(e.person_id) ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
@@ -1996,7 +1996,7 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
-       AND e.person_id != toUUIDOrZero('')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2115,7 +2115,7 @@
                                AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
                                AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
-                               AND e.person_id != toUUIDOrZero('') ) events
+                               AND notEmpty(e.person_id) ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))

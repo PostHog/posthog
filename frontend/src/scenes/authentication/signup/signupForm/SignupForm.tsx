@@ -8,11 +8,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { IconArrowLeft } from 'lib/components/icons'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
-import { SignupPanel1 } from './panels/control/SignupPanel1'
-import { SignupPanel1 as SignupPanel1Test } from './panels/test/SignupPanel1'
+import { SignupPanel1 } from './panels/SignupPanel1'
 import { SignupPanel2 } from './panels/SignupPanel2'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export const scene: SceneExport = {
     component: SignupForm,
@@ -25,7 +22,6 @@ export function SignupForm(): JSX.Element | null {
     const { isSignupPanel2Submitting, signupPanel2ManualErrors, panel } = useValues(signupLogic)
     const { setPanel } = useActions(signupLogic)
     const [showSpinner, setShowSpinner] = useState(true)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     useEffect(() => {
         setShowSpinner(true)
@@ -50,11 +46,7 @@ export function SignupForm(): JSX.Element | null {
                 </AlertMessage>
             )}
             {panel === 0 ? (
-                featureFlags[FEATURE_FLAGS.SOCIAL_AUTH_BUTTONS_EXPERIMENT] === 'test' ? (
-                    <SignupPanel1Test />
-                ) : (
-                    <SignupPanel1 />
-                )
+                <SignupPanel1 />
             ) : (
                 <>
                     <SignupPanel2 />

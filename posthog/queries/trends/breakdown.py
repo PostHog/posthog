@@ -172,7 +172,7 @@ class TrendsBreakdown:
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
-            "null_person_filter": f"AND e.person_id != toUUIDOrZero('')" if self.using_person_on_events else "",
+            "null_person_filter": f"AND notEmpty(e.person_id)" if self.using_person_on_events else "",
         }
 
         _params, _breakdown_filter_params = {}, {}

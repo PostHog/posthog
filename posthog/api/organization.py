@@ -1,10 +1,11 @@
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Union, cast
 
 from django.db.models import Model, QuerySet
 from django.shortcuts import get_object_or_404
 from rest_framework import exceptions, permissions, serializers, viewsets
 from rest_framework.request import Request
 
+from posthog import settings
 from posthog.api.shared import TeamBasicSerializer
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -118,10 +119,11 @@ class OrganizationSerializer(serializers.ModelSerializer):
         visible_teams = [team for team in teams if team["effective_membership_level"] is not None]
         return visible_teams
 
-    def get_metadata(self, instance: Organization) -> Dict[str, int]:
+    def get_metadata(self, instance: Organization) -> Dict[str, Union[str, int, object]]:
         output = {
             "taxonomy_set_events_count": 0,
             "taxonomy_set_properties_count": 0,
+            "instance_tag": settings.INSTANCE_TAG,
         }
 
         try:

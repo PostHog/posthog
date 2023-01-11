@@ -440,10 +440,16 @@ def clickhouse_mutation_count():
 
 @app.task(ignore_result=True)
 def clickhouse_clear_removed_data():
-    from posthog.models.async_deletion.delete import mark_deletions_done, run_event_table_deletions
+    from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+    from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 
-    mark_deletions_done()
-    run_event_table_deletions()
+    runner = AsyncEventDeletion()
+    runner.mark_deletions_done()
+    runner.run()
+
+    cohort_runner = AsyncCohortDeletion()
+    cohort_runner.mark_deletions_done()
+    cohort_runner.run()
 
 
 @app.task(ignore_result=True)

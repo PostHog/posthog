@@ -151,9 +151,7 @@ class LifecycleEventQuery(EventQuery):
 
         created_at_clause = "person.created_at" if not self._using_person_on_events else "person_created_at"
 
-        null_person_filter = (
-            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
-        )
+        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
         return (
             f"""

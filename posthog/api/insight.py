@@ -1,8 +1,9 @@
 import json
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Type, cast
+from typing import Any, Dict, List, Optional, Type, Union, cast
 
 import structlog
+from django.db import transaction
 from django.db.models import Count, Prefetch, QuerySet
 from django.db.models.query_utils import Q
 from django.http import HttpResponse
@@ -49,7 +50,14 @@ from posthog.decorators import cached_function
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.kafka_client.topics import KAFKA_METRICS_TIME_TO_SEE_DATA
 from posthog.models import DashboardTile, Filter, Insight, Team, User
-from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, load_activity, log_activity
+from posthog.models.activity_logging.activity_log import (
+    Change,
+    Detail,
+    changes_between,
+    describe_change,
+    load_activity,
+    log_activity,
+)
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters import RetentionFilter
@@ -135,12 +143,23 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
 
     def to_representation(self, instance):
         representation = super().to_representation(instance)
+
+        # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
+        # use the dashboard_tiles set to filter them
+        representation["dashboards"] = [
+            id for id in representation["dashboards"] if id in self._dashboard_tiles(instance)
+        ]
+
         filters = instance.dashboard_filters()
 
         if not filters.get("date_from"):
             filters.update({"date_from": f"-{DEFAULT_DATE_FROM_DAYS}d"})
         representation["filters"] = filters
         return representation
+
+    @lru_cache(maxsize=1)
+    def _dashboard_tiles(self, instance):
+        return [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
 
 
 class InsightSerializer(InsightBasicSerializer):
@@ -163,7 +182,7 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
         many=True,
         required=False,
-        queryset=Dashboard.objects.all(),
+        queryset=Dashboard.objects.exclude(deleted=True).all(),
     )
 
     class Meta:
@@ -248,8 +267,10 @@ class InsightSerializer(InsightBasicSerializer):
         return insight
 
     def update(self, instance: Insight, validated_data: Dict, **kwargs) -> Insight:
+        dashboards_before_change: List[Union[str, Dict]] = []
         try:
             before_update = Insight.objects.prefetch_related("tagged_items__tag", "dashboards").get(pk=instance.id)
+            dashboards_before_change = [describe_change(dt.dashboard) for dt in instance.dashboard_tiles.all()]
         except Insight.DoesNotExist:
             before_update = None
 
@@ -268,20 +289,50 @@ class InsightSerializer(InsightBasicSerializer):
 
         updated_insight = super().update(instance, validated_data)
 
-        changes = changes_between("Insight", previous=before_update, current=updated_insight)
-
-        log_insight_activity(
-            activity="updated",
-            insight=updated_insight,
-            insight_id=updated_insight.id,
-            insight_short_id=updated_insight.short_id,
-            organization_id=self.context["request"].user.current_organization_id,
-            team_id=self.context["team_id"],
-            user=self.context["request"].user,
-            changes=changes,
-        )
+        self._log_insight_update(before_update, dashboards_before_change, updated_insight)
 
         return updated_insight
+
+    def _log_insight_update(self, before_update, dashboards_before_change, updated_insight):
+        """
+        KLUDGE: Automatic detection of insight dashboard updates is flaky
+        This removes any detected update from the auto-detected changes
+        And adds in a synthetic change using data captured at the point dashboards are updated
+        """
+        detected_changes = [
+            c
+            for c in changes_between("Insight", previous=before_update, current=updated_insight)
+            if c.field != "dashboards"
+        ]
+        synthetic_dashboard_changes = self._synthetic_dashboard_changes(dashboards_before_change)
+        changes = detected_changes + synthetic_dashboard_changes
+
+        with transaction.atomic():
+            log_insight_activity(
+                activity="updated",
+                insight=updated_insight,
+                insight_id=updated_insight.id,
+                insight_short_id=updated_insight.short_id,
+                organization_id=self.context["request"].user.current_organization_id,
+                team_id=self.context["team_id"],
+                user=self.context["request"].user,
+                changes=changes,
+            )
+
+    def _synthetic_dashboard_changes(self, dashboards_before_change: List[Dict]) -> List[Change]:
+        artificial_dashboard_changes = self.context.get("after_dashboard_changes", [])
+        if artificial_dashboard_changes:
+            return [
+                Change(
+                    type="Insight",
+                    action="changed",
+                    field="dashboards",
+                    before=dashboards_before_change,
+                    after=artificial_dashboard_changes,
+                )
+            ]
+
+        return []
 
     def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
         old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.exclude(deleted=True).all()]
@@ -292,29 +343,30 @@ class InsightSerializer(InsightBasicSerializer):
 
         ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
         ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
-        # does this user have permission on dashboards to add... if they are restricted
-        # it will mean this dashboard becomes restricted because of the patch
         candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
         dashboard: Dashboard
         for dashboard in candidate_dashboards:
+            # does this user have permission on dashboards to add... if they are restricted
+            # it will mean this dashboard becomes restricted because of the patch
             if (
                 dashboard.get_effective_privilege_level(self.context["request"].user.id)
                 == Dashboard.PrivilegeLevel.CAN_VIEW
             ):
                 raise PermissionDenied(f"You don't have permission to add insights to dashboard: {dashboard.id}")
-        for dashboard in candidate_dashboards:
+
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
+
             tile, _ = DashboardTile.objects.get_or_create(insight=instance, dashboard=dashboard)
+
             if tile.deleted:
                 tile.deleted = False
                 tile.save()
 
         if ids_to_remove:
             DashboardTile.objects.filter(dashboard_id__in=ids_to_remove, insight=instance).update(deleted=True)
-        # also update dashboards set so activity log can detect the change
-        changes_to_apply = [d for d in dashboards if not d.deleted]
-        instance.dashboards.set(changes_to_apply, clear=True)
+
+        self.context["after_dashboard_changes"] = [describe_change(d) for d in dashboards if not d.deleted]
 
     def get_result(self, insight: Insight):
         return self.insight_result(insight).result
@@ -338,6 +390,14 @@ class InsightSerializer(InsightBasicSerializer):
 
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
+
+        # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
+        # when the list has been updated we can use that list to avoid refreshing from the DB
+        # the list is also filtered in the super InsightBasicSerializer
+        if self.context.get("after_dashboard_changes"):
+            representation["dashboards"] = [
+                described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
+            ]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
@@ -423,9 +483,13 @@ class InsightViewSet(
                     id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
                 ),
             ),
-            "dashboards__created_by",
-            "dashboards__team",
             "dashboards__team__organization",
+            Prefetch(
+                "dashboard_tiles",
+                queryset=DashboardTile.objects.exclude(deleted=True)
+                .exclude(dashboard__deleted=True)
+                .select_related("dashboard"),
+            ),
         )
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
