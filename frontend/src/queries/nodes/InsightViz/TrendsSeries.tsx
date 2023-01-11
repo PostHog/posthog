@@ -1,4 +1,3 @@
-// import { useActions, useValues } from 'kea'
 import { useValues, useActions } from 'kea'
 // import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
@@ -14,7 +13,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 // import { IconCalculate } from 'lib/components/icons'
 // import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 import { TrendsQuery, FunnelsQuery, LifecycleQuery } from '~/queries/schema'
-import { isLifecycleQuery, isUnimplementedQuery } from '~/queries/utils'
+import { isLifecycleQuery, isStickinessQuery, isTrendsQuery, isUnimplementedQuery } from '~/queries/utils'
 import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 
@@ -29,7 +28,6 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
     const dataLogic = insightDataLogic(insightProps)
     const { querySource } = useValues(dataLogic)
     const { updateQuerySource } = useActions(dataLogic)
-    // const { setFilters } = useActions(trendsLogic(insightProps))
     // const { filters, isFormulaOn } = useValues(trendsLogic(insightProps))
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
@@ -40,7 +38,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        // ...(isTrendsFilter(filters) ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrendsQuery(querySource) ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
 
     if (isUnimplementedQuery(querySource)) {
@@ -58,6 +56,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
             <ActionFilter
                 filters={filters}
                 setFilters={(payload: Partial<FilterType>): void => {
+                    console.log('setFilters...: ', (payload as any).events[0])
                     updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as
                         | TrendsQuery
                         | FunnelsQuery
@@ -78,14 +77,13 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
                 //         ? 1
                 //         : alphabet.length
                 // }
-                mathAvailability={MathAvailability.None}
-                // mathAvailability={
-                //     isLifecycleFilter(filters)
-                //         ? MathAvailability.None
-                //         : isStickinessFilter(filters)
-                //         ? MathAvailability.ActorsOnly
-                //         : MathAvailability.All
-                // }
+                mathAvailability={
+                    isLifecycleQuery(querySource)
+                        ? MathAvailability.None
+                        : isStickinessQuery(querySource)
+                        ? MathAvailability.ActorsOnly
+                        : MathAvailability.All
+                }
                 propertiesTaxonomicGroupTypes={propertiesTaxonomicGroupTypes}
             />
         </>

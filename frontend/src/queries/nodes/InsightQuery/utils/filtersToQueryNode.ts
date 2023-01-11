@@ -22,23 +22,27 @@ export const actionsAndEventsToSeries = ({
     const series: any = [...(actions || []), ...(events || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
         // TODO: handle new_entity type
-        .map((f) =>
-            f.type === 'actions'
+        .map((f) => {
+            const shared = {
+                name: f.name || undefined,
+                custom_name: f.custom_name,
+                properties: f.properties,
+                math: f.math,
+                math_property: f.math_property,
+                math_group_type_index: f.math_group_type_index,
+            }
+            return f.type === 'actions'
                 ? {
                       kind: NodeKind.ActionsNode,
                       id: f.id,
-                      name: f.name || undefined,
-                      custom_name: f.custom_name,
-                      properties: f.properties,
+                      ...shared,
                   }
                 : {
                       kind: NodeKind.EventsNode,
                       event: f.id,
-                      name: f.name || undefined,
-                      custom_name: f.custom_name,
-                      properties: f.properties,
+                      ...shared,
                   }
-        )
+        })
 
     return series
 }
