@@ -127,7 +127,7 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = "/verify_email" if is_cloud() and not settings.DEMO else "/"
+        data["redirect_url"] = "/verify_email/" + data["uuid"] if is_cloud() and not settings.DEMO else "/"
         return data
 
 
