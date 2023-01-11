@@ -843,21 +843,23 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                             "key": "first-variant",
                             "name": "First Variant",
                             "rollout_percentage": 50,
-                            "payload": {"color": "blue"},
                         },
                         {
                             "key": "second-variant",
                             "name": "Second Variant",
                             "rollout_percentage": 25,
-                            "payload": {"color": "green"},
                         },
                         {
                             "key": "third-variant",
                             "name": "Third Variant",
                             "rollout_percentage": 25,
-                            "payload": {"color": "red"},
                         },
                     ]
+                },
+                "payloads": {
+                    "first-variant": {"color": "blue"},
+                    "second-variant": {"color": "green"},
+                    "third-variant": {"color": "red"},
                 },
             },
             key="variant",

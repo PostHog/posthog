@@ -111,23 +111,11 @@ class FeatureFlag(models.Model):
         return self.get_filters().get("groups", []) or []
 
     @property
-    def _payloads_by_boolean(self):
+    def _payloads(self):
         return self.get_filters().get("payloads", {}) or {}
 
-    def get_payload_by_boolean(self, val: bool) -> Optional[object]:
-        if val:
-            return self._payloads_by_boolean.get("true", None)
-        else:
-            return self._payloads_by_boolean.get("false", None)
-
-    @property
-    def _payloads_by_variant(self):
-        return {
-            variant["key"]: variant.get("payload", None) for variant in self.variants if variant.get("key") is not None
-        }
-
-    def get_payload_by_variant(self, variant: str) -> Optional[object]:
-        return self._payloads_by_variant.get(variant, None)
+    def get_payload(self, match_val: str) -> Optional[object]:
+        return self._payloads.get(match_val, None)
 
     @property
     def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
@@ -153,7 +141,8 @@ class FeatureFlag(models.Model):
             return {
                 "groups": [
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
-                ]
+                ],
+                "payloads": self.filters.get("payloads", {}),
             }
 
     def transform_cohort_filters_for_easy_evaluation(self):
@@ -419,11 +408,11 @@ class FeatureFlagMatcher:
     ) -> Optional[object]:
         if is_match:
             if match_variant:
-                return feature_flag.get_payload_by_variant(match_variant)
+                return feature_flag.get_payload(match_variant)
             else:
-                return feature_flag.get_payload_by_boolean(True)
+                return feature_flag.get_payload("true")
         else:
-            return feature_flag.get_payload_by_boolean(False)
+            return None
 
     def is_condition_match(
         self, feature_flag: FeatureFlag, condition: Dict, condition_index: int
