@@ -12,7 +12,7 @@ from posthog.models.feature_flag import (
     FeatureFlagMatcher,
     FeatureFlagMatchReason,
     FlagsMatcherCache,
-    get_active_feature_flags,
+    get_all_feature_flags,
     hash_key_overrides,
     set_feature_flag_hash_key_overrides,
 )
@@ -875,6 +875,9 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "group_match": True,
                 "variant": "first-variant",
                 "group_property_match": True,
+                "never_match": False,
+                "group_no_match": False,
+                "group_property_different_match": False,
                 # never_match and group_no_match don't match
                 # group_property_different_match doesn't match because we're dealing with a different group key
             },
@@ -923,6 +926,10 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
                 "always_match": True,
                 "variant": "first-variant",
                 "group_property_different_match": True,
+                "never_match": False,
+                "group_no_match": False,
+                "group_match": False,
+                "group_property_match": False,
                 # never_match and group_no_match don't match
                 # group_match doesn't match because no project (group type index 1) given.
                 # group_property_match doesn't match because we're dealing with a different group key
@@ -1657,7 +1664,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
-        flags, reasons = get_active_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        flags, reasons = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
         self.assertEqual(
             flags,
             {
@@ -1731,9 +1738,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             future_to_index = {
-                executor.submit(
-                    get_active_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"
-                ): index
+                executor.submit(get_all_feature_flags, team.pk, "other_id", {}, hash_key_override="example_id"): index
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):

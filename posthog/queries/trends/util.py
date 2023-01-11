@@ -1,9 +1,11 @@
 import datetime
 from datetime import timedelta
 from math import isinf, isnan
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TypeVar
 
+import pytz
 import structlog
+from dateutil.relativedelta import relativedelta
 from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception, push_scope
 
@@ -11,6 +13,7 @@ from posthog.constants import MONTHLY_ACTIVE, NON_TIME_SERIES_DISPLAY_TYPES, UNI
 from posthog.models.entity import Entity
 from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
@@ -166,3 +169,23 @@ def is_series_group_based(entity: Entity) -> bool:
     return entity.math == UNIQUE_GROUPS or (
         entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS and entity.math_group_type_index is not None
     )
+
+
+F = TypeVar("F", Filter, PropertiesTimelineFilter)
+
+
+def offset_time_series_date_by_interval(date: datetime.datetime, *, filter: F, team: Team) -> datetime.datetime:
+    """If the insight is time-series, offset date according to the interval of the filter."""
+    if filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
+        return date
+    if filter.interval == "month":
+        date = (date + relativedelta(months=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif filter.interval == "week":
+        date = (date + timedelta(weeks=1) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    elif filter.interval == "hour":
+        date = date + timedelta(hours=1)
+    else:  # "day" is the default interval
+        date = date.replace(hour=23, minute=59, second=59, microsecond=999999)
+    if date.tzinfo is None:
+        date = date.replace(tzinfo=pytz.timezone(team.timezone))
+    return date

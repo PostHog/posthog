@@ -147,15 +147,15 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
         base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
 
         self._person_with_snapshots(base_time=base_time, distinct_id="user", session_id="1")
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
         self._person_with_snapshots(base_time=base_time, distinct_id="user2", session_id="2")
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
         self._person_with_snapshots(base_time=base_time, distinct_id="user3", session_id="3")
-        with self.assertNumQueries(10):
+        with self.assertNumQueries(9):
             self.client.get(f"/api/projects/{self.team.id}/session_recordings")
 
     def _person_with_snapshots(self, base_time: datetime, distinct_id: str = "user", session_id: str = "1") -> None:

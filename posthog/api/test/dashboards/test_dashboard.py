@@ -161,15 +161,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(15):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(16):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(14):
+            with self.assertNumQueries(17):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
@@ -202,8 +202,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
 
-        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["items"]) == 1
-        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["items"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["tiles"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["tiles"]) == 1
 
         response = self.dashboard_api.list_dashboards(query_params={"limit": 100})
 
@@ -623,6 +623,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
         after_duplication_tile_id = duplicate_response["tiles"][1]["text"]["id"]
         assert after_duplication_tile_id == dashboard_with_tiles["tiles"][1]["text"]["id"]
+
+    def test_dashboard_duplication_without_tile_duplicate_excludes_soft_deleted_tiles(self):
+        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        insight_one_id, _ = self.dashboard_api.create_insight(
+            {"dashboards": [existing_dashboard.pk], "name": "the insight"}
+        )
+        _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
+        insight_two_id, _ = self.dashboard_api.create_insight(
+            {"dashboards": [existing_dashboard.pk], "name": "the second insight"}
+        )
+        dashboard_json = self.dashboard_api.get_dashboard(existing_dashboard.pk)
+        assert len(dashboard_json["tiles"]) == 3
+        tile_to_delete = dashboard_json["tiles"][2]
+        assert tile_to_delete["insight"]["id"] == insight_two_id
+
+        self.dashboard_api.update_dashboard(
+            existing_dashboard.pk, {"tiles": [{"id": tile_to_delete["id"], "deleted": True}]}
+        )
+        dashboard_json = self.dashboard_api.get_dashboard(existing_dashboard.pk)
+        assert len(dashboard_json["tiles"]) == 2
+
+        _, duplicate_response = self.dashboard_api.create_dashboard(
+            {"name": "another", "use_dashboard": existing_dashboard.pk}
+        )
+        assert len(duplicate_response["tiles"]) == 2
 
     def test_dashboard_duplication_can_duplicate_tiles(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
