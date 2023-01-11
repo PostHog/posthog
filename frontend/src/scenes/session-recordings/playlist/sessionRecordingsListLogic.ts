@@ -129,12 +129,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
         setSelectedRecordingId: (id: SessionRecordingType['id'] | null) => ({
             id,
         }),
-        addDiffToRecordingMetaPinnedCount: (id: SessionRecordingType['id'], diffCount: number) => ({
-            id,
-            diffCount,
-        }),
-        setSessionRecordings: (sessionRecordings: SessionRecordingType[]) => ({ sessionRecordings }),
-        setPinnedRecordings: (pinnedRecordings: SessionRecordingType[]) => ({ pinnedRecordings }),
+        loadAllRecordings: true,
         loadNext: true,
         loadPrev: true,
     }),
@@ -150,6 +145,7 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
+                        exclude_pinned: !!props.playlistShortId,
                     }
 
                     const params = toParams(paramsDict)
@@ -221,16 +217,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                             return { ...s }
                         }
                     }),
-                setSessionRecordings: (_, { sessionRecordings }) => sessionRecordings,
-            },
-        ],
-        pinnedRecordings: [
-            [] as SessionRecordingType[],
-            {
-                loadPinnedRecordingsSuccess: (_, { pinnedRecordingsResponse }) => {
-                    return [...(pinnedRecordingsResponse?.results ?? [])]
-                },
-                setPinnedRecordings: (_, { pinnedRecordings }) => pinnedRecordings,
             },
         ],
         selectedRecordingId: [
@@ -240,7 +226,11 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
+        loadAllRecordings: () => {
+            actions.getSessionRecordings({})
+            actions.loadPinnedRecordings({})
+        },
         setFilters: () => {
             actions.getSessionRecordings({})
         },
@@ -256,45 +246,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
             actions.setFilters({
                 offset: Math.max((values.filters?.offset || 0) - RECORDINGS_LIMIT, 0),
             })
-        },
-        addDiffToRecordingMetaPinnedCount: ({ id, diffCount }) => {
-            let nextSessionRecordings = values.sessionRecordings.map((s) => {
-                if (s.id === id) {
-                    return {
-                        ...s,
-                        pinned_count: Math.max((s.pinned_count ?? 0) + diffCount, 0),
-                    }
-                } else {
-                    return { ...s }
-                }
-            })
-            let nextPinnedRecordings = values.pinnedRecordings.map((s) => {
-                if (s.id === id) {
-                    return {
-                        ...s,
-                        pinned_count: Math.max((s.pinned_count ?? 0) + diffCount, 0),
-                    }
-                } else {
-                    return { ...s }
-                }
-            })
-            // If we're on a playlist (not recent recordings), move all pinned recent recordings to pinned recordings. Conversely, move all unpinned recordings to recent recordings
-            if (!!props.playlistShortId) {
-                const recentToPinnedRecordings = nextSessionRecordings.filter((s) => (s.pinned_count ?? 0) > 0)
-                const pinnedToRecentRecordings = nextPinnedRecordings.filter((s) => (s.pinned_count ?? 0) === 0)
-                console.log('BELLO', recentToPinnedRecordings, pinnedToRecentRecordings)
-                nextSessionRecordings = [
-                    ...pinnedToRecentRecordings,
-                    ...nextSessionRecordings.filter((s) => (s.pinned_count ?? 0) === 0),
-                ]
-                nextPinnedRecordings = [
-                    ...recentToPinnedRecordings,
-                    ...nextPinnedRecordings.filter((s) => (s.pinned_count ?? 0) > 0),
-                ]
-            }
-
-            actions.setSessionRecordings(nextSessionRecordings)
-            actions.setPinnedRecordings(nextPinnedRecordings)
         },
     })),
     selectors({

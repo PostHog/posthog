@@ -127,7 +127,7 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             },
         },
     })),
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         setSearchQuery: () => {
             actions.loadPlaylists()
         },
@@ -159,15 +159,10 @@ export const playlistPopupLogic = kea<playlistPopupLogicType>([
             // Handles locally updating recordings sidebar so that we don't have to call expensive load recordings every time.
             if (!!playlistShortId && sessionRecordingsListLogic.isMounted({ playlistShortId })) {
                 // On playlist page
-                sessionRecordingsListLogic({ playlistShortId }).actions.addDiffToRecordingMetaPinnedCount(
-                    props.sessionRecordingId,
-                    diffCount
-                )
+                sessionRecordingsListLogic({ playlistShortId }).actions.loadAllRecordings()
             } else {
                 // In any other context (recent recordings, single modal, single recording page)
-                sessionRecordingsListLogic
-                    .findMounted({ updateSearchParams: true })
-                    ?.actions?.addDiffToRecordingMetaPinnedCount(props.sessionRecordingId, diffCount)
+                sessionRecordingsListLogic.findMounted({ updateSearchParams: true })?.actions?.loadAllRecordings()
             }
         },
     })),
