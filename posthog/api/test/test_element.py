@@ -84,13 +84,13 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
         with self.assertNumQueries(6):
             # Django session, PostHog user, PostHog team, PostHog org membership
             # then 2 for inserting person in test setup
-            response = self.client.get("/api/element/stats/").json()
+            response = self.client.get("/api/element/stats/?paginate_response=true").json()
         self.assertEqual(response["results"][0]["count"], 2)
         self.assertEqual(response["results"][0]["elements"][0]["tag_name"], "a")
         self.assertEqual(response["results"][1]["count"], 1)
 
         response = self.client.get(
-            "/api/element/stats/?properties=%s"
+            "/api/element/stats/?paginate_response=true&properties=%s"
             % json.dumps([{"key": "$current_url", "value": "http://example.com/demo"}])
         ).json()
         self.assertEqual(len(response["results"]), 1)
