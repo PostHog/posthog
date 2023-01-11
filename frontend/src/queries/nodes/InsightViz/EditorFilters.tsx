@@ -17,8 +17,8 @@ import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
 import { LifecycleToggles } from './LifecycleToggles'
+import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { TrendsSeries } from './TrendsSeries'
-
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -82,8 +82,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                           key: 'properties',
                           label: 'Filters',
                           position: 'right',
-                          //   component: GlobalAndOrFilters,
-                          component: () => <div>GlobalAndOrFilters</div>,
+                          component: GlobalAndOrFilters,
                       }
                     : null,
             ]),
