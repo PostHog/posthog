@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 import { PlayCircleOutlined, CheckOutlined, CloseOutlined, SettingOutlined } from '@ant-design/icons'
-import { Tooltip, Radio, InputNumber, DatePicker } from 'antd'
+import { Tooltip, Radio, InputNumber } from 'antd'
 import { ChildFunctionProps, Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'
 import MonacoEditor from '@monaco-editor/react'
@@ -9,12 +9,12 @@ import { userLogic } from 'scenes/userLogic'
 import { JobPayloadFieldOptions } from '~/types'
 import { interfaceJobsLogic, InterfaceJobsProps } from './interfaceJobsLogic'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
-import moment from 'moment'
 import { LemonModal } from 'lib/components/LemonModal'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonCalendarRangeInline } from 'lib/components/LemonCalendarRange/LemonCalendarRangeInline'
 import { dayjs } from 'lib/dayjs'
 import { formatDate, formatDateRange } from 'lib/utils'
+import { DatePicker } from 'lib/components/DatePicker'
 
 // keep in sync with plugin-server's export-historical-events.ts
 export const HISTORICAL_EXPORT_JOB_NAME = 'Export historical events'
@@ -143,15 +143,20 @@ function FieldInput({
                     suffixIcon={null}
                     use12Hours
                     showTime
-                    value={value ? moment(value) : null}
-                    onChange={(date: moment.Moment | null) => onChange(date?.toISOString())}
+                    value={value ? dayjs(value) : null}
+                    onChange={(date) => onChange(date?.toISOString())}
                 />
             )
         case 'daterange':
             return (
                 <div className="border rounded p-4">
                     <div className="pb-4">
-                        <LemonCalendarRangeInline value={value || null} onChange={onChange} />
+                        <LemonCalendarRangeInline
+                            value={value ? [dayjs(value[0]), dayjs(value[1])] : null}
+                            onChange={([rangeStart, rangeEnd]) =>
+                                onChange([rangeStart.format('YYYY-MM-DD'), rangeEnd.format('YYYY-MM-DD')])
+                            }
+                        />
                     </div>
                     <div className="border-t pt-4">
                         <span className="text-muted">Selected period:</span>{' '}

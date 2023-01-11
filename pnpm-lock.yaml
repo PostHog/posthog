@@ -129,7 +129,6 @@ specifiers:
   lint-staged: ~10.2.13
   md5: ^2.3.0
   mockdate: ^3.0.5
-  moment: ^2.29.4
   monaco-editor: ^0.23.0
   msw: ^0.47.3
   path-browserify: ^1.0.1
@@ -235,7 +234,6 @@ dependencies:
   kea-waitfor: 0.2.1_kea@3.1.0
   kea-window-values: 3.0.0_kea@3.1.0
   md5: 2.3.0
-  moment: 2.29.4
   monaco-editor: 0.23.0
   posthog-js: 1.39.2
   posthog-js-lite: 2.0.0-alpha5
