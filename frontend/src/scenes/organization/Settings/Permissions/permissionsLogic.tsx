@@ -82,6 +82,7 @@ export const permissionsLogic = kea<permissionsLogicType>([
             } else {
                 actions.updateOrganizationResourcePermission({
                     id: resourceId,
+                    resource: resourceType,
                     access_level: accessLevel,
                 })
             }
