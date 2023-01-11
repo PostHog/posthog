@@ -135,7 +135,6 @@ export const FEATURE_FLAGS = {
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     BILLING_FEATURES_EXPERIMENT: 'billing-features-experiment', // owner: #team-growth
     BILLING_PLAN_MOST_POPULAR_EXPERIMENT: 'billing-plan-most-popular-experiment', // owner: #team-growth, @raquelmsmith
-    RECORDINGS_EXPORT: 'recordings-export', // owner: #team-session-recordings
     YEAR_IN_HOG: 'year-in-hog', // owner: @pauldambra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
