@@ -95,6 +95,61 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
         ).json()
         self.assertEqual(len(response["results"]), 1)
 
+    def test_element_stats_without_pagination(self) -> None:
+        """Can be removed once we can default to returning paginated responses"""
+        elements = [
+            Element(tag_name="a", href="https://posthog.com/about", text="click here", order=0),
+            Element(tag_name="div", href="https://posthog.com/about", text="click here", order=1),
+        ]
+
+        _create_person(team=self.team, distinct_ids=["test"])
+        _create_event(
+            team=self.team,
+            elements=elements,
+            event="$autocapture",
+            distinct_id="test",
+            properties={"$current_url": "http://example.com/demo"},
+        )
+        _create_event(
+            team=self.team,
+            elements=elements,
+            event="$autocapture",
+            distinct_id="test",
+            properties={"$current_url": "http://example.com/demo"},
+        )
+
+        # make sure we only load last 7 days by default
+        _create_event(
+            timestamp=now() - relativedelta(days=8),
+            team=self.team,
+            elements=elements,
+            event="$autocapture",
+            distinct_id="test",
+            properties={"$current_url": "http://example.com/demo"},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$autocapture",
+            distinct_id="test",
+            properties={"$current_url": "http://example.com/something_else"},
+            elements=[Element(tag_name="img")],
+        )
+
+        with self.assertNumQueries(6):
+            # Django session, PostHog user, PostHog team, PostHog org membership
+            # then 2 for inserting person in test setup
+            response = self.client.get("/api/element/stats/").json()
+        self.assertEqual(response[0]["count"], 2)
+        self.assertEqual(response[0]["elements"][0]["tag_name"], "a")
+        self.assertEqual(response[1]["count"], 1)
+
+        response = self.client.get(
+            "/api/element/stats/?properties=%s"
+            % json.dumps([{"key": "$current_url", "value": "http://example.com/demo"}])
+        ).json()
+        self.assertEqual(len(response), 1)
+
     def test_element_stats_clamps_date_from_to_start_of_day(self) -> None:
         event_start = "2012-01-14T03:21:34.000Z"
         query_time = "2012-01-14T08:21:34.000Z"
@@ -127,7 +182,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time(query_time):
             # the UI doesn't allow you to choose time, so query should always be from start of day
-            response = self.client.get(f"/api/element/stats/?date_from={query_time}")
+            response = self.client.get(f"/api/element/stats/?paginate_response=true&date_from={query_time}")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
             response_json = response.json()
@@ -157,21 +212,21 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
             properties={"$current_url": "http://example.com/demo"},
         )
 
-        response = self.client.get(f"/api/element/stats/")
+        response = self.client.get(f"/api/element/stats/?paginate_response=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        assert response_json["next"] == "http://testserver/api/element/stats/?offset=100"
+        assert response_json["next"] == "http://testserver/api/element/stats/?paginate_response=true&offset=100"
         results = response_json["results"]
         assert len(results) == 2  # there are 2 events
         assert [e["count"] for e in results] == [1, 1]  # each of 1 click
         assert [len(e["elements"]) for e in results] == [2, 2]  # each click has a chain of 2 selectors
 
-        response = self.client.get(f"/api/element/stats/?limit=1")
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&limit=1")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
-        assert response_json["next"] == "http://testserver/api/element/stats/?limit=1&offset=1"
+        assert response_json["next"] == "http://testserver/api/element/stats/?paginate_response=true&limit=1&offset=1"
         limit_to_one_results = response_json["results"]
         assert len(limit_to_one_results) == 1  # there is now 1 event
         assert [e["count"] for e in limit_to_one_results] == [1]  # of 1 click
@@ -179,5 +234,9 @@ class TestElement(ClickhouseTestMixin, APIBaseTest):
         assert limit_to_one_results[0]["elements"][0]["href"] == "https://posthog.com/event-1"
 
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
+        response = self.client.get(f"/api/element/stats/?limit=not-a-number")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_element_stats_does_not_allow_non_numeric_offset(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

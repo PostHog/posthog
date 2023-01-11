@@ -108,7 +108,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                             ],
                             ...values.heatmapFilter,
                         }
-                        defaultUrl = `/api/element/stats/${encodeParams(params, '?')}`
+                        defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
                     }
 
                     const response = await toolbarFetch(url || defaultUrl, 'GET', undefined, !!url)

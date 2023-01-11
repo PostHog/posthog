@@ -2,6 +2,7 @@ from rest_framework import authentication, request, response, serializers, views
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
+from statshog.defaults.django import statsd
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
@@ -66,11 +67,22 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         except ValueError:
             raise ValidationError("offset must be an integer")
 
+        paginate_response = request.query_params.get("paginate_response", "false") == "true"
+        if not paginate_response:
+            # once we are getting no hits on this counter we can default to paginated responses
+            statsd.incr("toolbar_element_stats_unpaginated_api_request_tombstone", tags={"team_id": self.team_id})
+
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups
         )
         result = sync_execute(
-            GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters, limit=limit, offset=offset),
+            GET_ELEMENTS.format(
+                date_from=date_from,
+                date_to=date_to,
+                query=prop_filters,
+                limit=limit,
+                conditional_offset=f" OFFSET {offset}" if paginate_response else "",
+            ),
             {
                 "team_id": self.team.pk,
                 "timezone": self.team.timezone,
@@ -87,11 +99,14 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             for elements in result
         ]
 
-        _should_paginate = len(serialized_elements) > 0
-        next_url = format_query_params_absolute_url(request, offset + limit) if _should_paginate else None
-        previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
+        if paginate_response:
+            has_next = len(serialized_elements) > 0
+            next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
+            previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
 
-        return response.Response({"results": serialized_elements, "next": next_url, "previous": previous_url})
+            return response.Response({"results": serialized_elements, "next": next_url, "previous": previous_url})
+        else:
+            return response.Response(serialized_elements)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
