@@ -19,6 +19,7 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
     path(['scenes', 'authentication', 'verifyEmailLogic']),
     actions({
         setView: (view: 'verify' | 'pending' | 'invalid' | null) => ({ view }),
+        setUuid: (uuid: string | null) => ({ uuid }),
     }),
     loaders(({}) => ({
         validatedEmailToken: [
@@ -48,15 +49,23 @@ export const verifyEmailLogic = kea<verifyEmailLogicType>([
                 setView: (_, { view }) => view,
             },
         ],
+        uuid: [
+            null as string | null,
+            {
+                setUuid: (_, { uuid }) => uuid,
+            },
+        ],
     }),
     urlToAction(({ actions }) => ({
         '/verify_email/:uuid': ({ uuid }) => {
             if (uuid) {
+                actions.setUuid(uuid)
                 actions.setView('pending')
             }
         },
         '/verify_email/:uuid/:token': ({ uuid, token }) => {
             if (token && uuid) {
+                actions.setUuid(uuid)
                 actions.setView('verify')
                 actions.validateEmailToken({ uuid, token })
             }

@@ -11,8 +11,23 @@ export const scene: SceneExport = {
     logic: verifyEmailLogic,
 }
 
+export const VerifyEmailHelpLinks = ({ hasUuid = false }: { hasUuid: boolean }): JSX.Element => {
+    return (
+        <div className="flex flex-row gap-x-4">
+            <LemonButton type="secondary" className="mt-8" to={'mailto:hey@posthog.com'}>
+                Contact support
+            </LemonButton>
+            {hasUuid && (
+                <LemonButton type="secondary" className="mt-8">
+                    Request a new link
+                </LemonButton>
+            )}
+        </div>
+    )
+}
+
 export function VerifyEmail(): JSX.Element {
-    const { view } = useValues(verifyEmailLogic)
+    const { view, uuid } = useValues(verifyEmailLogic)
 
     return (
         <div className="flex h-full flex-col">
@@ -30,9 +45,7 @@ export function VerifyEmail(): JSX.Element {
                                     An email has been sent to with a link to verify your email address. If you have not
                                     received the email in a few minutes, please check your spam folder.
                                 </p>
-                                <LemonButton type="secondary" className="mt-8" to={'mailto:hey@posthog.com'}>
-                                    Contact Support
-                                </LemonButton>
+                                <VerifyEmailHelpLinks hasUuid={!!uuid} />
                             </>
                         ) : view === 'verify' ? (
                             <>
@@ -46,9 +59,7 @@ export function VerifyEmail(): JSX.Element {
                                     <SurprisedHog className="w-full h-full" />
                                 </div>
                                 <p>Seems like that link isn't quite right. Try again?</p>
-                                <LemonButton type="secondary" className="mt-8" to={'mailto:hey@posthog.com'}>
-                                    Contact Support
-                                </LemonButton>
+                                <VerifyEmailHelpLinks hasUuid={!!uuid} />
                             </>
                         ) : (
                             <Spinner className="text-4xl" />
