@@ -373,7 +373,6 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                     {featureFlag.can_edit ? (
                                                         <ObjectTags
                                                             tags={featureFlag.tags}
-                                                            // onChange={(_, tags) => triggerDashboardUpdate({ tags })}
                                                             onChange={(_, tags) => {
                                                                 triggerFeatureFlagUpdate({ tags })
                                                             }}

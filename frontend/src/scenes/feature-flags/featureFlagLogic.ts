@@ -597,6 +597,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     payload
                 )
                 actions.setFeatureFlag(updatedFlag)
+                featureFlagsLogic.findMounted()?.actions.updateFlag(updatedFlag)
             }
         },
     })),
