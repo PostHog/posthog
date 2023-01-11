@@ -25,7 +25,7 @@ export const appScenes: Record<Scene, () => any> = {
     [Scene.Persons]: () => import('./persons/PersonsScene'),
     [Scene.Groups]: () => import('./groups/Groups'),
     [Scene.Group]: () => import('./groups/Group'),
-    [Scene.Action]: () => import('./actions/Action'),
+    [Scene.Action]: () => import('./actions/Action'), // TODO
     [Scene.Experiments]: () => import('./experiments/Experiments'),
     [Scene.Experiment]: () => import('./experiments/Experiment'),
     [Scene.FeatureFlags]: () => import('./feature-flags/FeatureFlags'),
