@@ -17,8 +17,10 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
-const getCleanedQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery): InsightVizNode => {
-    if (kind == NodeKind.LifecycleQuery) {
+const getCleanedQuery = (
+    kind: NodeKind.LifecycleQuery | NodeKind.StickinessQuery | NodeKind.UnimplementedQuery
+): InsightVizNode => {
+    if (kind === NodeKind.LifecycleQuery) {
         return {
             kind: NodeKind.InsightVizNode,
             source: {
@@ -32,6 +34,22 @@ const getCleanedQuery = (kind: NodeKind.LifecycleQuery | NodeKind.UnimplementedQ
                     },
                 ],
                 lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
+            },
+        }
+    } else if (kind === NodeKind.StickinessQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.StickinessQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                        math: BaseMathType.TotalCount,
+                    },
+                ],
+                stickinessFilter: {},
             },
         }
     } else {
@@ -114,6 +132,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setActiveView: ({ type }) => {
             if (type === InsightType.LIFECYCLE) {
                 actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
+            } else if (type === InsightType.STICKINESS) {
+                actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
             } else {
                 actions.setQuery(getCleanedQuery(NodeKind.UnimplementedQuery))
             }

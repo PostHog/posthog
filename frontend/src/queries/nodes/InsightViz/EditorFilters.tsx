@@ -5,7 +5,7 @@ import { useValues } from 'kea'
 import { QueryInsightEditorFilterGroup, QueryInsightEditorFilter, QueryEditorFilterProps } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { isFunnelsQuery } from '~/queries/utils'
+import { isFunnelsQuery, isLifecycleQuery } from '~/queries/utils'
 import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
 import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
@@ -19,7 +19,7 @@ export interface EditorFiltersProps {
 
 export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Element {
     const isFunnels = isFunnelsQuery(query)
-    const isLifecycle = true
+    const isLifecycle = isLifecycleQuery(query)
     const showFilters = true // TODO: implement with insightVizLogic
     const isTrendsLike = true
 
