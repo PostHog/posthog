@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useValues } from 'kea'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -14,7 +15,7 @@ export function Navigation({ children }: { children: any }): JSX.Element {
         <div>
             {activeScene !== Scene.Ingestion && <TopBar />}
             <SideBar>
-                <div className={!sceneConfig?.plain ? 'main-app-content' : undefined}>
+                <div className={clsx('main-app-content', sceneConfig?.plain && 'main-app-content--plain')}>
                     {!sceneConfig?.plain && (
                         <>
                             <BillingAlertsV2 />
