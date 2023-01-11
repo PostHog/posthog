@@ -25,7 +25,21 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
                 batches.push(currentBatch)
                 currentBatch = []
             }
-            seenIds.add(seenKey)
+
+            // If if is a `$snapshot` event or `$performance_event`, i.e. the
+            // ones related to session recordings, we do not need to ensure that
+            // we process the events in order. This is because we do not do any
+            // person detail updates based on these events, and we do not need
+            // to ensure that we process them in order to get the correct
+            // session recording as ClickHouse will handle ordering at realtime.
+            //
+            // By not ordering these, we can avoid the case that we are creating
+            // small batches if there is a badly behaved client sending lots of
+            // session recording dom mutations.
+            if (!['$snapshot', '$performance_event'].includes(pluginEvent.event)) {
+                seenIds.add(seenKey)
+            }
+
             currentBatch.push(message)
         }
         if (currentBatch) {
