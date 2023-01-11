@@ -6,7 +6,11 @@ import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
+import {
+    KAFKA_EVENTS_JSON,
+    KAFKA_INGESTION_SESSION_RECORDING_EVENTS,
+    prefix as KAFKA_PREFIX,
+} from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
@@ -27,6 +31,7 @@ export class IngestionConsumer {
     private wasConsumerRan: boolean
     private ingestionTopic: string
     private eventsTopic: string
+    private sessionRecordingEvents: string
     private eachBatch: Record<string, EachBatchFunction>
 
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
@@ -39,9 +44,16 @@ export class IngestionConsumer {
         this.consumerReady = false
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
+        this.sessionRecordingEvents = KAFKA_INGESTION_SESSION_RECORDING_EVENTS
         this.eventsTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
+            // NOTE: we ingest the session recording events using the same
+            // consumer logic as the analytics events. This is to enable the
+            // main analytics topic to progress independently of the session
+            // recording events.
+            // TODO: separate consumer groups as well.
+            [this.sessionRecordingEvents]: eachBatchIngestion,
             [this.eventsTopic]: eachBatchAsyncHandlers,
         }
     }

@@ -66,9 +66,13 @@ def parse_kafka_event_data(
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     logger.debug("logging_event", event_name=event_name, kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
 
+    # To allow for different quality of service on session recordings and other
+    # events, we push to a different topic.
+    kafka_topic = "session_recording_events" if event_name == "$snapshot" else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        future = KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
+        future = KafkaProducer().produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:
