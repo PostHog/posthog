@@ -138,12 +138,17 @@ class FeatureFlag(models.Model):
         else:
             # :TRICKY: Keep this backwards compatible.
             #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
-            return {
+            response = {
                 "groups": [
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
                 ],
-                "payloads": self.filters.get("payloads", {}),
             }
+
+            payloads = self.filters.get("payloads", {})
+            if payloads:
+                response.update({"payloads": payloads})
+
+            return response
 
     def transform_cohort_filters_for_easy_evaluation(self):
         """
