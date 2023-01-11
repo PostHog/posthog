@@ -62,7 +62,7 @@ FROM (
         count(DISTINCT {aggregator}) AS counts,
         arrayJoin(
             arrayMap(
-                x -> {interval}(toDateTime(x, %(timezone)s)),
+                x -> {interval}(toDateTime(x, %(timezone)s) {start_of_week_fix}),
                 range(toUInt32(timestamp), toUInt32(timestamp + INTERVAL %(days)s DAY), %(increment_seconds)s)
             )
         ) as timestamp
