@@ -1,6 +1,7 @@
 from typing import Any, Dict, Optional, Union, cast
 from urllib.parse import urlencode
 
+import posthoganalytics
 import structlog
 from django import forms
 from django.conf import settings
@@ -97,10 +98,11 @@ class SignupSerializer(serializers.Serializer):
             referral_source=referral_source,
         )
 
-        if not is_cloud():
-            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
-        else:
+        require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.uuid))
+        if is_cloud() and require_verification_feature:
             send_email_verification(user.id)
+        else:
+            login(self.context["request"], user, backend="django.contrib.auth.backends.ModelBackend")
 
         return user
 
@@ -127,7 +129,12 @@ class SignupSerializer(serializers.Serializer):
 
     def to_representation(self, instance) -> Dict:
         data = UserBasicSerializer(instance=instance).data
-        data["redirect_url"] = "/verify_email/" + data["uuid"] if is_cloud() and not settings.DEMO else "/"
+        require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(data["uuid"]))
+        data["redirect_url"] = (
+            "/verify_email/" + data["uuid"]
+            if is_cloud() and require_verification_feature and not settings.DEMO
+            else "/"
+        )
         return data
 
 

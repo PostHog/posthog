@@ -1,5 +1,6 @@
 from typing import Any, Dict, Optional, cast
 
+import posthoganalytics
 from django.conf import settings
 from django.contrib.auth import authenticate, login
 from django.contrib.auth import views as auth_views
@@ -89,8 +90,8 @@ class LoginSerializer(serializers.Serializer):
         if not user:
             raise serializers.ValidationError("Invalid email or password.", code="invalid_credentials")
 
-        # TODO: Put this behind a feature flag for release
-        if is_cloud() and not user.is_verified:
+        require_verification_feature = posthoganalytics.feature_enabled("require-email-verification", str(user.uuid))
+        if is_cloud() and require_verification_feature and not user.is_verified:
             send_email_verification(user.id)
             raise serializers.ValidationError(
                 "Your account awaiting verification. Please check your email for a verification link.",
