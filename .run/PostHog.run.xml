@@ -4,6 +4,7 @@
     <option name="INTERPRETER_OPTIONS" value="" />
     <option name="PARENT_ENVS" value="true" />
     <envs>
+      <env name="BILLING_SERVICE_URL" value="https://billing.dev.posthog.dev" />
       <env name="CLICKHOUSE_SECURE" value="False" />
       <env name="DATABASE_URL" value="postgres://posthog:posthog@localhost:5432/posthog" />
       <env name="DEBUG" value="1" />
@@ -12,7 +13,10 @@
       <env name="PRINT_SQL" value="1" />
       <env name="PYTHONUNBUFFERED" value="1" />
       <env name="SKIP_SERVICE_VERSION_REQUIREMENTS" value="1" />
+<<<<<<< Updated upstream
       <env name="BILLING_SERVICE_URL" value="https://billing.dev.posthog.dev" />
+=======
+>>>>>>> Stashed changes
       <env name="CAPTURE_TIME_TO_SEE_DATA" value="1" />
     </envs>
     <option name="SDK_HOME" value="$PROJECT_DIR$/env/bin/python" />

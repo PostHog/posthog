@@ -8,6 +8,7 @@ interface IconWithCountProps {
     count: number
     showZero?: boolean
     status?: LemonBadgeProps['status']
+    position?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
 }
 
 export function IconWithCount({
@@ -15,11 +16,12 @@ export function IconWithCount({
     children,
     showZero,
     status = 'primary',
+    position = 'top-right',
 }: PropsWithChildren<IconWithCountProps>): JSX.Element {
     return (
         <span style={{ position: 'relative', display: 'inline-flex' }}>
             {children}
-            <LemonBadge.Number count={count} size="small" position="top-right" showZero={showZero} status={status} />
+            <LemonBadge.Number count={count} size="small" position={position} showZero={showZero} status={status} />
         </span>
     )
 }
@@ -2072,6 +2074,18 @@ export function XmasTree(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 24 24" {...props}>
             <path fill="currentColor" d="M10,21V18H3L8,13H5L10,8H7L12,3L17,8H14L19,13H16L21,18H14V21H10Z" />
+        </SvgIcon>
+    )
+}
+
+/* Material design animation icon */
+export function IconContainsChildren(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon viewBox="0 0 24 24" {...props}>
+            <path
+                fill="currentColor"
+                d="M4,2A2,2 0 0,0 2,4V14H4V4H14V2H4M8,6A2,2 0 0,0 6,8V18H8V8H18V6H8M20,12V20H12V12H20M20,10H12A2,2 0 0,0 10,12V20A2,2 0 0,0 12,22H20A2,2 0 0,0 22,20V12A2,2 0 0,0 20,10Z"
+            />
         </SvgIcon>
     )
 }

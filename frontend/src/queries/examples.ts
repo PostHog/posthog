@@ -13,7 +13,6 @@ import {
     PersonsNode,
     RetentionQuery,
     StickinessQuery,
-    TimeToSeeDataQuery,
     TimeToSeeDataJSONNode,
     TimeToSeeDataSessionsQuery,
     TrendsQuery,
@@ -271,10 +270,6 @@ const TimeToSeeDataSessions: TimeToSeeDataSessionsQuery = {
     kind: NodeKind.TimeToSeeDataSessionsQuery,
 }
 
-const TimeToSeeData: TimeToSeeDataQuery = {
-    kind: NodeKind.TimeToSeeDataQuery,
-}
-
 const TimeToSeeDataJSON: TimeToSeeDataJSONNode = {
     kind: NodeKind.TimeToSeeDataSessionsJSONNode,
     source: {
@@ -313,7 +308,6 @@ export const examples: Record<string, Node> = {
     InsightStickinessQuery,
     InsightLifecycleQuery,
     TimeToSeeDataSessions,
-    TimeToSeeData,
     TimeToSeeDataWaterfall,
     TimeToSeeDataJSON,
 }

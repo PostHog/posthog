@@ -11,6 +11,8 @@ import {
 import { dayjs } from 'lib/dayjs'
 
 import type { traceLogicType } from './traceLogicType'
+import { humanFriendlyMilliseconds, humanizeBytes } from 'lib/utils'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 export interface SpanData {
     id: string // not provided by backend
@@ -26,7 +28,7 @@ export interface TraceLogicProps {
     sessionNode: TimeToSeeSessionNode
 }
 
-function interactionNodeFacts(node: TimeToSeeNode): Record<string, any> {
+function interactionNodeFacts(node: TimeToSeeNode): Record<string, JSX.Element | string | number> {
     return isInteractionNode(node)
         ? {
               type: `${node.data.action || 'load'} in ${node.data.context}`,
@@ -34,16 +36,34 @@ function interactionNodeFacts(node: TimeToSeeNode): Record<string, any> {
               action: node.data.action,
               page: node.data.current_url,
               cacheHitRatio: `${Math.round((node.data.insights_fetched_cached / node.data.insights_fetched) * 100)}%`,
+              responseBytes: humanizeBytes(node.data.api_response_bytes),
+              isFrustrating: !!node.data.is_frustrating ? 'true' : 'false',
+              status: node.data.status,
           }
         : {}
 }
 
-export function sessionNodeFacts(node: TimeToSeeNode): Record<string, any> {
-    return isSessionNode(node) ? { type: 'session' } : {}
+export function sessionNodeFacts(node: TimeToSeeNode): Record<string, JSX.Element | string | number> {
+    return isSessionNode(node)
+        ? {
+              type: 'session',
+              session_id: node.data.session_id,
+              user: <ProfilePicture name={node.data.user.first_name} email={node.data.user.email} showName size="sm" />,
+              duration: humanFriendlyMilliseconds(node.data.duration_ms) || 'unknown',
+              sessionEventCount: node.data.events_count,
+              frustratingInteractions: node.data.frustrating_interactions_count,
+          }
+        : {}
 }
 
-function queryNodeFacts(node: TimeToSeeNode): Record<string, any> {
-    return isQueryNode(node) ? { type: 'Clickhouse query', hasJoins: !!node.data.has_joins ? 'true' : 'false' } : {}
+function queryNodeFacts(node: TimeToSeeNode): Record<string, JSX.Element | string | number> {
+    return isQueryNode(node)
+        ? {
+              type: `Clickhouse: ${node.data.query_type}`,
+              hasJoins: !!node.data.has_joins ? 'true' : 'false',
+              queryDuration: humanFriendlyMilliseconds(node.data.query_duration_ms) || 'unknown',
+          }
+        : {}
 }
 
 function nodeFacts(node: TimeToSeeNode): Record<string, any> {
@@ -131,11 +151,16 @@ export const traceLogic = kea<traceLogicType>([
             null as SpanData | null,
             {
                 showNode: (_, { spanData }) => (!!spanData ? { ...spanData } : null),
+                showInteractionTrace: (_, { spanData }) => (!!spanData ? { ...spanData } : null),
             },
         ],
     }),
     selectors(() => ({
+        focussedInteractionStartTime: [
+            (s) => [s.focussedInteraction],
+            (focussedInteraction) => focussedInteraction?.start || null,
+        ],
         processedSpans: [() => [(_, props) => props.sessionNode], (sessionNode) => flattenSpans(sessionNode)],
-        currentFacts: [(s) => [s.focussedNode], (focussedNode) => (focussedNode ? nodeFacts(focussedNode.data) : {})],
+        currentFacts: [(s) => [s.focussedNode], (focussedNode) => (focussedNode ? nodeFacts(focussedNode.data) : null)],
     })),
 ])

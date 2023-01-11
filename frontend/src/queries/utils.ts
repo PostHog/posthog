@@ -19,7 +19,6 @@ import {
     TimeToSeeDataSessionsQuery,
     TrendsQuery,
     UnimplementedQuery,
-    TimeToSeeDataQuery,
     RecentPerformancePageViewNode,
 } from '~/queries/schema'
 
