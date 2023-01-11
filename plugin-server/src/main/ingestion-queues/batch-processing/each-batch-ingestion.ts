@@ -53,16 +53,25 @@ export async function ingestEvent(
     if (event.team_id) {
         // Sometimes bad actors could cause us trouble, this allows us to drop all events or all snapshots for
         // a specific team
+        const isSnapshot = event.event == '$snapshot'
         if (
-            (event.event == '$snapshot' && server.dropSnapshotsTeams.has(event.team_id)) ||
-            (event.event != '$snapshot' && server.dropEventsTeams.has(event.team_id))
+            (isSnapshot && server.dropSnapshotsTeams.has(event.team_id)) ||
+            (!isSnapshot && server.dropEventsTeams.has(event.team_id))
         ) {
-            server.statsd?.increment('kafka_queue_ingest_event_hit', { pipeline: 'droppedBadActor' })
+            server.statsd?.increment('kafka_queue_ingest_event_hit', {
+                pipeline: 'droppedBadActor',
+                team_id: event.team_id.toString(),
+                isSnapshot: String(isSnapshot),
+            })
+        } else {
+            server.statsd?.increment('kafka_queue_ingest_event_hit', {
+                pipeline: 'runEventPipeline',
+                team_id: event.team_id.toString(),
+                isSnapshot: String(isSnapshot),
+            })
+            // we've confirmed team_id exists so can assert event as PluginEvent
+            await workerMethods.runEventPipeline(event as PluginEvent)
         }
-
-        server.statsd?.increment('kafka_queue_ingest_event_hit', { pipeline: 'runEventPipeline' })
-        // we've confirmed team_id exists so can assert event as PluginEvent
-        await workerMethods.runEventPipeline(event as PluginEvent)
     } else {
         server.statsd?.increment('kafka_queue_ingest_event_hit', {
             pipeline: 'runLightweightCaptureEndpointEventPipeline',

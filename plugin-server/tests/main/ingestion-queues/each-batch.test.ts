@@ -76,7 +76,8 @@ describe('eachBatchX', () => {
             pluginsServer: {
                 WORKER_CONCURRENCY: 1,
                 TASKS_PER_WORKER: 10,
-                BUFFER_CONVERSION_SECONDS: 60,
+                dropSnapshotsTeams: new Set<number>(),
+                dropEventsTeams: new Set<number>(),
                 statsd: {
                     timing: jest.fn(),
                     increment: jest.fn(),
@@ -148,6 +149,36 @@ describe('eachBatchX', () => {
                 'kafka_queue.each_batch_ingestion',
                 expect.any(Date)
             )
+        })
+
+        it('drops snapshots if specified', async () => {
+            queue.pluginsServer.dropSnapshotsTeams.add(3).add(5)
+            const batch = createBatchWithMultipleEvents([
+                captureEndpointEvent,
+                { ...captureEndpointEvent, team_id: 3 },
+                { ...captureEndpointEvent, team_id: 3 },
+                { ...captureEndpointEvent, team_id: 3, event: '$snapshot' },
+                { ...captureEndpointEvent, team_id: 5 },
+                { ...captureEndpointEvent, team_id: 5 },
+                { ...captureEndpointEvent, team_id: 5, event: '$snapshot' },
+                { ...captureEndpointEvent, team_id: 5, event: '$snapshot' },
+            ])
+            await eachBatchIngestion(batch, queue)
+
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(5)
+        })
+
+        it('drops events if specified', async () => {
+            queue.pluginsServer.dropEventsTeams.add(3)
+            const batch = createBatchWithMultipleEvents([
+                captureEndpointEvent,
+                { ...captureEndpointEvent, team_id: 3 },
+                { ...captureEndpointEvent, team_id: 3, event: '$snapshot' },
+                { ...captureEndpointEvent, team_id: 3, event: '$snapshot' },
+            ])
+            await eachBatchIngestion(batch, queue)
+
+            expect(queue.workerMethods.runEventPipeline).toHaveBeenCalledTimes(3)
         })
 
         it('breaks up by teamId:distinctId for enabled teams', async () => {
