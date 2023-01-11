@@ -6,7 +6,7 @@ import {
     NodeKind,
     BreakdownFilter,
 } from '~/queries/schema'
-import { FilterType, InsightType, ActionFilter, EntityTypes } from '~/types'
+import { FilterType, InsightType, ActionFilter, EntityTypes, TrendsFilterType, StickinessFilterType } from '~/types'
 import {
     isEventsNode,
     isTrendsQuery,
@@ -97,6 +97,14 @@ export const queryNodeToFilter = (query: InsightQueryNode): Partial<FilterType> 
 
     if (isTrendsQuery(query) || isStickinessQuery(query) || isLifecycleQuery(query)) {
         filters.interval = query.interval
+    }
+
+    if (isTrendsQuery(query)) {
+        ;(filters as TrendsFilterType).display = query.trendsFilter?.display
+    }
+
+    if (isStickinessQuery(query)) {
+        ;(filters as StickinessFilterType).display = query.stickinessFilter?.display
     }
 
     // get node specific filter properties e.g. trendsFilter, funnelsFilter, ...

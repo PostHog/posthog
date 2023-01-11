@@ -1,7 +1,7 @@
 import { InsightQueryNode, EventsNode, ActionsNode, NodeKind, SupportedNodeKind } from '~/queries/schema'
 import { FilterType, InsightType, ActionFilter } from '~/types'
-import { isLifecycleQuery } from '~/queries/utils'
-import { isLifecycleFilter } from 'scenes/insights/sharedUtils'
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { isLifecycleFilter, isStickinessFilter } from 'scenes/insights/sharedUtils'
 import { objectClean } from 'lib/utils'
 
 const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
@@ -78,6 +78,12 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
         query.lifecycleFilter = objectClean({
             shown_as: filters.shown_as,
+        })
+    }
+
+    if (isStickinessFilter(filters) && isStickinessQuery(query)) {
+        query.stickinessFilter = objectClean({
+            display: filters.display,
         })
     }
 
