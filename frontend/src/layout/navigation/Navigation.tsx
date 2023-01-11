@@ -1,4 +1,3 @@
-import { Layout } from 'antd'
 import { useValues } from 'kea'
 import { BillingAlertsV2 } from 'lib/components/BillingAlertsV2'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -12,10 +11,10 @@ export function Navigation({ children }: { children: any }): JSX.Element {
     const { sceneConfig, activeScene } = useValues(sceneLogic)
 
     return (
-        <Layout>
+        <div>
             {activeScene !== Scene.Ingestion && <TopBar />}
             <SideBar>
-                <Layout.Content className={!sceneConfig?.plain ? 'main-app-content' : undefined}>
+                <div className={!sceneConfig?.plain ? 'main-app-content' : undefined}>
                     {!sceneConfig?.plain && (
                         <>
                             <BillingAlertsV2 />
@@ -24,8 +23,8 @@ export function Navigation({ children }: { children: any }): JSX.Element {
                         </>
                     )}
                     {children}
-                </Layout.Content>
+                </div>
             </SideBar>
-        </Layout>
+        </div>
     )
 }
