@@ -53,12 +53,10 @@ export async function ingestEvent(
     if (event.team_id) {
         // Sometimes bad actors could cause us trouble, this allows us to drop all events or all snapshots for
         // a specific team
-        // TODO: use the env
         if (
             (event.event == '$snapshot' && server.dropSnapshotsTeams.has(event.team_id)) ||
             (event.event != '$snapshot' && server.dropEventsTeams.has(event.team_id))
         ) {
-            // ?.split(',').includes(event.team_id.toString())) {
             server.statsd?.increment('kafka_queue_ingest_event_hit', { pipeline: 'droppedBadActor' })
         }
 
