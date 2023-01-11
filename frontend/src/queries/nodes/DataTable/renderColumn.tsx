@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { DataTableNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, HasPropertiesNode, QueryContext } from '~/queries/schema'
 import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -76,7 +76,7 @@ export function renderColumn(
                             source: {
                                 ...query.source,
                                 properties: newProperties,
-                            },
+                            } as HasPropertiesNode,
                         })
                     }}
                 >
@@ -122,7 +122,7 @@ export function renderColumn(
                             source: {
                                 ...query.source,
                                 properties: newProperties,
-                            },
+                            } as HasPropertiesNode,
                         })
                     }}
                 >
