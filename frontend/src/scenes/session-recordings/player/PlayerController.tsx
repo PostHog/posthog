@@ -14,8 +14,6 @@ import clsx from 'clsx'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonCheckbox } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 export function PlayerController({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logic = sessionRecordingPlayerLogic({ sessionRecordingId, playerKey })
@@ -24,9 +22,6 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
 
     const { speed, skipInactivitySetting, isFullScreen, autoplayEnabled } = useValues(playerSettingsLogic)
     const { setSpeed, setSkipInactivitySetting, setIsFullScreen, setAutoplayEnabled } = useActions(playerSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-
-    const featureExport = !!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]
 
     return (
         <div className="p-3 bg-light flex flex-col select-none">
@@ -121,17 +116,15 @@ export function PlayerController({ sessionRecordingId, playerKey }: SessionRecor
                                     Autoplay enabled
                                 </LemonButton>
 
-                                {featureExport && (
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() => exportRecordingToFile()}
-                                        fullWidth
-                                        sideIcon={<IconExport />}
-                                        tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
-                                    >
-                                        Export to file
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() => exportRecordingToFile()}
+                                    fullWidth
+                                    sideIcon={<IconExport />}
+                                    tooltip="Export recording to a file. This can be loaded later into PostHog for playback."
+                                >
+                                    Export to file
+                                </LemonButton>
                             </>
                         }
                     />
