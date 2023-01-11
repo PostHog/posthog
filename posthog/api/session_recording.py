@@ -4,6 +4,7 @@ from typing import Any, Optional, Tuple
 
 import structlog
 from dateutil import parser
+from django.db.models import Prefetch
 from django.http import JsonResponse
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -228,9 +229,12 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     )
 
     distinct_ids = map(lambda x: x["distinct_id"], session_recordings)
-    person_distinct_ids = PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team).select_related(
-        "person"
+    person_distinct_ids = (
+        PersonDistinctId.objects.filter(distinct_id__in=distinct_ids, team=team)
+        .select_related("person")
+        .prefetch_related(Prefetch("person__persondistinctid_set", to_attr="distinct_ids_cache"))
     )
+
     distinct_id_to_person = {}
     for person_distinct_id in person_distinct_ids:
         distinct_id_to_person[person_distinct_id.distinct_id] = person_distinct_id.person

@@ -14,8 +14,6 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { IconSettings } from 'lib/components/icons'
 import { router } from 'kea-router'
 import { openSessionRecordingSettingsDialog } from './settings/SessionRecordingSettings'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { SessionRecordingFilePlayback } from './file-playback/SessionRecodingFilePlayback'
 import { createPlaylist } from './playlist/playlistUtils'
 import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
@@ -25,14 +23,7 @@ export function SessionsRecordings(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { tab } = useValues(sessionRecordingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportRecordingPlaylistCreated } = useActions(eventUsageLogic)
-
-    const visibleTabs = [SessionRecordingsTabs.Recent, SessionRecordingsTabs.Playlists]
-
-    if (!featureFlags[FEATURE_FLAGS.RECORDINGS_EXPORT]) {
-        visibleTabs.push(SessionRecordingsTabs.FilePlayback)
-    }
 
     const newPlaylistHandler = useAsyncHandler(async () => {
         await createPlaylist({}, true)

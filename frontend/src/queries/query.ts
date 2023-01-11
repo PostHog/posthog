@@ -6,6 +6,7 @@ import {
     isPersonsNode,
     isTimeToSeeDataSessionsQuery,
     isTimeToSeeDataQuery,
+    isRecentPerformancePageViewNode,
     isTimeToSeeDataSessionsNode,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
@@ -77,6 +78,8 @@ export async function query<N extends DataNode = DataNode>(
             session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
             session_end: query.sessionEnd ?? now().toISOString(),
         })
+    } else if (isRecentPerformancePageViewNode(query)) {
+        return await api.performanceEvents.recentPageViews()
     } else if (isTimeToSeeDataSessionsNode(query)) {
         return await api.create('/api/time_to_see_data/session_events', {
             team_id: query.source.teamId ?? getCurrentTeamId(),

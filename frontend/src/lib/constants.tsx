@@ -135,12 +135,9 @@ export const FEATURE_FLAGS = {
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     BILLING_FEATURES_EXPERIMENT: 'billing-features-experiment', // owner: #team-growth
     BILLING_PLAN_MOST_POPULAR_EXPERIMENT: 'billing-plan-most-popular-experiment', // owner: #team-growth, @raquelmsmith
-    RECORDINGS_EXPORT: 'recordings-export', // owner: #team-session-recordings
-    SOCIAL_AUTH_BUTTONS_EXPERIMENT: 'social-auth-buttons-experiment', // owner: #team-growth
     YEAR_IN_HOG: 'year-in-hog', // owner: @pauldambra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
-    ACTOR_PROPERTIES_TIMELINE: 'actor-properties-timeline', // owner: @Twixes
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     RECORDINGS_INSPECTOR_V2: 'recordings-inspector-v2', // owner: #team-session-recordings
     RECORDINGS_INSPECTOR_PERFORMANCE: 'recordings-inspector-performance', // owner: #team-session-recordings

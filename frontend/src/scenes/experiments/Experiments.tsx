@@ -197,7 +197,11 @@ export function Experiments(): JSX.Element {
                         columns={columns}
                         rowKey="id"
                         loading={experimentsLoading}
-                        defaultSorting={{ columnKey: 'id', order: 1 }}
+                        defaultSorting={{
+                            columnKey: 'created_at',
+                            order: -1,
+                        }}
+                        noSortingCancellation
                         pagination={{ pageSize: 100 }}
                         nouns={['experiment', 'experiments']}
                         data-attr="experiment-table"

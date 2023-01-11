@@ -464,6 +464,17 @@ export function humanFriendlyNumber(d: number, precision: number = 2): string {
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
+export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
+    if (typeof timestamp !== 'number') {
+        return undefined
+    }
+
+    if (timestamp < 1000) {
+        return `${Math.ceil(timestamp)}ms`
+    }
+
+    return `${(timestamp / 1000).toFixed(2)}s`
+}
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
@@ -497,8 +508,8 @@ export function humanFriendlyDiff(from: dayjs.Dayjs | string, to: dayjs.Dayjs | 
 
 export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null,
-    formatDate = 'MMMM DD, YYYY',
-    formatTime = 'h:mm:ss A'
+    formatDate = 'MMMM DD, YYYY',
+    formatTime = 'h:mm:ss A'
 ): string {
     if (!date) {
         return 'Never'
@@ -511,9 +522,9 @@ export function humanFriendlyDetailedTime(
     }
     let formatString: string
     if (parsedDate.isSame(today, 'd')) {
-        formatString = `[Today] ${formatTime}`
+        formatString = `[Today] ${formatTime}`
     } else if (parsedDate.isSame(yesterday, 'd')) {
-        formatString = `[Yesterday] ${formatTime}`
+        formatString = `[Yesterday] ${formatTime}`
     } else {
         formatString = `${formatDate} ${formatTime}`
     }
@@ -616,8 +627,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    // Regex by regextester.com/115236
-    const regexp = /^(?:http(s)?:\/\/)([\w*.-])+(?:[\w*\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*\.-]+[\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.]+$/
     return !!input.trim().match(regexp)
 }
 

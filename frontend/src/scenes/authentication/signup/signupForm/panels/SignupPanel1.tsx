@@ -6,7 +6,7 @@ import { Field } from 'lib/forms/Field'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import { SocialLoginButtons } from 'lib/components/SocialLoginButton'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { signupLogic } from '../../signupLogic'
+import { signupLogic } from '../signupLogic'
 import { Link } from 'lib/components/Link'
 
 export function SignupPanel1(): JSX.Element | null {
@@ -21,6 +21,14 @@ export function SignupPanel1(): JSX.Element | null {
 
     return (
         <div className="space-y-4 Signup__panel__1">
+            {!preflight?.demo && (
+                <>
+                    <div className="mt-6">
+                        <SocialLoginButtons caption="Sign up with" bottomDivider />
+                    </div>
+                    <p className="text-muted text-center mb-0">Or use email & password</p>
+                </>
+            )}
             <Form logic={signupLogic} formKey={'signupPanel1'} className="space-y-4" enableFormOnSubmit>
                 <Field name="email" label="Email">
                     <LemonInput
@@ -76,11 +84,6 @@ export function SignupPanel1(): JSX.Element | null {
                     <Link to="/login" data-attr="signup-login-link" className="font-bold">
                         Log in
                     </Link>
-                </div>
-            )}
-            {!preflight?.demo && (
-                <div>
-                    <SocialLoginButtons caption="Or sign up with" topDivider />
                 </div>
             )}
         </div>

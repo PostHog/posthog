@@ -19,6 +19,8 @@ import {
     TimeToSeeDataSessionsQuery,
     TrendsQuery,
     UnimplementedQuery,
+    TimeToSeeDataQuery,
+    RecentPerformancePageViewNode,
 } from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
@@ -94,6 +96,10 @@ export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeData
 
 export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
     return node?.kind === NodeKind.TimeToSeeDataQuery
+}
+
+export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerformancePageViewNode {
+    return node?.kind === NodeKind.RecentPerformancePageViewNode
 }
 
 export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {

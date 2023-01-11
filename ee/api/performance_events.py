@@ -3,13 +3,18 @@ from typing import Dict, List, Optional, Tuple
 
 import pytz
 from rest_framework import request, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models.performance.sql import PERFORMANCE_EVENT_COLUMNS, _column_names_from_column_definitions
+from posthog.models.performance.sql import (
+    PERFORMANCE_EVENT_COLUMNS,
+    RECENT_PAGE_VIEWS_SQL,
+    _column_names_from_column_definitions,
+)
 from posthog.permissions import (
     PremiumFeaturePermission,
     ProjectMembershipNecessaryPermissions,
@@ -20,6 +25,7 @@ from posthog.permissions import (
 class PerformanceEventSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     session_id = serializers.CharField()
+    window_id = serializers.CharField()
     pageview_id = serializers.CharField(required=False, allow_blank=True)
     distinct_id = serializers.CharField()
     current_url = serializers.CharField()
@@ -114,6 +120,50 @@ class PerformanceEvents:
         return columnized_results
 
 
+class RecentPageViewPerformanceEvents:
+    @classmethod
+    def query(
+        cls,
+        team_id: int,
+        number_of_days: int,
+    ) -> List[Dict]:
+        query = RECENT_PAGE_VIEWS_SQL
+
+        ch_results = sync_execute(
+            query,
+            {
+                "team_id": team_id,
+                "number_of_days": number_of_days,
+            },
+        )
+
+        columnized_results = []
+        for result in ch_results:
+            columnized_item = {
+                "session_id": result[0],
+                "pageview_id": result[1],
+                "page_url": result[2],
+                "duration": result[3],
+                "timestamp": result[4],
+            }
+
+            columnized_results.append(columnized_item)
+
+        return columnized_results
+
+
+class RecentPageViewPerformanceEventsQuerySerializer(serializers.Serializer):
+    number_of_days = serializers.IntegerField(max_value=30, default=7, min_value=1, required=False)
+
+
+class RecentPageViewPerformanceEventListSerializer(serializers.Serializer):
+    session_id = serializers.CharField()
+    pageview_id = serializers.CharField()
+    page_url = serializers.CharField()
+    duration = serializers.FloatField()
+    timestamp = serializers.DateTimeField()
+
+
 class ListPerformanceEventQuerySerializer(serializers.Serializer):
     session_id = serializers.CharField(required=True)
     pageview_id = serializers.CharField(required=False)
@@ -156,4 +206,16 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         serializer = PerformanceEventSerializer(data=results, many=True)
         serializer.is_valid(raise_exception=True)
 
+        return Response({"results": serializer.data})
+
+    @action(methods=["GET"], detail=False)
+    def recent_pageviews(self, request: request.Request, *args, **kwargs) -> Response:
+        params_serializer = RecentPageViewPerformanceEventsQuerySerializer(data=request.GET)
+        params_serializer.is_valid(raise_exception=True)
+        params = params_serializer.validated_data
+
+        results = RecentPageViewPerformanceEvents.query(self.team_id, number_of_days=params.get("number_of_days"))
+
+        serializer = RecentPageViewPerformanceEventListSerializer(data=results, many=True)
+        serializer.is_valid(raise_exception=True)
         return Response({"results": serializer.data})
