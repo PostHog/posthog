@@ -55,22 +55,22 @@ SELECT {aggregate_operation} as data FROM (
 # 2. For each event, compute the buckets it falls in
 # 3. Count the number of distinct actor IDs per bucket
 ACTIVE_USERS_SQL = """
-SELECT
-    count(DISTINCT actor_id) AS counts,
-    arrayJoin(timeSlots(
-        toDateTime({interval}(timestamp)) - INTERVAL 1 DAY,
-        toUInt32(3600 * 24 * %(days)s),
-        %(increment_seconds)s
-    )) as day_start
+SELECT counts AS total,
+    timestamp AS day_start
 FROM (
     SELECT
-        {aggregator} AS actor_id,
-        toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp
+        count(DISTINCT {aggregator}) AS total,
+        arrayJoin(
+            arrayMap(
+                x -> {interval}(toDateTime(x, %(timezone)s)),
+                range(toUInt32(timestamp), toUInt32(timestamp + INTERVAL %(days)s DAY), %(increment_seconds)s)
+            )
+        ) as timestamp
     {event_query_base}
+    GROUP BY timestamp
+    HAVING 1=1 {parsed_date_from} {parsed_date_to}
+    ORDER BY timestamp
 )
-WHERE day_start >= toDateTime(%(date_from)s, 'UTC') AND day_start <= toDateTime(%(date_to)s, 'UTC')
-GROUP BY day_start
-ORDER BY day_start
 """
 
 ACTIVE_USERS_AGGREGATE_SQL = """
