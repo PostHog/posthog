@@ -37,6 +37,17 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
     await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
 }
 
+export async function eachBatchSessionRecordings(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
+    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], _: number): KafkaMessage[][] {
+        // We don't want to group session recordings into batches
+        // as session recordings do not need to be processed in order. We don't
+        // need to consider ordering within distinct id.
+        return [kafkaMessages]
+    }
+
+    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'session-recordings')
+}
+
 export async function ingestEvent(
     server: Hub,
     workerMethods: WorkerMethods,

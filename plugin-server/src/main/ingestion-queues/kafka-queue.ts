@@ -12,7 +12,7 @@ import {
     prefix as KAFKA_PREFIX,
 } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
-import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
+import { eachBatchIngestion, eachBatchSessionRecordings } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
@@ -53,7 +53,7 @@ export class IngestionConsumer {
             // main analytics topic to progress independently of the session
             // recording events.
             // TODO: separate consumer groups as well.
-            [this.sessionRecordingEvents]: eachBatchIngestion,
+            [this.sessionRecordingEvents]: eachBatchSessionRecordings,
             [this.eventsTopic]: eachBatchAsyncHandlers,
         }
     }
