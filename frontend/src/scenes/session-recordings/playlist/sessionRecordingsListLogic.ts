@@ -145,7 +145,6 @@ export const sessionRecordingsListLogic = kea<sessionRecordingsListLogicType>([
                         ...values.filters,
                         person_uuid: props.personUUID ?? '',
                         limit: RECORDINGS_LIMIT,
-                        exclude_pinned: !!props.playlistShortId,
                     }
 
                     const params = toParams(paramsDict)

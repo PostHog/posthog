@@ -215,9 +215,6 @@ class SessionRecording(UUIDModel):
 
         return recordings
 
-    # TODO: add metadata field to keep minimal information on this model for quick access
-
-
 @receiver(models.signals.post_save, sender=SessionRecording)
 def attempt_persist_recording(sender, instance: SessionRecording, created: bool, **kwargs):
     if created:

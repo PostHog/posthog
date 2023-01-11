@@ -3,7 +3,7 @@ from typing import Any, List, cast
 
 import structlog
 from dateutil import parser
-from django.db.models import Count, Prefetch
+from django.db.models import Prefetch
 from django.http import JsonResponse
 from rest_framework import exceptions, request, serializers, viewsets
 from rest_framework.decorators import action
@@ -202,7 +202,6 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
     """
 
     all_session_ids = filter.session_ids
-    exclude_pinned = filter.exclude_pinned
     recordings: List[SessionRecording] = []
     more_recordings_available = False
 
@@ -213,11 +212,6 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
             .exclude(object_storage_path=None)
             .prefetch_related("playlist_items")
         )
-
-        if exclude_pinned:
-            persisted_recordings_queryset = persisted_recordings_queryset.annotate(
-                pinned_count=Count("playlist_items")
-            ).exclude(pinned_count__gt=0)
 
         persisted_recordings = persisted_recordings_queryset.all()
 

@@ -3,7 +3,6 @@ from typing import List, Optional
 
 from posthog.constants import (
     PERSON_UUID_FILTER,
-    SESSION_RECORDINGS_FILTER_EXCLUDE_PINNED,
     SESSION_RECORDINGS_FILTER_IDS,
     SESSION_RECORDINGS_FILTER_TYPE_DURATION,
 )
@@ -26,11 +25,6 @@ class SessionRecordingsMixin(BaseParamMixin):
             filter_data = json.loads(duration_filter_data_str)
             return Property(**filter_data)
         return None
-
-    @cached_property
-    def exclude_pinned(self) -> Optional[bool]:
-        _exclude_pinned = self._data.get(SESSION_RECORDINGS_FILTER_EXCLUDE_PINNED, None)
-        return process_bool(_exclude_pinned)
 
     @cached_property
     def session_ids(self) -> Optional[List[str]]:

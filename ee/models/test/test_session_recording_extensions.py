@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from freezegun import freeze_time
 
-from ee.models.session_recording_extensions import persist_recording, load_persisted_recording
+from ee.models.session_recording_extensions import load_persisted_recording, persist_recording
 from posthog.models.session_recording.session_recording import SessionRecording
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
