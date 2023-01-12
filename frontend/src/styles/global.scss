@@ -562,6 +562,7 @@ input::-ms-clear {
 .main-app-content {
     position: relative; // So that scene-level <Loading/> is positioned correctly.
     min-width: 0;
+    height: 100%;
     padding: 0 1rem 1rem;
 
     @include screen($sm) {
@@ -570,6 +571,10 @@ input::-ms-clear {
 
     @include screen($lg) {
         padding: 0 2rem 4rem;
+    }
+
+    &.main-app-content--plain {
+        padding: 0;
     }
 }
 
