@@ -164,7 +164,7 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else {
-        if (typeof value === 'object') {
+        if (typeof value === 'object' && value !== null) {
             return <ReactJson src={value} name={key} collapsed={1} />
         }
         return String(value)
