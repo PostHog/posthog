@@ -15,7 +15,7 @@ class Command(BaseCommand):
                 sql = call_command("sqlmigrate", results[0], results[1])
                 if (
                     re.findall(r"(?<!DROP) (NOT NULL|DEFAULT)", sql, re.M & re.I)
-                    and not re.match(r"(?<!CREATE UNIQUE INDEX) (NOT NULL)", sql)
+                    and len(re.findall(r"(?<!ALTER TABLE).* (ADD CONSTRAINT)", sql)) < 1
                     and "Create model" not in sql
                     and "-- not-null-ignore" not in sql
                 ):
