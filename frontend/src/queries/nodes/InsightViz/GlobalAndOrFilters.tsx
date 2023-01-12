@@ -1,43 +1,44 @@
 // import { convertPropertiesToPropertyGroup } from 'lib/utils'
-// import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-// import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
 // import { EditorFilterProps, InsightType } from '~/types'
-// import { useActions, useValues } from 'kea'
-// import { groupsModel } from '~/models/groupsModel'
+import { useActions, useValues } from 'kea'
+import { groupsModel } from '~/models/groupsModel'
+import { TrendsQuery, StickinessQuery } from '~/queries/schema'
+import { isTrendsQuery } from '~/queries/utils'
 // import { insightLogic } from 'scenes/insights/insightLogic'
 
 type GlobalAndOrFiltersProps = {
-    // query: LifecycleQuery
-    // setQuery: (node: LifecycleQuery) => void
+    query: TrendsQuery | StickinessQuery
+    setQuery: (node: TrendsQuery | StickinessQuery) => void
     // insightProps
 }
 
-export function GlobalAndOrFilters({}: GlobalAndOrFiltersProps): JSX.Element {
+export function GlobalAndOrFilters({ query, setQuery }: GlobalAndOrFiltersProps): JSX.Element {
     // const { setFiltersMerge } = useActions(insightLogic)
     // const { allEventNames } = useValues(insightLogic)
-    // const { groupsTaxonomicTypes } = useValues(groupsModel)
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    // const taxonomicGroupTypes = [
-    //     TaxonomicFilterGroupType.EventProperties,
-    //     TaxonomicFilterGroupType.PersonProperties,
-    //     TaxonomicFilterGroupType.EventFeatureFlags,
-    //     ...groupsTaxonomicTypes,
-    //     TaxonomicFilterGroupType.Cohorts,
-    //     TaxonomicFilterGroupType.Elements,
-    //     ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
-    // ]
+    const taxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        TaxonomicFilterGroupType.EventFeatureFlags,
+        ...groupsTaxonomicTypes,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.Elements,
+        ...(isTrendsQuery(query) ? [TaxonomicFilterGroupType.Sessions] : []),
+    ]
 
-    return <div>GlobalAndOrFilters</div>
-    // return (
-    //     <PropertyGroupFilters
-    //         noTitle
-    //         value={convertPropertiesToPropertyGroup(filters.properties)}
-    //         onChange={(properties) => setFiltersMerge({ properties })}
-    //         taxonomicGroupTypes={taxonomicGroupTypes}
-    //         pageKey="insight-filters"
-    //         eventNames={allEventNames}
-    //         filters={filters}
-    //         setTestFilters={(testFilters) => setFiltersMerge(testFilters)}
-    //     />
-    // )
+    return (
+        <PropertyGroupFilters
+            pageKey="insight-filters"
+            query={query}
+            setQuery={setQuery}
+            // value={convertPropertiesToPropertyGroup(filters.properties)}
+            // onChange={(properties) => setFiltersMerge({ properties })}
+            // eventNames={allEventNames}
+            taxonomicGroupTypes={taxonomicGroupTypes}
+            noTitle
+        />
+    )
 }
