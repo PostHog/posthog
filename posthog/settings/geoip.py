@@ -1,5 +1,5 @@
 import os
 
-from django.conf import settings
+from posthog.settings.base_variables import BASE_DIR
 
-GEOIP_PATH = os.path.join(settings.BASE_DIR, "share")
+GEOIP_PATH = os.path.join(BASE_DIR, "share")
