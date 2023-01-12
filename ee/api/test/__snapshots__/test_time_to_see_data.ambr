@@ -45,9 +45,6 @@
                   "insights_fetched_cached": 0,
                   "min_last_refresh": "1970-01-01T00:00:00",
                   "max_last_refresh": "1970-01-01T00:00:00",
-                  "_timestamp": "1970-01-01T00:00:00",
-                  "_offset": 0,
-                  "_partition": 0,
                   "is_frustrating": 0
               },
               "children": [
@@ -75,9 +72,6 @@
                           "insights_fetched_cached": 0,
                           "min_last_refresh": "1970-01-01T00:00:00",
                           "max_last_refresh": "1970-01-01T00:00:00",
-                          "_timestamp": "1970-01-01T00:00:00",
-                          "_offset": 0,
-                          "_partition": 0,
                           "is_frustrating": 0
                       },
                       "children": [
@@ -183,9 +177,6 @@
                   "insights_fetched_cached": 0,
                   "min_last_refresh": "1970-01-01T00:00:00",
                   "max_last_refresh": "1970-01-01T00:00:00",
-                  "_timestamp": "1970-01-01T00:00:00",
-                  "_offset": 0,
-                  "_partition": 0,
                   "is_frustrating": 1
               },
               "children": []
