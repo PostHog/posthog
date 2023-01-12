@@ -1,5 +1,4 @@
 import { useValues, BindLogic, useActions } from 'kea'
-import 'scenes/actions/Actions.scss'
 import {
     PropertyGroupFilter,
     FilterLogicalOperator,
@@ -95,16 +94,7 @@ export function PropertyGroupFilters({
                                                         }
                                                         value={group.type}
                                                     />
-                                                    <div
-                                                        // eslint-disable-next-line react/forbid-dom-props
-                                                        style={{
-                                                            marginLeft: 8,
-                                                            marginRight: 8,
-                                                            height: 1,
-                                                            background: '#d9d9d9',
-                                                            flex: 1,
-                                                        }}
-                                                    />
+                                                    <div className="flex-1 h-px mx-2 bg-dark-grey" />
                                                     <LemonButton
                                                         icon={<IconCopy />}
                                                         status="primary-alt"
