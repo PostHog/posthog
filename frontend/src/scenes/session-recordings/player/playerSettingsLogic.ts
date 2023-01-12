@@ -98,33 +98,39 @@ const MiniFilters: SharedListMiniFilter[] = [
     },
     {
         tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-document',
-        name: 'Document',
-        tooltip: 'Page load information collected on a fresh browser page load or a refresh',
-    },
-    {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
         key: 'performance-fetch',
-        name: 'XHR / Fetch',
+        name: 'Fetch/XHR',
         tooltip: 'Requests during the session to external resources like APIs via XHR or Fetch',
     },
     {
         tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-assets',
-        name: 'Assets',
-        tooltip: 'Assets loaded during the session such as images, CSS and JS',
+        key: 'performance-document',
+        name: 'Doc',
+        tooltip: 'Page load information collected on a fresh browser page load, refresh, or page paint.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-assets-js',
+        name: 'JS',
+        tooltip: 'Scripts loaded during the session.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-assets-css',
+        name: 'CSS',
+        tooltip: 'CSS loaded during the session.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-assets-img',
+        name: 'Img',
+        tooltip: 'Images loaded during the session.',
     },
     {
         tab: SessionRecordingPlayerTab.PERFORMANCE,
         key: 'performance-other',
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
-    },
-    {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-paint',
-        name: 'Paint',
-        tooltip: 'Events indicating when the browser has painted the page',
     },
 ]
 

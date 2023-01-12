@@ -102,3 +102,18 @@ export function createPerformanceSummaryEvents(events: PerformanceEvent[]): Perf
     }
     return finalEvents
 }
+
+export const IMAGE_WEB_EXTENSIONS = [
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'tif',
+    'tiff',
+    'gif',
+    'svg',
+    'webp',
+    'bmp',
+    'ico',
+    'cur',
+]

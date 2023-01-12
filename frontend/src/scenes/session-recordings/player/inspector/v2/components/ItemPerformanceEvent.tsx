@@ -7,6 +7,7 @@ import { SimpleKeyValueList } from './SimpleKeyValueList'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Fragment } from 'react'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 
 export interface ItemPerformanceEvent {
     item: PerformanceEvent
@@ -89,6 +90,7 @@ export function ItemPerformanceEvent({
     const {
         timestamp,
         uuid,
+        name,
         session_id,
         window_id,
         pageview_id,
@@ -112,6 +114,8 @@ export function ItemPerformanceEvent({
             [key]: typeof value === 'number' ? Math.round(value) : value,
         }
     }, {} as Record<string, any>)
+
+    console.log('SANITIZED', sanitizedProps)
 
     return (
         <div>
@@ -218,26 +222,32 @@ export function ItemPerformanceEvent({
                             ) : null}
                         </p>
                     ) : (
-                        <p>
-                            started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
-                            <b>{humanFriendlyMilliseconds(item.duration)}</b> to complete
-                        </p>
+                        <>
+                            <CodeSnippet language={Language.Markup} wrap copyDescription="performance event name">
+                                {item.name}
+                            </CodeSnippet>
+                            <p>
+                                started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and
+                                took <b>{humanFriendlyMilliseconds(item.duration)}</b> to complete
+                            </p>
+                        </>
                     )}
 
                     {item.decoded_body_size && item.encoded_body_size ? (
-                        <>
-                            Resource is {humanizeBytes(item.decoded_body_size)}
+                        <span>
+                            Resource is {humanizeBytes(item.decoded_body_size)}.
                             {item.encoded_body_size !== item.decoded_body_size && (
-                                <p>
+                                <>
+                                    {' '}
                                     Was compressed. Sent {humanizeBytes(item.encoded_body_size)}. Saving{' '}
                                     {(
                                         ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) *
                                         100
                                     ).toFixed(1)}
                                     %
-                                </p>
+                                </>
                             )}
-                        </>
+                        </span>
                     ) : null}
                     <LemonDivider dashed />
                     <SimpleKeyValueList item={sanitizedProps} />
