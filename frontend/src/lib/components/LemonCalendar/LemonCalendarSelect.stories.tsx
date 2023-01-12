@@ -13,7 +13,7 @@ export default {
 } as ComponentMeta<typeof LemonCalendarSelect>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarSelect> = (props: LemonCalendarSelectProps) => {
-    const [value, setValue] = useState(dayjs().subtract(10, 'day').format('YYYY-MM-DD'))
+    const [value, setValue] = useState(dayjs().subtract(10, 'day'))
     const [visible, setVisible] = useState(true)
 
     return (
@@ -36,7 +36,7 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarSelect> = (props: LemonC
                 onClickOutside={() => setVisible(false)}
             >
                 <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                    {formatDate(dayjs(value))}
+                    {formatDate(value)}
                 </LemonButton>
             </Popup>
         </div>

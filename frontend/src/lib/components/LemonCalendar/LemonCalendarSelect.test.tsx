@@ -3,6 +3,7 @@ import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { getByDataAttr } from '~/test/byDataAttr'
 import { LemonCalendarSelect } from 'lib/components/LemonCalendar/LemonCalendarSelect'
+import { dayjs } from 'lib/dayjs'
 
 describe('LemonCalendarSelect', () => {
     test('select various dates', async () => {
@@ -10,7 +11,7 @@ describe('LemonCalendarSelect', () => {
         const onChange = jest.fn()
 
         function TestSelect(): JSX.Element {
-            const [value, setValue] = useState('2022-02-10')
+            const [value, setValue] = useState(dayjs('2022-02-10'))
             return (
                 <LemonCalendarSelect
                     months={1}
@@ -39,11 +40,11 @@ describe('LemonCalendarSelect', () => {
 
         // click on 15
         await clickOn('15')
-        expect(onChange).toHaveBeenCalledWith('2022-02-15')
+        expect(onChange).toHaveBeenCalledWith(dayjs('2022-02-15'))
 
         // click on 27
         await clickOn('27')
-        expect(onChange).toHaveBeenCalledWith('2022-02-27')
+        expect(onChange).toHaveBeenCalledWith(dayjs('2022-02-27'))
 
         userEvent.click(getByDataAttr(container, 'lemon-calendar-select-cancel'))
         expect(onClose).toHaveBeenCalled()

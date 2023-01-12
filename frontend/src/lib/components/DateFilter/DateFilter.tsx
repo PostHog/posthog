@@ -61,10 +61,10 @@ export function DateFilter({
     const popupOverlay =
         view === DateFilterView.FixedRange ? (
             <LemonCalendarRange
-                value={[(rangeDateTo ?? dayjs()).format('YYYY-MM-DD'), (rangeDateTo ?? dayjs()).format('YYYY-MM-DD')]}
+                value={[rangeDateTo ?? dayjs(), rangeDateTo ?? dayjs()]}
                 onChange={([from, to]) => {
-                    setRangeDateFrom(from ? dayjs(from) : null)
-                    setRangeDateTo(to ? dayjs(to) : null)
+                    setRangeDateFrom(from)
+                    setRangeDateTo(to)
                     applyRange()
                 }}
                 onClose={open}
@@ -72,9 +72,9 @@ export function DateFilter({
             />
         ) : view === DateFilterView.DateToNow ? (
             <LemonCalendarSelect
-                value={(rangeDateFrom as any) ?? dayjs().format('YYYY-MM-DD')}
+                value={rangeDateFrom ?? dayjs()}
                 onChange={(date) => {
-                    setRangeDateFrom(dayjs(date))
+                    setRangeDateFrom(date)
                     setRangeDateTo(null)
                     applyRange()
                 }}
