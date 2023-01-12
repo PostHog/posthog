@@ -26,6 +26,7 @@ import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropert
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 
 interface DataTableProps {
     query: DataTableNode
@@ -63,6 +64,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
 
     const {
         showActions,
+        showDateRange,
         showSearch,
         showEventFilter,
         showPropertyFilter,
@@ -133,6 +135,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     )
 
     const firstRow = [
+        showDateRange && isEventsQuery(query.source) ? (
+            <DateRange query={query.source} setQuery={setQuerySource} />
+        ) : null,
         showEventFilter && isEventsQuery(query.source) ? (
             <EventName query={query.source} setQuery={setQuerySource} />
         ) : null,

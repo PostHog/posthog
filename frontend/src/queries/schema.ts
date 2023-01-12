@@ -187,6 +187,8 @@ export interface DataTableNode extends Node {
     showPropertyFilter?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show date range selector */
+    showDateRange?: boolean
     /** Show the export button */
     showExport?: boolean
     /** Show a reload button */
