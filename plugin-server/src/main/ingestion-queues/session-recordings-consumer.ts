@@ -68,7 +68,7 @@ export const startSessionRecordingEventsConsumer = async ({
 
             status.debug('⬆️', 'processing_session_recording', { uuid: eventPayload.uuid })
 
-            if (!eventPayload.token) {
+            if (!eventPayload.team_id && !eventPayload.token) {
                 status.warn('⚠️', 'invalid_message', {
                     reason: 'no_token',
                     partition: batch.partition,
@@ -78,7 +78,9 @@ export const startSessionRecordingEventsConsumer = async ({
                 continue
             }
 
-            const teamId = eventPayload.team_id ?? (await teamManager.getTeamIdByToken(eventPayload.token))
+            const teamId =
+                eventPayload.team_id ??
+                (eventPayload.token ? await teamManager.getTeamIdByToken(eventPayload.token) : null)
 
             if (!teamId) {
                 status.warn('⚠️', 'invalid_message', {
@@ -89,16 +91,6 @@ export const startSessionRecordingEventsConsumer = async ({
                 await producer.queueMessage({ topic: KAFKA_SESSION_RECORDING_EVENTS_DLQ, messages: [message] })
                 continue
             }
-
-            console.log({
-                topic: KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
-                messages: [
-                    {
-                        value: JSON.stringify(eventPayload),
-                        key: message.key,
-                    },
-                ],
-            })
 
             await producer.queueMessage({
                 topic: KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
