@@ -18,3 +18,27 @@ def get_recording_count_for_team_and_period(
         {"team_id": str(team_id), "begin": begin, "end": end},
     )[0][0]
     return result
+
+
+def get_recording_count_month_to_date() -> int:
+    result = sync_execute(
+        """
+        -- count of recordings month to date
+        SELECT count(distinct session_id) as freq
+        FROM session_recording_events
+        WHERE toStartOfMonth(timestamp) = toStartOfMonth(now());
+    """
+    )[0][0]
+    return result
+
+
+def get_recording_events_count_month_to_date() -> int:
+    result = sync_execute(
+        """
+        -- count of recordings events month to date
+        SELECT count(1) freq
+        FROM session_recording_events
+        WHERE toStartOfMonth(timestamp) = toStartOfMonth(now());
+    """
+    )[0][0]
+    return result

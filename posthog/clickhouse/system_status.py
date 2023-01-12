@@ -17,6 +17,10 @@ from posthog.cache_utils import cache_for
 from posthog.clickhouse.client.connection import make_ch_pool
 from posthog.client import query_with_columns, sync_execute
 from posthog.models.event.util import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
+from posthog.models.session_recording_event.util import (
+    get_recording_count_month_to_date,
+    get_recording_events_count_month_to_date,
+)
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
 
 SLOW_THRESHOLD_MS = 10000
@@ -45,6 +49,18 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "key": "clickhouse_event_count_month_to_date",
         "metric": "Events recorded month to date",
         "value": get_event_count_month_to_date(),
+    }
+
+    yield {
+        "key": "session_recordings_count_month_to_date",
+        "metric": "Session recordings month to date",
+        "value": get_recording_count_month_to_date(),
+    }
+
+    yield {
+        "key": "session_recordings_events_count_month_to_date",
+        "metric": "Session recordings events month to date",
+        "value": get_recording_events_count_month_to_date(),
     }
 
     disk_status = sync_execute(
