@@ -267,7 +267,7 @@ export const activationLogic = kea<activationLogicType>([
                         case ActivationTasks.SetupSessionRecordings:
                             tasks.push({
                                 id: ActivationTasks.SetupSessionRecordings,
-                                name: 'Setup session recordings',
+                                name: 'Set up session recordings',
                                 description: 'See how your users are using your product',
                                 completed: currentTeam?.session_recording_opt_in ?? false,
                                 canSkip: true,

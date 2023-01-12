@@ -1,10 +1,12 @@
-import { kea } from 'kea'
-import { Breadcrumb, EventType, MatchedRecording } from '~/types'
+import { actions, kea, path, reducers, selectors } from 'kea'
+import { Breadcrumb, MatchedRecording, PerformanceEvent, PerformancePageView, RecentPerformancePageView } from '~/types'
 import type { webPerformanceLogicType } from './webPerformanceLogicType'
 import { urls } from 'scenes/urls'
-import { router } from 'kea-router'
+import { urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
+import { loaders } from 'kea-loaders'
+import { dayjs } from 'lib/dayjs'
 
 export enum WebPerformancePage {
     TABLE = 'table',
@@ -18,48 +20,21 @@ export interface EventPerformanceMeasure {
     reducedHeight?: boolean
 }
 
-interface PointInTimeMarker {
+export interface PointInTimeMarker {
+    marker: string
     time: number
     color: string
 }
 
 export interface EventPerformanceData {
-    id: string | number
-    pointsInTime: Record<string, PointInTimeMarker>
+    pointsInTime: PointInTimeMarker[]
     resourceTimings: ResourceTiming[]
     maxTime: number
     gridMarkers: number[]
+    timestamp: string
 }
 
-function expandOptimisedEntries(entries: [string[], any[]]): Record<string, any>[] {
-    if (!entries || !entries.length) {
-        return []
-    }
-    try {
-        const keys = entries[0]
-        return entries[1].map((entry) => {
-            return entry.reduce((acc: Record<string, any>, entryValue: any, index: number) => {
-                acc[keys[index]] = entryValue
-                return acc
-            }, {})
-        })
-    } catch (e) {
-        console.error({ e, entries }, 'could not decompress performance entries')
-        return []
-    }
-}
-
-function decompress(
-    compressedRawPerformanceData: Record<'navigation' | 'paint' | 'resource', [string[], any[]]>
-): Record<string, any> {
-    return {
-        navigation: expandOptimisedEntries(compressedRawPerformanceData.navigation),
-        paint: expandOptimisedEntries(compressedRawPerformanceData.paint),
-        resource: expandOptimisedEntries(compressedRawPerformanceData.resource),
-    }
-}
-
-function colorForEntry(entryType: string): string {
+function colorForEntry(entryType: string | undefined): string {
     switch (entryType) {
         case 'domComplete':
             return getSeriesColor(1)
@@ -67,7 +42,7 @@ function colorForEntry(entryType: string): string {
             return getSeriesColor(2)
         case 'pageLoaded':
             return getSeriesColor(3)
-        case 'firstContentfulPaint':
+        case 'first-contentful-paint':
             return getSeriesColor(4)
         case 'css':
             return getSeriesColor(6)
@@ -81,6 +56,8 @@ function colorForEntry(entryType: string): string {
             return getSeriesColor(10)
         case 'link':
             return getSeriesColor(11)
+        case 'first-paint':
+            return getSeriesColor(11)
         default:
             return getSeriesColor(13)
     }
@@ -88,54 +65,51 @@ function colorForEntry(entryType: string): string {
 
 export interface MinimalPerformanceResourceTiming extends Omit<PerformanceEntry, 'entryType' | 'toJSON'> {
     name: string
-    fetchStart: number
-    responseEnd: number
+    fetch_start: number
+    response_end: number
 }
 
 export interface ResourceTiming {
     item: string | URL
-    entry: MinimalPerformanceResourceTiming | PerformanceResourceTiming | PerformanceNavigationTiming
+    entry: PerformanceEvent
     performanceParts: Record<string, EventPerformanceMeasure>
     color?: string
 }
-
-const maybeIncrementMaxTime = (maxTime: number, candidate: number): number =>
-    candidate > maxTime ? candidate : maxTime
 
 /**
  * There are defined sections to performance measurement. We may have data for some or all of them
  *
  * 1) Redirect
  *  - from startTime which would also be redirectStart
- *  - until redirectEnd
+ *  - until redirect_end
  *
  *  2) App Cache
- *   - from fetchStart
- *   - until domainLookupStart
+ *   - from fetch_start
+ *   - until domain_lookup_start
  *
  *  3) DNS
- *   - from domainLookupStart
- *   - until domainLookupEnd
+ *   - from domain_lookup_start
+ *   - until domain_lookup_end
  *
  *  4) TCP
- *   - from connectStart
- *   - until connectEnd
+ *   - from connect_start
+ *   - until connect_end
  *
  *   this contains any time to negotiate SSL/TLS
- *   - from secureConnectionStart
- *   - until connectEnd
+ *   - from secure_connection_start
+ *   - until connect_end
  *
  *  5) Request
- *   - from requestStart
- *   - until responseStart
+ *   - from request_start
+ *   - until response_start
  *
  *  6) Response
- *   - from responseStart
- *   - until responseEnd
+ *   - from response_start
+ *   - until response_end
  *
  *  7) Document Processing
- *   - from responseEnd
- *   - until loadEventEnd
+ *   - from response_end
+ *   - until load_event_end
  *
  * see https://nicj.net/resourcetiming-in-practice/
  *
@@ -143,7 +117,7 @@ const maybeIncrementMaxTime = (maxTime: number, candidate: number): number =>
  * @param maxTime
  */
 function calculatePerformanceParts(
-    perfEntry: PerformanceResourceTiming | PerformanceNavigationTiming,
+    perfEntry: PerformanceEvent,
     maxTime: number
 ): {
     performanceParts: Record<string, EventPerformanceMeasure>
@@ -151,232 +125,284 @@ function calculatePerformanceParts(
 } {
     const performanceParts: Record<string, EventPerformanceMeasure> = {}
 
-    if (perfEntry.redirectStart && perfEntry.redirectEnd) {
+    if (perfEntry.redirect_start && perfEntry.redirect_end) {
         performanceParts['redirect'] = {
-            start: perfEntry.redirectStart,
-            end: perfEntry.redirectEnd,
-            color: colorForEntry(perfEntry.initiatorType),
+            start: perfEntry.redirect_start,
+            end: perfEntry.redirect_end,
+            color: colorForEntry(perfEntry.initiator_type),
         }
-        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.redirectEnd)
+        maxTime = Math.max(maxTime, perfEntry.redirect_end)
     }
 
-    if (perfEntry.fetchStart && perfEntry.domainLookupStart) {
+    if (perfEntry.fetch_start && perfEntry.domain_lookup_start) {
         performanceParts['app cache'] = {
-            start: perfEntry.fetchStart,
-            end: perfEntry.domainLookupStart,
-            color: colorForEntry(perfEntry.initiatorType),
+            start: perfEntry.fetch_start,
+            end: perfEntry.domain_lookup_start,
+            color: colorForEntry(perfEntry.initiator_type),
         }
-        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.redirectEnd)
+        maxTime = Math.max(maxTime, perfEntry.redirect_end || -1)
     }
 
-    if (perfEntry.domainLookupEnd && perfEntry.domainLookupStart) {
+    if (perfEntry.domain_lookup_end && perfEntry.domain_lookup_start) {
         performanceParts['dns lookup'] = {
-            start: perfEntry.domainLookupStart,
-            end: perfEntry.domainLookupEnd,
-            color: colorForEntry(perfEntry.initiatorType),
+            start: perfEntry.domain_lookup_start,
+            end: perfEntry.domain_lookup_end,
+            color: colorForEntry(perfEntry.initiator_type),
         }
-        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.domainLookupEnd)
+        maxTime = Math.max(maxTime, perfEntry.domain_lookup_end)
     }
 
-    if (perfEntry.connectEnd && perfEntry.connectStart) {
+    if (perfEntry.connect_end && perfEntry.connect_start) {
         performanceParts['connection time'] = {
-            start: perfEntry.connectStart,
-            end: perfEntry.connectEnd,
-            color: colorForEntry(perfEntry.initiatorType),
+            start: perfEntry.connect_start,
+            end: perfEntry.connect_end,
+            color: colorForEntry(perfEntry.initiator_type),
         }
 
-        if (perfEntry.secureConnectionStart) {
+        if (perfEntry.secure_connection_start) {
             performanceParts['tls time'] = {
-                start: perfEntry.secureConnectionStart,
-                end: perfEntry.connectEnd,
-                color: colorForEntry(perfEntry.initiatorType),
+                start: perfEntry.secure_connection_start,
+                end: perfEntry.connect_end,
+                color: colorForEntry(perfEntry.initiator_type),
                 reducedHeight: true,
             }
         }
-        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.connectEnd)
+        maxTime = Math.max(maxTime, perfEntry.connect_end)
     }
 
-    if (perfEntry.responseStart && perfEntry.requestStart) {
+    if (perfEntry.response_start && perfEntry.request_start) {
         performanceParts['waiting for first byte (TTFB)'] = {
-            start: perfEntry.requestStart,
-            end: perfEntry.responseStart,
-            color: colorForEntry(perfEntry.initiatorType),
+            start: perfEntry.request_start,
+            end: perfEntry.response_start,
+            color: colorForEntry(perfEntry.initiator_type),
         }
-        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.responseStart)
+        maxTime = Math.max(maxTime, perfEntry.response_start)
     }
 
-    if (perfEntry.responseStart && perfEntry.responseEnd) {
+    if (perfEntry.response_start && perfEntry.response_end) {
         performanceParts['receiving response'] = {
-            start: perfEntry.responseStart,
-            end: perfEntry.responseEnd,
-            color: colorForEntry(perfEntry.initiatorType),
+            start: perfEntry.response_start,
+            end: perfEntry.response_end,
+            color: colorForEntry(perfEntry.initiator_type),
         }
-        maxTime = maybeIncrementMaxTime(maxTime, perfEntry.responseEnd)
+        maxTime = Math.max(maxTime, perfEntry.response_end)
     }
 
-    if (perfEntry.responseEnd && (perfEntry as PerformanceNavigationTiming).loadEventEnd) {
+    if (perfEntry.response_end && perfEntry.load_event_end) {
         performanceParts['document processing'] = {
-            start: perfEntry.responseEnd,
-            end: (perfEntry as PerformanceNavigationTiming).loadEventEnd,
-            color: colorForEntry(perfEntry.initiatorType),
+            start: perfEntry.response_end,
+            end: perfEntry.load_event_end,
+            color: colorForEntry(perfEntry.initiator_type),
         }
-        maxTime = maybeIncrementMaxTime(maxTime, (perfEntry as PerformanceNavigationTiming).loadEventEnd)
+        maxTime = Math.max(maxTime, perfEntry.load_event_end)
     }
 
     return { performanceParts, maxTime }
 }
 
-function forWaterfallDisplay(pageViewEvent: EventType): EventPerformanceData {
-    const perfData = decompress(JSON.parse(pageViewEvent.properties.$performance_raw))
-    const navTiming: PerformanceNavigationTiming = perfData.navigation[0]
+function forWaterfallDisplay(pageviewEvents: PerformanceEvent[] | null): EventPerformanceData {
     let maxTime = 0
-
-    const pointsInTime = {}
-    if (navTiming?.domComplete) {
-        pointsInTime['domComplete'] = { time: navTiming.domComplete, color: colorForEntry('domComplete') }
-    }
-    if (navTiming?.domInteractive) {
-        pointsInTime['domInteractive'] = { time: navTiming.domInteractive, color: colorForEntry('domInteractive') }
-    }
-
-    if (navTiming?.duration) {
-        pointsInTime['pageLoaded'] = { time: navTiming.duration, color: colorForEntry('pageLoaded') }
-        maxTime = navTiming.duration > maxTime ? navTiming.duration : maxTime
-    }
-
-    const paintTimings: PerformanceEntryList = perfData.paint || ([] as PerformanceEntryList)
-    const fcp: PerformanceEntry | undefined = paintTimings.find(
-        (p: PerformanceEntry) => p.name === 'first-contentful-paint'
-    )
-    if (fcp) {
-        pointsInTime['firstContentfulPaint'] = { time: fcp.startTime, color: colorForEntry('firstContentfulPaint') }
-        maxTime = fcp.startTime > maxTime ? fcp.startTime : maxTime
-    }
-
+    const pointsInTime: PointInTimeMarker[] = []
     const resourceTimings: ResourceTiming[] = []
+    let timestamp: string | null = null
 
-    const __ret = calculatePerformanceParts(navTiming, maxTime)
-    resourceTimings.push({ item: new URL(navTiming.name), performanceParts: __ret.performanceParts, entry: navTiming })
-    maxTime = __ret.maxTime
+    pageviewEvents?.forEach((performanceEvent) => {
+        if (performanceEvent.entry_type === 'navigation') {
+            timestamp = performanceEvent.timestamp
 
-    perfData.resource.forEach((resource: PerformanceResourceTiming) => {
-        const resourceURL = new URL(resource.name)
-        const performanceCalculations = calculatePerformanceParts(resource, maxTime)
-        const next = {
-            item: resourceURL,
-            performanceParts: performanceCalculations.performanceParts,
-            entry: resource,
-            color: colorForEntry(resource.initiatorType),
+            if (performanceEvent?.dom_complete) {
+                pointsInTime.push({
+                    marker: 'domComplete',
+                    time: performanceEvent.dom_complete,
+                    color: colorForEntry('domComplete'),
+                })
+            }
+            if (performanceEvent?.dom_interactive) {
+                pointsInTime.push({
+                    marker: 'domInteractive',
+                    time: performanceEvent.dom_interactive,
+                    color: colorForEntry('domInteractive'),
+                })
+            }
+
+            if (performanceEvent?.duration) {
+                pointsInTime.push({
+                    marker: 'pageLoaded',
+                    time: performanceEvent.duration,
+                    color: colorForEntry('pageLoaded'),
+                })
+                maxTime = Math.max(performanceEvent.duration, maxTime)
+            }
+
+            const navigationPerformanceParts = calculatePerformanceParts(performanceEvent, maxTime)
+            resourceTimings.push({
+                item: performanceEvent.name ? new URL(performanceEvent.name) : 'unknown',
+                performanceParts: navigationPerformanceParts.performanceParts,
+                entry: performanceEvent,
+            })
+            maxTime = Math.max(maxTime, navigationPerformanceParts.maxTime)
         }
+        if (
+            performanceEvent.entry_type === 'paint' &&
+            !!performanceEvent.name &&
+            performanceEvent.start_time !== undefined
+        ) {
+            pointsInTime.push({
+                marker: performanceEvent.name,
+                time: performanceEvent.start_time,
+                color: colorForEntry(performanceEvent.name),
+            })
+            maxTime = performanceEvent.start_time > maxTime ? performanceEvent.start_time : maxTime
+        }
+        if (performanceEvent.entry_type === 'resource') {
+            if (!timestamp) {
+                timestamp = performanceEvent.timestamp
+            }
 
-        resourceTimings.push(next)
-        maxTime = resource.responseEnd > maxTime ? resource.responseEnd : maxTime
+            const resourceURL = performanceEvent.name ? new URL(performanceEvent.name) : 'unknown'
+            const resourcePerformanceParts = calculatePerformanceParts(performanceEvent, maxTime)
+            const next = {
+                item: resourceURL,
+                performanceParts: resourcePerformanceParts.performanceParts,
+                entry: performanceEvent,
+                color: colorForEntry(performanceEvent.initiator_type),
+            }
+
+            resourceTimings.push(next)
+            maxTime = Math.max(performanceEvent.response_end || -1, maxTime)
+        }
     })
 
     return {
-        id: pageViewEvent.id,
-        pointsInTime,
+        pointsInTime: pointsInTime.sort((a, b) => {
+            if (a.time < b.time) {
+                return -1
+            }
+            if (a.time > b.time) {
+                return 1
+            }
+            return 0
+        }),
         resourceTimings,
         maxTime,
+        timestamp: timestamp || 'unknown',
         gridMarkers: Array.from(Array(10).keys()).map((n) => n * (maxTime / 10)),
     }
 }
 
-export const webPerformanceLogic = kea<webPerformanceLogicType>({
-    path: ['scenes', 'performance'],
-    actions: {
-        setEventToDisplay: (eventToDisplay: EventType) => ({
-            eventToDisplay,
+export const webPerformanceLogic = kea<webPerformanceLogicType>([
+    path(['scenes', 'performance']),
+    actions({
+        pageViewToDisplay: (pageview: PerformancePageView | null) => ({
+            pageview,
         }),
-        clearEventToDisplay: true,
+        clearDisplayedPageView: true,
         setCurrentPage: (page: WebPerformancePage) => ({ page }),
-    },
-    reducers: {
-        eventToDisplay: [
-            null as EventPerformanceData | null,
+        highlightPointInTime: (markerName: string | null) => ({ markerName }),
+    }),
+    reducers({
+        highlightedPointInTime: [null as string | null, { highlightPointInTime: (_, { markerName }) => markerName }],
+        currentPageView: [
+            null as PerformancePageView | null,
             {
-                setEventToDisplay: (_, { eventToDisplay }) => forWaterfallDisplay(eventToDisplay),
-                clearEventToDisplay: () => null,
+                pageViewToDisplay: (_, { pageview }) => pageview,
+                clearDisplayedPageView: () => null,
+                setCurrentPage: (state, { page }) => {
+                    return page === WebPerformancePage.TABLE ? null : state
+                },
             },
         ],
-        currentEvent: [null as EventType | null, { setEventToDisplay: (_, { eventToDisplay }) => eventToDisplay }],
         currentPage: [WebPerformancePage.TABLE as WebPerformancePage, { setCurrentPage: (_, { page }) => page }],
-    },
-    loaders: {
-        event: {
-            loadEvent: async (id: string): Promise<EventType> => {
-                return api.events.get(id, true)
+        pageviewEventsFailed: [
+            false,
+            {
+                loadEventsSuccess: () => false,
+                loadEventsFailure: () => true,
             },
-        },
-    },
-    listeners: ({ actions }) => ({
-        loadEventSuccess: ({ event }) => {
-            actions.setEventToDisplay(event)
-        },
+        ],
     }),
-    selectors: () => ({
+    loaders(() => ({
+        recentPageViews: [
+            [] as RecentPerformancePageView[],
+            {
+                loadRecentPageViews: async (): Promise<RecentPerformancePageView[]> => {
+                    return (await api.performanceEvents.recentPageViews()).results
+                },
+            },
+        ],
+        pageviewEvents: [
+            null as PerformanceEvent[] | null,
+            {
+                loadEvents: async (payload: {
+                    sessionId: string
+                    pageviewId: string
+                    timestamp: string
+                }): Promise<PerformanceEvent[]> => {
+                    const params = {
+                        session_id: payload.sessionId,
+                        pageview_id: payload.pageviewId,
+                        // sessions are capped to 24 hours, but for the query we only need to restrict
+                        // by some time range so that we reduce how much data ClickHouse tries to load
+                        date_from: dayjs(payload.timestamp).subtract(36, 'hour').toISOString(),
+                        date_to: dayjs(payload.timestamp).add(36, 'hour').toISOString(),
+                    }
+                    const response = await api.performanceEvents.list(params)
+                    return response.results
+                },
+            },
+        ],
+    })),
+    selectors(() => ({
+        waterfallData: [
+            (s) => [s.pageviewEvents],
+            (pageviewEvents) => {
+                return forWaterfallDisplay(pageviewEvents)
+            },
+        ],
         sessionRecording: [
-            (s) => [s.currentEvent],
-            (currentEvent: EventType | null) =>
-                currentEvent?.properties['$session_id']
-                    ? ([{ session_id: currentEvent.properties['$session_id'], events: [] }] as MatchedRecording[])
+            (s) => [s.currentPageView],
+            (currentEvent: RecentPerformancePageView | null) =>
+                currentEvent?.session_id
+                    ? ([{ session_id: currentEvent.session_id, events: [] }] as MatchedRecording[])
                     : [],
         ],
         breadcrumbs: [
-            (s) => [s.eventToDisplay, s.currentPage],
-            (eventToDisplay, currentPage): Breadcrumb[] => {
+            (s) => [s.currentPageView, s.currentPage],
+            (currentPageView, currentPage): Breadcrumb[] => {
                 const baseCrumb = [
                     {
                         name: 'Web Performance',
                         path: urls.webPerformance(),
                     },
                 ]
-                if (!!eventToDisplay && currentPage === WebPerformancePage.WATERFALL_CHART) {
+                if (currentPage === WebPerformancePage.WATERFALL_CHART) {
+                    // need all the info in the url
                     baseCrumb.push({
                         name: 'Waterfall Chart',
-                        path: urls.webPerformanceWaterfall(eventToDisplay.id.toString()),
+                        path: urls.webPerformanceWaterfall(currentPageView ?? undefined),
                     })
                 }
                 return baseCrumb
             },
         ],
-    }),
-    actionToUrl: ({ values }) => ({
-        setEventToDisplay: () => {
-            if (values.currentPage === WebPerformancePage.TABLE && !!values.currentEvent) {
-                //then we're navigating to the chart
-                return [
-                    urls.webPerformanceWaterfall(values.currentEvent.id.toString()),
-                    {
-                        ...router.values.searchParams,
-                    },
-                    router.values.hashParams,
-                ]
-            }
-
-            return [
-                router.values.location.pathname,
-                {
-                    ...router.values.searchParams,
-                },
-                router.values.hashParams,
-                { replace: true },
-            ]
-        },
-    }),
-    urlToAction: ({ values, actions }) => ({
+    })),
+    urlToAction(({ values, actions }) => ({
         [urls.webPerformance()]: () => {
             if (values.currentPage !== WebPerformancePage.TABLE) {
                 actions.setCurrentPage(WebPerformancePage.TABLE)
+                actions.loadRecentPageViews()
             }
         },
-        [urls.webPerformanceWaterfall(':id')]: ({ id }) => {
+        [urls.webPerformanceWaterfall()]: (_, { sessionId, pageviewId, timestamp }) => {
             if (values.currentPage !== WebPerformancePage.WATERFALL_CHART) {
                 actions.setCurrentPage(WebPerformancePage.WATERFALL_CHART)
             }
-            if (values.currentEvent === null && !!id) {
-                actions.loadEvent(id)
+            const noPageViewEvents = values.pageviewEvents === null || !!values.pageviewEvents.length
+            const eventsMatchPageView = values.pageviewEvents?.[0].pageview_id === pageviewId
+            if (noPageViewEvents || !eventsMatchPageView) {
+                actions.pageViewToDisplay({ session_id: sessionId, pageview_id: pageviewId, timestamp: timestamp })
+                actions.loadEvents({ sessionId, pageviewId, timestamp })
             }
         },
-    }),
-})
+    })),
+])

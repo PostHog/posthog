@@ -44,16 +44,18 @@ export enum NodeKind {
     TimeToSeeDataSessionsQuery = 'TimeToSeeDataSessionsQuery',
     TimeToSeeDataQuery = 'TimeToSeeDataQuery',
 
+    /** Performance */
+    RecentPerformancePageViewNode = 'RecentPerformancePageViewNode',
+
     /** Used for insights that haven't been converted to the new query format yet */
     UnimplementedQuery = 'UnimplementedQuery',
 }
 
+export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode
+
 export type QuerySchema =
     // Data nodes (see utils.ts)
-    | EventsNode
-    | EventsQuery
-    | ActionsNode
-    | PersonsNode
+    | AnyDataNode
 
     // Interface nodes
     | DataTableNode
@@ -67,6 +69,9 @@ export type QuerySchema =
     | PathsQuery
     | StickinessQuery
     | LifecycleQuery
+
+    // Performance
+    | RecentPerformancePageViewNode
 
     // Misc
     | TimeToSeeDataSessionsQuery
@@ -122,6 +127,8 @@ export interface EventsQuery extends DataNode {
     event?: string
     /** Number of rows to return */
     limit?: number
+    /** Number of rows to skip before returning rows */
+    offset?: number
     /** Show events matching a given action */
     actionId?: number
     /** Show events for a given person */
@@ -161,10 +168,11 @@ export interface PersonsNode extends DataNode {
 
 // Data table node
 
+export type HasPropertiesNode = EventsNode | EventsQuery | PersonsNode
 export interface DataTableNode extends Node {
     kind: NodeKind.DataTableNode
     /** Source of the events */
-    source: EventsNode | EventsQuery | PersonsNode
+    source: EventsNode | EventsQuery | PersonsNode | RecentPerformancePageViewNode
     /** Columns shown in the table, unless the `source` provides them. */
     columns?: HogQLExpression[]
     /** Columns that aren't shown in the table, even if in columns or returned data */
@@ -179,6 +187,8 @@ export interface DataTableNode extends Node {
     showPropertyFilter?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show date range selector */
+    showDateRange?: boolean
     /** Show the export button */
     showExport?: boolean
     /** Show a reload button */
@@ -299,6 +309,11 @@ export interface TimeToSeeDataQuery extends DataNode {
     /** Session start time. Defaults to current time - 2 hours */
     sessionStart?: string
     sessionEnd?: string
+}
+
+export interface RecentPerformancePageViewNode extends DataNode {
+    kind: NodeKind.RecentPerformancePageViewNode
+    numberOfDays?: number // defaults to 7
 }
 
 export type InsightQueryNode =

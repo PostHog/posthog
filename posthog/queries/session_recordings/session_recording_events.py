@@ -2,11 +2,11 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, cast
 
-from rest_framework.request import Request
 from statshog.defaults.django import statsd
 
 from posthog.client import sync_execute
-from posthog.helpers.session_recording import (
+from posthog.models import Team
+from posthog.models.session_recording.metadata import (
     DecompressedRecordingData,
     RecordingMetadata,
     RecordingSegment,
@@ -14,24 +14,22 @@ from posthog.helpers.session_recording import (
     SessionRecordingEventSummary,
     SnapshotDataTaggedWithWindowId,
     WindowId,
+)
+from posthog.session_recordings.session_recording_helpers import (
     decompress_chunked_snapshot_data,
     generate_inactive_segments_for_range,
     get_active_segments_from_event_list,
     parse_snapshot_timestamp,
 )
-from posthog.models import Team
+from posthog.utils import flatten
 
 
-class SessionRecording:
-    _request: Request
+class SessionRecordingEvents:
     _session_recording_id: str
     _recording_start_time: Optional[datetime]
     _team: Team
 
-    def __init__(
-        self, request: Request, session_recording_id: str, team: Team, recording_start_time: Optional[datetime] = None
-    ) -> None:
-        self._request = request
+    def __init__(self, session_recording_id: str, team: Team, recording_start_time: Optional[datetime] = None) -> None:
         self._session_recording_id = session_recording_id
         self._team = team
         self._recording_start_time = recording_start_time
@@ -96,14 +94,20 @@ class SessionRecording:
         )
         return bool(response)
 
-    def get_snapshots(self, limit, offset) -> DecompressedRecordingData:
+    def get_snapshots(self, limit, offset) -> Optional[DecompressedRecordingData]:
         all_snapshots = [
             SnapshotDataTaggedWithWindowId(
                 window_id=recording_snapshot["window_id"], snapshot_data=recording_snapshot["snapshot_data"]
             )
             for recording_snapshot in self._query_recording_snapshots(include_snapshots=True)
         ]
-        return decompress_chunked_snapshot_data(self._team.pk, self._session_recording_id, all_snapshots, limit, offset)
+        decompressed = decompress_chunked_snapshot_data(
+            self._team.pk, self._session_recording_id, all_snapshots, limit, offset
+        )
+
+        if decompressed["snapshot_data_by_window_id"] == {}:
+            return None
+        return decompressed
 
     def get_metadata(self) -> Optional[RecordingMetadata]:
         snapshots = self._query_recording_snapshots(include_snapshots=False)
@@ -118,20 +122,15 @@ class SessionRecording:
         if events_summary_by_window_id:
             # If all snapshots contain the new events_summary field...
             statsd.incr("session_recordings.metadata_parsed_from_events_summary")
-            segments, start_and_end_times_by_window_id = self._get_recording_segments_from_events_summary(
-                events_summary_by_window_id
-            )
+            metadata = self._get_metadata_from_events_summary(events_summary_by_window_id)
         else:
             # ... otherwise use the legacy method
             snapshots = self._query_recording_snapshots(include_snapshots=True)
             statsd.incr("session_recordings.metadata_parsed_from_snapshot_data")
-            segments, start_and_end_times_by_window_id = self._get_recording_segments_from_snapshot(snapshots)
+            metadata = self._get_metadata_from_snapshot_data(snapshots)
 
-        return RecordingMetadata(
-            segments=segments,
-            start_and_end_times_by_window_id=start_and_end_times_by_window_id,
-            distinct_id=cast(str, distinct_id),
-        )
+        metadata["distinct_id"] = cast(str, distinct_id)
+        return metadata
 
     def _get_events_summary_by_window_id(
         self, snapshots: List[SessionRecordingEvent]
@@ -159,9 +158,7 @@ class SessionRecording:
 
         return events_summary_by_window_id
 
-    def _get_recording_segments_from_snapshot(
-        self, snapshots: List[SessionRecordingEvent]
-    ) -> Tuple[List[RecordingSegment], Dict[WindowId, RecordingSegment]]:
+    def _get_metadata_from_snapshot_data(self, snapshots: List[SessionRecordingEvent]) -> RecordingMetadata:
         """
         !Deprecated!
         This method supports parsing of events_summary info for entries that were created before this field was added
@@ -181,11 +178,11 @@ class SessionRecording:
             for window_id, event_list in decompressed_recording_data["snapshot_data_by_window_id"].items()
         }
 
-        return self._get_recording_segments_from_events_summary(events_summary_by_window_id)
+        return self._get_metadata_from_events_summary(events_summary_by_window_id)
 
-    def _get_recording_segments_from_events_summary(
+    def _get_metadata_from_events_summary(
         self, events_summary_by_window_id: Dict[WindowId, List[SessionRecordingEventSummary]]
-    ) -> Tuple[List[RecordingSegment], Dict[WindowId, RecordingSegment]]:
+    ) -> RecordingMetadata:
         """
         This function processes the recording events into metadata.
 
@@ -272,4 +269,24 @@ class SessionRecording:
                 )
             )
 
-        return all_segments, start_and_end_times_by_window_id
+        all_events_summary: List[SessionRecordingEventSummary] = list(
+            flatten(list(events_summary_by_window_id.values()))
+        )
+
+        click_count = len([x for x in all_events_summary if x["type"] == 3 and x["data"]["source"] == 2])
+        keypress_count = len([x for x in all_events_summary if x["type"] == 3 and x["data"]["source"] == 5])
+        urls: List[str] = [
+            cast(str, x["data"]["href"]) for x in all_events_summary if isinstance(x.get("data", {}).get("href"), str)
+        ]
+
+        return RecordingMetadata(
+            distinct_id="",  # Will be added by the caller
+            segments=all_segments,
+            start_and_end_times_by_window_id=start_and_end_times_by_window_id,
+            start_time=first_start_time,
+            end_time=last_end_time,
+            duration=(last_end_time - first_start_time).seconds,
+            click_count=click_count,
+            keypress_count=keypress_count,
+            urls=urls,
+        )

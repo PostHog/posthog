@@ -36,6 +36,7 @@ import {
     FeatureFlagAssociatedRoleType,
     SessionRecordingType,
     PerformanceEvent,
+    RecentPerformancePageView,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -413,6 +414,10 @@ class ApiRequest {
     // Performance events
     public performanceEvents(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('performance_events')
+    }
+
+    public recentPageViewPerformanceEvents(teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId).addPathComponent('performance_events').addPathComponent('recent_pageviews')
     }
 
     // Request finalization
@@ -954,6 +959,15 @@ const api = {
         async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
             return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
         },
+
+        async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).withQueryString(params).get()
+        },
+
+        async listSnapshots(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
+        },
+
         async updateRecording(
             recordingId: SessionRecordingType['id'],
             recording: Partial<SessionRecordingType>,
@@ -1088,6 +1102,11 @@ const api = {
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<PerformanceEvent>> {
             return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
+        },
+        async recentPageViews(
+            teamId: TeamType['id'] = getCurrentTeamId()
+        ): Promise<PaginatedResponse<RecentPerformancePageView>> {
+            return new ApiRequest().recentPageViewPerformanceEvents(teamId).get()
         },
     },
 

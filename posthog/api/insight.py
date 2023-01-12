@@ -144,12 +144,6 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
-        # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
-        # use the dashboard_tiles set to filter them
-        representation["dashboards"] = [
-            id for id in representation["dashboards"] if id in self._dashboard_tiles(instance)
-        ]
-
         filters = instance.dashboard_filters()
 
         if not filters.get("date_from"):
@@ -182,7 +176,7 @@ class InsightSerializer(InsightBasicSerializer):
         help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
         many=True,
         required=False,
-        queryset=Dashboard.objects.exclude(deleted=True).all(),
+        queryset=Dashboard.objects.all(),
     )
 
     class Meta:
@@ -281,7 +275,7 @@ class InsightSerializer(InsightBasicSerializer):
             instance.last_modified_by = self.context["request"].user
 
         if validated_data.get("deleted", False):
-            DashboardTile.objects.filter(insight__id=instance.id).update(deleted=True)
+            DashboardTile.objects_including_soft_deleted.filter(insight__id=instance.id).update(deleted=True)
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
@@ -335,7 +329,7 @@ class InsightSerializer(InsightBasicSerializer):
         return []
 
     def _update_insight_dashboards(self, dashboards: List[Dashboard], instance: Insight) -> None:
-        old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.exclude(deleted=True).all()]
+        old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
         new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
 
         if sorted(old_dashboard_ids) == sorted(new_dashboard_ids):
@@ -343,7 +337,7 @@ class InsightSerializer(InsightBasicSerializer):
 
         ids_to_add = [id for id in new_dashboard_ids if id not in old_dashboard_ids]
         ids_to_remove = [id for id in old_dashboard_ids if id not in new_dashboard_ids]
-        candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add).exclude(deleted=True)
+        candidate_dashboards = Dashboard.objects.filter(id__in=ids_to_add)
         dashboard: Dashboard
         for dashboard in candidate_dashboards:
             # does this user have permission on dashboards to add... if they are restricted
@@ -357,7 +351,7 @@ class InsightSerializer(InsightBasicSerializer):
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
 
-            tile, _ = DashboardTile.objects.get_or_create(insight=instance, dashboard=dashboard)
+            tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
 
             if tile.deleted:
                 tile.deleted = False
@@ -391,9 +385,10 @@ class InsightSerializer(InsightBasicSerializer):
     def to_representation(self, instance: Insight):
         representation = super().to_representation(instance)
 
-        # the ORM doesn't know about deleted dashboard tiles when filling dashboards relation
-        # when the list has been updated we can use that list to avoid refreshing from the DB
-        # the list is also filtered in the super InsightBasicSerializer
+        # the ORM doesn't know about deleted dashboard tiles
+        # when they have just been updated
+        # we store them and can use that list to correct the response
+        # and avoid refreshing from the DB
         if self.context.get("after_dashboard_changes"):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
@@ -470,31 +465,32 @@ class InsightViewSet(
         return super().get_serializer_class()
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-
-        if not self.action.endswith("update"):
-            # Soft-deleted insights can be brought back with a PATCH request
-            queryset = queryset.filter(deleted=False)
+        if (
+            self.action == "partial_update"
+            and "deleted" in self.request.data
+            and not self.request.data.get("deleted")
+            and len(self.request.data) == 1
+        ):
+            # an insight can be un-deleted by patching {"deleted": False}
+            queryset: QuerySet = Insight.objects_including_soft_deleted
+        else:
+            queryset = super().get_queryset()
 
         queryset = queryset.prefetch_related(
             Prefetch(
                 "dashboards",
-                queryset=Dashboard.objects.exclude(deleted=True).filter(
-                    id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
-                ),
+                queryset=Dashboard.objects.filter(id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)),
             ),
             "dashboards__team__organization",
             Prefetch(
                 "dashboard_tiles",
-                queryset=DashboardTile.objects.exclude(deleted=True)
-                .exclude(dashboard__deleted=True)
-                .select_related("dashboard"),
+                queryset=DashboardTile.objects.select_related("dashboard"),
             ),
         )
 
         queryset = queryset.select_related("created_by", "last_modified_by", "team")
         if self.action == "list":
-            queryset = queryset.filter(deleted=False).prefetch_related("tagged_items__tag")
+            queryset = queryset.prefetch_related("tagged_items__tag")
             queryset = self._filter_request(self.request, queryset)
 
         order = self.request.GET.get("order", None)

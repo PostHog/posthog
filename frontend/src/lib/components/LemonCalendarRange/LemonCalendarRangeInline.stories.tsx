@@ -12,7 +12,7 @@ export default {
 } as ComponentMeta<typeof LemonCalendarRangeInline>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarRangeInline> = (props: LemonCalendarRangeProps) => {
-    const [value, setValue] = useState(['2022-08-11', '2022-08-26'] as [string, string] | null)
+    const [value, setValue] = useState([dayjs('2022-08-11'), dayjs('2022-08-26')] as [dayjs.Dayjs, dayjs.Dayjs] | null)
 
     return (
         <>
@@ -24,7 +24,7 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarRangeInline> = (props: L
                 }}
             />
 
-            <p className="mt-2">Value is: {value ? formatDateRange(dayjs(value[0]), dayjs(value[1])) : ''}</p>
+            <p className="mt-2">Value is: {value ? formatDateRange(...value) : ''}</p>
         </>
     )
 }
