@@ -5,7 +5,7 @@ import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, RecentPerforma
 import { webPerformanceLogic, WebPerformancePage } from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceWaterfallChart'
 import { IconPlay } from 'lib/components/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
@@ -16,6 +16,7 @@ import { NodeKind, RecentPerformancePageViewNode } from '~/queries/schema'
 import { humanFriendlyDuration } from 'lib/utils'
 import { LemonTableColumn } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useEffect } from 'react'
 
 /*
  * link to SessionRecording from table and chart
@@ -49,8 +50,16 @@ function WaterfallButton(props: { record: RecentPerformancePageView; onClick: ()
 
 const EventsWithPerformanceTable = (): JSX.Element => {
     const { recentPageViews, recentPageViewsLoading } = useValues(webPerformanceLogic)
+    const { loadRecentPageViews } = useActions(webPerformanceLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+
+    useEffect(() => {
+        if (!!recentPageViews.length && !featureDataExploration) {
+            // need to manually load pageviews if data exploration is off
+            loadRecentPageViews()
+        }
+    }, [featureDataExploration])
 
     const oldFashionedColumns: LemonTableColumn<
         RecentPerformancePageView,
