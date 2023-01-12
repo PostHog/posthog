@@ -1,5 +1,5 @@
 import { useValues, BindLogic, useActions } from 'kea'
-import 'src/scenes/actions/Actions.css'
+import 'scenes/actions/Actions.css'
 import {
     PropertyGroupFilter,
     FilterLogicalOperator,
