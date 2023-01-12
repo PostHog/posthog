@@ -159,6 +159,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
         ).json()
         assert len(result["results"]) == 2
         assert {x["id"] for x in result["results"]} == {"session1", "session2"}
+        assert {x["pinned_count"] for x in result["results"]} == {1, 1}
 
     def test_fetch_playlist_recordings(self):
 
@@ -245,15 +246,21 @@ class TestSessionRecordingPlaylist(APILicensedTest):
 
         # Add recording 2 to playlist 2
         result = self.client.post(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording1_session_id}",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording2_session_id}",
         ).json()
         assert result["success"]
         playlist_item = SessionRecordingPlaylistItem.objects.filter(
-            playlist_id=playlist2.id, session_id=recording1_session_id
+            playlist_id=playlist2.id, session_id=recording2_session_id
         )
         assert playlist_item is not None
 
-        assert SessionRecording.objects.filter(team_id=self.team.id).count() == 2
+        session_recording_obj_1 = SessionRecording.get_or_build(team=self.team, session_id=recording1_session_id)
+        assert session_recording_obj_1
+        assert session_recording_obj_1.pinned_count == 1
+
+        session_recording_obj_2 = SessionRecording.get_or_build(team=self.team, session_id=recording2_session_id)
+        assert session_recording_obj_2
+        assert session_recording_obj_2.pinned_count == 2
 
         # Delete playlist items
         result = self.client.delete(
@@ -277,7 +284,7 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             == 0
         )
         result = self.client.delete(
-            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording1_session_id}",
+            f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording2_session_id}",
         ).json()
         assert result["success"]
         assert (

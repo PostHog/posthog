@@ -168,8 +168,8 @@ def setup_periodic_tasks(sender: Celery, **kwargs):
                 name="clickhouse mark all columns as materialized",
             )
 
-        # Hourly check for email subscriptions
         sender.add_periodic_task(crontab(hour="*", minute=55), schedule_all_subscriptions.s())
+        sender.add_periodic_task(crontab(hour=2, minute=randrange(0, 40)), ee_persist_finished_recordings.s())
 
         sender.add_periodic_task(
             settings.COUNT_TILES_WITH_NO_FILTERS_HASH_INTERVAL_SECONDS,
@@ -682,3 +682,23 @@ def check_flags_to_rollback():
         check_flags_to_rollback()
     except ImportError:
         pass
+
+
+@app.task(ignore_result=True)
+def ee_persist_single_recording(id: str, team_id: int):
+    try:
+        from ee.tasks.session_recording.persistence import persist_single_recording
+
+        persist_single_recording(id, team_id)
+    except ImportError:
+        pass
+
+
+@app.task(ignore_result=True)
+def ee_persist_finished_recordings():
+    try:
+        from ee.tasks.session_recording.persistence import persist_finished_recordings
+    except ImportError:
+        pass
+    else:
+        persist_finished_recordings()
