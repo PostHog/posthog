@@ -231,20 +231,14 @@ const SAVED_INSIGHTS_COPY = {
     [`${SavedInsightsTabs.All}`]: {
         title: 'There are no insights $CONDITION.',
         description: 'Once you create an insight, it will show up here.',
-        descriptionOnEmptyFilter:
-            'Refine your keyword search, or try using other filters such as type, last modified or created by.',
     },
     [`${SavedInsightsTabs.Yours}`]: {
         title: "You haven't created insights $CONDITION.",
         description: 'Once you create an insight, it will show up here.',
-        descriptionOnEmptyFilter:
-            'Refine your keyword search, or try using other filters such as type, last modified or created by.',
     },
     [`${SavedInsightsTabs.Favorites}`]: {
         title: 'There are no favorited insights $CONDITION.',
         description: 'Once you favorite an insight, it will show up here.',
-        descriptionOnEmptyFilter:
-            'Refine your keyword search, or try using other filters such as type, last modified or created by.',
     },
 }
 
@@ -257,7 +251,7 @@ export function SavedInsightsEmptyState(): JSX.Element {
 
     // show the search string that was used to make the results, not what it currently is
     const searchString = insights.filters?.search || null
-    const { title, description, descriptionOnEmptyFilter } = SAVED_INSIGHTS_COPY[tab] ?? {}
+    const { title, description } = SAVED_INSIGHTS_COPY[tab] ?? {}
 
     return (
         <div className="saved-insight-empty-state">
@@ -273,7 +267,10 @@ export function SavedInsightsEmptyState(): JSX.Element {
                         : title.replace('$CONDITION', 'for this project')}
                 </h2>
                 {usingFilters ? (
-                    <p className="empty-state__description">{descriptionOnEmptyFilter}</p>
+                    <p className="empty-state__description">
+                        Refine your keyword search, or try using other filters such as type, last modified or created
+                        by.
+                    </p>
                 ) : (
                     <p className="empty-state__description">{description}</p>
                 )}
