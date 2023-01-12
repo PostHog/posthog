@@ -1,24 +1,36 @@
 import { useState } from 'react'
 import MonacoEditor from '@monaco-editor/react'
-import './PayloadEditor.scss'
+import './JSONEditorInput.scss'
+import { JsonType } from '~/types'
 
 interface EditorProps {
     onChange?: (val: string | undefined) => void
+    lineHeight?: number
+    defaultNumberOfLines?: number
+    value?: JsonType
+    readOnly?: boolean
 }
 
-export function PayloadEditor({ onChange }: EditorProps): JSX.Element {
-    const lineHeight = 20
-    const defaultLines = 2
-    const defaultHeight = lineHeight * defaultLines
+export function JSONEditorInput({
+    onChange,
+    lineHeight = 20,
+    defaultNumberOfLines = 1,
+    value = '',
+    readOnly = false,
+}: EditorProps): JSX.Element {
+    const valString = value?.toString() || ''
+    const _lineHeight = lineHeight
+    const defaultLines = Math.max(defaultNumberOfLines, valString.split(/\r\n|\r|\n/).length) + 1
+    const defaultHeight = _lineHeight * defaultLines
     const [height, setHeight] = useState(defaultHeight)
 
     const updateHeight = (val: string | undefined): void => {
         if (val) {
             const lineCount = val.split(/\r\n|\r|\n/).length
-            const newLineCount = Math.max(lineCount + 1, defaultLines)
-            setHeight(newLineCount * 20)
+            const newLineCount = Math.max(lineCount, defaultNumberOfLines) + 1
+            setHeight(_lineHeight * newLineCount)
         } else {
-            setHeight(defaultHeight)
+            setHeight(_lineHeight * (defaultNumberOfLines + 1))
         }
     }
 
@@ -28,16 +40,18 @@ export function PayloadEditor({ onChange }: EditorProps): JSX.Element {
                 theme="vs-light"
                 className="border"
                 language={'json'}
-                value={''}
                 height={height}
+                value={value?.toString()}
                 options={{
-                    lineHeight: 20,
+                    readOnly: readOnly,
+                    lineHeight: _lineHeight,
                     minimap: {
                         enabled: false,
                     },
                     scrollbar: {
                         vertical: 'hidden',
                         horizontal: 'hidden',
+                        alwaysConsumeMouseWheel: false,
                     },
                     padding: {
                         bottom: 0,

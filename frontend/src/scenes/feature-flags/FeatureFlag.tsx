@@ -61,7 +61,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { PayloadEditor } from 'scenes/feature-flags/PayloadEditor'
+import { JSONEditorInput } from 'scenes/feature-flags/JSONEditorInput'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -495,6 +495,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
     const [showVariantDiscardWarning, setShowVariantDiscardWarning] = useState(false)
     const { hasAvailableFeature } = useValues(userLogic)
     const { upgradeLink } = useValues(billingLogic)
+    const { featureFlags } = useValues(enabledFeaturesLogic)
 
     return (
         <>
@@ -521,38 +522,81 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                             <div className="mb-2">
                                 <b>Variant keys</b>
                             </div>
-                            <div className="border rounded p-4 mb-4">
-                                <Row className="font-semibold">
-                                    <Col span={10}>Key</Col>
-                                    <Col span={11}>Description</Col>
-                                    <Col span={3}>Rollout</Col>
-                                </Row>
-                                <LemonDivider className="my-3" />
-                                {variants.map((variant, index) => (
-                                    <div key={index}>
-                                        <Row>
-                                            <Col span={10}>
-                                                <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
-                                                <CopyToClipboardInline
-                                                    tooltipMessage={null}
-                                                    description="key"
-                                                    style={{
-                                                        marginLeft: '0.5rem',
-                                                    }}
-                                                    iconStyle={{ color: 'var(--muted-alt)' }}
-                                                >
-                                                    {variant.key}
-                                                </CopyToClipboardInline>
-                                            </Col>
-                                            <Col span={12}>
-                                                {variant.name || 'There is no description for this variant key'}
-                                            </Col>
-                                            <Col span={2}>{variant.rollout_percentage}%</Col>
-                                        </Row>
-                                        {index !== variants.length - 1 && <LemonDivider className="my-3" />}
-                                    </div>
-                                ))}
-                            </div>
+
+                            {!!featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] ? (
+                                <div className="border rounded p-4 mb-4">
+                                    <Row gutter={8} className="font-semibold">
+                                        <Col span={6}>Key</Col>
+                                        <Col span={6}>Description</Col>
+                                        <Col span={9}>Payload</Col>
+                                        <Col span={3}>Rollout</Col>
+                                    </Row>
+                                    <LemonDivider className="my-3" />
+                                    {variants.map((variant, index) => (
+                                        <div key={index}>
+                                            <Row gutter={8}>
+                                                <Col span={6}>
+                                                    <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
+                                                    <CopyToClipboardInline
+                                                        tooltipMessage={null}
+                                                        description="key"
+                                                        style={{
+                                                            marginLeft: '0.5rem',
+                                                        }}
+                                                        iconStyle={{ color: 'var(--muted-alt)' }}
+                                                    >
+                                                        {variant.key}
+                                                    </CopyToClipboardInline>
+                                                </Col>
+                                                <Col span={6}>
+                                                    {variant.name || 'There is no description for this variant key'}
+                                                </Col>
+                                                <Col span={9}>
+                                                    <JSONEditorInput
+                                                        readOnly={true}
+                                                        value={featureFlag.filters.payloads[variant.key]}
+                                                    />
+                                                </Col>
+                                                <Col span={3}>{variant.rollout_percentage}%</Col>
+                                            </Row>
+                                            {index !== variants.length - 1 && <LemonDivider className="my-3" />}
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : (
+                                <div className="border rounded p-4 mb-4">
+                                    <Row className="font-semibold">
+                                        <Col span={10}>Key</Col>
+                                        <Col span={11}>Description</Col>
+                                        <Col span={3}>Rollout</Col>
+                                    </Row>
+                                    <LemonDivider className="my-3" />
+                                    {variants.map((variant, index) => (
+                                        <div key={index}>
+                                            <Row>
+                                                <Col span={10}>
+                                                    <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
+                                                    <CopyToClipboardInline
+                                                        tooltipMessage={null}
+                                                        description="key"
+                                                        style={{
+                                                            marginLeft: '0.5rem',
+                                                        }}
+                                                        iconStyle={{ color: 'var(--muted-alt)' }}
+                                                    >
+                                                        {variant.key}
+                                                    </CopyToClipboardInline>
+                                                </Col>
+                                                <Col span={12}>
+                                                    {variant.name || 'There is no description for this variant key'}
+                                                </Col>
+                                                <Col span={2}>{variant.rollout_percentage}%</Col>
+                                            </Row>
+                                            {index !== variants.length - 1 && <LemonDivider className="my-3" />}
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </>
                     )}
                 </>
@@ -642,141 +686,268 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     </Row>
                 </div>
             )}
-            {!multivariateEnabled && (
-                <div>
+            {!!featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] && !multivariateEnabled && (
+                <div className="mb-8">
                     <h3 className="l4">Payload</h3>
-                    <div className="text-muted mb-4">
-                        Specify a json payload to be returned when the served value is{' '}
-                        <strong>
-                            <code>true</code>
-                        </strong>
-                        . Examples: <code>"A string"</code>
-                        {', '}
-                        <code>2500</code>
-                        {', '}
-                        <code>{'{"key": "value"}'}</code>
-                    </div>
-                    <PayloadEditor />
+                    {!readOnly && (
+                        <div className="text-muted mb-4">
+                            Specify a json payload to be returned when the served value is{' '}
+                            <strong>
+                                <code>true</code>
+                            </strong>
+                            . Examples: <code>"A string"</code>
+                            {', '}
+                            <code>2500</code>
+                            {', '}
+                            <code>{'{"key": "value"}'}</code>
+                        </div>
+                    )}
+                    {readOnly ? (
+                        <JSONEditorInput
+                            readOnly={readOnly}
+                            value={featureFlag.filters.payloads?.['true'] || undefined}
+                        />
+                    ) : (
+                        <Group name={['filters', 'payloads']}>
+                            <Field name="true">
+                                <JSONEditorInput readOnly={readOnly} />
+                            </Field>
+                        </Group>
+                    )}
                 </div>
             )}
-            {!readOnly && multivariateEnabled && (
-                <div className="feature-flag-variants">
-                    <h3 className="l4">Variant keys</h3>
-                    <span>The rollout percentage of feature flag variants must add up to 100%</span>
-                    <div className="variant-form-list space-y-2">
-                        <Row gutter={8} className="label-row">
-                            <Col span={1} />
-                            <Col span={4}>Variant key</Col>
-                            <Col span={6}>Description</Col>
-                            <Col span={8}>
-                                <div style={{ display: 'flex', flexDirection: 'column', fontWeight: 'normal' }}>
-                                    <b>Payload</b>
-                                    <span className="text-muted">Specify return JSON payload with matching key</span>
-                                </div>
-                            </Col>
-                            <Col span={4}>
-                                Rollout
-                                <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
-                                    (Redistribute)
-                                </LemonButton>
-                            </Col>
-                        </Row>
-                        {variants.map((_, index) => (
-                            <Group key={index} name={['filters', 'multivariate', 'variants', index]}>
-                                <Row gutter={8} align="middle">
-                                    <Col span={1}>
-                                        <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
-                                    </Col>
-                                    <Col span={4}>
-                                        <Field name="key">
-                                            <LemonInput
-                                                data-attr="feature-flag-variant-key"
-                                                data-key-index={index.toString()}
-                                                className="ph-ignore-input"
-                                                placeholder={`example-variant-${index + 1}`}
-                                                autoComplete="off"
-                                                autoCapitalize="off"
-                                                autoCorrect="off"
-                                                spellCheck={false}
-                                            />
-                                        </Field>
-                                    </Col>
-                                    <Col span={6}>
-                                        <Field name="name">
-                                            <LemonInput
-                                                data-attr="feature-flag-variant-name"
-                                                className="ph-ignore-input"
-                                                placeholder="Description"
-                                            />
-                                        </Field>
-                                    </Col>
-                                    <Col span={8}>
-                                        <Field name="name">
-                                            <PayloadEditor />
-                                        </Field>
-                                    </Col>
-                                    <Col span={3}>
-                                        <Field name="rollout_percentage">
-                                            {({ value, onChange }) => (
-                                                <InputNumber
-                                                    min={0}
-                                                    max={100}
-                                                    value={value}
-                                                    onChange={(changedValue) => {
-                                                        if (changedValue !== null && changedValue !== undefined) {
-                                                            const valueInt = parseInt(changedValue.toString())
-                                                            if (!isNaN(valueInt)) {
-                                                                onChange(valueInt)
+            {!readOnly &&
+                multivariateEnabled &&
+                (!!featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] ? (
+                    <div className="feature-flag-variants">
+                        <h3 className="l4">Variant keys</h3>
+                        <span>The rollout percentage of feature flag variants must add up to 100%</span>
+                        <div className="variant-form-list space-y-2">
+                            <Row gutter={8} className="label-row">
+                                <Col span={1} />
+                                <Col span={4}>Variant key</Col>
+                                <Col span={6}>Description</Col>
+                                <Col span={8}>
+                                    <div style={{ display: 'flex', flexDirection: 'column', fontWeight: 'normal' }}>
+                                        <b>Payload</b>
+                                        <span className="text-muted">Specify return JSON payload when key matches</span>
+                                    </div>
+                                </Col>
+                                <Col span={4}>
+                                    Rollout
+                                    <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
+                                        (Redistribute)
+                                    </LemonButton>
+                                </Col>
+                            </Row>
+                            {variants.map((variant, index) => (
+                                <Group key={index} name="filters">
+                                    <Row gutter={8} align="middle">
+                                        <Col span={1}>
+                                            <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
+                                        </Col>
+                                        <Col span={4}>
+                                            <Field name={['multivariate', 'variants', index, 'key']}>
+                                                <LemonInput
+                                                    data-attr="feature-flag-variant-key"
+                                                    data-key-index={index.toString()}
+                                                    className="ph-ignore-input"
+                                                    placeholder={`example-variant-${index + 1}`}
+                                                    autoComplete="off"
+                                                    autoCapitalize="off"
+                                                    autoCorrect="off"
+                                                    spellCheck={false}
+                                                />
+                                            </Field>
+                                        </Col>
+                                        <Col span={6}>
+                                            <Field name={['multivariate', 'variants', index, 'name']}>
+                                                <LemonInput
+                                                    data-attr="feature-flag-variant-name"
+                                                    className="ph-ignore-input"
+                                                    placeholder="Description"
+                                                />
+                                            </Field>
+                                        </Col>
+                                        <Col span={8}>
+                                            <Field name={['payloads', index]}>
+                                                {({ value, onChange }) => {
+                                                    const valToShow =
+                                                        index in featureFlag.filters.payloads
+                                                            ? value
+                                                            : featureFlag.filters.payloads?.[variant.key]
+                                                    return <JSONEditorInput onChange={onChange} value={valToShow} />
+                                                }}
+                                            </Field>
+                                        </Col>
+                                        <Col span={3}>
+                                            <Field name={['multivariate', 'variants', index, 'rollout_percentage']}>
+                                                {({ value, onChange }) => (
+                                                    <InputNumber
+                                                        min={0}
+                                                        max={100}
+                                                        value={value}
+                                                        onChange={(changedValue) => {
+                                                            if (changedValue !== null && changedValue !== undefined) {
+                                                                const valueInt = parseInt(changedValue.toString())
+                                                                if (!isNaN(valueInt)) {
+                                                                    onChange(valueInt)
+                                                                }
                                                             }
-                                                        }
-                                                    }}
-                                                    style={{
-                                                        width: '100%',
-                                                        borderColor: areVariantRolloutsValid
-                                                            ? undefined
-                                                            : 'var(--danger)',
-                                                    }}
-                                                />
-                                            )}
-                                        </Field>
-                                    </Col>
-                                    <Col span={2}>
-                                        <Row>
-                                            {variants.length > 1 && (
-                                                <LemonButton
-                                                    icon={<IconDelete />}
-                                                    status="primary-alt"
-                                                    data-attr={`delete-prop-filter-${index}`}
-                                                    noPadding
-                                                    onClick={() => removeVariant(index)}
-                                                />
-                                            )}
-                                        </Row>
-                                    </Col>
-                                </Row>
-                            </Group>
-                        ))}
-                        {variants.length > 0 && !areVariantRolloutsValid && (
-                            <p className="text-danger">
-                                Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}
-                                ).
-                            </p>
-                        )}
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                const newIndex = variants.length
-                                addVariant()
-                                focusVariantKeyField(newIndex)
-                            }}
-                            icon={<IconPlus />}
-                            center
-                        >
-                            Add variant
-                        </LemonButton>
+                                                        }}
+                                                        style={{
+                                                            width: '100%',
+                                                            borderColor: areVariantRolloutsValid
+                                                                ? undefined
+                                                                : 'var(--danger)',
+                                                        }}
+                                                    />
+                                                )}
+                                            </Field>
+                                        </Col>
+                                        <Col span={2}>
+                                            <Row>
+                                                {variants.length > 1 && (
+                                                    <LemonButton
+                                                        icon={<IconDelete />}
+                                                        status="primary-alt"
+                                                        data-attr={`delete-prop-filter-${index}`}
+                                                        noPadding
+                                                        onClick={() => removeVariant(index)}
+                                                    />
+                                                )}
+                                            </Row>
+                                        </Col>
+                                    </Row>
+                                </Group>
+                            ))}
+                            {variants.length > 0 && !areVariantRolloutsValid && (
+                                <p className="text-danger">
+                                    Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}
+                                    ).
+                                </p>
+                            )}
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    const newIndex = variants.length
+                                    addVariant()
+                                    focusVariantKeyField(newIndex)
+                                }}
+                                icon={<IconPlus />}
+                                center
+                            >
+                                Add variant
+                            </LemonButton>
+                        </div>
                     </div>
-                </div>
-            )}
+                ) : (
+                    <div className="feature-flag-variants">
+                        <h3 className="l4">Variant keys</h3>
+                        <span>The rollout percentage of feature flag variants must add up to 100%</span>
+                        <div className="variant-form-list space-y-2">
+                            <Row gutter={8} className="label-row">
+                                <Col span={1} />
+                                <Col span={6}>Variant key</Col>
+                                <Col span={12}>Description</Col>
+                                <Col span={4}>
+                                    Rollout
+                                    <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
+                                        (Redistribute)
+                                    </LemonButton>
+                                </Col>
+                            </Row>
+                            {variants.map((_, index) => (
+                                <Group key={index} name={['filters', 'multivariate', 'variants', index]}>
+                                    <Row gutter={8} align="middle">
+                                        <Col span={1}>
+                                            <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
+                                        </Col>
+                                        <Col span={6}>
+                                            <Field name="key">
+                                                <LemonInput
+                                                    data-attr="feature-flag-variant-key"
+                                                    data-key-index={index.toString()}
+                                                    className="ph-ignore-input"
+                                                    placeholder={`example-variant-${index + 1}`}
+                                                    autoComplete="off"
+                                                    autoCapitalize="off"
+                                                    autoCorrect="off"
+                                                    spellCheck={false}
+                                                />
+                                            </Field>
+                                        </Col>
+                                        <Col span={12}>
+                                            <Field name="name">
+                                                <LemonInput
+                                                    data-attr="feature-flag-variant-name"
+                                                    className="ph-ignore-input"
+                                                    placeholder="Description"
+                                                />
+                                            </Field>
+                                        </Col>
+                                        <Col span={3}>
+                                            <Field name="rollout_percentage">
+                                                {({ value, onChange }) => (
+                                                    <InputNumber
+                                                        min={0}
+                                                        max={100}
+                                                        value={value}
+                                                        onChange={(changedValue) => {
+                                                            if (changedValue !== null && changedValue !== undefined) {
+                                                                const valueInt = parseInt(changedValue.toString())
+                                                                if (!isNaN(valueInt)) {
+                                                                    onChange(valueInt)
+                                                                }
+                                                            }
+                                                        }}
+                                                        style={{
+                                                            width: '100%',
+                                                            borderColor: areVariantRolloutsValid
+                                                                ? undefined
+                                                                : 'var(--danger)',
+                                                        }}
+                                                    />
+                                                )}
+                                            </Field>
+                                        </Col>
+                                        <Col span={2}>
+                                            <Row>
+                                                {variants.length > 1 && (
+                                                    <LemonButton
+                                                        icon={<IconDelete />}
+                                                        status="primary-alt"
+                                                        data-attr={`delete-prop-filter-${index}`}
+                                                        noPadding
+                                                        onClick={() => removeVariant(index)}
+                                                    />
+                                                )}
+                                            </Row>
+                                        </Col>
+                                    </Row>
+                                </Group>
+                            ))}
+                            {variants.length > 0 && !areVariantRolloutsValid && (
+                                <p className="text-danger">
+                                    Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}
+                                    ).
+                                </p>
+                            )}
+                            <LemonButton
+                                type="secondary"
+                                onClick={() => {
+                                    const newIndex = variants.length
+                                    addVariant()
+                                    focusVariantKeyField(newIndex)
+                                }}
+                                icon={<IconPlus />}
+                                center
+                            >
+                                Add variant
+                            </LemonButton>
+                        </div>
+                    </div>
+                ))}
         </>
     )
 }

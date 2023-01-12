@@ -54,7 +54,11 @@ const NEW_FLAG: FeatureFlagType = {
     created_at: null,
     key: '',
     name: '',
-    filters: { groups: [{ properties: [], rollout_percentage: null, variant: null }], multivariate: null },
+    filters: {
+        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        multivariate: null,
+        payloads: {},
+    },
     deleted: false,
     active: true,
     created_by: null,
@@ -191,7 +195,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             }),
             submit: (featureFlag) => {
-                actions.saveFeatureFlag(featureFlag)
+                const newPayload = {}
+                featureFlag.filters.multivariate?.variants.forEach(({ key }, index) => {
+                    const payload = featureFlag.filters.payloads[index]
+                    newPayload[key] = payload
+                })
+                actions.saveFeatureFlag({
+                    ...featureFlag,
+                    filters: {
+                        ...featureFlag.filters,
+                        payloads: newPayload,
+                    },
+                })
             },
         },
     })),
