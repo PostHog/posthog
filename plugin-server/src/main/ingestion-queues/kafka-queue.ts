@@ -6,13 +6,9 @@ import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import {
-    KAFKA_EVENTS_JSON,
-    KAFKA_INGESTION_SESSION_RECORDING_EVENTS,
-    prefix as KAFKA_PREFIX,
-} from './../../config/kafka-topics'
+import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
-import { eachBatchIngestion, eachBatchSessionRecordings } from './batch-processing/each-batch-ingestion'
+import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
 type ConsumerManagementPayload = {
@@ -31,7 +27,6 @@ export class IngestionConsumer {
     private wasConsumerRan: boolean
     private ingestionTopic: string
     private eventsTopic: string
-    private sessionRecordingEventsTopic: string
     private eachBatch: Record<string, EachBatchFunction>
 
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
@@ -44,16 +39,9 @@ export class IngestionConsumer {
         this.consumerReady = false
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-        this.sessionRecordingEventsTopic = KAFKA_INGESTION_SESSION_RECORDING_EVENTS
         this.eventsTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
-            // NOTE: we ingest the session recording events using the same
-            // consumer logic as the analytics events. This is to enable the
-            // main analytics topic to progress independently of the session
-            // recording events.
-            // TODO: separate consumer groups as well.
-            [this.sessionRecordingEventsTopic]: eachBatchSessionRecordings,
             [this.eventsTopic]: eachBatchAsyncHandlers,
         }
     }
@@ -62,11 +50,7 @@ export class IngestionConsumer {
         const topics = []
 
         if (this.pluginsServer.capabilities.ingestion) {
-            // TODO: separate consumer groups for ingestion and session
-            // recording events. At the time of writing we use a single consumer
-            // group, and largely the same code path, but this is mainly to keep
-            // the amount of changes to a minimum for now.
-            topics.push(this.ingestionTopic, this.sessionRecordingEventsTopic)
+            topics.push(this.ingestionTopic)
         }
 
         if (this.pluginsServer.capabilities.processAsyncHandlers) {

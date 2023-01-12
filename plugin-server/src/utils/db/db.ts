@@ -1476,6 +1476,20 @@ export class DB {
         return selectResult.rows[0] ?? null
     }
 
+    public async fetchTeamIdByToken(token: string): Promise<number | null> {
+        const selectResult = await this.postgresQuery<{ id: number }>(
+            `
+            SELECT id
+            FROM posthog_team
+            WHERE api_token = $1
+            LIMIT 1
+                `,
+            [token],
+            'fetchTeamIdByToken'
+        )
+        return selectResult.rows[0]?.id ?? null
+    }
+
     // Hook (EE)
 
     private async fetchActionRestHooks(actionId?: Hook['resource_id']): Promise<Hook[]> {

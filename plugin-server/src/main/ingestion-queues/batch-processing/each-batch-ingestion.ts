@@ -37,32 +37,6 @@ export async function eachBatchIngestion(payload: EachBatchPayload, queue: Inges
     await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
 }
 
-export async function eachBatchSessionRecordings(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
-    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
-        // We don't need to batch these to avoid deduplicate distinct_id in a
-        // single batch as session recordings don't do any updates to persons,
-        // but can simply batch into a batches of size `batchSize`.
-
-        const batches = []
-        let currentBatch: KafkaMessage[] = []
-        for (const message of kafkaMessages) {
-            if (currentBatch.length === batchSize) {
-                batches.push(currentBatch)
-                currentBatch = []
-            }
-            currentBatch.push(message)
-        }
-
-        if (currentBatch.length) {
-            batches.push(currentBatch)
-        }
-
-        return batches
-    }
-
-    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'session-recordings')
-}
-
 export async function ingestEvent(
     server: Hub,
     workerMethods: WorkerMethods,

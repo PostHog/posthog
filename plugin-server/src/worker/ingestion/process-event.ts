@@ -2,7 +2,7 @@ import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 
-import { KAFKA_PERFORMANCE_EVENTS, KAFKA_SESSION_RECORDING_EVENTS } from '../../config/kafka-topics'
+import { KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, KAFKA_PERFORMANCE_EVENTS } from '../../config/kafka-topics'
 import {
     Element,
     GroupTypeIndex,
@@ -277,7 +277,7 @@ export class EventsProcessor {
             created_at: timestampString,
         }
 
-        await this.kafkaProducer.queueSingleJsonMessage(KAFKA_SESSION_RECORDING_EVENTS, uuid, data)
+        await this.kafkaProducer.queueSingleJsonMessage(KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, uuid, data)
 
         return {
             eventUuid: uuid,
