@@ -51,10 +51,21 @@ SELECT {aggregate_operation} as data FROM (
 # This query performs poorly due to aggregation happening outside of subqueries.
 # :TODO: Fix this!
 # Query intuition:
-# 1. Get all the relevant events within the range by actor_id
-# 2. For each event, compute the buckets it falls in
-# 3. Count the number of distinct actor IDs per bucket
+# 1. Derive all the buckets we care about
+# 2. Query all events within the specified range
+# 3. For each event timestamp, calculate all the buckets it would fall in
+#    Note that this can be a bit confusing. For hourly intervals, we round to the
+#    start of the hour and look 7/30 days into the future
 ACTIVE_USERS_SQL = """
+WITH arrayMap(
+    n -> toDateTime(n, %(timezone)s),
+    range(
+        toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s) {start_of_week_fix}))),
+        toUInt32(toDateTime(%(date_to)s, %(timezone)s)),
+        %(bucket_increment_seconds)s
+    )
+) AS buckets
+
 SELECT counts AS total,
     timestamp AS day_start
 FROM (
@@ -62,13 +73,19 @@ FROM (
         count(DISTINCT {aggregator}) AS counts,
         arrayJoin(
             arrayMap(
-                x -> {interval}(toDateTime(x, %(timezone)s) {start_of_week_fix}),
-                range(toUInt32(timestamp), toUInt32(timestamp + INTERVAL %(days)s DAY), %(increment_seconds)s)
+                n -> toDateTime(n, %(timezone)s),
+                range(
+                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)))), -- TODO: this could be a max?
+                    toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) + INTERVAL {prev_interval}), -- TODO: this could be a min?
+                    %(grouping_increment_seconds)s
+                )
             )
         ) as timestamp
     {event_query_base}
     GROUP BY timestamp
-    HAVING 1=1 {parsed_date_from} {parsed_date_to}
+    HAVING
+        has(buckets, timestamp)
+        {parsed_date_from} {parsed_date_to}
     ORDER BY timestamp
 )
 """

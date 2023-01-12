@@ -107,11 +107,20 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
             raise ValidationError("Active User queries require a lower date bound")
     date_to = filter.date_to
 
+    # When calculating the buckets an event would fall in on an hourly interval,
+    # we round with toStartOfHour and look at the correct range into the future (i.e. 7 or 30 days)
+    # However, for daily, weekly, and monthly, we round with toStartOfDay and thus count a fewer day
+    # into the future (i.e. 6 or 29 days), since we are already counting the entire first day
+    prev_interval = "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY"
+    if filter.interval == "hour":
+        prev_interval = "7 DAY" if entity.math == WEEKLY_ACTIVE else "30 DAY"
+
     format_params = {
-        # Not 7 and 30 because the day of the date marker is included already in the query (`+ INTERVAL 1 DAY`)
-        "prev_interval": "6 DAY" if entity.math == WEEKLY_ACTIVE else "29 DAY",
+        "rounding_func": "toStartOfHour" if filter.interval == "hour" else "toStartOfDay",
+        "prev_interval": prev_interval,
         "parsed_date_from_prev_range": f"AND toDateTime(timestamp, 'UTC') >= toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s)",
     }
+
     # For time-series display types, we need to adjust date_from to be 7/30 days earlier.
     # This is because each data point effectively has its own range, which starts 6/29 days before its date marker,
     # and ends on that particular date marker.
@@ -122,8 +131,8 @@ def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> Tupl
 
     query_params = {
         "date_from_active_users_adjusted": (relevant_start_date - diff).strftime("%Y-%m-%d %H:%M:%S"),
-        "increment_seconds": TIME_IN_SECONDS[filter.interval],
-        "days": 7 if entity.math == WEEKLY_ACTIVE else 30,
+        "bucket_increment_seconds": TIME_IN_SECONDS[filter.interval],
+        "grouping_increment_seconds": TIME_IN_SECONDS["hour"] if filter.interval == "hour" else TIME_IN_SECONDS["day"],
     }
 
     return format_params, query_params
