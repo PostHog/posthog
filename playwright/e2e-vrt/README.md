@@ -40,7 +40,7 @@ We're using Playwright to run visual regression tests against Storybook. To crea
 3. Generate the reference images with (you need to have Storybook running locally, i.e. on the Docker host machine):
 
     ```
-    docker compose -f docker-compose.playwright.yml run -it -e STORYBOOK_URL=http://host.docker.internal:6006 playwright pnpm dlx playwright test -u
+    docker compose -f docker-compose.playwright.yml run -it -e STORYBOOK_URL=http://host.docker.internal:6006 playwright pnpm exec playwright test -u
     ```
 
 Open the generated report locally with `pnpm dlx playwright show-report` to see test results (they are mounted local in docker volume)
