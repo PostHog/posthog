@@ -2,7 +2,7 @@
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
 // import { EditorFilterProps, InsightType } from '~/types'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { TrendsQuery, StickinessQuery } from '~/queries/schema'
 import { isTrendsQuery } from '~/queries/utils'
