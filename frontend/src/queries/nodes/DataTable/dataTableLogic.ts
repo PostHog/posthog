@@ -3,7 +3,7 @@ import type { dataTableLogicType } from './dataTableLogicType'
 import { DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
-import { isEventsQuery } from '~/queries/utils'
+import { isDataTableNode, isEventsQuery } from '~/queries/utils'
 import { Sorting } from 'lib/components/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -19,7 +19,15 @@ export const categoryRowKey = Symbol('__categoryRow__')
 
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
-    key((props) => props.key),
+    key((props) => {
+        if (!props.key) {
+            throw new Error('dataTableLogic must contain a key in props')
+        }
+        if (!isDataTableNode(props.query)) {
+            throw new Error('dataTableLogic only accepts queries of type DataTableNode')
+        }
+        return props.key
+    }),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
     actions({ setColumns: (columns: HogQLExpression[]) => ({ columns }) }),
     reducers(({ props }) => ({
@@ -30,14 +38,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             dataNodeLogic({ key: props.key, query: props.query.source }),
-            ['response'],
+            ['response', 'responseLoading'],
         ],
     })),
     selectors({
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
         orderBy: [
             (_, p) => [p.query],
-            (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || null : null),
+            (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || ['-timestamp'] : null),
             { resultEqualityCheck: objectsEqual },
         ],
         resultsWithCategoryRows: [
@@ -113,16 +121,16 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (query: DataTableNode): boolean => isEventsQuery(query.source) && !!query.allowSorting,
         ],
         sorting: [
-            (s) => [s.queryWithDefaults, s.canSort],
-            (query, canSort): Sorting | null => {
-                if (canSort && isEventsQuery(query.source) && query.source.orderBy && query.source.orderBy.length > 0) {
-                    return query.source.orderBy[0] === '-'
+            (s) => [s.canSort, s.queryWithDefaults, s.orderBy],
+            (canSort, query, orderBy): Sorting | null => {
+                if (canSort && isEventsQuery(query.source) && orderBy && orderBy.length > 0) {
+                    return orderBy[0] === '-'
                         ? {
-                              columnKey: query.source.orderBy[0].substring(1),
+                              columnKey: orderBy[0].substring(1),
                               order: -1,
                           }
                         : {
-                              columnKey: query.source.orderBy[0],
+                              columnKey: orderBy[0],
                               order: 1,
                           }
                 }
