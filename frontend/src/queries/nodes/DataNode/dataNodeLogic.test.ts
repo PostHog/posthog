@@ -4,8 +4,18 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { NodeKind } from '~/queries/schema'
 import { query } from '~/queries/query'
+
 jest.mock('~/queries/query')
+
 const testUniqueKey = 'testUniqueKey'
+
+const commonResult = {
+    uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
+    event: 'update user properties',
+    properties: {},
+    team_id: 1,
+    distinct_id: '123',
+}
 
 describe('dataNodeLogic', () => {
     let logic: ReturnType<typeof dataNodeLogic.build>
@@ -77,13 +87,6 @@ describe('dataNodeLogic', () => {
     })
 
     it('can load new data if EventsQuery sorted by timestamp', async () => {
-        const commonResult = {
-            uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
-            event: 'update user properties',
-            properties: {},
-            team_id: 1,
-            distinct_id: '123',
-        }
         const results = [
             [
                 { ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' },
@@ -191,13 +194,6 @@ describe('dataNodeLogic', () => {
     })
 
     it('can load next data for EventsQuery', async () => {
-        const commonResult = {
-            uuid: '01853a90-ba94-0000-8776-e8df5617c3ec',
-            event: 'update user properties',
-            properties: {},
-            team_id: 1,
-            distinct_id: '123',
-        }
         const results = [
             [
                 { ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' },
@@ -297,5 +293,124 @@ describe('dataNodeLogic', () => {
         })
     })
 
-    it('can autoload new data for EventsQuery', async () => {})
+    it('can autoload new data for EventsQuery', async () => {
+        const results = [
+            [
+                { ...commonResult, timestamp: '2022-12-24T17:00:41.165000Z' },
+                'update user properties',
+                '2022-12-24T17:00:41.165000Z',
+            ],
+        ]
+        ;(query as any).mockResolvedValueOnce({
+            columns: ['*', 'event', 'timestamp'],
+            results: results,
+            hasMore: true,
+        })
+
+        logic = dataNodeLogic({
+            key: testUniqueKey,
+            query: {
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+            },
+        })
+        logic.mount()
+        await expectLogic(logic)
+            .toMatchValues({
+                responseLoading: true,
+                canLoadNewData: false,
+                newQuery: null,
+                response: null,
+                autoLoadToggled: false,
+                autoLoadStarted: false,
+                autoLoadRunning: false,
+            })
+            .delay(0)
+        await expectLogic(logic).toMatchValues({
+            responseLoading: false,
+            canLoadNewData: true,
+            newQuery: {
+                kind: NodeKind.EventsQuery,
+                select: ['*', 'event', 'timestamp'],
+                after: '2022-12-24T17:00:41.165000Z',
+            },
+            response: partial({ results }),
+            autoLoadToggled: false,
+            autoLoadStarted: false,
+            autoLoadRunning: false,
+        })
+
+        // load new data
+
+        const results2 = [
+            [
+                { ...commonResult, uuid: 'new', timestamp: '2022-12-25T17:00:41.165000Z' },
+                'update user properties',
+                '2022-12-25T17:00:41.165000Z',
+            ],
+        ]
+        ;(query as any).mockResolvedValueOnce({
+            columns: ['*', 'event', 'timestamp'],
+            results: results2,
+            hasMore: true,
+        })
+
+        // Start the autoloader - this is done in a `useEffect` in the frontend,
+        // to track whether the autoload needs to run or not. This is separate
+        // from the toggle itself.
+        logic.actions.startAutoLoad()
+
+        await expectLogic(logic).toMatchValues({
+            newDataLoading: false,
+            canLoadNewData: true,
+            autoLoadToggled: false,
+            autoLoadStarted: true,
+            autoLoadRunning: false,
+            response: partial({ results }),
+        })
+
+        jest.useFakeTimers()
+
+        // Turn on the autoload toggle
+        logic.actions.toggleAutoLoad()
+
+        await expectLogic(logic).toDispatchActions(['loadNewData', 'loadNewDataSuccess'])
+
+        await expectLogic(logic).toMatchValues({
+            newDataLoading: false,
+            canLoadNewData: true,
+            autoLoadToggled: true,
+            autoLoadStarted: true,
+            autoLoadRunning: true,
+            response: partial({ results: [...results2, ...results] }),
+        })
+        expect(Array.from(logic.values.highlightedRows)).toEqual([results2[0]])
+
+        const results3 = [
+            [
+                { ...commonResult, uuid: 'new3', timestamp: '2022-12-25T17:00:41.165000Z' },
+                'update user properties',
+                '2022-12-25T17:00:41.165000Z',
+            ],
+        ]
+        ;(query as any).mockResolvedValueOnce({
+            columns: ['*', 'event', 'timestamp'],
+            results: results3,
+            hasMore: true,
+        })
+
+        // Autoload is running in the background and will fire in 5 seconds. Check that there's a background script for this.
+        expect(logic.cache.autoLoadInterval).toBeTruthy()
+        jest.advanceTimersByTime(6000)
+        await expectLogic(logic)
+            .toDispatchActions(['loadNewData', 'loadNewDataSuccess'])
+            .toMatchValues({
+                newDataLoading: false,
+                canLoadNewData: true,
+                autoLoadToggled: true,
+                autoLoadStarted: true,
+                autoLoadRunning: true,
+                response: partial({ results: [...results3, ...results2, ...results] }),
+            })
+    })
 })
