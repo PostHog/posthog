@@ -6,7 +6,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import { dateFilterLogic } from './dateFilterLogic'
 import { RollingDateRangeFilter } from './RollingDateRangeFilter'
 import { useActions, useValues } from 'kea'
-import { LemonButtonWithPopup, LemonDivider, LemonButton } from '@posthog/lemon-ui'
+import { LemonButtonWithPopup, LemonDivider, LemonButton, LemonButtonProps } from '@posthog/lemon-ui'
 import { IconCalendar } from '../icons'
 import { LemonCalendarSelect } from 'lib/components/LemonCalendar/LemonCalendarSelect'
 import { LemonCalendarRange } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
@@ -22,6 +22,7 @@ export interface DateFilterProps {
     getPopupContainer?: () => HTMLElement
     dateOptions?: DateMappingOption[]
     isDateFormatted?: boolean
+    size?: LemonButtonProps['size']
 }
 interface RawDateFilterProps extends DateFilterProps {
     dateFrom?: string | null | dayjs.Dayjs
@@ -40,6 +41,7 @@ export function DateFilter({
     dateTo,
     dateOptions = dateMapping,
     isDateFormatted = true,
+    size,
 }: RawDateFilterProps): JSX.Element {
     const key = useRef(uuid()).current
     const logicProps: DateFilterLogicProps = {
@@ -145,7 +147,7 @@ export function DateFilter({
             onClick={isVisible ? close : open}
             disabled={disabled}
             className={className}
-            size={'small'}
+            size={size ?? 'small'}
             type={'secondary'}
             status="stealth"
             popup={{
