@@ -1,7 +1,7 @@
 import { LemonCheckbox, LemonDivider } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
-import { IconPlus, IconOpenInNew } from 'lib/components/icons'
+import { IconPlus, IconOpenInNew, IconWithCount } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
@@ -12,9 +12,12 @@ import { urls } from 'scenes/urls'
 import { playerSettingsLogic } from '../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../sessionRecordingPlayerLogic'
 import { playlistPopupLogic } from './playlistPopupLogic'
+import { sessionRecordingDataLogic } from 'scenes/session-recordings/player/sessionRecordingDataLogic'
 
 export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { isFullScreen } = useValues(playerSettingsLogic)
+    const dataLogic = sessionRecordingDataLogic(props)
+    const { sessionPlayerData } = useValues(dataLogic)
     const logic = playlistPopupLogic(props)
     const {
         playlistsLoading,
@@ -23,7 +26,7 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
         showPlaylistPopup,
         allPlaylists,
         currentPlaylistsLoading,
-        modifiyingPlaylist,
+        modifyingPlaylist,
     } = useValues(logic)
     const { setSearchQuery, setNewFormShowing, setShowPlaylistPopup, addToPlaylist, removeFromPlaylist } =
         useActions(logic)
@@ -86,7 +89,7 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
                                         className="flex-1"
                                         icon={
                                             currentPlaylistsLoading &&
-                                            modifiyingPlaylist?.short_id === playlist.short_id ? (
+                                            modifyingPlaylist?.short_id === playlist.short_id ? (
                                                 <Spinner className="text-sm" />
                                             ) : (
                                                 <LemonCheckbox className="pointer-events-none" checked={selected} />
@@ -121,7 +124,11 @@ export function PlaylistPopup(props: SessionRecordingPlayerLogicProps): JSX.Elem
         >
             <LemonButton
                 data-attr="export-button"
-                icon={<IconPlus />}
+                icon={
+                    <IconWithCount count={sessionPlayerData.metadata.pinnedCount ?? 0} showZero={false}>
+                        <IconPlus />
+                    </IconWithCount>
+                }
                 active={showPlaylistPopup}
                 onClick={() => setShowPlaylistPopup(!showPlaylistPopup)}
                 size={isFullScreen ? 'small' : 'medium'}

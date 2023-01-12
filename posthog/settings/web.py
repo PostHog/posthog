@@ -245,10 +245,10 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/@current/property_definitions/?$",
                 "^/?api/projects/\\d+/event_definitions/?$",
                 "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
-                # insights API with no ID but with query params
-                "^/?api/projects/\\d+/insights/??",
+                "^/?api/projects/\\d+/insights/?$",
                 "^/?api/projects/\\d+/insights/\\d+/?$",
                 "^/?api/projects/\\d+/dashboards/\\d+/?$",
+                "^/?api/projects/\\d+/dashboards/?$",
                 "^/?api/projects/\\d+/actions/?$",
                 "^/?api/projects/\\d+/session_recordings/?$",
                 "^/?api/projects/\\d+/exports/\\d+/content/?$",
@@ -257,6 +257,11 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/uploaded_media/.*$",
                 "^/year_in_posthog/.*$",
                 "^/api/element/stats/?$",
+                "^/api/projects/\\d+/groups/property_definitions/?$",
+                "^/api/projects/\\d+/cohorts/?$",
+                "^/api/projects/\\d+/persons/?$",
+                "^/api/organizations/@current/plugins/?$",
+                "^api/projects/@current/feature_flags/my_flags/?$",
             ]
         ),
     )
