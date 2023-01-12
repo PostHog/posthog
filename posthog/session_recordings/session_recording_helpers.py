@@ -109,7 +109,9 @@ def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> L
 def compress_and_chunk_snapshots(events: List[Event], chunk_size=512 * 1024) -> Generator[Event, None, None]:
     data_list = [event["properties"]["$snapshot_data"] for event in events]
     session_id = events[0]["properties"]["$session_id"]
-    has_full_snapshot = any(snapshot_data["type"] == RRWEB_MAP_EVENT_TYPE.FullSnapshot for snapshot_data in data_list)
+    has_full_snapshot = any(
+        snapshot_data.get("type", None) == RRWEB_MAP_EVENT_TYPE.FullSnapshot for snapshot_data in data_list
+    )
     window_id = events[0]["properties"].get("$window_id")
 
     compressed_data = compress_to_string(json.dumps(data_list))

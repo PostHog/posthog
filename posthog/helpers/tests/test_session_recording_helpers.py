@@ -107,7 +107,7 @@ def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):
                     "chunk_count": 1,
                     "data": "H4sIAAAAAAAC/2WMywpAUABEz6fori28k1+RhQVlIYoN8uuY+9hpaprONPM+LReGnYOVQakhIiOWWzoxi25KvdIa+pSSgoqcRKqde91u+X/Mw+PIInlmONXbZ6Ndxwc14H+ijAAAAA==",
                     "compression": "gzip-base64",
-                    "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSINFMhlygaDGQlQhkFUDlDRlMGUwYzBiMGQyA0AJMQmAtWCemicYUmBjLAAABQ+l7pgAAAA==",
+                    "data": "H4sIAAAAAAAC//v/L5qhmkGJoYShkqGAIRXIsmJQYDBi0AGSINFMhlygaDGQlQhkFUDlDRlMGUwYzBiMGQyA0AJMQmAtWCemicZUMZG+emMZANpPzJceAQAA",
                     "has_full_snapshot": True,
                     "events_summary": [
                         {"timestamp": MILLISECOND_TIMESTAMP, "type": 2, "data": {}},
@@ -123,13 +123,11 @@ def test_compression_and_chunking(raw_snapshot_events, mocker: MockerFixture):
 def test_decompression_results_in_same_data(raw_snapshot_events):
     assert len(list(compress_and_chunk_snapshots(raw_snapshot_events, 1000))) == 1
     assert compress_decompress_and_extract(raw_snapshot_events, 1000) == [
-        raw_snapshot_events[0]["properties"]["$snapshot_data"],
-        raw_snapshot_events[1]["properties"]["$snapshot_data"],
+        event["properties"]["$snapshot_data"] for event in raw_snapshot_events
     ]
     assert len(list(compress_and_chunk_snapshots(raw_snapshot_events, 100))) == 2
     assert compress_decompress_and_extract(raw_snapshot_events, 100) == [
-        raw_snapshot_events[0]["properties"]["$snapshot_data"],
-        raw_snapshot_events[1]["properties"]["$snapshot_data"],
+        event["properties"]["$snapshot_data"] for event in raw_snapshot_events
     ]
 
 
@@ -519,6 +517,24 @@ def raw_snapshot_events():
                 "$session_id": "1234",
                 "$window_id": "1",
                 "$snapshot_data": {"type": 3, "timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {"timestamp": MILLISECOND_TIMESTAMP},
+                "distinct_id": "abc123",
+            },
+        },
+        {
+            "event": "$snapshot",
+            "properties": {
+                "$session_id": "1234",
+                "$window_id": "1",
+                "$snapshot_data": {"timestamp": MILLISECOND_TIMESTAMP},
                 "distinct_id": "abc123",
             },
         },
