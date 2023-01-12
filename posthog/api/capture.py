@@ -66,9 +66,14 @@ def parse_kafka_event_data(
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     logger.debug("logging_event", event_name=event_name, kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
 
-    # To allow for different quality of service on session recordings and other
-    # events, we push to a different topic.
-    kafka_topic = KAFKA_SESSION_RECORDING_EVENTS if event_name == "$snapshot" else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+    # To allow for different quality of service on session recordings and
+    # `$performance_event` and other events, we push to a different topic.
+    # TODO: split `$performance_event` out to it's own topic.
+    kafka_topic = (
+        KAFKA_SESSION_RECORDING_EVENTS
+        if event_name in ("$snapshot", "$performance_events")
+        else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+    )
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
