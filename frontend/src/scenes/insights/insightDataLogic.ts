@@ -18,13 +18,13 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 // TODO: should take the existing values.query and set params from previous view similar to
 // cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters)
 const getCleanedQuery = (
-    kind: NodeKind.LifecycleQuery | NodeKind.StickinessQuery | NodeKind.UnimplementedQuery
+    kind: NodeKind.TrendsQuery | NodeKind.StickinessQuery | NodeKind.LifecycleQuery | NodeKind.UnimplementedQuery
 ): InsightVizNode => {
-    if (kind === NodeKind.LifecycleQuery) {
+    if (kind === NodeKind.TrendsQuery) {
         return {
             kind: NodeKind.InsightVizNode,
             source: {
-                kind: NodeKind.LifecycleQuery,
+                kind: NodeKind.TrendsQuery,
                 series: [
                     {
                         kind: NodeKind.EventsNode,
@@ -33,7 +33,7 @@ const getCleanedQuery = (
                         math: BaseMathType.TotalCount,
                     },
                 ],
-                lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
+                trendsFilter: {},
             },
         }
     } else if (kind === NodeKind.StickinessQuery) {
@@ -50,6 +50,22 @@ const getCleanedQuery = (
                     },
                 ],
                 stickinessFilter: {},
+            },
+        }
+    } else if (kind === NodeKind.LifecycleQuery) {
+        return {
+            kind: NodeKind.InsightVizNode,
+            source: {
+                kind: NodeKind.LifecycleQuery,
+                series: [
+                    {
+                        kind: NodeKind.EventsNode,
+                        name: '$pageview',
+                        event: '$pageview',
+                        math: BaseMathType.TotalCount,
+                    },
+                ],
+                lifecycleFilter: { shown_as: ShownAsValue.LIFECYCLE },
             },
         }
     } else {
@@ -144,10 +160,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         setActiveView: ({ type }) => {
-            if (type === InsightType.LIFECYCLE) {
-                actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
+            if (type === InsightType.TRENDS) {
+                actions.setQuery(getCleanedQuery(NodeKind.TrendsQuery))
             } else if (type === InsightType.STICKINESS) {
                 actions.setQuery(getCleanedQuery(NodeKind.StickinessQuery))
+            } else if (type === InsightType.LIFECYCLE) {
+                actions.setQuery(getCleanedQuery(NodeKind.LifecycleQuery))
             } else {
                 actions.setQuery(getCleanedQuery(NodeKind.UnimplementedQuery))
             }
@@ -158,14 +176,12 @@ export const insightDataLogic = kea<insightDataLogicType>([
             }
         },
         loadInsightSuccess: ({ insight }) => {
-            // TODO: missing <Object.keys(state).length === 0> check - do we really need it? why?
             if (insight.filters) {
                 const query = getQueryFromFilters(insight.filters)
                 actions.setQuery(query)
             }
         },
         loadResultsSuccess: ({ insight }) => {
-            // TODO: missing <Object.keys(state).length === 0> check - do we really need it? why?
             if (insight.filters) {
                 const query = getQueryFromFilters(insight.filters)
                 actions.setQuery(query)
