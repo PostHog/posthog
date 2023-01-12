@@ -1138,12 +1138,18 @@ class TestCapture(BaseTest):
             "offset": 1993,
         }
 
-        self.client.post("/s/", data={"data": [event], "api_key": self.team.api_token})
+        response = self.client.post(
+            "/e/",
+            data={"batch": [event], "api_key": self.team.api_token},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
 
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, "fake-session-id")
+        self.assertEqual(key, "abc123")
 
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")

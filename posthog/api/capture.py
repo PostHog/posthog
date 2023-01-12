@@ -28,7 +28,7 @@ from posthog.api.utils import (
 from posthog.exceptions import generate_exception_response
 from posthog.helpers.session_recording import preprocess_session_recording_events_for_clickhouse
 from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, KAFKA_DEAD_LETTER_QUEUE
+from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
@@ -70,8 +70,8 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     # `$performance_event` and other events, we push to a different topic.
     # TODO: split `$performance_event` out to it's own topic.
     kafka_topic = (
-        KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS
-        if event_name in ("$snapshot", "$performance_events")
+        KAFKA_SESSION_RECORDING_EVENTS
+        if event_name in ("$snapshot", "$performance_event")
         else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
     )
 
@@ -414,7 +414,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     # Setting the partition key to None means using random partitioning.
     kafka_partition_key = None
 
-    if event["event"] in ("$snapshot", "$performance_events"):
+    if event["event"] in ("$snapshot", "$performance_event"):
         kafka_partition_key = event["properties"]["$session_id"]
     else:
         candidate_partition_key = f"{team_id}:{distinct_id}"
