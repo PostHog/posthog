@@ -7,7 +7,7 @@ import { alphabet } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
-import { TrendsQuery, FunnelsQuery, LifecycleQuery } from '~/queries/schema'
+import { TrendsQuery, FunnelsQuery, LifecycleQuery, StickinessQuery } from '~/queries/schema'
 import {
     isLifecycleQuery,
     isStickinessQuery,
@@ -67,6 +67,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
                     updateQuerySource({ series: actionsAndEventsToSeries(payload as any) } as
                         | TrendsQuery
                         | FunnelsQuery
+                        | StickinessQuery
                         | LifecycleQuery)
                 }}
                 typeKey={`trends_${InsightType.TRENDS}_data_exploration`}

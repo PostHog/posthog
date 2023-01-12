@@ -23,8 +23,9 @@ import {
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
-    EventsQuery = 'EventsQuery',
     ActionsNode = 'ActionsNode',
+    NewEntityNode = 'NewEntityNode',
+    EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
 
     // Interface nodes
@@ -114,6 +115,16 @@ export interface EventsNode extends EntityNode {
     }
 }
 
+export interface ActionsNode extends EntityNode {
+    kind: NodeKind.ActionsNode
+    id: number
+}
+
+export interface NewEntityNode extends EntityNode {
+    kind: NodeKind.NewEntityNode
+    event?: string | null
+}
+
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -145,11 +156,6 @@ export interface EventsQuery extends DataNode {
         results: any[][]
         hasMore?: boolean
     }
-}
-
-export interface ActionsNode extends EntityNode {
-    kind: NodeKind.ActionsNode
-    id: number
 }
 
 export interface PersonsNode extends DataNode {

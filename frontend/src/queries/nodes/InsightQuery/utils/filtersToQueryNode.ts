@@ -13,15 +13,15 @@ const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
 }
 
-type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
+type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
 export const actionsAndEventsToSeries = ({
     actions,
     events,
+    new_entity,
 }: FilterTypeActionsAndEvents): (EventsNode | ActionsNode)[] => {
-    const series: any = [...(actions || []), ...(events || [])]
+    const series: any = [...(actions || []), ...(events || []), ...(new_entity || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
-        // TODO: handle new_entity type
         .map((f) => {
             const shared = {
                 name: f.name || undefined,
@@ -31,17 +31,25 @@ export const actionsAndEventsToSeries = ({
                 math_property: f.math_property,
                 math_group_type_index: f.math_group_type_index,
             }
-            return f.type === 'actions'
-                ? {
-                      kind: NodeKind.ActionsNode,
-                      id: f.id,
-                      ...shared,
-                  }
-                : {
-                      kind: NodeKind.EventsNode,
-                      event: f.id,
-                      ...shared,
-                  }
+            if (f.type === 'actions') {
+                return {
+                    kind: NodeKind.ActionsNode,
+                    id: f.id,
+                    ...shared,
+                }
+            } else if (f.type === 'events') {
+                return {
+                    kind: NodeKind.EventsNode,
+                    event: f.id,
+                    ...shared,
+                }
+            } else if (f.type === 'new_entity') {
+                return {
+                    kind: NodeKind.NewEntityNode,
+                    event: f.id,
+                    ...shared,
+                }
+            }
         })
 
     return series
