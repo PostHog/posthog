@@ -17,6 +17,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import type { ingestionLogicV2Type } from './ingestionLogicV2Type'
 import api from 'lib/api'
+import { loaders } from 'kea-loaders'
 
 export enum INGESTION_STEPS {
     START = 'Get started',
@@ -207,8 +208,7 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
         onBack: true,
         goToView: (view: INGESTION_VIEWS) => ({ view }),
         setSidebarSteps: (steps: string[]) => ({ steps }),
-        setIsDemoDataReady: (isDemoDataReady: boolean) => ({ isDemoDataReady }),
-        setDemoDataInterval: (demoDataInterval: number) => ({ demoDataInterval }),
+        setPollTimeout: (pollTimeout: number) => ({ pollTimeout }),
     }),
     windowValues({
         isSmallScreen: (window: Window) => window.innerWidth < getBreakpoint('md'),
@@ -293,19 +293,38 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
                 setState: (_, { generatingDemoData }) => generatingDemoData,
             },
         ],
-        demoDataInterval: [
-            null as null | number,
+        pollTimeout: [
+            0,
             {
-                setDemoDataInterval: (_, { demoDataInterval }) => demoDataInterval,
-                setIsDemoDataReady: (current, { isDemoDataReady }) => {
-                    if (isDemoDataReady && current) {
-                        clearInterval(current)
-                    }
-                    return null
-                },
+                setPollTimeout: (_, payload) => payload.pollTimeout,
             },
         ],
     }),
+    loaders(({ actions, values }) => ({
+        isDemoDataReady: [
+            false as boolean,
+            {
+                checkIfDemoDataIsReady: async (_, breakpoint) => {
+                    await breakpoint(1)
+
+                    clearTimeout(values.pollTimeout)
+
+                    try {
+                        const res = await api.get('api/projects/@current/is_generating_demo_data')
+                        if (!res.is_generating_demo_data) {
+                            return true
+                        }
+                        const pollTimeoutMilliseconds = 1000
+                        const timeout = window.setTimeout(actions.checkIfDemoDataIsReady, pollTimeoutMilliseconds)
+                        actions.setPollTimeout(timeout)
+                        return false
+                    } catch (e) {
+                        return false
+                    }
+                },
+            },
+        ],
+    })),
     selectors(() => ({
         currentState: [
             (s) => [
@@ -530,24 +549,18 @@ export const ingestionLogicV2 = kea<ingestionLogicV2Type>([
             }
         },
         inviteTeamMembersSuccess: () => {
-            if (router.values.location.pathname.includes('/ingestion')) {
+            if (router.values.location.pathname.includes(urls.ingestion())) {
                 actions.setState(viewToState(INGESTION_VIEWS.TEAM_INVITED, values.currentState as IngestionState))
             }
         },
         createTeamSuccess: ({ currentTeam }) => {
             if (window.location.href.includes(urls.ingestion()) && currentTeam.is_demo) {
-                const interval = window.setInterval(async () => {
-                    const res = await api.get('api/projects/@current/is_generating_demo_data')
-                    if (!res.is_generating_demo_data) {
-                        actions.setIsDemoDataReady(true)
-                    }
-                }, 1000)
-                actions.setDemoDataInterval(interval)
+                actions.checkIfDemoDataIsReady(null)
             } else {
                 window.location.href = urls.ingestion()
             }
         },
-        setIsDemoDataReady: ({ isDemoDataReady }) => {
+        checkIfDemoDataIsReadySuccess: ({ isDemoDataReady }) => {
             if (isDemoDataReady) {
                 window.location.href = urls.default()
             }

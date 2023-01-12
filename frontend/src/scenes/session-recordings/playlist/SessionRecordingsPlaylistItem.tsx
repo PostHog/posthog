@@ -2,11 +2,12 @@ import { SessionRecordingType } from '~/types'
 import { colonDelimitedDuration } from 'lib/utils'
 import clsx from 'clsx'
 import { PropertyIcon } from 'lib/components/PropertyIcon'
-import { IconAutocapture, IconKeyboard, IconSchedule } from 'lib/components/icons'
+import { IconAutocapture, IconKeyboard, IconPin, IconSchedule } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { asDisplay } from 'scenes/persons/PersonHeader'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
+import { RecordingDebugInfo } from '../debug/RecordingDebugInfo'
 
 export interface SessionRecordingPlaylistItemProps {
     recording: SessionRecordingType
@@ -75,7 +76,7 @@ export function SessionRecordingPlaylistItem({
         </div>
     )
 
-    const firstPath = recording.urls?.[0].replace(/https?:\/\//g, '').split(/[?|#]/)[0]
+    const firstPath = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
 
     // TODO: Modify onClick to only react to shift+click
 
@@ -101,8 +102,19 @@ export function SessionRecordingPlaylistItem({
             </div>
             <div className="grow overflow-hidden space-y-px">
                 <div className="flex items-center justify-between gap-2">
-                    <div className="truncate font-medium text-primary ph-no-capture">{asDisplay(recording.person)}</div>
-
+                    <div className="flex items-center gap-1 shrink">
+                        {(recording.pinned_count ?? 0) > 0 && (
+                            <Tooltip
+                                placement="topRight"
+                                title={`This recording is pinned on ${recording.pinned_count} playlists`}
+                            >
+                                <IconPin className="text-sm text-orange" />
+                            </Tooltip>
+                        )}
+                        <div className="truncate font-medium text-primary ph-no-capture">
+                            {asDisplay(recording.person)}
+                        </div>
+                    </div>
                     <div className="flex-1" />
                     <div className="flex items-center flex-1 justify-end font-semibold">
                         <IconSchedule className={iconClassnames} />
@@ -147,12 +159,14 @@ export function SessionRecordingPlaylistItem({
 
                 <div className="flex items-center justify-between gap-4 w-2/3">
                     <span className="flex items-center gap-1 overflow-hidden text-muted text-xs">
-                        <span title={`First URL: ${recording.urls?.[0]}`} className="truncate">
+                        <span title={`First URL: ${recording.start_url}`} className="truncate">
                             {firstPath}
                         </span>
                     </span>
                 </div>
             </div>
+
+            <RecordingDebugInfo recording={recording} className="absolute right-0 bottom-0 m-2" />
         </li>
     )
 }
