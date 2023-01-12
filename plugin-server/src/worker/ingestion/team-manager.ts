@@ -138,7 +138,7 @@ export class TeamManager {
             }
         }
 
-        const timeout = timeoutGuard(`Still running "fetchTeam". Timeout warning after 30 sec!`)
+        const timeout = timeoutGuard(`Still running "fetchTeamIdByToken". Timeout warning after 30 sec!`)
         try {
             const teamId = await this.db.fetchTeamIdByToken(token)
             if (!teamId) {
