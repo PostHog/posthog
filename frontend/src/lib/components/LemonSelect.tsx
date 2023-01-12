@@ -326,8 +326,7 @@ function LemonSelectOptionRowInternal<T>(
             onClick={() => onSelect(option.value)}
             onKeyDown={onKeyDown}
         >
-            {option.label ?? option.value}
-            {option.element}
+            {option.element ? option.element : option.label ?? option.value}
         </LemonButton>
     )
 }
