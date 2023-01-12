@@ -18,7 +18,6 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
                     <PropertyKeyInfo
                         className="font-medium"
                         disablePopover
-                        disableIcon
                         ellipsis={true}
                         value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
                     />
