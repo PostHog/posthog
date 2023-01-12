@@ -5,9 +5,10 @@ import {
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
 } from '../../config/kafka-topics'
-import { PipelineEvent } from '../../types'
+import { PipelineEvent, RawEventMessage, RawSessionRecordingEvent, TimestampFormat } from '../../types'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { status } from '../../utils/status'
+import { castTimestampOrNow } from '../../utils/utils'
 import { TeamManager } from '../../worker/ingestion/team-manager'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
@@ -47,14 +48,16 @@ export const startSessionRecordingEventsConsumer = async ({
                 continue
             }
 
-            let eventPayload: PipelineEvent
+            let messagePayload: RawEventMessage
+            let event: PipelineEvent
 
             try {
                 // NOTE: we need to parse the JSON for these events because we
                 // need to add in the team_id to events, as it is possible due
                 // to a drive to remove postgres dependency on the the capture
                 // endpoint we may only have `token`.
-                eventPayload = JSON.parse(message.value.toString())
+                messagePayload = JSON.parse(message.value.toString())
+                event = JSON.parse(messagePayload.data)
             } catch (error) {
                 status.warn('⚠️', 'invalid_message', {
                     reason: 'invalid_json',
@@ -66,9 +69,9 @@ export const startSessionRecordingEventsConsumer = async ({
                 continue
             }
 
-            status.debug('⬆️', 'processing_session_recording', { uuid: eventPayload.uuid })
+            status.debug('⬆️', 'processing_session_recording', { uuid: messagePayload.uuid })
 
-            if (!eventPayload.team_id && !eventPayload.token) {
+            if (!messagePayload.team_id && !event.token) {
                 status.warn('⚠️', 'invalid_message', {
                     reason: 'no_token',
                     partition: batch.partition,
@@ -79,8 +82,7 @@ export const startSessionRecordingEventsConsumer = async ({
             }
 
             const teamId =
-                eventPayload.team_id ??
-                (eventPayload.token ? await teamManager.getTeamIdByToken(eventPayload.token) : null)
+                messagePayload.team_id ?? (event.token ? await teamManager.getTeamIdByToken(event.token) : null)
 
             if (!teamId) {
                 status.warn('⚠️', 'invalid_message', {
@@ -92,11 +94,23 @@ export const startSessionRecordingEventsConsumer = async ({
                 continue
             }
 
+            const timestampString = castTimestampOrNow(event.timestamp!, TimestampFormat.ClickHouse)
+            const data: Partial<RawSessionRecordingEvent> = {
+                uuid: messagePayload.uuid,
+                team_id: messagePayload.team_id!,
+                distinct_id: messagePayload.distinct_id,
+                session_id: event.properties?.$session_id,
+                window_id: event.properties?.$window_id,
+                snapshot_data: JSON.stringify(event.properties?.$snapshot_data),
+                timestamp: timestampString,
+                created_at: timestampString,
+            }
+
             await producer.queueMessage({
                 topic: KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
                 messages: [
                     {
-                        value: JSON.stringify(eventPayload),
+                        value: JSON.stringify(data),
                         key: message.key,
                     },
                 ],

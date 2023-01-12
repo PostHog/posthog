@@ -90,11 +90,25 @@ test.concurrent(
 )
 
 test.concurrent(
-    `snapshot captured, processed, ingested via session_recording_events topic`,
+    `snapshot captured, processed, ingested via session_recording_events topic same as events_plugin_ingestion`,
     async () => {
+        // We are moving from using `events_plugin_ingestion` as the kafka topic
+        // for session recordings, so we want to make sure that they still work
+        // when sent through `session_recording_events`.
         const teamId = await createTeam(postgres, organizationId)
         const distinctId = new UUIDT().toString()
         const uuid = new UUIDT().toString()
+
+        await capture(producer, teamId, distinctId, uuid, '$snapshot', {
+            $session_id: '1234abc',
+            $snapshot_data: 'yes way',
+        })
+
+        await waitForExpect(async () => {
+            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+            return events
+        })
 
         await capture(
             producer,
@@ -113,12 +127,18 @@ test.concurrent(
             'session_recording_events'
         )
 
-        await waitForExpect(async () => {
-            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
-            expect(events.length).toBe(1)
+        const eventsThroughNewTopic = await waitForExpect(async () => {
+            const eventsThroughNewTopic = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            expect(eventsThroughNewTopic.length).toBe(2)
+            return eventsThroughNewTopic
+        })
 
-            // processEvent did not modify
-            expect(events[0].snapshot_data).toEqual('yes way')
+        expect(eventsThroughNewTopic[0]).toEqual({
+            ...eventsThroughNewTopic[1],
+            _offset: expect.any(Number),
+            _timestamp: expect.any(String),
+            created_at: expect.any(String),
+            timestamp: expect.any(String),
         })
     },
     20000
