@@ -27,7 +27,7 @@ class Insight(models.Model):
     """
 
     objects = InsightManager()
-    including_soft_deleted = models.Manager()
+    objects_including_soft_deleted = models.Manager()
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)

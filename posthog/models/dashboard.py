@@ -14,7 +14,7 @@ class DashboardManager(models.Manager):
 
 class Dashboard(models.Model):
     objects = DashboardManager()
-    including_soft_deleted = models.Manager()
+    objects_including_soft_deleted = models.Manager()
 
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"

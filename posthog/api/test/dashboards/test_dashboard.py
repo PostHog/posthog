@@ -342,7 +342,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         with self.assertRaises(DashboardTile.DoesNotExist):
             DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=insight_id)
 
-        tile = DashboardTile.including_soft_deleted.get(dashboard_id=dashboard_id, insight_id=insight_id)
+        tile = DashboardTile.objects_including_soft_deleted.get(dashboard_id=dashboard_id, insight_id=insight_id)
         assert tile.deleted is True
 
     def test_delete_dashboard_can_delete_tiles(self):

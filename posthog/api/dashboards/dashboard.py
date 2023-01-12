@@ -286,11 +286,11 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     insights_to_update.append(insight)
 
             Insight.objects.bulk_update(insights_to_update, ["deleted"])
-        DashboardTile.including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
+        DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
-        DashboardTile.including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
+        DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
         insights_to_undelete = []
         for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
             if tile.insight and tile.insight.deleted:
@@ -385,7 +385,7 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
             and len(self.request.data) == 1
         ):
             # a dashboard can be un-deleted by patching {"deleted": False}
-            queryset = Dashboard.including_soft_deleted
+            queryset = Dashboard.objects_including_soft_deleted
         else:
             queryset = super().get_queryset()
 

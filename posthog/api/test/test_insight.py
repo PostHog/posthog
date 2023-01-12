@@ -586,7 +586,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         dashboard_in_db.save(update_fields=["deleted"])
 
         assert not DashboardTile.objects.filter(dashboard_id=deleted_dashboard_id).exists()
-        assert DashboardTile.including_soft_deleted.filter(dashboard_id=deleted_dashboard_id).exists()
+        assert DashboardTile.objects_including_soft_deleted.filter(dashboard_id=deleted_dashboard_id).exists()
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]

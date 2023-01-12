@@ -29,7 +29,7 @@ class DashboardTileManager(models.Manager):
 
 class DashboardTile(models.Model):
     objects = DashboardTileManager()
-    including_soft_deleted = models.Manager()
+    objects_including_soft_deleted = models.Manager()
 
     # Relations
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")

@@ -275,7 +275,7 @@ class InsightSerializer(InsightBasicSerializer):
             instance.last_modified_by = self.context["request"].user
 
         if validated_data.get("deleted", False):
-            DashboardTile.including_soft_deleted.filter(insight__id=instance.id).update(deleted=True)
+            DashboardTile.objects_including_soft_deleted.filter(insight__id=instance.id).update(deleted=True)
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
@@ -351,7 +351,7 @@ class InsightSerializer(InsightBasicSerializer):
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
 
-            tile, _ = DashboardTile.including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
+            tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
 
             if tile.deleted:
                 tile.deleted = False
@@ -472,7 +472,7 @@ class InsightViewSet(
             and len(self.request.data) == 1
         ):
             # an insight can be un-deleted by patching {"deleted": False}
-            queryset: QuerySet = Insight.including_soft_deleted
+            queryset: QuerySet = Insight.objects_including_soft_deleted
         else:
             queryset = super().get_queryset()
 
