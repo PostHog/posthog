@@ -1,11 +1,5 @@
 import { useValues, BindLogic, useActions } from 'kea'
-import {
-    PropertyGroupFilter,
-    FilterLogicalOperator,
-    PropertyGroupFilterValue,
-    FilterType,
-    AnyPropertyFilter,
-} from '~/types'
+import { PropertyGroupFilterValue, AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import './PropertyGroupFilters.scss'
 import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
@@ -19,11 +13,6 @@ import React from 'react'
 import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { AndOrFilterSelect } from './AndOrFilterSelect'
 
-// interface PropertyGroupFilters {
-//     value: PropertyGroupFilter
-//     onChange: (filters: PropertyGroupFilter) => void
-//     pageKey: string
-// }
 type PropertyGroupFiltersProps = {
     query: TrendsQuery | StickinessQuery
     setQuery: (node: TrendsQuery | StickinessQuery) => void
@@ -41,13 +30,7 @@ export function PropertyGroupFilters({
     taxonomicGroupTypes,
     noTitle,
 }: PropertyGroupFiltersProps): JSX.Element {
-    //     value,
-    //     onChange,
-    const logicProps = {
-        // value,
-        // onChange,
-        pageKey,
-    }
+    const logicProps = { query, setQuery, pageKey }
     const { propertyGroupFilter } = useValues(propertyGroupFilterLogic(logicProps))
     const {
         addFilterGroup,

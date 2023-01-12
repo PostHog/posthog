@@ -1,11 +1,17 @@
 import { actions, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { PropertyGroupFilter, FilterLogicalOperator } from '~/types'
-import { PropertyGroupFilterLogicProps } from 'lib/components/PropertyFilters/types'
 
 import type { propertyGroupFilterLogicType } from './propertyGroupFilterLogicType'
 import { convertPropertiesToPropertyGroup, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { StickinessQuery, TrendsQuery } from '~/queries/schema'
+
+type PropertyGroupFilterLogicProps = {
+    pageKey: string
+    query: TrendsQuery | StickinessQuery
+    setQuery: (node: TrendsQuery | StickinessQuery) => void
+}
 
 export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
     path(['queries', 'nodes', 'InsightViz', 'PropertyGroupFilters', 'propertyGroupFilterLogic']),
@@ -13,9 +19,8 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
     key((props) => props.pageKey),
 
     propsChanged(({ actions, props }, oldProps) => {
-        // TODO: Replace with query
-        if (props.value && !objectsEqual(props.value, oldProps.value)) {
-            actions.setFilters(props.value)
+        if (props.query && !objectsEqual(props.query.properties, oldProps.query.properties)) {
+            actions.setFilters(convertPropertiesToPropertyGroup(props.query.properties))
         }
     }),
 
@@ -96,8 +101,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
             eventUsageLogic.actions.reportPropertyGroupFilterAdded()
         },
         update: () => {
-            // TODO: Replace with setQuery
-            props.onChange(values.filters)
+            props.setQuery({ ...props.query, properties: values.filters })
         },
     })),
 
