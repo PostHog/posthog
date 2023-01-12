@@ -14,7 +14,8 @@ class Command(BaseCommand):
                 results = re.findall(r"([a-z]+)\/migrations\/([a-zA-Z_0-9]+)\.py", variable)[0]
                 sql = call_command("sqlmigrate", results[0], results[1])
                 if (
-                    re.findall(r"(?<!DROP)(?<!CREATE UNIQUE INDEX) (NOT NULL|DEFAULT)", sql, re.M & re.I)
+                    re.findall(r"(?<!DROP) (NOT NULL|DEFAULT)", sql, re.M & re.I)
+                    and not re.match(r"(?<!CREATE UNIQUE INDEX) (NOT NULL)", sql, re.M, re.I)
                     and "Create model" not in sql
                     and "-- not-null-ignore" not in sql
                 ):
