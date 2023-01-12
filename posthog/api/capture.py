@@ -82,7 +82,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
         return future
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
-        print(f"Failed to produce event to Kafka topic {kafka_topic} with error:", e)
+        logger.exception(f"Failed to produce event to Kafka topic {kafka_topic} with error")
         raise e
 
 
