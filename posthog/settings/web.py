@@ -240,7 +240,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_RESPONSE_ALLOW_LIST",
         ",".join(
             [
-                "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$",
                 "^/?api/plugin_config/\\d+/frontend/?$",
                 "^/?api/projects/@current/property_definitions/?$",
                 "^/?api/projects/\\d+/event_definitions/?$",
@@ -251,6 +250,7 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/projects/\\d+/dashboards/?$",
                 "^/?api/projects/\\d+/actions/?$",
                 "^/?api/projects/\\d+/session_recordings/?$",
+                "^/?api/projects/\\d+/session_recordings/.*$",
                 "^/?api/projects/\\d+/exports/\\d+/content/?$",
                 "^/?api/projects/\\d+/activity_log/important_changes/?$",
                 "^/?api/projects/\\d+/uploaded_media/?$",
