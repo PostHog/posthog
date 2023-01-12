@@ -20,6 +20,7 @@ from posthog.models.event.sql import (
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.insight import insight_query_with_columns, insight_sync_execute
+from posthog.utils import relative_date_parse
 
 
 # sync with "schema.ts"
@@ -38,11 +39,17 @@ def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]
         if not isinstance(v, str):
             continue
         if k == "after":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+            try:
+                timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+            except ValueError:
+                timestamp = relative_date_parse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s "
             params.update({"after": timestamp})
         elif k == "before":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+            try:
+                timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+            except ValueError:
+                timestamp = relative_date_parse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp < %(before)s "
             params.update({"before": timestamp})
         elif k == "person_id":
