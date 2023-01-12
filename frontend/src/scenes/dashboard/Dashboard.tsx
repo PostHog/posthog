@@ -102,7 +102,7 @@ function DashboardScene(): JSX.Element {
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
-                <EmptyDashboardComponent loading={itemsLoading} />
+                <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
                     <div className="flex space-x-4 justify-between">
