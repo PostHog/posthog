@@ -209,7 +209,7 @@ describe('dataTableLogic', () => {
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results }) })
         await expectLogic(logic).toMatchValues({
-            resultsWithCategoryRows: [
+            resultsWithLabelRows: [
                 results[0],
                 {
                     [categoryRowKey]: 'December 23, 2022',

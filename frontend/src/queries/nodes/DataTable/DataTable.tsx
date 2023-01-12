@@ -55,7 +55,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
 
     const dataTableLogicProps: DataTableLogicProps = { query, key }
     const {
-        resultsWithCategoryRows,
+        resultsWithLabelRows,
         columns: columnsFromQuery,
         queryWithDefaults,
         canSort,
@@ -127,7 +127,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             : []),
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
-    const dataSource = resultsWithCategoryRows ?? []
+    const dataSource = resultsWithLabelRows ?? []
 
     const setQuerySource = useCallback(
         (source: EventsNode | EventsQuery | PersonsNode) => setQuery?.({ ...query, source }),

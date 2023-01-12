@@ -48,38 +48,37 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || ['-timestamp'] : null),
             { resultEqualityCheck: objectsEqual },
         ],
-        resultsWithCategoryRows: [
+        resultsWithLabelRows: [
             (s) => [s.sourceKind, s.orderBy, s.response, s.columns],
             (sourceKind, orderBy, response, columns): any[] | null => {
                 if (sourceKind === NodeKind.EventsQuery) {
                     const results = (response as EventsQuery['response'] | null)?.results
                     if (results) {
-                        const orderKey =
-                            (orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]) || 'timestamp'
-                        if (orderKey === 'timestamp') {
-                            const orderKeyIndex = columns.findIndex(
-                                (column) =>
-                                    removeExpressionComment(column) === orderKey ||
-                                    removeExpressionComment(column) === `-${orderKey}`
-                            )
-                            if (orderKeyIndex !== -1) {
-                                let lastResult: any | null = null
-                                const newResults: any[] = []
-                                for (const result of results) {
-                                    if (
-                                        result &&
-                                        lastResult &&
-                                        !dayjs(result[orderKeyIndex]).isSame(lastResult[orderKeyIndex], 'day')
-                                    ) {
-                                        newResults.push({
-                                            [categoryRowKey]: dayjs(result[orderKeyIndex]).format('LL'),
-                                        })
-                                    }
-                                    newResults.push(result)
-                                    lastResult = result
+                        const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
+                        const orderKeyIndex = columns.findIndex(
+                            (column) =>
+                                removeExpressionComment(column) === orderKey ||
+                                removeExpressionComment(column) === `-${orderKey}`
+                        )
+
+                        // Add a label between results if the day changed
+                        if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
+                            let lastResult: any | null = null
+                            const newResults: any[] = []
+                            for (const result of results) {
+                                if (
+                                    result &&
+                                    lastResult &&
+                                    !dayjs(result[orderKeyIndex]).isSame(lastResult[orderKeyIndex], 'day')
+                                ) {
+                                    newResults.push({
+                                        [categoryRowKey]: dayjs(result[orderKeyIndex]).format('LL'),
+                                    })
                                 }
-                                return newResults
+                                newResults.push(result)
+                                lastResult = result
                             }
+                            return newResults
                         }
                     }
                 }
