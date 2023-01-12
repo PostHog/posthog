@@ -7,10 +7,14 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
+import { LemonButton } from 'lib/components/LemonButton'
+import { IconSync } from 'lib/components/icons'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export function HeatmapStats(): JSX.Element {
-    const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter } = useValues(heatmapLogic)
-    const { setHeatmapFilter } = useActions(heatmapLogic)
+    const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter, canLoadMoreElementStats } =
+        useValues(heatmapLogic)
+    const { setHeatmapFilter, loadMoreElementStats } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
@@ -35,6 +39,23 @@ export function HeatmapStats(): JSX.Element {
                     </div>
                     <div>
                         Found: {countedElements.length} elements / {clickCount} clicks!
+                    </div>
+                    <div>
+                        <LemonButton
+                            icon={<IconSync />}
+                            type={'secondary'}
+                            status={'primary-alt'}
+                            size={'small'}
+                            onClick={() => loadMoreElementStats()}
+                            disabled={!canLoadMoreElementStats}
+                        >
+                            Load more
+                        </LemonButton>
+                        {canLoadMoreElementStats ? null : (
+                            <AlertMessage type={'info'} className={'pt-2'}>
+                                Loaded all elements in this data range.
+                            </AlertMessage>
+                        )}
                     </div>
                     <List
                         itemLayout="horizontal"
