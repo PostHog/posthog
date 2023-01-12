@@ -4,7 +4,6 @@ import { useCallback, useState } from 'react'
 import { useValues, BindLogic } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
-import { EventType } from '~/types'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
 import { EventDetails } from 'scenes/events'
@@ -15,7 +14,7 @@ import { LoadNext } from '~/queries/nodes/DataNode/LoadNext'
 import { renderColumnMeta } from '~/queries/nodes/DataTable/renderColumnMeta'
 import { renderColumn } from '~/queries/nodes/DataTable/renderColumn'
 import { AutoLoad } from '~/queries/nodes/DataNode/AutoLoad'
-import { dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
+import { categoryRowKey, dataTableLogic, DataTableLogicProps } from '~/queries/nodes/DataTable/dataTableLogic'
 import { ColumnConfigurator } from '~/queries/nodes/DataTable/ColumnConfigurator/ColumnConfigurator'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
@@ -27,6 +26,7 @@ import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropert
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
+import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 
 interface DataTableProps {
     query: DataTableNode
@@ -41,6 +41,8 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const [key] = useState(() => `DataTable.${uniqueNode++}`)
 
     const dataNodeLogicProps: DataNodeLogicProps = { query: query.source, key }
+    const builtDataNodeLogic = dataNodeLogic(dataNodeLogicProps)
+
     const {
         response,
         responseLoading,
@@ -49,10 +51,11 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         nextDataLoading,
         newDataLoading,
         highlightedRows,
-    } = useValues(dataNodeLogic(dataNodeLogicProps))
+    } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key }
     const {
+        resultsWithLabelRows,
         columns: columnsFromQuery,
         queryWithDefaults,
         canSort,
@@ -61,6 +64,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
 
     const {
         showActions,
+        showDateRange,
         showSearch,
         showEventFilter,
         showPropertyFilter,
@@ -73,33 +77,49 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = queryWithDefaults
 
     const columnsInResponse: string[] | null =
-        response?.columns && Array.isArray(response.columns) && !response.columns.find((c) => typeof c !== 'string')
+        response &&
+        'columns' in response &&
+        Array.isArray(response.columns) &&
+        !response.columns.find((c) => typeof c !== 'string')
             ? (response?.columns as string[])
             : null
 
     const columns: string[] = columnsInResponse ?? columnsFromQuery
-    const lemonColumns: LemonTableColumn<EventType, keyof EventType | undefined>[] = [
+    const actionsColumnShown = showActions && isEventsQuery(query.source) && columns.includes('*')
+    const lemonColumns: LemonTableColumn<Record<string, any> | any[], any>[] = [
         ...columns.map((key, index) => ({
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
-            render: function RenderDataTableColumn(_: any, record: EventType) {
-                if (isEventsQuery(query.source)) {
+            render: function RenderDataTableColumn(_: any, record: Record<string, any> | any[]) {
+                if (categoryRowKey in record) {
+                    if (index === (expandable ? 1 : 0)) {
+                        return {
+                            children: record[categoryRowKey],
+                            props: { colSpan: columns.length + (actionsColumnShown ? 1 : 0) },
+                        }
+                    } else {
+                        return { props: { colSpan: 0 } }
+                    }
+                } else if (isEventsQuery(query.source)) {
                     return renderColumn(key, record[index], record, query, setQuery, context)
                 }
                 return renderColumn(key, record[key], record, query, setQuery, context)
             },
             sorter: canSort || undefined, // we sort on the backend
         })),
-        ...(showActions && isEventsQuery(query.source) && columns.includes('*')
+        ...(actionsColumnShown
             ? [
                   {
                       dataIndex: '__more' as any,
                       title: '',
-                      render: function RenderMore(_: any, record: EventType | any[]) {
+                      render: function RenderMore(_: any, record: Record<string, any> | any[]) {
+                          if (categoryRowKey in record) {
+                              return { props: { colSpan: 0 } }
+                          }
                           if (isEventsQuery(query.source) && columns.includes('*')) {
                               return <EventRowActions event={record[columns.indexOf('*')]} />
                           }
-                          return <EventRowActions event={record as EventType} />
+                          return null
                       },
                       width: 0,
                   },
@@ -107,14 +127,17 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             : []),
     ].filter((column) => !query.hiddenColumns?.includes(column.dataIndex) && column.dataIndex !== '*')
 
-    const dataSource =
-        (response as null | EventsNode['response'] | EventsQuery['response'] | PersonsNode['response'])?.results ?? []
+    const dataSource = resultsWithLabelRows ?? []
+
     const setQuerySource = useCallback(
         (source: EventsNode | EventsQuery | PersonsNode) => setQuery?.({ ...query, source }),
         [setQuery]
     )
 
     const firstRow = [
+        showDateRange && isEventsQuery(query.source) ? (
+            <DateRange query={query.source} setQuery={setQuerySource} />
+        ) : null,
         showEventFilter && isEventsQuery(query.source) ? (
             <EventName query={query.source} setQuery={setQuerySource} />
         ) : null,
@@ -185,7 +208,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         columns={lemonColumns}
                         key={columns.join('::') /* Bust the LemonTable cache when columns change */}
                         dataSource={dataSource}
-                        rowKey={(record) => {
+                        rowKey={(record, rowIndex) => {
+                            if (categoryRowKey in record) {
+                                return `__category_row__${rowIndex}`
+                            }
                             if (isEventsQuery(query.source)) {
                                 if (columns.includes('*')) {
                                     return record[columns.indexOf('*')].uuid
@@ -233,7 +259,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                           }
                                           return event ? <EventDetails event={event} useReactJsonView /> : null
                                       },
-                                      rowExpandable: () => true,
+                                      rowExpandable: (event) => !(categoryRowKey in event),
                                       noIndent: true,
                                   }
                                 : undefined
@@ -241,6 +267,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         rowClassName={(row) =>
                             clsx('DataTable__row', {
                                 'DataTable__row--highlight_once': row && highlightedRows.has(row),
+                                'DataTable__row--category_row': row && categoryRowKey in row,
                             })
                         }
                     />
