@@ -525,7 +525,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
 
                             {!!featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] ? (
                                 <div className="border rounded p-4 mb-4">
-                                    <Row gutter={8} className="font-semibold">
+                                    <Row gutter={16} className="font-semibold">
                                         <Col span={6}>Key</Col>
                                         <Col span={6}>Description</Col>
                                         <Col span={9}>Payload</Col>
@@ -534,7 +534,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     <LemonDivider className="my-3" />
                                     {variants.map((variant, index) => (
                                         <div key={index}>
-                                            <Row gutter={8}>
+                                            <Row gutter={16}>
                                                 <Col span={6}>
                                                     <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                                                     <CopyToClipboardInline
@@ -549,13 +549,21 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     </CopyToClipboardInline>
                                                 </Col>
                                                 <Col span={6}>
-                                                    {variant.name || 'There is no description for this variant key'}
+                                                    <span className={variant.name ? '' : 'text-muted'}>
+                                                        {variant.name || 'There is no description for this variant key'}
+                                                    </span>
                                                 </Col>
                                                 <Col span={9}>
-                                                    <JSONEditorInput
-                                                        readOnly={true}
-                                                        value={featureFlag.filters.payloads[variant.key]}
-                                                    />
+                                                    {featureFlag.filters.payloads[variant.key] ? (
+                                                        <JSONEditorInput
+                                                            readOnly={true}
+                                                            value={featureFlag.filters.payloads[variant.key]}
+                                                        />
+                                                    ) : (
+                                                        <span className="text-muted">
+                                                            No payload associated with this variant
+                                                        </span>
+                                                    )}
                                                 </Col>
                                                 <Col span={3}>{variant.rollout_percentage}%</Col>
                                             </Row>
@@ -687,7 +695,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                 </div>
             )}
             {!!featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] && !multivariateEnabled && (
-                <div className="mb-8">
+                <div className="mb-6">
                     <h3 className="l4">Payload</h3>
                     {!readOnly && (
                         <div className="text-muted mb-4">
@@ -703,10 +711,11 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                         </div>
                     )}
                     {readOnly ? (
-                        <JSONEditorInput
-                            readOnly={readOnly}
-                            value={featureFlag.filters.payloads?.['true'] || undefined}
-                        />
+                        featureFlag.filters.payloads?.['true'] ? (
+                            <JSONEditorInput readOnly={readOnly} value={featureFlag.filters.payloads?.['true']} />
+                        ) : (
+                            <span>No payload associated with this flag</span>
+                        )
                     ) : (
                         <Group name={['filters', 'payloads']}>
                             <Field name="true">
