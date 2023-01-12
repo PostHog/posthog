@@ -23,7 +23,7 @@ import { objectClean } from 'lib/utils'
 
 type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
-const seriesToActionsAndEvents = (
+export const seriesToActionsAndEvents = (
     series: (EventsNode | ActionsNode | NewEntityNode)[]
 ): Required<FilterTypeActionsAndEvents> => {
     const actions: ActionFilter[] = []

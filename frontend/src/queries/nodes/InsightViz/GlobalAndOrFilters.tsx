@@ -1,22 +1,19 @@
-// import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
-// import { EditorFilterProps, InsightType } from '~/types'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { TrendsQuery, StickinessQuery } from '~/queries/schema'
 import { isTrendsQuery } from '~/queries/utils'
-// import { insightLogic } from 'scenes/insights/insightLogic'
+import { actionsModel } from '~/models/actionsModel'
+import { getAllEventNames } from './utils'
 
 type GlobalAndOrFiltersProps = {
     query: TrendsQuery | StickinessQuery
     setQuery: (node: TrendsQuery | StickinessQuery) => void
-    // insightProps
 }
 
 export function GlobalAndOrFilters({ query, setQuery }: GlobalAndOrFiltersProps): JSX.Element {
-    // const { setFiltersMerge } = useActions(insightLogic)
-    // const { allEventNames } = useValues(insightLogic)
+    const { actions: allActions } = useValues(actionsModel)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const taxonomicGroupTypes = [
@@ -34,9 +31,7 @@ export function GlobalAndOrFilters({ query, setQuery }: GlobalAndOrFiltersProps)
             pageKey="insight-filters"
             query={query}
             setQuery={setQuery}
-            // value={convertPropertiesToPropertyGroup(filters.properties)}
-            // onChange={(properties) => setFiltersMerge({ properties })}
-            // eventNames={allEventNames}
+            eventNames={getAllEventNames(query, allActions)}
             taxonomicGroupTypes={taxonomicGroupTypes}
             noTitle
         />
