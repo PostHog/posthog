@@ -1118,11 +1118,13 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')), toDateTime('2020-01-05 23:59:59', 'US/Pacific')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific'))
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')))), toUInt32(toDateTime('2020-01-05 23:59:59', 'US/Pacific')), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                                                  timestamp AS day_start
+        UNION ALL WITH toDateTime('2020-01-05 23:59:59', 'US/Pacific') AS date_to,
+                       toDateTime('2019-12-29 00:00:00', 'US/Pacific') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-29 00:00:00', 'US/Pacific')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                          timestamp AS day_start
         FROM
           (SELECT count(DISTINCT pdi.person_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'US/Pacific') + INTERVAL 6 DAY), 86400))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'US/Pacific'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'US/Pacific')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'US/Pacific') + INTERVAL 6 DAY), 86400))) as timestamp
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -1880,11 +1882,13 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')))), toUInt32(toDateTime('2019-12-31 23:59:59', 'UTC')), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                             timestamp AS day_start
+        UNION ALL WITH toDateTime('2019-12-31 23:59:59', 'UTC') AS date_to,
+                       toDateTime('2019-12-24 00:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                            timestamp AS day_start
         FROM
           (SELECT count(DISTINCT e.distinct_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') + INTERVAL 29 DAY), 86400))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 29 DAY), 86400))) as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -1913,11 +1917,13 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')), toDateTime('2019-12-31 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC'))
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')))), toUInt32(toDateTime('2019-12-31 23:59:59', 'UTC')), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                             timestamp AS day_start
+        UNION ALL WITH toDateTime('2019-12-31 23:59:59', 'UTC') AS date_to,
+                       toDateTime('2019-12-24 00:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2019-12-24 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                            timestamp AS day_start
         FROM
           (SELECT count(DISTINCT e.distinct_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
            FROM events e
            WHERE team_id = 2
              AND event = 'sign up'
@@ -2735,11 +2741,13 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')), toDateTime('2020-01-19 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC'))
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')))), toUInt32(toDateTime('2020-01-19 23:59:59', 'UTC')), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                             timestamp AS day_start
+        UNION ALL WITH toDateTime('2020-01-19 23:59:59', 'UTC') AS date_to,
+                       toDateTime('2020-01-08 00:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-08 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                            timestamp AS day_start
         FROM
           (SELECT count(DISTINCT pdi.person_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2775,11 +2783,13 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')))), toUInt32(toDateTime('2020-01-12 23:59:59', 'UTC')), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                             timestamp AS day_start
+        UNION ALL WITH toDateTime('2020-01-12 23:59:59', 'UTC') AS date_to,
+                       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                            timestamp AS day_start
         FROM
           (SELECT count(DISTINCT pdi.person_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2827,11 +2837,13 @@
         FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')))), toUInt32(toDateTime('2020-01-12 23:59:59', 'UTC')), 86400)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                             timestamp AS day_start
+        UNION ALL WITH toDateTime('2020-01-12 23:59:59', 'UTC') AS date_to,
+                       toDateTime('2020-01-01 00:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')))), toUInt32(date_to), 86400)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                            timestamp AS day_start
         FROM
           (SELECT count(DISTINCT pdi.person_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2879,11 +2891,13 @@
         FROM numbers(dateDiff('hour', toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')), toDateTime('2020-01-09 17:00:00', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC'))
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')))), toUInt32(toDateTime('2020-01-09 17:00:00', 'UTC')), 3600)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                             timestamp AS day_start
+        UNION ALL WITH toDateTime('2020-01-09 17:00:00', 'UTC') AS date_to,
+                       toDateTime('2020-01-09 06:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfHour(toDateTime('2020-01-09 06:00:00', 'UTC')))), toUInt32(date_to), 3600)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                            timestamp AS day_start
         FROM
           (SELECT count(DISTINCT pdi.person_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfHour(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') + INTERVAL 7 DAY), 3600))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfHour(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 7 DAY), 3600))) as timestamp
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2919,11 +2933,13 @@
         FROM numbers(dateDiff('month', toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')), toDateTime('2020-02-29 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC'))
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')))), toUInt32(toDateTime('2020-02-29 23:59:59', 'UTC')), 2592000)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                                 timestamp AS day_start
+        UNION ALL WITH toDateTime('2020-02-29 23:59:59', 'UTC') AS date_to,
+                       toDateTime('2019-12-01 00:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfMonth(toDateTime('2019-12-01 00:00:00', 'UTC')))), toUInt32(date_to), 2592000)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                timestamp AS day_start
         FROM
           (SELECT count(DISTINCT pdi.person_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
            FROM events e
            INNER JOIN
              (SELECT distinct_id,
@@ -2959,11 +2975,13 @@
         FROM numbers(dateDiff('week', toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0), toDateTime('2020-01-18 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
                          toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0)
-        UNION ALL WITH arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0))), toUInt32(toDateTime('2020-01-18 23:59:59', 'UTC')), 604800)) AS buckets SELECT counts AS total,
-                                                                                                                                                                                                                                  timestamp AS day_start
+        UNION ALL WITH toDateTime('2020-01-18 23:59:59', 'UTC') AS date_to,
+                       toDateTime('2019-12-29 00:00:00', 'UTC') AS date_from,
+                       arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfWeek(toDateTime('2019-12-29 00:00:00', 'UTC'), 0))), toUInt32(date_to), 604800)) AS buckets SELECT counts AS total,
+                                                                                                                                                                                                 timestamp AS day_start
         FROM
           (SELECT count(DISTINCT pdi.person_id) AS counts,
-                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
+                  arrayJoin(arrayMap(n -> toDateTime(n, 'UTC'), range(toUInt32(toDateTime(toStartOfDay(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), 'UTC')))), toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), 'UTC') + INTERVAL 6 DAY), 86400))) as timestamp
            FROM events e
            INNER JOIN
              (SELECT distinct_id,

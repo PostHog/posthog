@@ -57,11 +57,13 @@ SELECT {aggregate_operation} as data FROM (
 #    Note that this can be a bit confusing. For hourly intervals, we round to the
 #    start of the hour and look 7/30 days into the future
 ACTIVE_USERS_SQL = """
-WITH arrayMap(
+WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+toDateTime(%(date_from)s, %(timezone)s) AS date_from,
+arrayMap(
     n -> toDateTime(n, %(timezone)s),
     range(
         toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s) {start_of_week_fix}))),
-        toUInt32(toDateTime(%(date_to)s, %(timezone)s)),
+        toUInt32(date_to),
         %(bucket_increment_seconds)s
     )
 ) AS buckets
@@ -75,8 +77,8 @@ FROM (
             arrayMap(
                 n -> toDateTime(n, %(timezone)s),
                 range(
-                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s)))), -- TODO: this could be a max?
-                    toUInt32(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) + INTERVAL {prev_interval}), -- TODO: this could be a min?
+                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), %(timezone)s)))), -- TODO: this could be a max?
+                    toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), %(timezone)s) + INTERVAL {prev_interval}), -- TODO: this could be a min?
                     %(grouping_increment_seconds)s
                 )
             )
