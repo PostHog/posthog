@@ -31,7 +31,7 @@ export class IngestionConsumer {
     private wasConsumerRan: boolean
     private ingestionTopic: string
     private eventsTopic: string
-    private sessionRecordingEvents: string
+    private sessionRecordingEventsTopic: string
     private eachBatch: Record<string, EachBatchFunction>
 
     constructor(pluginsServer: Hub, workerMethods: WorkerMethods) {
@@ -44,7 +44,7 @@ export class IngestionConsumer {
         this.consumerReady = false
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-        this.sessionRecordingEvents = KAFKA_INGESTION_SESSION_RECORDING_EVENTS
+        this.sessionRecordingEventsTopic = KAFKA_INGESTION_SESSION_RECORDING_EVENTS
         this.eventsTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
@@ -53,7 +53,7 @@ export class IngestionConsumer {
             // main analytics topic to progress independently of the session
             // recording events.
             // TODO: separate consumer groups as well.
-            [this.sessionRecordingEvents]: eachBatchSessionRecordings,
+            [this.sessionRecordingEventsTopic]: eachBatchSessionRecordings,
             [this.eventsTopic]: eachBatchAsyncHandlers,
         }
     }
@@ -66,7 +66,7 @@ export class IngestionConsumer {
             // recording events. At the time of writing we use a single consumer
             // group, and largely the same code path, but this is mainly to keep
             // the amount of changes to a minimum for now.
-            topics.push(this.ingestionTopic, this.sessionRecordingEvents)
+            topics.push(this.ingestionTopic, this.sessionRecordingEventsTopic)
         }
 
         if (this.pluginsServer.capabilities.processAsyncHandlers) {
