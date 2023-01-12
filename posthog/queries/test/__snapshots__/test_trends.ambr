@@ -3,7 +3,7 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
      INNER JOIN
@@ -17,6 +17,7 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -65,7 +66,9 @@
              AND event = 'sign up'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance', 'technology'])
+             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -83,17 +86,10 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            e.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -105,7 +101,8 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
-       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))) )
+       AND (has(['technology'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -118,28 +115,9 @@
   
   SELECT groupArray(value)
   FROM
-    (SELECT replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS value,
+    (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-     INNER JOIN
-       (SELECT id
-        FROM person
-        WHERE team_id = 2
-          AND id IN
-            (SELECT id
-             FROM person
-             WHERE team_id = 2
-               AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', ''))) )
-        GROUP BY id
-        HAVING max(is_deleted) = 0
-        AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) person ON pdi.person_id = person.id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -151,6 +129,8 @@
        AND event = 'sign up'
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+       AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -189,25 +169,6 @@
                             replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') as breakdown_value
            FROM events e
            INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
-           INNER JOIN
-             (SELECT id
-              FROM person
-              WHERE team_id = 2
-                AND id IN
-                  (SELECT id
-                   FROM person
-                   WHERE team_id = 2
-                     AND (has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', ''))) )
-              GROUP BY id
-              HAVING max(is_deleted) = 0
-              AND (has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))) person ON person.id = pdi.person_id
-           INNER JOIN
              (SELECT group_key,
                      argMax(group_properties, _timestamp) AS group_properties_0
               FROM groups
@@ -216,9 +177,12 @@
               GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
            WHERE e.team_id = 2
              AND event = 'sign up'
+             AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', '')))
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+             AND notEmpty(e.person_id)
              AND replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') in (['finance'])
+             AND notEmpty(e.person_id)
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -682,6 +646,7 @@
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
           AND (has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))
                AND has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))
+          AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -694,17 +659,10 @@
          count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
-            pdi.person_id as person_id,
+            e.person_id as person_id,
             e.distinct_id as distinct_id,
             e.team_id as team_id
      FROM events e
-     INNER JOIN
-       (SELECT distinct_id,
-               argMax(person_id, version) as person_id
-        FROM person_distinct_id2
-        WHERE team_id = 2
-        GROUP BY distinct_id
-        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      INNER JOIN
        (SELECT group_key,
                argMax(group_properties, _timestamp) AS group_properties_0
@@ -724,7 +682,8 @@
        AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
        AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
-            AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', '')))) )
+            AND (has(['six'], replaceRegexpAll(JSONExtractRaw(group_properties_2, 'name'), '^"|"$', ''))))
+       AND notEmpty(e.person_id) )
   GROUP BY actor_id
   ORDER BY actor_value DESC,
            actor_id DESC
@@ -750,25 +709,6 @@
                          toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
         FROM events e
         INNER JOIN
-          (SELECT distinct_id,
-                  argMax(person_id, version) as person_id
-           FROM person_distinct_id2
-           WHERE team_id = 2
-           GROUP BY distinct_id
-           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
-        INNER JOIN
-          (SELECT id
-           FROM person
-           WHERE team_id = 2
-             AND id IN
-               (SELECT id
-                FROM person
-                WHERE team_id = 2
-                  AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
-           GROUP BY id
-           HAVING max(is_deleted) = 0
-           AND ((has(['value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
-        INNER JOIN
           (SELECT group_key,
                   argMax(group_properties, _timestamp) AS group_properties_0
            FROM groups
@@ -779,7 +719,9 @@
           AND event = '$pageview'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
-          AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
+          AND ((has(['finance'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+               AND (has(['value'], replaceRegexpAll(JSONExtractRaw(e.person_properties, 'key'), '^"|"$', ''))))
+          AND notEmpty(e.person_id)
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
