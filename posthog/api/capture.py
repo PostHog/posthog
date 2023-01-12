@@ -64,8 +64,6 @@ def parse_kafka_event_data(
 
 
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    logger.debug("logging_event", event_name=event_name, kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
-
     # To allow for different quality of service on session recordings and
     # `$performance_event` and other events, we push to a different topic.
     # TODO: split `$performance_event` out to it's own topic.
@@ -75,6 +73,8 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
         else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
     )
 
+    logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
+
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
         future = KafkaProducer().produce(topic=kafka_topic, data=data, key=partition_key)
@@ -82,7 +82,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
         return future
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
-        print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+        print(f"Failed to produce event to Kafka topic {kafka_topic} with error:", e)
         raise e
 
 
