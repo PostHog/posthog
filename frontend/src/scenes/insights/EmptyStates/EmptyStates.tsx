@@ -24,7 +24,7 @@ export function InsightEmptyState(): JSX.Element {
                     <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="" />
                 </div>
                 <h2>There are no matching events for this query</h2>
-                <p className="text-center">Try changing the date range or pick another action, event, or breakdown.</p>
+                <p className="text-center">Try changing the date range, or pick another action, event or breakdown.</p>
             </div>
         </div>
     )
@@ -268,8 +268,8 @@ export function SavedInsightsEmptyState(): JSX.Element {
                 </h2>
                 {usingFilters ? (
                     <p className="empty-state__description">
-                        Refine your keyword search, or try using other filters such as type, last modified or created
-                        by.
+                        Refine your keyword search, or try using other filters such as type, last modified or
+                        created by.
                     </p>
                 ) : (
                     <p className="empty-state__description">{description}</p>
