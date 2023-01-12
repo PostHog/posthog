@@ -1116,7 +1116,7 @@ class TestCapture(BaseTest):
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, "abc123")
+        self.assertEqual(key, "fake-session-id")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
@@ -1143,7 +1143,7 @@ class TestCapture(BaseTest):
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, "abc123")
+        self.assertEqual(key, "fake-session-id")
 
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1169,7 +1169,7 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce.call_count, 1)
         self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, "abc123")
+        self.assertEqual(key, "fake-session-id")
         data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
 
         # Decompress the data sent to kafka to compare it to the original data
