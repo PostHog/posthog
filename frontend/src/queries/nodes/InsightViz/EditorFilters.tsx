@@ -82,7 +82,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                           key: 'properties',
                           label: 'Filters',
                           position: 'right',
-                          component: GlobalAndOrFilters,
+                          component: GlobalAndOrFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
                       }
                     : null,
             ]),
