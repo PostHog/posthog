@@ -36,7 +36,7 @@ MATERIALIZED_COLUMNS = {
     },
     "click_count": {
         "schema": "Int8",
-        "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary))",
+        "materializer": "MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary))",
     },
     "keypress_count": {
         "schema": "Int8",

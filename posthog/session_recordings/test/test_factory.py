@@ -6,10 +6,10 @@ from uuid import uuid4
 import structlog
 
 from posthog.client import sync_execute
-from posthog.helpers.session_recording import RRWEB_MAP_EVENT_TYPE, compress_and_chunk_snapshots
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.session_recording_event.sql import INSERT_SESSION_RECORDING_EVENT_SQL
+from posthog.session_recordings.session_recording_helpers import RRWEB_MAP_EVENT_TYPE, compress_and_chunk_snapshots
 from posthog.utils import cast_timestamp_or_now
 
 logger = structlog.get_logger(__name__)

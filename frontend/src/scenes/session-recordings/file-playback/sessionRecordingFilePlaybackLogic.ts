@@ -6,16 +6,17 @@ import { loaders } from 'kea-loaders'
 import { beforeUnload } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
-import type { sessionRecodingFilePlaybackLogicType } from './sessionRecodingFilePlaybackLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { uuid } from 'lib/utils'
+
+import type { sessionRecordingFilePlaybackLogicType } from './sessionRecordingFilePlaybackLogicType'
 
 export type ExportedSessionRecordingFile = {
     version: '2022-12-02'
     data: SessionPlayerData
 }
 
-export const sessionRecodingFilePlaybackLogic = kea<sessionRecodingFilePlaybackLogicType>([
+export const sessionRecordingFilePlaybackLogic = kea<sessionRecordingFilePlaybackLogicType>([
     path(['scenes', 'session-recordings', 'detail', 'sessionRecordingDetailLogic']),
     connect({
         actions: [eventUsageLogic, ['reportRecordingLoadedFromFile']],

@@ -39,7 +39,6 @@ specifiers:
   '@testing-library/jest-dom': ^5.16.2
   '@testing-library/react': ^12.1.2
   '@testing-library/user-event': ^13.5.0
-  '@types/chart.js': ^2.9.34
   '@types/chartjs-plugin-crosshair': ^1.1.1
   '@types/clone': ^2.1.1
   '@types/d3': ^7.0.0
@@ -129,7 +128,6 @@ specifiers:
   lint-staged: ~10.2.13
   md5: ^2.3.0
   mockdate: ^3.0.5
-  moment: ^2.29.4
   monaco-editor: ^0.23.0
   msw: ^0.47.3
   path-browserify: ^1.0.1
@@ -235,7 +233,6 @@ dependencies:
   kea-waitfor: 0.2.1_kea@3.1.0
   kea-window-values: 3.0.0_kea@3.1.0
   md5: 2.3.0
-  moment: 2.29.4
   monaco-editor: 0.23.0
   posthog-js: 1.39.2
   posthog-js-lite: 2.0.0-alpha5
@@ -305,7 +302,6 @@ devDependencies:
   '@testing-library/jest-dom': 5.16.5
   '@testing-library/react': 12.1.5_wcqkhtmu7mswc6yz4uyexck3ty
   '@testing-library/user-event': 13.5.0_aaq3sbffpfe3jnxzm2zngsddei
-  '@types/chart.js': 2.9.37
   '@types/chartjs-plugin-crosshair': 1.1.1
   '@types/clone': 2.1.1
   '@types/d3': 7.4.0

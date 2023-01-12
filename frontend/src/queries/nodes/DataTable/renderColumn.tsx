@@ -16,7 +16,7 @@ import ReactJson from 'react-json-view'
 export function renderColumn(
     key: string,
     value: any,
-    record: EventType | PersonType | any[],
+    record: Record<string, any> | any[],
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
@@ -164,7 +164,7 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else {
-        if (typeof value === 'object') {
+        if (typeof value === 'object' && value !== null) {
             return <ReactJson src={value} name={key} collapsed={1} />
         }
         return String(value)
