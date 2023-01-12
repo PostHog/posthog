@@ -61,6 +61,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { PayloadEditor } from 'scenes/feature-flags/PayloadEditor'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -557,79 +558,105 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                 </>
             ) : (
                 <div className="mb-8">
-                    <h3 className="l4">Served value</h3>
-                    <div className="mb-2">
-                        <Popconfirm
-                            placement="top"
-                            title="Change value type? The variants below will be lost."
-                            disabled={featureFlagLoading}
-                            visible={showVariantDiscardWarning}
-                            onConfirm={() => {
-                                setMultivariateEnabled(false)
-                                setShowVariantDiscardWarning(false)
-                            }}
-                            onCancel={() => setShowVariantDiscardWarning(false)}
-                            okText="OK"
-                            cancelText="Cancel"
-                        >
-                            <Radio.Group
-                                options={[
-                                    {
-                                        label: 'Release toggle (boolean)',
-                                        value: false,
-                                    },
-                                    {
-                                        label: (
-                                            <Tooltip
-                                                title={
-                                                    hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
-                                                        ? ''
-                                                        : 'This feature is not available on your current plan.'
-                                                }
-                                            >
-                                                <div>
-                                                    {!hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS) && (
-                                                        <Link to={upgradeLink} target="_blank">
-                                                            <LockOutlined
-                                                                style={{ marginRight: 4, color: 'var(--warning)' }}
-                                                            />
-                                                        </Link>
-                                                    )}
-                                                    Multiple variants with rollout percentages (A/B test)
-                                                </div>
-                                            </Tooltip>
-                                        ),
-                                        value: true,
-                                        disabled: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS),
-                                    },
-                                ]}
-                                onChange={(e) => {
-                                    const { value } = e.target
-                                    if (value === false && nonEmptyVariants.length) {
-                                        setShowVariantDiscardWarning(true)
-                                    } else {
-                                        setMultivariateEnabled(value)
-                                        focusVariantKeyField(0)
-                                    }
-                                }}
-                                value={multivariateEnabled}
-                                optionType="button"
-                            />
-                        </Popconfirm>
-                    </div>
+                    <Row gutter={16} style={{ marginBottom: 32 }}>
+                        <Col span={12}>
+                            <h3 className="l4">Served value</h3>
+                            <div className="mb-2">
+                                <Popconfirm
+                                    placement="top"
+                                    title="Change value type? The variants below will be lost."
+                                    disabled={featureFlagLoading}
+                                    visible={showVariantDiscardWarning}
+                                    onConfirm={() => {
+                                        setMultivariateEnabled(false)
+                                        setShowVariantDiscardWarning(false)
+                                    }}
+                                    onCancel={() => setShowVariantDiscardWarning(false)}
+                                    okText="OK"
+                                    cancelText="Cancel"
+                                >
+                                    <Radio.Group
+                                        options={[
+                                            {
+                                                label: 'Release toggle (boolean)',
+                                                value: false,
+                                            },
+                                            {
+                                                label: (
+                                                    <Tooltip
+                                                        title={
+                                                            hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS)
+                                                                ? ''
+                                                                : 'This feature is not available on your current plan.'
+                                                        }
+                                                    >
+                                                        <div>
+                                                            {!hasAvailableFeature(
+                                                                AvailableFeature.MULTIVARIATE_FLAGS
+                                                            ) && (
+                                                                <Link to={upgradeLink} target="_blank">
+                                                                    <LockOutlined
+                                                                        style={{
+                                                                            marginRight: 4,
+                                                                            color: 'var(--warning)',
+                                                                        }}
+                                                                    />
+                                                                </Link>
+                                                            )}
+                                                            Multiple variants with rollout percentages (A/B test)
+                                                        </div>
+                                                    </Tooltip>
+                                                ),
+                                                value: true,
+                                                disabled: !hasAvailableFeature(AvailableFeature.MULTIVARIATE_FLAGS),
+                                            },
+                                        ]}
+                                        onChange={(e) => {
+                                            const { value } = e.target
+                                            if (value === false && nonEmptyVariants.length) {
+                                                setShowVariantDiscardWarning(true)
+                                            } else {
+                                                setMultivariateEnabled(value)
+                                                focusVariantKeyField(0)
+                                            }
+                                        }}
+                                        value={multivariateEnabled}
+                                        optionType="button"
+                                    />
+                                </Popconfirm>
+                            </div>
+                            <div className="text-muted mb-4">
+                                {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
+                                {multivariateEnabled ? (
+                                    <>
+                                        <strong>a variant key</strong> according to the below distribution
+                                    </>
+                                ) : (
+                                    <strong>
+                                        <code>true</code>
+                                    </strong>
+                                )}{' '}
+                                if they match one or more release condition groups.
+                            </div>
+                        </Col>
+                    </Row>
+                </div>
+            )}
+            {!multivariateEnabled && (
+                <div>
+                    <h3 className="l4">Payload</h3>
                     <div className="text-muted mb-4">
-                        {capitalizeFirstLetter(aggregationTargetName)} will be served{' '}
-                        {multivariateEnabled ? (
-                            <>
-                                <strong>a variant key</strong> according to the below distribution
-                            </>
-                        ) : (
-                            <strong>
-                                <code>true</code>
-                            </strong>
-                        )}{' '}
-                        if they match one or more release condition groups.
+                        Specify a json payload to be returned when the served value is{' '}
+                        <strong>
+                            <code>true</code>
+                        </strong>
+                        . Examples: <code>"A string"</code>
+                        {', '}
+                        <code>2500</code>
+                        {', '}
+                        <code>{'{"key": "value"}'}</code>
                     </div>
+                    <PayloadEditor />
                 </div>
             )}
             {!readOnly && multivariateEnabled && (
@@ -639,8 +666,14 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     <div className="variant-form-list space-y-2">
                         <Row gutter={8} className="label-row">
                             <Col span={1} />
-                            <Col span={6}>Variant key</Col>
-                            <Col span={12}>Description</Col>
+                            <Col span={4}>Variant key</Col>
+                            <Col span={6}>Description</Col>
+                            <Col span={8}>
+                                <div style={{ display: 'flex', flexDirection: 'column', fontWeight: 'normal' }}>
+                                    <b>Payload</b>
+                                    <span className="text-muted">Specify return JSON payload with matching key</span>
+                                </div>
+                            </Col>
                             <Col span={4}>
                                 Rollout
                                 <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
@@ -654,7 +687,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     <Col span={1}>
                                         <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
                                     </Col>
-                                    <Col span={6}>
+                                    <Col span={4}>
                                         <Field name="key">
                                             <LemonInput
                                                 data-attr="feature-flag-variant-key"
@@ -668,13 +701,18 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                             />
                                         </Field>
                                     </Col>
-                                    <Col span={12}>
+                                    <Col span={6}>
                                         <Field name="name">
                                             <LemonInput
                                                 data-attr="feature-flag-variant-name"
                                                 className="ph-ignore-input"
                                                 placeholder="Description"
                                             />
+                                        </Field>
+                                    </Col>
+                                    <Col span={8}>
+                                        <Field name="name">
+                                            <PayloadEditor />
                                         </Field>
                                     </Col>
                                     <Col span={3}>
