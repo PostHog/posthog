@@ -413,9 +413,13 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     # overriding this to deal with hot partitions in specific cases.
     # Setting the partition key to None means using random partitioning.
     kafka_partition_key = None
-    candidate_partition_key = f"{team_id}:{distinct_id}"
 
-    if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
-        kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+    if event["event"] in ("$snapshot", "$performance_events"):
+        kafka_partition_key = event["properties"]["$session_id"]
+    else:
+        candidate_partition_key = f"{team_id}:{distinct_id}"
+
+        if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
+            kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
