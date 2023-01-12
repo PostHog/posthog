@@ -52,13 +52,13 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
     }
 
     yield {
-        "key": "session_recordings_count_month_to_date",
+        "key": "clickhouse_session_recordings_count_month_to_date",
         "metric": "Session recordings month to date",
         "value": get_recording_count_month_to_date(),
     }
 
     yield {
-        "key": "session_recordings_events_count_month_to_date",
+        "key": "clickhouse_session_recordings_events_count_month_to_date",
         "metric": "Session recordings events month to date",
         "value": get_recording_events_count_month_to_date(),
     }
