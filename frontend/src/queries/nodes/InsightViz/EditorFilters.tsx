@@ -20,6 +20,8 @@ import { LifecycleToggles } from './LifecycleToggles'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { TrendsSeries } from './TrendsSeries'
 import { TrendsSeriesLabel } from './TrendsSeriesLabel'
+import { TrendsFormulaLabel } from './TrendsFormulaLabel'
+import { TrendsFormula } from './TrendsFormula'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -49,13 +51,13 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                     label: isTrends ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
                 },
-                // isTrends
-                //     ? {
-                //           key: 'formula',
-                //           label: TrendsFormulaLabel,
-                //           component: TrendsFormula,
-                //       }
-                //     : null,
+                isTrends
+                    ? {
+                          key: 'formula',
+                          label: TrendsFormulaLabel,
+                          component: TrendsFormula,
+                      }
+                    : null,
             ]),
         },
         {
