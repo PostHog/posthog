@@ -19,6 +19,7 @@ import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { TrendsSeries } from './TrendsSeries'
+import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 export interface EditorFiltersProps {
     query: InsightQueryNode
     setQuery: (node: InsightQueryNode) => void
@@ -45,7 +46,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
-                    // label: isTrends ? TrendsSeriesLabel : undefined,
+                    label: isTrends ? TrendsSeriesLabel : undefined,
                     component: TrendsSeries,
                 },
                 // isTrends
