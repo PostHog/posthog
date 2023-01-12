@@ -72,8 +72,11 @@ SELECT counts AS total,
     timestamp AS day_start
 FROM (
     SELECT
-        count(DISTINCT {aggregator}) AS counts,
-        arrayJoin(
+        count(DISTINCT actor_id) AS counts,
+        arrayJoin(event_buckets) as timestamp
+    FROM (
+        SELECT
+            {aggregator} as actor_id,
             arrayMap(
                 n -> toDateTime(n, %(timezone)s),
                 range(
@@ -81,9 +84,10 @@ FROM (
                     toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), %(timezone)s) + INTERVAL {prev_interval}), -- TODO: this could be a min?
                     %(grouping_increment_seconds)s
                 )
-            )
-        ) as timestamp
-    {event_query_base}
+            ) AS event_buckets
+        {event_query_base}
+        GROUP BY {aggregator}, timestamp
+    )
     GROUP BY timestamp
     HAVING
         has(buckets, timestamp)
