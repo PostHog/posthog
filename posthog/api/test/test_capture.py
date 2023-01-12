@@ -1116,7 +1116,7 @@ class TestCapture(BaseTest):
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
         self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, "fake-session-id")
+        self.assertEqual(key, "abc123")
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
