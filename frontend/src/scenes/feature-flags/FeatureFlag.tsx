@@ -680,7 +680,8 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     <Col span={3}>
                                         <Field name="rollout_percentage">
                                             {({ value, onChange }) => (
-                                                <InputNumber
+                                                <LemonInput
+                                                    type="number"
                                                     min={0}
                                                     max={100}
                                                     value={value}
@@ -691,12 +692,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                                 onChange(valueInt)
                                                             }
                                                         }
-                                                    }}
-                                                    style={{
-                                                        width: '100%',
-                                                        borderColor: areVariantRolloutsValid
-                                                            ? undefined
-                                                            : 'var(--danger)',
                                                     }}
                                                 />
                                             )}
