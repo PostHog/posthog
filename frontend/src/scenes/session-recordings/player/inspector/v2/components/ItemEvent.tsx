@@ -33,12 +33,6 @@ export function ItemEvent({ item, expanded, setExpanded }: ItemEventProps): JSX.
             {expanded && (
                 <div className="p-2 text-xs border-t">
                     <SimpleKeyValueList item={item.data.properties} />
-
-                    <LemonDivider dashed />
-
-                    <div className="flex gap-2 justify-end cursor-pointer" onClick={() => setExpanded(false)}>
-                        <span className="text-muted-alt">Collapse</span>
-                    </div>
                 </div>
             )}
         </div>

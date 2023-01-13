@@ -14,7 +14,7 @@ import { ItemPerformanceEvent } from './components/ItemPerformanceEvent'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useDebouncedCallback } from 'use-debounce'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PlayerInspectorList.scss'
 import { range } from 'd3'
@@ -115,6 +115,19 @@ function PlayerInspectorListItem({
                 ) : item.type === 'events' ? (
                     <ItemEvent item={item} {...itemProps} />
                 ) : null}
+
+                {isExpanded ? (
+                    <div className="text-xs">
+                        <LemonDivider dashed />
+
+                        <div
+                            className="flex gap-2 justify-end cursor-pointer m-2"
+                            onClick={() => setItemExpanded(index, false)}
+                        >
+                            <span className="text-muted-alt">Collapse</span>
+                        </div>
+                    </div>
+                ) : null}
             </span>
             {!isExpanded && (
                 <LemonButton
@@ -152,9 +165,8 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab, loading } = useValues(
-        playerInspectorLogic(props)
-    )
+    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab, loading, expandedItems } =
+        useValues(playerInspectorLogic(props))
     const { setSyncScroll } = useActions(playerInspectorLogic(props))
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
