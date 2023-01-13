@@ -5,18 +5,14 @@ import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCalculate } from 'lib/components/icons'
-import { isStickinessQuery, isTrendsQuery } from '~/queries/utils'
+import { isTrendsQuery } from '~/queries/utils'
+import { getDisplay } from './utils'
 
 export function TrendsSeriesLabel({ query, insightProps }: QueryEditorFilterProps): JSX.Element {
     const { isFormulaOn } = useValues(trendsLogic(insightProps))
     const { setIsFormulaOn } = useActions(trendsLogic(insightProps))
 
-    const display = isStickinessQuery(query)
-        ? query.stickinessFilter?.display
-        : isTrendsQuery(query)
-        ? query.trendsFilter?.display
-        : undefined
-
+    const display = getDisplay(query)
     const formulaModeButtonDisabled: boolean =
         isFormulaOn &&
         isTrendsQuery(query) &&
