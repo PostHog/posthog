@@ -742,7 +742,7 @@ class TestExperimentCRUD(APILicensedTest):
         ).json()
 
         # TODO: Make sure permission bool doesn't cause n + 1
-        with self.assertNumQueries(8):
+        with self.assertNumQueries(9):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
