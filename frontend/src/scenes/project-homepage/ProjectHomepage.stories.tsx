@@ -10,9 +10,9 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/dashboards/': require('../dashboard/__mocks__/dashboards.json'),
-                '/api/projects/:projectId/dashboards/1/': require('../dashboard/__mocks__/dashboard1.json'),
-                '/api/projects/:projectId/dashboards/1/collaborators/': [],
+                '/api/projects/:team_id/dashboards/': require('../dashboard/__mocks__/dashboards.json'),
+                '/api/projects/:team_id/dashboards/1/': require('../dashboard/__mocks__/dashboard1.json'),
+                '/api/projects/:team_id/dashboards/1/collaborators/': [],
             },
         }),
     ],

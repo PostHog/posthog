@@ -14,11 +14,10 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<JSX.Element> => {
         const mergedMocks: Mocks = {}
         Object.keys(rest).forEach((restKey) => {
             mergedMocks[restKey] = {
-                ...(mocks?.[restKey] || {}),
                 ...(parameters.msw?.mocks?.[restKey] || {}),
+                ...(mocks?.[restKey] || {}),
             }
         })
-
         useStorybookMocks(mergedMocks)
         return <Story />
     }
