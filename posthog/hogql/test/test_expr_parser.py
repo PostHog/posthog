@@ -67,9 +67,9 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
     def test_hogql_expr_parse_errors(self):
         self._assert_value_error("", "Module body must contain only one 'Expr'")
         self._assert_value_error("a = 3", "Module body must contain only one 'Expr'")
-        self._assert_value_error("(", "SyntaxError: unexpected EOF while parsing")
-        self._assert_value_error("())", "SyntaxError: unmatched ')'")
-        self._assert_value_error("this makes little sense", "SyntaxError: invalid syntax")
+        self._assert_value_error("(", "unexpected EOF while parsing")
+        self._assert_value_error("())", "unmatched ')'")
+        self._assert_value_error("this makes little sense", "invalid syntax")
         self._assert_value_error("avg(bla)", "Unknown event field 'bla'")
         self._assert_value_error("total(2)", "Aggregation 'total' does not accept any arguments.")
         self._assert_value_error("avg(2,1)", "Aggregation 'avg' expects just one argument.")
