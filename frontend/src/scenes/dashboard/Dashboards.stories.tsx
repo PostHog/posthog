@@ -11,7 +11,7 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 export default {
-    title: 'Scenes-App/Dashboard',
+    title: 'Scenes-App/Dashboards',
     decorators: [
         mswDecorator({
             get: {
