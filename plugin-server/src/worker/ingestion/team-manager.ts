@@ -131,9 +131,9 @@ export class TeamManager {
         // explictly cached that the team does not exist
         if (cachedTeamId === null) {
             return null
-        } else if (cachedTeamId) {
+        } else if (cachedTeamId != null) {
             const cachedTeam = this.teamCache.get(cachedTeamId)
-            if (cachedTeam) {
+            if (cachedTeam?.id != null) {
                 return cachedTeam.id
             }
         }
