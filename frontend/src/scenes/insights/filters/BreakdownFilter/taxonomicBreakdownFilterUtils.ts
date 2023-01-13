@@ -5,7 +5,10 @@ import {
     TaxonomicFilterValue,
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterTypeToPropertyFilterType } from 'lib/components/PropertyFilters/utils'
-import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/index'
+
+export const isURLNormalizeable = (propertyName: string): boolean => {
+    return ['$current_url', '$pathname'].includes(propertyName)
+}
 
 interface FilterChange {
     useMultiBreakdown: string | boolean | undefined
