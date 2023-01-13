@@ -165,8 +165,9 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab, loading, expandedItems } =
-        useValues(playerInspectorLogic(props))
+    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab, loading } = useValues(
+        playerInspectorLogic(props)
+    )
     const { setSyncScroll } = useActions(playerInspectorLogic(props))
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
