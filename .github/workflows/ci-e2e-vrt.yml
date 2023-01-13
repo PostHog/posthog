@@ -10,6 +10,8 @@ jobs:
     playwright:
         name: Visual Regression Tests
         runs-on: ubuntu-20.04
+        container:
+            image: mcr.microsoft.com/playwright:v1.28.1-focal
         steps:
             - uses: actions/checkout@v3
 
@@ -30,8 +32,8 @@ jobs:
             - name: Build Storybook
               run: pnpm build-storybook --quiet
 
-            - name: Install Playwright Browsers
-              run: pnpm exec playwright install --with-deps
+            # - name: Install Playwright Browsers
+            #   run: pnpm exec playwright install --with-deps
 
             - name: Serve Storybook and run tests
               run: |
