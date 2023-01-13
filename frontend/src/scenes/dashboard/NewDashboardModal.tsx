@@ -12,11 +12,12 @@ import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
-
+    const { hasAvailableFeature } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const websiteAnalyticsTemplate = !!featureFlags[FEATURE_FLAGS.WEBSITE_ANALYTICS_TEMPLATE]
 
@@ -84,9 +85,11 @@ export function NewDashboardModal(): JSX.Element {
                 <Field name="name" label="Name">
                     <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
                 </Field>
-                <Field name="description" label="Description" showOptional>
-                    <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
-                </Field>
+                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
+                    <Field name="description" label="Description" showOptional>
+                        <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
+                    </Field>
+                ) : null}
                 <Field name="useTemplate" label="Template" showOptional>
                     <LemonSelect
                         placeholder="Optionally start from template"
