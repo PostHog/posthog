@@ -16,6 +16,8 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupsModel } from '../../models/groupsModel'
 
 interface Props {
     id?: string
@@ -53,6 +55,8 @@ function DashboardScene(): JSX.Element {
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
         useActions(dashboardLogic)
+
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     useEffect(() => {
         reportDashboardViewed()
@@ -102,7 +106,7 @@ function DashboardScene(): JSX.Element {
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
-                <EmptyDashboardComponent loading={itemsLoading} />
+                <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
                     <div className="flex space-x-4 justify-between">
@@ -127,6 +131,14 @@ function DashboardScene(): JSX.Element {
                                     onChange={setProperties}
                                     pageKey={'dashboard_' + dashboard?.id}
                                     propertyFilters={dashboard?.filters.properties}
+                                    taxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.EventFeatureFlags,
+                                        ...groupsTaxonomicTypes,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
                                 />
                             </div>
                         )}

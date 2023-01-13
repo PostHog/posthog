@@ -532,12 +532,12 @@ export const sessionRecordingDataLogic = kea<sessionRecordingDataLogicType>([
         }
 
         if (props.sessionRecordingData) {
+            actions.loadRecordingSnapshotsSuccess({
+                snapshotsByWindowId: props.sessionRecordingData.snapshotsByWindowId,
+            })
             actions.loadRecordingMetaSuccess({
                 person: props.sessionRecordingData.person,
                 metadata: props.sessionRecordingData.metadata,
-            })
-            actions.loadRecordingSnapshotsSuccess({
-                snapshotsByWindowId: props.sessionRecordingData.snapshotsByWindowId,
             })
         }
     }),

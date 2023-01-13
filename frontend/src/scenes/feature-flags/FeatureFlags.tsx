@@ -4,7 +4,7 @@ import { Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { AvailableFeature, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -22,6 +22,8 @@ import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconLock } from 'lib/components/icons'
 import { router } from 'kea-router'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -33,6 +35,7 @@ function OverViewTab(): JSX.Element {
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } =
         useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(featureFlagsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -74,6 +77,17 @@ function OverViewTab(): JSX.Element {
                 )
             },
         },
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags' as keyof FeatureFlagType,
+                      render: function Render(tags: FeatureFlagType['tags']) {
+                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                      },
+                  } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
+              ]
+            : []),
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
