@@ -52,7 +52,7 @@ export function HeatmapStats(): JSX.Element {
                             Load more
                         </LemonButton>
                         {canLoadMoreElementStats ? null : (
-                            <AlertMessage type={'info'} className={'pt-2'}>
+                            <AlertMessage type={'info'} className={'mt-2'}>
                                 Loaded all elements in this data range.
                             </AlertMessage>
                         )}
