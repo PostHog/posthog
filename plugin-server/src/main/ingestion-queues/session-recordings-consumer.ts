@@ -1,16 +1,13 @@
+import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchHandler, Kafka } from 'kafkajs'
 
-import {
-    KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
-    KAFKA_PERFORMANCE_EVENTS,
-    KAFKA_SESSION_RECORDING_EVENTS,
-    KAFKA_SESSION_RECORDING_EVENTS_DLQ,
-} from '../../config/kafka-topics'
-import { PipelineEvent, RawEventMessage, RawSessionRecordingEvent, TimestampFormat } from '../../types'
+import { KAFKA_SESSION_RECORDING_EVENTS, KAFKA_SESSION_RECORDING_EVENTS_DLQ } from '../../config/kafka-topics'
+import { PipelineEvent, RawEventMessage } from '../../types'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { status } from '../../utils/status'
-import { castTimestampOrNow } from '../../utils/utils'
+import { createPerformanceEvent, createSessionRecordingEvent } from '../../worker/ingestion/process-event'
 import { TeamManager } from '../../worker/ingestion/team-manager'
+import { parseEventTimestamp } from '../../worker/ingestion/timestamps'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
 export const startSessionRecordingEventsConsumer = async ({
@@ -95,30 +92,27 @@ export const startSessionRecordingEventsConsumer = async ({
                 continue
             }
 
-            const timestampString = castTimestampOrNow(event.timestamp!, TimestampFormat.ClickHouse)
-            const data: Partial<RawSessionRecordingEvent> = {
-                uuid: messagePayload.uuid,
-                team_id: messagePayload.team_id!,
-                distinct_id: messagePayload.distinct_id,
-                session_id: event.properties?.$session_id,
-                window_id: event.properties?.$window_id,
-                snapshot_data: JSON.stringify(event.properties?.$snapshot_data),
-                timestamp: timestampString,
-                created_at: timestampString,
+            if (event.event === '$snapshot') {
+                await createSessionRecordingEvent(
+                    messagePayload.uuid,
+                    messagePayload.team_id,
+                    event.distinct_id,
+                    parseEventTimestamp(event as PluginEvent),
+                    event.ip,
+                    event.properties || {},
+                    producer
+                )
+            } else if (event.event === '$performance_event') {
+                await createPerformanceEvent(
+                    messagePayload.uuid,
+                    messagePayload.team_id,
+                    event.distinct_id,
+                    event.properties || {},
+                    event.ip,
+                    parseEventTimestamp(event as PluginEvent),
+                    producer
+                )
             }
-
-            await producer.queueMessage({
-                topic:
-                    event.event === '$performance_event'
-                        ? KAFKA_PERFORMANCE_EVENTS
-                        : KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
-                messages: [
-                    {
-                        value: JSON.stringify(data),
-                        key: message.key,
-                    },
-                ],
-            })
 
             // After processing each message, we need to heartbeat to ensure
             // we don't get kicked out of the group. Note that although we call
