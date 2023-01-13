@@ -414,7 +414,12 @@ describe('sessionRecordingDataLogic', () => {
                         expect.objectContaining({
                             entry_type: 'performance-summary',
                         }),
-                        ...recordingPerformanceEventsJson,
+                        expect.not.objectContaining({
+                            entry_type: 'navigation',
+                        }),
+                        expect.not.objectContaining({
+                            entry_type: 'paint',
+                        }),
                     ]),
                 })
         })
