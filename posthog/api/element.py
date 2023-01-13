@@ -2,6 +2,7 @@ from rest_framework import authentication, request, response, serializers, views
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
+from statshog.defaults.django import statsd
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
@@ -12,6 +13,7 @@ from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.query_date_range import QueryDateRange
+from posthog.utils import format_query_params_absolute_url
 
 
 class ElementSerializer(serializers.ModelSerializer):
@@ -54,16 +56,33 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         date_to, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
         date_params.update(date_to_params)
+
         try:
-            limit = int(request.GET.get("limit", 100))
+            limit = int(request.query_params.get("limit", 100))
         except ValueError:
             raise ValidationError("Limit must be an integer")
+
+        try:
+            offset = int(request.query_params.get("offset", 0))
+        except ValueError:
+            raise ValidationError("offset must be an integer")
+
+        paginate_response = request.query_params.get("paginate_response", "false") == "true"
+        if not paginate_response:
+            # once we are getting no hits on this counter we can default to paginated responses
+            statsd.incr("toolbar_element_stats_unpaginated_api_request_tombstone", tags={"team_id": self.team_id})
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
             team_id=self.team.pk, property_group=filter.property_groups
         )
         result = sync_execute(
-            GET_ELEMENTS.format(date_from=date_from, date_to=date_to, query=prop_filters, limit=limit),
+            GET_ELEMENTS.format(
+                date_from=date_from,
+                date_to=date_to,
+                query=prop_filters,
+                limit=limit,
+                conditional_offset=f" OFFSET {offset}" if paginate_response else "",
+            ),
             {
                 "team_id": self.team.pk,
                 "timezone": self.team.timezone,
@@ -71,16 +90,23 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 **date_params,
             },
         )
-        return response.Response(
-            [
-                {
-                    "count": elements[1],
-                    "hash": None,
-                    "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
-                }
-                for elements in result
-            ]
-        )
+        serialized_elements = [
+            {
+                "count": elements[1],
+                "hash": None,
+                "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
+            }
+            for elements in result
+        ]
+
+        if paginate_response:
+            has_next = len(serialized_elements) > 0
+            next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
+            previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
+
+            return response.Response({"results": serialized_elements, "next": next_url, "previous": previous_url})
+        else:
+            return response.Response(serialized_elements)
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
