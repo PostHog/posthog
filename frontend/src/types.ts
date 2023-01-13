@@ -1832,6 +1832,7 @@ export interface FeatureFlagType {
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
+    tags: string[]
 }
 
 export interface FeatureFlagRollbackConditions {
