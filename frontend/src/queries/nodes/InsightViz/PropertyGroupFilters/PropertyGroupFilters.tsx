@@ -44,7 +44,7 @@ export function PropertyGroupFilters({
     const showHeader = !noTitle || (propertyGroupFilter.type && propertyGroupFilter.values.length > 1)
 
     return (
-        <div className="space-y-2 property-group-filters">
+        <div className="space-y-2 PropertyGroupFilters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
                     {showHeader ? (
