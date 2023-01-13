@@ -3,18 +3,33 @@ import json
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
+from django.db import connection
+from django.db.utils import OperationalError
+from django.test import TestCase
+from django.test.client import RequestFactory
 from django.utils import timezone
 from freezegun.api import freeze_time
 from rest_framework import status
 
+from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
+from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.group.util import create_group
+from posthog.models.organization import Organization
 from posthog.models.person import Person
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    QueryMatchingTest,
+    _create_person,
+    snapshot_clickhouse_queries,
+    snapshot_postgres_queries_context,
+)
 from posthog.test.db_context_capturing import capture_db_queries
 
 
@@ -2185,3 +2200,183 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
             },
             response_json,
         )
+
+
+class QueryTimeoutWrapper:
+    def __call__(self, execute, *args, **kwargs):
+
+        raise OperationalError("I am a timeout error")
+        # return execute(*args, **kwargs)
+
+
+class TestResiliency(TestCase, QueryMatchingTest):
+
+    # TODO: test with hash key overrides
+    def test_feature_flags_v3_with_group_properties(self):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+        rf = RequestFactory()
+        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
+        create_request.user = self.user
+
+        GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
+
+        create_group(team_id=self.team.pk, group_type_index=0, group_key=f"org:1", properties={"industry": f"finance"})
+
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "group-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}
+                            ],
+                            "rollout_percentage": None,
+                        }
+                    ],
+                },
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        # Should be enabled for everyone, if groups are given
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"properties": [], "rollout_percentage": None}],
+                },
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        with self.assertNumQueries(5):
+            # TODO: 5 seems too much here, there are 2 person queries for some reason?
+            all_flags, _ = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+            self.assertTrue(all_flags["group-flag"])
+            self.assertTrue(all_flags["default-flag"])
+            # self.assertFalse(errors)
+
+        # now db is down
+        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+            all_flags, _ = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+
+            self.assertTrue("group-flag" not in all_flags)
+            # can't be true unless we cache group type mappings as well
+            self.assertTrue("default-flag" not in all_flags)
+            # self.assertFalse(errors)
+
+            # # now db is down, but decide was sent email parameter with correct email
+            with self.assertNumQueries(2):
+                all_flags, _ = get_all_feature_flags(
+                    team_id,
+                    "random",
+                    groups={"organization": "org:1"},
+                    group_property_value_overrides={"organization": {"industry": "finance"}},
+                )
+                self.assertTrue("group-flag" not in all_flags)
+                # can't be true unless we cache group type mappings as well
+                self.assertTrue("default-flag" not in all_flags)
+                # self.assertFalse(errors)
+
+            # # now db is down, but decide was sent email parameter with different email
+            with self.assertNumQueries(2):
+                all_flags, _ = get_all_feature_flags(
+                    team_id,
+                    "exam",
+                    groups={"organization": "org:1"},
+                    group_property_value_overrides={"organization": {"industry": "finna"}},
+                )
+                self.assertTrue("group-flag" not in all_flags)
+                # can't be true unless we cache group type mappings as well
+                self.assertTrue("default-flag" not in all_flags)
+                # TODO, add check for errors
+                # self.assertFalse(errors)
+
+    def test_feature_flags_v3_with_person_properties(self):
+        self.organization = Organization.objects.create(name="test")
+        self.team = Team.objects.create(organization=self.organization)
+        self.user = User.objects.create_and_join(self.organization, "random@test.com", "password", "first_name")
+
+        team_id = self.team.pk
+        rf = RequestFactory()
+        create_request = rf.post(f"api/projects/{self.team.pk}/feature_flags/", {"name": "xyz"})
+        create_request.user = self.user
+
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "property-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [
+                                {"key": "email", "value": "tim@posthog.com", "type": "person", "operator": "exact"}
+                            ],
+                            "rollout_percentage": None,
+                        }
+                    ]
+                },
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        # Should be enabled for everyone
+        serialized_data = FeatureFlagSerializer(
+            data={
+                "name": "Alpha feature",
+                "key": "default-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
+            },
+            context={"team_id": team_id, "request": create_request},
+        )
+        self.assertTrue(serialized_data.is_valid())
+        serialized_data.save()
+
+        with self.assertNumQueries(4):
+            all_flags, _ = get_all_feature_flags(team_id, "example_id")
+            self.assertTrue(all_flags["property-flag"])
+            self.assertTrue(all_flags["default-flag"])
+            # self.assertFalse(errors)
+
+        # now db is down
+        with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
+            all_flags, _ = get_all_feature_flags(team_id, "example_id")
+
+            self.assertTrue("property-flag" not in all_flags)
+            self.assertTrue(all_flags["default-flag"])
+            # self.assertFalse(errors)
+
+            # # now db is down, but decide was sent email parameter with correct email
+            with self.assertNumQueries(0):
+                all_flags, _ = get_all_feature_flags(
+                    team_id, "random", property_value_overrides={"email": "tim@posthog.com"}
+                )
+                self.assertTrue(all_flags["property-flag"])
+                self.assertTrue(all_flags["default-flag"])
+                # self.assertFalse(errors)
+
+            # # now db is down, but decide was sent email parameter with different email
+            with self.assertNumQueries(0):
+                all_flags, _ = get_all_feature_flags(
+                    team_id, "example_id", property_value_overrides={"email": "tom@posthog.com"}
+                )
+                self.assertFalse(all_flags["property-flag"])
+                self.assertTrue(all_flags["default-flag"])
+                # self.assertFalse(errors)

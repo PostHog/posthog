@@ -95,7 +95,7 @@ def get_decide(request: HttpRequest):
             )
 
         token = get_token(data, request)
-        team = Team.objects.get_team_from_token(token)
+        team = Team.objects.get_team_from_token_or_cache(token)
         if team is None and token:
             project_id = get_project_id(data, request)
 
@@ -167,6 +167,9 @@ def get_decide(request: HttpRequest):
                 # default v1
                 response["featureFlags"] = list(active_flags.keys())
 
+            # TODO: right now these are all false because not in the cache.
+            # should we explicitly choose what to save, or just put everything in the cache?
+            # will help future people adding things here not bang their heads over why it's not working
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
 
             if team.session_recording_opt_in and (

@@ -6,7 +6,7 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 from posthog.models import Cohort, FeatureFlag, GroupTypeMapping, Person
-from posthog.models.feature_flag import (
+from posthog.models.feature_flag.flag_matching import (
     FeatureFlagHashKeyOverride,
     FeatureFlagMatch,
     FeatureFlagMatcher,
@@ -1608,7 +1608,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides(self):
 
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
 
         set_feature_flag_hash_key_overrides(
             all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
@@ -1624,7 +1624,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_retrieving_hash_key_overrides(self):
 
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
 
         set_feature_flag_hash_key_overrides(
             all_feature_flags, team_id=self.team.pk, person_id=self.person.id, hash_key_override="other_id"
@@ -1636,7 +1636,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_setting_overrides_doesnt_balk_with_existing_overrides(self):
 
-        all_feature_flags = FeatureFlag.objects.filter(team_id=self.team.pk)
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=self.team.pk))
 
         # existing overrides
         hash_key = "bazinga"

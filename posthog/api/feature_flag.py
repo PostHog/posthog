@@ -1,12 +1,14 @@
 import json
 from typing import Any, Dict, List, Optional, cast
 
+from django.core.cache import cache
 from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -181,6 +183,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
+        set_feature_flags_for_team_in_cache(self.context["team_id"])
+
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -204,13 +208,15 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             validated_data["performed_rollback"] = False
 
 
-class MinimalFeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
+    # team_id = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = FeatureFlag
         fields = [
             "id",
+            "team_id",
             "name",
             "key",
             "filters",
@@ -418,6 +424,40 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
             activity="updated",
             detail=Detail(changes=changes, name=serializer.instance.key),
         )
+
+
+def set_feature_flags_for_team_in_cache(team_id: int, feature_flags: Optional[List[FeatureFlag]] = None) -> None:
+    if feature_flags:
+        all_feature_flags = feature_flags
+    else:
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False))
+
+    serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
+
+    cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), None)
+
+
+def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFlag]]:
+    try:
+        flag_data = cache.get(f"team_feature_flags_{team_id}")
+    except Exception:
+        # redis is unavailable
+        return None
+
+    if flag_data:
+        try:
+            parsed_data = json.loads(flag_data)
+            # print(parsed_data)
+            # all_flags_deserialized = MinimalFeatureFlagSerializer(data=parsed_data, many=True)
+            # all_flags_deserialized.is_valid(raise_exception=True)
+            # print(all_flags_deserialized.data)
+            # return [FeatureFlag(**flag) for flag in all_flags_deserialized.data]
+            return [FeatureFlag(**flag) for flag in parsed_data]
+        except Exception as e:
+            capture_exception(e)
+            return None
+
+    return None
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):

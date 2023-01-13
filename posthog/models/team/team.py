@@ -1,3 +1,4 @@
+import json
 import re
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any, List, Optional
@@ -6,8 +7,10 @@ import posthoganalytics
 import pytz
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.core.cache import cache
 from django.core.validators import MinLengthValidator
 from django.db import models
+from sentry_sdk import capture_exception
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
@@ -87,6 +90,21 @@ class TeamManager(models.Manager):
             return None
         try:
             return Team.objects.get(api_token=token)
+        except Team.DoesNotExist:
+            return None
+
+    def get_team_from_token_or_cache(self, token: Optional[str]) -> Optional["Team"]:
+        if not token:
+            return None
+        try:
+            team = get_team_in_cache(token)
+            if team:
+                return team
+
+            team = Team.objects.get(api_token=token)
+            set_team_in_cache(token, team)
+            return team
+
         except Team.DoesNotExist:
             return None
 
@@ -291,6 +309,38 @@ class Team(UUIDClassicModel):
         return str(self.pk)
 
     __repr__ = sane_repr("uuid", "name", "api_token")
+
+
+def set_team_in_cache(token: str, team: Optional[Team]) -> None:
+    from posthog.api.team import CachingTeamSerializer
+
+    if not team:
+        try:
+            team = Team.objects.get(api_token=token)
+        except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+            return
+
+    serialized_team = CachingTeamSerializer(team).data
+
+    cache.set(f"team_token:{token}", json.dumps(serialized_team), None)
+
+
+def get_team_in_cache(token: str) -> Optional[Team]:
+    try:
+        team_data = cache.get(f"team_token:{token}")
+    except Exception:
+        # redis is unavailable
+        return None
+
+    if team_data:
+        try:
+            parsed_data = json.loads(team_data)
+            return Team(**parsed_data)
+        except Exception as e:
+            capture_exception(e)
+            return None
+
+    return None
 
 
 def groups_on_events_querying_enabled():
