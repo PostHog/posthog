@@ -80,7 +80,12 @@ function OverViewTab(): JSX.Element {
             title: 'Release conditions',
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                return groupFilters(featureFlag.filters.groups)
+                const releaseText = groupFilters(featureFlag.filters.groups)
+                return releaseText == '100% of all users' ? (
+                    <LemonTag type="highlight">{releaseText}</LemonTag>
+                ) : (
+                    releaseText
+                )
             },
         },
         {
