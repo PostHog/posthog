@@ -11,13 +11,13 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 export default {
-    title: 'Scenes-App/Dashboard',
+    title: 'Scenes-App/Dashboards',
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/dashboards/': require('./__mocks__/dashboards.json'),
-                '/api/projects/:projectId/dashboards/1/': require('./__mocks__/dashboard1.json'),
-                '/api/projects/:projectId/dashboards/1/collaborators/': [],
+                '/api/projects/:team_id/dashboards/': require('./__mocks__/dashboards.json'),
+                '/api/projects/:team_id/dashboards/1/': require('./__mocks__/dashboard1.json'),
+                '/api/projects/:team_id/dashboards/1/collaborators/': [],
             },
         }),
     ],
