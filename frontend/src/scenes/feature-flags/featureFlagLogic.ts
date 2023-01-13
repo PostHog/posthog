@@ -65,6 +65,7 @@ const NEW_FLAG: FeatureFlagType = {
     rollback_conditions: [],
     performed_rollback: false,
     can_edit: true,
+    tags: [],
 }
 const NEW_VARIANT = {
     key: '',
@@ -165,6 +166,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         loadAllInsightsForFlag: true,
         setAffectedUsers: (index: number, count?: number) => ({ index, count }),
         setTotalUsers: (count: number) => ({ count }),
+        triggerFeatureFlagUpdate: (payload: Partial<FeatureFlagType>) => ({ payload }),
     }),
     forms(({ actions, values }) => ({
         featureFlag: {
@@ -587,6 +589,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     actions.setTotalUsers(result.total_users)
                 }
             })
+        },
+        triggerFeatureFlagUpdate: async ({ payload }) => {
+            if (values.featureFlag) {
+                const updatedFlag = await api.update(
+                    `api/projects/${values.currentTeamId}/feature_flags/${values.featureFlag.id}`,
+                    payload
+                )
+                actions.setFeatureFlag(updatedFlag)
+                featureFlagsLogic.findMounted()?.actions.updateFlag(updatedFlag)
+            }
         },
     })),
     selectors({

@@ -61,6 +61,8 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { NodeKind } from '~/queries/schema'
 import { Query } from '~/queries/Query/Query'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { tagsModel } from '~/models/tagsModel'
 
 export const scene: SceneExport = {
     component: FeatureFlag,
@@ -80,7 +82,8 @@ function focusVariantKeyField(index: number): void {
 export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { props, featureFlag, featureFlagLoading, featureFlagMissing, isEditingFlag } = useValues(featureFlagLogic)
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag } = useActions(featureFlagLogic)
+    const { deleteFeatureFlag, editFeatureFlag, loadFeatureFlag, triggerFeatureFlagUpdate } =
+        useActions(featureFlagLogic)
 
     const { addableRoles, unfilteredAddableRolesLoading, rolesToAdd, derivedRoles } = useValues(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
@@ -88,6 +91,9 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
     const { setRolesToAdd, addAssociatedRoles, deleteAssociatedRole } = useActions(
         featureFlagPermissionsLogic({ flagId: featureFlag.id })
     )
+
+    const { tags } = useValues(tagsModel)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     // whether the key for an existing flag is being changed
     const [hasKeyChanged, setHasKeyChanged] = useState(false)
@@ -213,6 +219,23 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                         defaultValue={featureFlag.name || ''}
                                     />
                                 </Field>
+                                {hasAvailableFeature(AvailableFeature.TAGGING) && (
+                                    <Field name="tags" label="Tags">
+                                        {({ value, onChange }) => {
+                                            return (
+                                                <ObjectTags
+                                                    tags={value}
+                                                    onChange={(_, tags) => onChange(tags)}
+                                                    saving={featureFlagLoading}
+                                                    tagsAvailable={tags.filter(
+                                                        (tag) => !featureFlag.tags?.includes(tag)
+                                                    )}
+                                                    className="insight-metadata-tags"
+                                                />
+                                            )
+                                        }}
+                                    </Field>
+                                )}
                                 <Field name="ensure_experience_continuity">
                                     {({ value, onChange }) => (
                                         <div className="border rounded p-4">
@@ -340,6 +363,34 @@ export function FeatureFlag({ id }: { id?: string } = {}): JSX.Element {
                                                 <span style={{ fontStyle: 'normal' }}>{featureFlag.name}</span>
                                             ) : (
                                                 'There is no description for this feature flag.'
+                                            )}
+                                        </>
+                                    }
+                                    caption={
+                                        <>
+                                            {featureFlag?.tags && (
+                                                <>
+                                                    {featureFlag.can_edit ? (
+                                                        <ObjectTags
+                                                            tags={featureFlag.tags}
+                                                            onChange={(_, tags) => {
+                                                                triggerFeatureFlagUpdate({ tags })
+                                                            }}
+                                                            saving={featureFlagLoading}
+                                                            tagsAvailable={tags.filter(
+                                                                (tag) => !featureFlag.tags?.includes(tag)
+                                                            )}
+                                                            className="insight-metadata-tags"
+                                                        />
+                                                    ) : featureFlag.tags.length ? (
+                                                        <ObjectTags
+                                                            tags={featureFlag.tags}
+                                                            saving={featureFlagLoading}
+                                                            staticOnly
+                                                            className="insight-metadata-tags"
+                                                        />
+                                                    ) : null}
+                                                </>
                                             )}
                                         </>
                                     }

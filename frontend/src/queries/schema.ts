@@ -23,8 +23,9 @@ import {
 export enum NodeKind {
     // Data nodes
     EventsNode = 'EventsNode',
-    EventsQuery = 'EventsQuery',
     ActionsNode = 'ActionsNode',
+    NewEntityNode = 'NewEntityNode',
+    EventsQuery = 'EventsQuery',
     PersonsNode = 'PersonsNode',
 
     // Interface nodes
@@ -113,6 +114,16 @@ export interface EventsNode extends EntityNode {
     }
 }
 
+export interface ActionsNode extends EntityNode {
+    kind: NodeKind.ActionsNode
+    id: number
+}
+
+export interface NewEntityNode extends EntityNode {
+    kind: NodeKind.NewEntityNode
+    event?: string | null
+}
+
 export interface EventsQuery extends DataNode {
     kind: NodeKind.EventsQuery
     /** Return a limited set of data. Required. */
@@ -146,11 +157,6 @@ export interface EventsQuery extends DataNode {
         results: any[][]
         hasMore?: boolean
     }
-}
-
-export interface ActionsNode extends EntityNode {
-    kind: NodeKind.ActionsNode
-    id: number
 }
 
 export interface PersonsNode extends DataNode {
@@ -226,6 +232,7 @@ interface InsightsQueryBase extends Node {
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
 }
 
+export type TrendsFilter = Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface TrendsQuery extends InsightsQueryBase {
     kind: NodeKind.TrendsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -233,11 +240,12 @@ export interface TrendsQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the trends insight */
-    trendsFilter?: Omit<TrendsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    trendsFilter?: TrendsFilter
     /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
 }
 
+export type FunnelsFilter = Omit<FunnelsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface FunnelsQuery extends InsightsQueryBase {
     kind: NodeKind.FunnelsQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -245,23 +253,26 @@ export interface FunnelsQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the funnels insight */
-    funnelsFilter?: Omit<FunnelsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
     breakdown?: BreakdownFilter
 }
 
+export type RetentionFilter = Omit<RetentionFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface RetentionQuery extends InsightsQueryBase {
     kind: NodeKind.RetentionQuery
     /** Properties specific to the retention insight */
-    retentionFilter?: Omit<RetentionFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    retentionFilter?: RetentionFilter
 }
 
+export type PathsFilter = Omit<PathsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface PathsQuery extends InsightsQueryBase {
     kind: NodeKind.PathsQuery
     /** Properties specific to the paths insight */
-    pathsFilter?: Omit<PathsFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    pathsFilter?: PathsFilter
 }
 
+export type StickinessFilter = Omit<StickinessFilterType, keyof FilterType> // using everything except what it inherits from FilterType
 export interface StickinessQuery extends InsightsQueryBase {
     kind: NodeKind.StickinessQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -269,8 +280,13 @@ export interface StickinessQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the stickiness insight */
-    stickinessFilter?: Omit<StickinessFilterType, keyof FilterType> // using everything except what it inherits from FilterType
+    stickinessFilter?: StickinessFilter
 }
+
+export type LifecycleFilter = Omit<LifecycleFilterType, keyof FilterType> & {
+    /** Lifecycles that have been removed from display */
+    toggledLifecycles?: LifecycleToggle[]
+} // using everything except what it inherits from FilterType
 export interface LifecycleQuery extends InsightsQueryBase {
     kind: NodeKind.LifecycleQuery
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
@@ -278,14 +294,36 @@ export interface LifecycleQuery extends InsightsQueryBase {
     /** Events and actions to include */
     series: (EventsNode | ActionsNode)[]
     /** Properties specific to the lifecycle insight */
-    lifecycleFilter?: Omit<LifecycleFilterType, keyof FilterType> & {
-        /** Lifecycles that have been removed from display */
-        toggledLifecycles?: LifecycleToggle[]
-    } // using everything except what it inherits from FilterType
+    lifecycleFilter?: LifecycleFilter
 }
 export interface UnimplementedQuery extends InsightsQueryBase {
     kind: NodeKind.UnimplementedQuery
 }
+
+export type InsightQueryNode =
+    | TrendsQuery
+    | FunnelsQuery
+    | RetentionQuery
+    | PathsQuery
+    | StickinessQuery
+    | LifecycleQuery
+    | UnimplementedQuery
+export type InsightNodeKind = InsightQueryNode['kind']
+export type InsightFilterProperty =
+    | 'trendsFilter'
+    | 'funnelsFilter'
+    | 'retentionFilter'
+    | 'pathsFilter'
+    | 'stickinessFilter'
+    | 'lifecycleFilter'
+export type InsightFilter =
+    | TrendsFilter
+    | FunnelsFilter
+    | RetentionFilter
+    | PathsFilter
+    | StickinessFilter
+    | LifecycleFilter
+export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
 
 export interface TimeToSeeDataSessionsQuery extends DataNode {
     kind: NodeKind.TimeToSeeDataSessionsQuery
@@ -315,17 +353,6 @@ export interface RecentPerformancePageViewNode extends DataNode {
     kind: NodeKind.RecentPerformancePageViewNode
     numberOfDays?: number // defaults to 7
 }
-
-export type InsightQueryNode =
-    | TrendsQuery
-    | FunnelsQuery
-    | RetentionQuery
-    | PathsQuery
-    | StickinessQuery
-    | LifecycleQuery
-    | UnimplementedQuery
-export type InsightNodeKind = InsightQueryNode['kind']
-export type SupportedNodeKind = Exclude<InsightNodeKind, NodeKind.UnimplementedQuery>
 
 export type HogQLExpression = string
 
