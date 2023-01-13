@@ -1,14 +1,22 @@
 import ClickHouse from '@posthog/clickhouse'
 import Redis from 'ioredis'
-import { CompressionCodecs, CompressionTypes, Consumer, Kafka, KafkaMessage, Partitioners, Producer } from 'kafkajs'
-// @ts-expect-error no type definitions
+import {
+    CompressionCodecs,
+    CompressionTypes,
+    Consumer,
+    Kafka,
+    KafkaMessage,
+    logLevel,
+    Partitioners,
+    Producer,
+} from 'kafkajs'
 import SnappyCodec from 'kafkajs-snappy'
 import { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchSessionRecordingsEvents } from './api'
+import { capture, createOrganization, createTeam, fetchPerformanceEvents, fetchSessionRecordingsEvents } from './api'
 import { waitForExpect } from './expectations'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -40,7 +48,7 @@ beforeAll(async () => {
             output_format_json_quote_64bit_integers: false,
         },
     })
-    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS] })
+    kafka = new Kafka({ brokers: [defaultConfig.KAFKA_HOSTS], logLevel: logLevel.NOTHING })
     producer = kafka.producer({ createPartitioner: Partitioners.DefaultPartitioner })
     await producer.connect()
     redis = new Redis(defaultConfig.REDIS_URL)
@@ -138,6 +146,87 @@ test.concurrent(
             _offset: expect.any(Number),
             _timestamp: expect.any(String),
             created_at: expect.any(String),
+            timestamp: expect.any(String),
+        })
+    },
+    20000
+)
+
+test.concurrent(
+    `ingests $performance_event via events_plugin_ingestion topic`,
+    async () => {
+        // We have switched from pushing the `events_plugin_ingestion` to
+        // pushing to `session_recording_events`. There will still be
+        // `$performance_event` events in the `events_plugin_ingestion` topic
+        // for a while so we need to still handle these events with the current
+        // consumer.
+        const teamId = await createTeam(postgres, organizationId)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+
+        await capture(producer, teamId, distinctId, uuid, '$performance_event', {
+            $session_id: '1234abc',
+        })
+
+        await waitForExpect(async () => {
+            const events = await fetchPerformanceEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+
+            // processEvent did not modify
+            expect(events[0].session_id).toEqual('1234abc')
+        })
+    },
+    20000
+)
+
+test.concurrent(
+    `ingests $performance_event via session_recording_events topic same as events_plugin_ingestion`,
+    async () => {
+        // We have switched from pushing the `events_plugin_ingestion` to
+        // pushing to `session_recording_events`. so we want to make sure that
+        // they still work when sent through `session_recording_events` topic.
+        const teamId = await createTeam(postgres, organizationId)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+
+        await capture(producer, teamId, distinctId, uuid, '$performance_event', {
+            $session_id: '1234abc',
+            $snapshot_data: 'yes way',
+        })
+
+        await waitForExpect(async () => {
+            const events = await fetchPerformanceEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+            return events
+        })
+
+        await capture(
+            producer,
+            teamId,
+            distinctId,
+            uuid,
+            '$performance_event',
+            {
+                $session_id: '1234abc',
+                $snapshot_data: 'yes way',
+            },
+            null,
+            new Date(),
+            new Date(),
+            new Date(),
+            'session_recording_events'
+        )
+
+        const eventsThroughNewTopic = await waitForExpect(async () => {
+            const eventsThroughNewTopic = await fetchPerformanceEvents(clickHouseClient, teamId)
+            expect(eventsThroughNewTopic.length).toBe(2)
+            return eventsThroughNewTopic
+        })
+
+        expect(eventsThroughNewTopic[0]).toEqual({
+            ...eventsThroughNewTopic[1],
+            _offset: expect.any(Number),
+            _timestamp: expect.any(String),
             timestamp: expect.any(String),
         })
     },

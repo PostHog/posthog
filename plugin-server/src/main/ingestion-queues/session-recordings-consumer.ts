@@ -2,6 +2,7 @@ import { EachBatchHandler, Kafka } from 'kafkajs'
 
 import {
     KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+    KAFKA_PERFORMANCE_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS,
     KAFKA_SESSION_RECORDING_EVENTS_DLQ,
 } from '../../config/kafka-topics'
@@ -107,7 +108,10 @@ export const startSessionRecordingEventsConsumer = async ({
             }
 
             await producer.queueMessage({
-                topic: KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
+                topic:
+                    event.event === '$performance_event'
+                        ? KAFKA_PERFORMANCE_EVENTS
+                        : KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS,
                 messages: [
                     {
                         value: JSON.stringify(data),
