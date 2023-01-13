@@ -17,11 +17,16 @@
     gap: 0.25rem;
 
     &:not(.LemonInput--focused):not(.LemonInput--disabled):hover {
-        border: 1px solid var(--primary-light);
+        border-color: var(--primary-light);
     }
 
     &.LemonInput--transparent-background {
         background-color: inherit;
+    }
+
+    .Field--error &,
+    &.LemonInput--status-danger {
+        border-color: var(--danger) !important; // The error border overrides hover/focus higlighting
     }
 
     .LemonInput__input {
@@ -55,7 +60,7 @@
         }
     }
 
-    &--hascontent {
+    &--has-content {
         > .LemonIcon {
             color: var(--primary);
         }
@@ -71,12 +76,8 @@
         // NOTE Design: Search inputs are given a specific small width
         max-width: 240px;
     }
-    &--fullwidth {
+    &--full-width {
         width: 100%;
         max-width: 100%;
-    }
-
-    .Field--error & {
-        border: 1px solid var(--danger) !important;
     }
 }

@@ -20,6 +20,7 @@ from posthog.models.event.sql import (
 from posthog.models.event.util import ElementSerializer
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.insight import insight_query_with_columns, insight_sync_execute
+from posthog.utils import relative_date_parse
 
 
 # sync with "schema.ts"
@@ -38,11 +39,17 @@ def determine_event_conditions(conditions: Dict[str, Union[None, str, List[str]]
         if not isinstance(v, str):
             continue
         if k == "after":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+            try:
+                timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+            except ValueError:
+                timestamp = relative_date_parse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp > %(after)s "
             params.update({"after": timestamp})
         elif k == "before":
-            timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+            try:
+                timestamp = isoparse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
+            except ValueError:
+                timestamp = relative_date_parse(v).strftime("%Y-%m-%d %H:%M:%S.%f")
             result += "AND timestamp < %(before)s "
             params.update({"before": timestamp})
         elif k == "person_id":
@@ -69,12 +76,16 @@ def query_events_list(
     where: Optional[List[str]],
     unbounded_date_from: bool = False,
     limit: int = 100,
+    offset: int = 0,
 ) -> Union[List, EventsQueryResponse]:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
 
     limit += 1
     limit_sql = "LIMIT %(limit)s"
+
+    if offset > 0:
+        limit_sql += " OFFSET %(offset)s"
 
     conditions, condition_params = determine_event_conditions(
         {
@@ -110,14 +121,14 @@ def query_events_list(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                     conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
-                {"team_id": team.pk, "limit": limit, **condition_params, **prop_filter_params},
+                {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params, **prop_filter_params},
                 query_type="events_list",
                 workload=Workload.OFFLINE,
             )
         else:
             return insight_query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-                {"team_id": team.pk, "limit": limit, **condition_params},
+                {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params},
                 query_type="events_list",
                 workload=Workload.OFFLINE,
             )
@@ -175,9 +186,16 @@ def query_events_list(
             group="GROUP BY {}".format(", ".join(group_by_columns)) if group_by_columns else "",
             having="HAVING {}".format(" AND ".join(having_filters)) if having_filters else "",
             order="ORDER BY {}".format(", ".join(order_by_list)) if order_by_list else "",
-            limit=f"LIMIT {int(limit)}",
+            limit=limit_sql,
         ),
-        {"team_id": team.pk, **condition_params, **prop_filter_params, **collected_hogql_values},
+        {
+            "team_id": team.pk,
+            "limit": limit,
+            "offset": offset,
+            **condition_params,
+            **prop_filter_params,
+            **collected_hogql_values,
+        },
         with_column_types=True,
         query_type="events_list",
         workload=Workload.OFFLINE,

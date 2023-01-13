@@ -193,8 +193,8 @@ RECENT_PAGE_VIEWS_SQL = """
 select session_id, pageview_id, name, duration, timestamp
 from performance_events
 prewhere team_id = %(team_id)s
-and timestamp >= now() -interval %(number_of_days)s day
-and timestamp <= now()
+and timestamp >= %(date_from)s
+and timestamp <= %(date_to)s
 and entry_type = 'navigation'
 order by timestamp desc
 """

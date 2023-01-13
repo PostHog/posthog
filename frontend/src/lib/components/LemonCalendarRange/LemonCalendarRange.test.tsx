@@ -3,6 +3,7 @@ import { render, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { getByDataAttr } from '~/test/byDataAttr'
 import { LemonCalendarRange } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
+import { dayjs } from 'lib/dayjs'
 
 describe('LemonCalendarRange', () => {
     test('select various ranges', async () => {
@@ -10,7 +11,7 @@ describe('LemonCalendarRange', () => {
         const onChange = jest.fn()
 
         function TestRange(): JSX.Element {
-            const [value, setValue] = useState(['2022-02-10', '2022-02-28'] as [string, string])
+            const [value, setValue] = useState([dayjs('2022-02-10'), dayjs('2022-02-28')] as [dayjs.Dayjs, dayjs.Dayjs])
             return (
                 <LemonCalendarRange
                     months={1}
@@ -39,31 +40,31 @@ describe('LemonCalendarRange', () => {
 
         // click on 15
         await clickOn('15')
-        expect(onChange).toHaveBeenCalledWith(['2022-02-15', '2022-02-28'])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-28')])
 
         // click on 27
         await clickOn('27')
-        expect(onChange).toHaveBeenCalledWith(['2022-02-15', '2022-02-27'])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-15'), dayjs('2022-02-27')])
 
         // click on 16
         await clickOn('16')
-        expect(onChange).toHaveBeenCalledWith(['2022-02-16', '2022-02-27'])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-16'), dayjs('2022-02-27')])
 
         // click on 26
         await clickOn('26')
-        expect(onChange).toHaveBeenCalledWith(['2022-02-16', '2022-02-26'])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-16'), dayjs('2022-02-26')])
 
         // click on 10
         await clickOn('10')
-        expect(onChange).toHaveBeenCalledWith(['2022-02-10', '2022-02-26'])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-10'), dayjs('2022-02-26')])
 
         // click on 28
         await clickOn('28')
-        expect(onChange).toHaveBeenCalledWith(['2022-02-10', '2022-02-28'])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-10'), dayjs('2022-02-28')])
 
         // click on 20
         await clickOn('20')
-        expect(onChange).toHaveBeenCalledWith(['2022-02-20', '2022-02-28'])
+        expect(onChange).toHaveBeenCalledWith([dayjs('2022-02-20'), dayjs('2022-02-28')])
 
         userEvent.click(getByDataAttr(container, 'lemon-calendar-range-cancel'))
         expect(onClose).toHaveBeenCalled()
