@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { Breadcrumb, MatchedRecording, PerformanceEvent, PerformancePageView, RecentPerformancePageView } from '~/types'
 import type { webPerformanceLogicType } from './webPerformanceLogicType'
 import { urls } from 'scenes/urls'
@@ -7,6 +7,8 @@ import api from 'lib/api'
 import { getSeriesColor } from 'lib/colors'
 import { loaders } from 'kea-loaders'
 import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 
 export enum WebPerformancePage {
     TABLE = 'table',
@@ -61,12 +63,6 @@ function colorForEntry(entryType: string | undefined): string {
         default:
             return getSeriesColor(13)
     }
-}
-
-export interface MinimalPerformanceResourceTiming extends Omit<PerformanceEntry, 'entryType' | 'toJSON'> {
-    name: string
-    fetch_start: number
-    response_end: number
 }
 
 export interface ResourceTiming {
@@ -292,6 +288,7 @@ function forWaterfallDisplay(pageviewEvents: PerformanceEvent[] | null): EventPe
 
 export const webPerformanceLogic = kea<webPerformanceLogicType>([
     path(['scenes', 'performance']),
+    connect({ values: [featureFlagsLogic, ['featureFlags']] }),
     actions({
         pageViewToDisplay: (pageview: PerformancePageView | null) => ({
             pageview,
@@ -405,4 +402,12 @@ export const webPerformanceLogic = kea<webPerformanceLogicType>([
             }
         },
     })),
+    afterMount(({ actions, values }) => {
+        const featureDataExploration = values.featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+        if (featureDataExploration) {
+            // data exploration manages the data loading
+            return
+        }
+        actions.loadRecentPageViews()
+    }),
 ])

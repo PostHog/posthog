@@ -1,11 +1,11 @@
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, RecentPerformancePageView } from '~/types'
+import { RecentPerformancePageView } from '~/types'
 import { webPerformanceLogic, WebPerformancePage } from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { WebPerformanceWaterfallChart } from 'scenes/performance/WebPerformanceWaterfallChart'
 import { IconPlay } from 'lib/components/icons'
 import { LemonButton, LemonTable, Link } from '@posthog/lemon-ui'
@@ -16,21 +16,10 @@ import { NodeKind, RecentPerformancePageViewNode } from '~/queries/schema'
 import { humanFriendlyDuration } from 'lib/utils'
 import { LemonTableColumn } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useEffect } from 'react'
 
 /*
- * link to SessionRecording from table and chart
  * show histogram of pageload instead of table
  */
-
-export const webPerformancePropertyFilters: AnyPropertyFilter[] = [
-    {
-        key: '$performance_raw',
-        value: 'is_set',
-        operator: PropertyOperator.IsSet,
-        type: PropertyFilterType.Event,
-    },
-]
 
 function WaterfallButton(props: { record: RecentPerformancePageView; onClick: () => void }): JSX.Element {
     return (
@@ -50,16 +39,8 @@ function WaterfallButton(props: { record: RecentPerformancePageView; onClick: ()
 
 const EventsWithPerformanceTable = (): JSX.Element => {
     const { recentPageViews, recentPageViewsLoading } = useValues(webPerformanceLogic)
-    const { loadRecentPageViews } = useActions(webPerformanceLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
-
-    useEffect(() => {
-        if (!!recentPageViews.length && !featureDataExploration) {
-            // need to manually load pageviews if data exploration is off
-            loadRecentPageViews()
-        }
-    }, [featureDataExploration])
 
     const oldFashionedColumns: LemonTableColumn<
         RecentPerformancePageView,
@@ -169,7 +150,7 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                     loading={recentPageViewsLoading}
                     columns={oldFashionedColumns}
                     loadingSkeletonRows={20}
-                    emptyState={recentPageViewsLoading ? undefined : <>need an empty state that makes sense</>}
+                    emptyState={recentPageViewsLoading ? undefined : <>Did not load any performance events</>}
                     rowKey={(row) => row.pageview_id}
                 />
             )}
