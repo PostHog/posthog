@@ -53,12 +53,11 @@ export enum NodeKind {
     UnimplementedQuery = 'UnimplementedQuery',
 }
 
+export type AnyDataNode = EventsNode | EventsQuery | ActionsNode | PersonsNode
+
 export type QuerySchema =
     // Data nodes (see utils.ts)
-    | EventsNode
-    | EventsQuery
-    | ActionsNode
-    | PersonsNode
+    | AnyDataNode
 
     // Interface nodes
     | DataTableNode
@@ -140,6 +139,8 @@ export interface EventsQuery extends DataNode {
     event?: string
     /** Number of rows to return */
     limit?: number
+    /** Number of rows to skip before returning rows */
+    offset?: number
     /** Show events matching a given action */
     actionId?: number
     /** Show events for a given person */
@@ -193,6 +194,8 @@ export interface DataTableNode extends Node {
     showPropertyFilter?: boolean
     /** Show the kebab menu at the end of the row */
     showActions?: boolean
+    /** Show date range selector */
+    showDateRange?: boolean
     /** Show the export button */
     showExport?: boolean
     /** Show a reload button */

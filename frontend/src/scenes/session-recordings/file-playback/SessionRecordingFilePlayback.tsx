@@ -4,14 +4,14 @@ import Dragger from 'antd/lib/upload/Dragger'
 import { SessionRecordingPlayer } from '../player/SessionRecordingPlayer'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { AlertMessage } from 'lib/components/AlertMessage'
-import { sessionRecodingFilePlaybackLogic } from './sessionRecodingFilePlaybackLogic'
+import { sessionRecordingFilePlaybackLogic } from './sessionRecordingFilePlaybackLogic'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature } from '~/types'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 
 export function SessionRecordingFilePlayback(): JSX.Element {
-    const { loadFromFile, resetSessionRecording } = useActions(sessionRecodingFilePlaybackLogic)
-    const { sessionRecording, sessionRecordingLoading, playerKey } = useValues(sessionRecodingFilePlaybackLogic)
+    const { loadFromFile, resetSessionRecording } = useActions(sessionRecordingFilePlaybackLogic)
+    const { sessionRecording, sessionRecordingLoading, playerKey } = useValues(sessionRecordingFilePlaybackLogic)
     const { hasAvailableFeature } = useValues(userLogic)
     const filePlaybackEnabled = hasAvailableFeature(AvailableFeature.RECORDINGS_FILE_EXPORT)
 

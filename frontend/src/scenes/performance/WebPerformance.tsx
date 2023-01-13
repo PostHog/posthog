@@ -1,7 +1,7 @@
 import './WebPerformance.scss'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { PageHeader } from 'lib/components/PageHeader'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator, RecentPerformancePageView } from '~/types'
+import { RecentPerformancePageView } from '~/types'
 import { webPerformanceLogic, WebPerformancePage } from 'scenes/performance/webPerformanceLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -18,18 +18,8 @@ import { LemonTableColumn } from 'lib/components/LemonTable'
 import { TZLabel } from 'lib/components/TZLabel'
 
 /*
- * link to SessionRecording from table and chart
  * show histogram of pageload instead of table
  */
-
-export const webPerformancePropertyFilters: AnyPropertyFilter[] = [
-    {
-        key: '$performance_raw',
-        value: 'is_set',
-        operator: PropertyOperator.IsSet,
-        type: PropertyFilterType.Event,
-    },
-]
 
 function WaterfallButton(props: { record: RecentPerformancePageView; onClick: () => void }): JSX.Element {
     return (
@@ -160,7 +150,7 @@ const EventsWithPerformanceTable = (): JSX.Element => {
                     loading={recentPageViewsLoading}
                     columns={oldFashionedColumns}
                     loadingSkeletonRows={20}
-                    emptyState={recentPageViewsLoading ? undefined : <>need an empty state that makes sense</>}
+                    emptyState={recentPageViewsLoading ? undefined : <>Did not load any performance events</>}
                     rowKey={(row) => row.pageview_id}
                 />
             )}

@@ -2,10 +2,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import pytz
+from django.utils import timezone
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
+from structlog import get_logger
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import sync_execute
@@ -20,6 +24,8 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
+
+logger = get_logger(__name__)
 
 
 class PerformanceEventSerializer(serializers.Serializer):
@@ -125,7 +131,8 @@ class RecentPageViewPerformanceEvents:
     def query(
         cls,
         team_id: int,
-        number_of_days: int,
+        date_from: datetime,
+        date_to: datetime,
     ) -> List[Dict]:
         query = RECENT_PAGE_VIEWS_SQL
 
@@ -133,7 +140,8 @@ class RecentPageViewPerformanceEvents:
             query,
             {
                 "team_id": team_id,
-                "number_of_days": number_of_days,
+                "date_from": date_from,
+                "date_to": date_to,
             },
         )
 
@@ -153,7 +161,18 @@ class RecentPageViewPerformanceEvents:
 
 
 class RecentPageViewPerformanceEventsQuerySerializer(serializers.Serializer):
-    number_of_days = serializers.IntegerField(max_value=30, default=7, min_value=1, required=False)
+    date_from = serializers.DateTimeField(required=True)
+    date_to = serializers.DateTimeField(required=False, default=timezone.now)
+
+    def validate(self, data: Dict) -> Dict:
+        if data["date_to"] < data["date_from"]:
+            raise serializers.ValidationError("date_to must be after date_from")
+
+        # difference between date_from and date_to must be less than 31 days
+        range_length = data["date_to"] - data["date_from"]
+        if range_length.total_seconds() > (31 * 86400):
+            raise serializers.ValidationError("date_to must be within 31 days of date_from")
+        return data
 
 
 class RecentPageViewPerformanceEventListSerializer(serializers.Serializer):
@@ -210,12 +229,34 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def recent_pageviews(self, request: request.Request, *args, **kwargs) -> Response:
-        params_serializer = RecentPageViewPerformanceEventsQuerySerializer(data=request.GET)
-        params_serializer.is_valid(raise_exception=True)
-        params = params_serializer.validated_data
+        try:
+            params_serializer = RecentPageViewPerformanceEventsQuerySerializer(data=request.GET)
+            params_serializer.is_valid(raise_exception=True)
+            params = params_serializer.validated_data
+        except ValidationError as ve:
+            logger.error(
+                "performance_events_page_view_request_validation_error",
+                error=ve,
+                exc_info=True,
+            )
+            capture_exception(ve)
+            raise ve
 
-        results = RecentPageViewPerformanceEvents.query(self.team_id, number_of_days=params.get("number_of_days"))
+        results = RecentPageViewPerformanceEvents.query(
+            self.team_id, date_from=params.get("date_from"), date_to=params.get("date_to")
+        )
 
-        serializer = RecentPageViewPerformanceEventListSerializer(data=results, many=True)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer = RecentPageViewPerformanceEventListSerializer(data=results, many=True)
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as ve:
+            logger.error(
+                "performance_events_page_view_response_validation_error",
+                error=ve,
+                exc_info=True,
+                params=params,
+                results_length=len(results) if results else "None",
+            )
+            capture_exception(ve)
+            raise ve
         return Response({"results": serializer.data})

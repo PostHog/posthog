@@ -81,7 +81,7 @@ CLICKHOUSE_FUNCTIONS = {
     # array functions
     "tuple": "tuple",
     # conditional
-    "if": "if",
+    "ifElse": "if",
     "multiIf": "multiIf",
     # rounding
     "round": "round",

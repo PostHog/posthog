@@ -7,7 +7,7 @@ import { convertPropertiesToPropertyGroup, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { StickinessQuery, TrendsQuery } from '~/queries/schema'
 
-type PropertyGroupFilterLogicProps = {
+export type PropertyGroupFilterLogicProps = {
     pageKey: string
     query: TrendsQuery | StickinessQuery
     setQuery: (node: TrendsQuery | StickinessQuery) => void
@@ -37,7 +37,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
 
     reducers(({ props }) => ({
         filters: [
-            convertPropertiesToPropertyGroup(props.value),
+            convertPropertiesToPropertyGroup(props.query.properties),
             {
                 setFilters: (_, { filters }) => filters,
                 addFilterGroup: (state) => {
