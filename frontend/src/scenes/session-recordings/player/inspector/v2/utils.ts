@@ -1,26 +1,34 @@
 import { PerformanceEvent } from '~/types'
 
-// Creates a single performance summary event. Assumes events parameters only contains one navigation event.
+// Replaces navigation and paint events with a single performance summary card. Returns new set of events
 export function createPerformanceSummaryFromNavigation(
     events: PerformanceEvent[],
     startIndex: number,
     endIndex: number
-): PerformanceEvent {
+): PerformanceEvent[] {
     const navigationEvent = events[startIndex]
     const pageEvents = events.slice(startIndex, endIndex)
     const fcpIndex = pageEvents.findIndex(({ name }) => name === 'first-contentful-paint')
 
+    const eventsWithoutPaintAndNavigation = events.filter(
+        ({ entry_type }) => !['paint', 'navigation'].includes(entry_type || '')
+    )
+
     if (fcpIndex === -1) {
-        return {
-            ...navigationEvent,
-            uuid: `performance-summary-event-${navigationEvent.uuid}`,
-            entry_type: 'performance-summary',
-            first_contentful_paint: undefined,
-            time_to_interactive: undefined,
-            total_blocking_time: undefined,
-        }
+        return [
+            {
+                ...navigationEvent,
+                uuid: `performance-summary-event-${navigationEvent.uuid}`,
+                entry_type: 'performance-summary',
+                first_contentful_paint: undefined,
+                time_to_interactive: undefined,
+                total_blocking_time: undefined,
+            },
+            ...eventsWithoutPaintAndNavigation,
+        ]
     }
 
+    // TODO: Once we capture cpu thread events, we can also calculate performance metrics TTI and TBT
     /*
      * TTI calculation: https://web.dev/tti/#what-is-tti
      *  1. start at FCP
@@ -28,54 +36,57 @@ export function createPerformanceSummaryFromNavigation(
      *  3. Search backwards for the last long task before the quiet window, stopping at FCP if no long tasks are found.
      *  4. TTI is the end time of the last long task before the quiet window (or the same value as FCP if no long tasks are found).
      */
-    let ttiIndex = fcpIndex
-    let firstIdleIndex = pageEvents.length
-
-    for (let i = fcpIndex + 1; i < pageEvents.length; i++) {
-        const event = pageEvents[i]
-        const prevEvent = pageEvents[i - 1]
-        if (!event.start_time || !prevEvent.response_end) {
-            continue
-        }
-        if (event.start_time - prevEvent.response_end > 5000) {
-            firstIdleIndex = i
-            break
-        }
-    }
-
-    for (let i = firstIdleIndex - 1; i > fcpIndex; i--) {
-        const event = pageEvents[i]
-        if (!event.duration) {
-            continue
-        }
-        if (event.duration > 50) {
-            ttiIndex = i
-            break
-        }
-    }
+    // let ttiIndex = fcpIndex
+    // let firstIdleIndex = pageEvents.length
+    //
+    // for (let i = fcpIndex + 1; i < pageEvents.length; i++) {
+    //     const event = pageEvents[i]
+    //     const prevEvent = pageEvents[i - 1]
+    //     if (!event.start_time || !prevEvent.response_end) {
+    //         continue
+    //     }
+    //     if (event.start_time - prevEvent.response_end > 5000) {
+    //         firstIdleIndex = i
+    //         break
+    //     }
+    // }
+    //
+    // for (let i = firstIdleIndex - 1; i > fcpIndex; i--) {
+    //     const event = pageEvents[i]
+    //     if (!event.duration) {
+    //         continue
+    //     }
+    //     if (event.duration > 50) {
+    //         ttiIndex = i
+    //         break
+    //     }
+    // }
 
     /*
      * TBT calculation: https://web.dev/tbt/#what-is-tbt
      * 1. Add up all durations exceeding 50ms between FCP and TTI
      */
-    let tbt_duration = 0
-    for (let i = fcpIndex; i < Math.min(ttiIndex + 1, pageEvents.length); i++) {
-        const event = pageEvents[i]
-        if (!event.duration) {
-            continue
-        }
-        const total_blocking_time = Math.max(event.duration - 50, 0)
-        tbt_duration += total_blocking_time
-    }
+    // let tbt_duration = 0
+    // for (let i = fcpIndex; i < Math.min(ttiIndex + 1, pageEvents.length); i++) {
+    //     const event = pageEvents[i]
+    //     if (!event.duration) {
+    //         continue
+    //     }
+    //     const total_blocking_time = Math.max(event.duration - 50, 0)
+    //     tbt_duration += total_blocking_time
+    // }
 
-    return {
-        ...navigationEvent,
-        uuid: `performance-summary-event-${navigationEvent.uuid}`,
-        entry_type: 'performance-summary',
-        first_contentful_paint: pageEvents[fcpIndex].start_time,
-        time_to_interactive: pageEvents[ttiIndex].response_end,
-        total_blocking_time: tbt_duration,
-    }
+    return [
+        {
+            ...navigationEvent,
+            uuid: `performance-summary-event-${navigationEvent.uuid}`,
+            entry_type: 'performance-summary',
+            first_contentful_paint: pageEvents[fcpIndex].start_time,
+            // time_to_interactive: pageEvents[ttiIndex].response_end,
+            // total_blocking_time: tbt_duration,
+        },
+        ...eventsWithoutPaintAndNavigation,
+    ]
 }
 
 export function createPerformanceSummaryEvents(events: PerformanceEvent[]): PerformanceEvent[] {
@@ -97,8 +108,8 @@ export function createPerformanceSummaryEvents(events: PerformanceEvent[]): Perf
     for (let i = 0; i < navigationIndices.length - 1; i++) {
         const prevNavI = navigationIndices[i]
         const nextNavI = navigationIndices[i + 1]
-        const performanceSummaryEvent = createPerformanceSummaryFromNavigation(events, prevNavI, nextNavI)
-        finalEvents = [...finalEvents, performanceSummaryEvent, ...events.slice(prevNavI, nextNavI)]
+        const nextEvents = createPerformanceSummaryFromNavigation(events, prevNavI, nextNavI)
+        finalEvents = [...finalEvents, ...nextEvents]
     }
     return finalEvents
 }

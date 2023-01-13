@@ -132,6 +132,27 @@ const MiniFilters: SharedListMiniFilter[] = [
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
     },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-2xx',
+        name: '2xx',
+        tooltip:
+            'Requests that returned a HTTP status code of 2xx. The request was successfully received, understood, and accepted.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-4xx',
+        name: '4xx',
+        tooltip:
+            'Requests that returned a HTTP status code of 4xx. The request contains bad syntax or cannot be fulfilled.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-5xx',
+        name: '5xx',
+        tooltip:
+            'Requests that returned a HTTP status code of 5xx. The server failed to fulfil an apparently valid request.',
+    },
 ]
 
 // This logic contains player settings that should persist across players

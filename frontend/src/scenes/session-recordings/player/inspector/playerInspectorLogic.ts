@@ -244,6 +244,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 ) {
                     for (const event of performanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
+                        const responseStatus = event.response_status || 200
 
                         let include = false
 
@@ -256,7 +257,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             (miniFiltersByKey['performance-document']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['performance-summary', 'navigation', 'paint'].includes(event.entry_type || '')
+                            ['performance-summary'].includes(event.entry_type || '')
                         ) {
                             include = true
                         }
@@ -307,6 +308,39 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
 
+                        if (
+                            (miniFiltersByKey['performance-2xx']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            event.entry_type === 'resource' &&
+                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '') &&
+                            responseStatus < 300 &&
+                            responseStatus >= 200
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            (miniFiltersByKey['performance-4xx']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            event.entry_type === 'resource' &&
+                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '') &&
+                            responseStatus < 500 &&
+                            responseStatus >= 400
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            (miniFiltersByKey['performance-5xx']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            event.entry_type === 'resource' &&
+                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '') &&
+                            responseStatus < 600 &&
+                            responseStatus >= 500
+                        ) {
+                            include = true
+                        }
+
                         if (windowIdFilter && event.window_id !== windowIdFilter) {
                             include = false
                         }
@@ -321,6 +355,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
                             data: event,
+                            highlightColor: responseStatus >= 400 ? 'danger' : undefined,
                             windowId: event.window_id,
                         })
                     }
