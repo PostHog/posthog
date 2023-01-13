@@ -197,6 +197,16 @@ def groups(organization: Optional[Organization] = None, team: Optional[Team] = N
         result["organization"] = str(organization.pk)
         if organization.customer_id:
             result["customer"] = organization.customer_id
+    elif team is not None and team.organization_id:
+        result["organization"] = str(team.organization_id)
+
     if team is not None:
         result["project"] = str(team.uuid)
     return result
+
+
+def report_team_action(team: Team, event: str, properties: Dict = {}):
+    """
+    For capturing events where it is unclear which user was the core actor we can use the team instead
+    """
+    posthoganalytics.capture(str(team.uuid), event, properties=properties, groups=groups(team=team))

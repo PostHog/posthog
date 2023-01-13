@@ -2,6 +2,7 @@
     margin-top: 1rem;
     border: 1px solid var(--border);
     border-radius: var(--radius);
+    overflow: hidden;
 
     .ant-table {
         thead th {
@@ -12,28 +13,24 @@
     .funnel-correlation-header {
         background: #f2f2f2;
         display: flex;
+        align-items: center;
         align-self: stretch;
+        padding: 0.25rem 0.5rem;
         justify-content: space-between;
         align-content: space-between;
         border-top-left-radius: var(--radius);
         border-top-right-radius: var(--radius);
-        padding-bottom: 5px;
 
         .table-header {
             font-style: normal;
             font-weight: bold;
             font-size: 11px;
             line-height: 16px;
-            padding-bottom: 4px;
-
             display: flex;
             align-items: center;
             letter-spacing: 0.02em;
             text-transform: uppercase;
-
             color: var(--default);
-            margin-left: 1rem;
-            margin-top: 0.5rem;
         }
 
         .table-options {
@@ -41,7 +38,6 @@
             flex-grow: 1;
             justify-content: flex-end;
             align-items: center;
-            margin-top: 5px;
 
             .title {
                 font-family: Inter;
@@ -74,20 +70,6 @@
         border-radius: var(--radius);
         thead th {
             border-bottom: 1px solid var(--border);
-        }
-    }
-
-    .nested-properties-loading {
-        text-align: center;
-        padding: 2rem 0;
-
-        h3 {
-            font-size: 1rem;
-            font-weight: bold;
-            margin-bottom: 0;
-            p {
-                color: var(--muted-alt);
-            }
         }
     }
 }

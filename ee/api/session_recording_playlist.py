@@ -195,7 +195,7 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
                     Q(name__icontains=request.GET["search"]) | Q(derived_name__icontains=request.GET["search"])
                 )
             elif key == "session_recording_id":
-                queryset = queryset.filter(playlist_items__session_id=request.GET["session_recording_id"])
+                queryset = queryset.filter(playlist_items__recording_id=request.GET["session_recording_id"])
         return queryset
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
@@ -223,7 +223,9 @@ class SessionRecordingPlaylistViewSet(StructuredViewSetMixin, ForbidDestroyModel
 
         # TODO: Maybe we need to save the created_at date here properly to help with filtering
         if request.method == "POST":
-            recording, _ = SessionRecording.objects.get_or_create(session_id=session_recording_id, team=self.team)
+            recording, _ = SessionRecording.objects.get_or_create(
+                session_id=session_recording_id, team=self.team, defaults={"deleted": False}
+            )
             playlist_item, created = SessionRecordingPlaylistItem.objects.get_or_create(
                 playlist=playlist, recording=recording
             )

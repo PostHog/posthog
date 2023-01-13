@@ -4,26 +4,22 @@ import gzip
 import json
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
-from typing import (
-    Any,
-    DefaultDict,
-    Dict,
-    Generator,
-    List,
-    Optional,
-    TypedDict,
-    Union,
-)
+from typing import Any, DefaultDict, Dict, Generator, List, Optional
 
 from sentry_sdk.api import capture_exception, capture_message
 
 from posthog.models import utils
+from posthog.models.session_recording.metadata import (
+    DecompressedRecordingData,
+    RecordingSegment,
+    SessionRecordingEventSummary,
+    SnapshotData,
+    SnapshotDataTaggedWithWindowId,
+    WindowId,
+)
 
 FULL_SNAPSHOT = 2
 
-Event = Dict[str, Any]
-SnapshotData = Dict
-WindowId = Optional[str]
 
 # NOTE: For reference here are some helpful enum mappings from rrweb
 # https://github.com/rrweb-io/rrweb/blob/master/packages/rrweb/src/types.ts
@@ -90,44 +86,7 @@ EVENT_SUMMARY_DATA_INCLUSIONS = [
 ]
 
 
-class RecordingSegment(TypedDict):
-    start_time: datetime
-    end_time: datetime
-    window_id: WindowId
-    is_active: bool
-
-
-class SnapshotDataTaggedWithWindowId(TypedDict):
-    window_id: WindowId
-    snapshot_data: SnapshotData
-
-
-# NOTE: EventSummary is a minimal version of full events, containing only some of the "data" content - strings and numbers
-class SessionRecordingEventSummary(TypedDict):
-    timestamp: int
-    type: int
-    # keys of this object should be any of EVENT_SUMMARY_DATA_INCLUSIONS
-    data: Dict[str, Union[int, str]]
-
-
-class SessionRecordingEvent(TypedDict):
-    timestamp: datetime
-    distinct_id: str
-    session_id: str
-    window_id: str
-    snapshot_data: Dict[str, Any]
-    events_summary: List[SessionRecordingEventSummary]
-
-
-class RecordingMetadata(TypedDict):
-    distinct_id: str
-    segments: List[RecordingSegment]
-    start_and_end_times_by_window_id: Dict[WindowId, RecordingSegment]
-
-
-class DecompressedRecordingData(TypedDict):
-    has_next: bool
-    snapshot_data_by_window_id: Dict[WindowId, List[Union[SnapshotData, SessionRecordingEventSummary]]]
+Event = Dict[str, Any]
 
 
 def preprocess_session_recording_events_for_clickhouse(events: List[Event]) -> List[Event]:

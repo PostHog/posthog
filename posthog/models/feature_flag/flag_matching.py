@@ -153,7 +153,6 @@ class FeatureFlagMatcher:
                 if faced_error_computing_flags:
                     capture_exception(err)
                 capture_exception(err)
-
         return flag_values, flag_evaluation_reasons
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:

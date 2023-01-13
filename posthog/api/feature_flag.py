@@ -13,6 +13,7 @@ from sentry_sdk import capture_exception
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, TemporaryTokenAuthentication
 from posthog.event_usage import report_user_action
 from posthog.models import FeatureFlag
@@ -40,7 +41,7 @@ class CanEditFeatureFlag(BasePermission):
             return can_user_edit_feature_flag(request, feature_flag)
 
 
-class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     # :TRICKY: Needed for backwards compatibility
     filters = serializers.DictField(source="get_filters", required=False)
@@ -74,6 +75,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "rollback_conditions",
             "performed_rollback",
             "can_edit",
+            "tags",
         ]
 
     def get_can_edit(self, feature_flag: FeatureFlag) -> bool:
@@ -165,6 +167,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         request = self.context["request"]
         validated_data["created_by"] = request.user
         validated_data["team_id"] = self.context["team_id"]
+        tags = validated_data.pop("tags", None)  # tags are created separately below as global tag relationships
+
         self._update_filters(validated_data)
 
         variants = (validated_data.get("filters", {}).get("multivariate", {}) or {}).get("variants", [])
@@ -180,6 +184,8 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
         FeatureFlag.objects.filter(key=validated_data["key"], team=self.context["team_id"], deleted=True).delete()
         instance: FeatureFlag = super().create(validated_data)
         instance.update_cohorts()
+
+        self._attempt_set_tags(tags, instance)
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
@@ -226,7 +232,7 @@ class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
         ]
 
 
-class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
+class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelViewSet):
     """
     Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/user-guides/feature-flags) for more information on feature flags.
 

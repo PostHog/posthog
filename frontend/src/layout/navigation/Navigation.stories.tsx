@@ -1,5 +1,4 @@
 import { Meta } from '@storybook/react'
-import { Layout } from 'antd'
 import { TopBar } from './TopBar/TopBar'
 import { SideBar } from './SideBar/SideBar'
 import React from 'react'
@@ -11,11 +10,11 @@ export default {
 
 export function Navigation_(): JSX.Element {
     return (
-        <Layout>
+        <div>
             <TopBar />
             <SideBar>
                 <React.Fragment />
             </SideBar>
-        </Layout>
+        </div>
     )
 }

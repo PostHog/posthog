@@ -22,7 +22,15 @@ class Text(models.Model):
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
+class DashboardTileManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True).exclude(dashboard__deleted=True)
+
+
 class DashboardTile(models.Model):
+    objects = DashboardTileManager()
+    objects_including_soft_deleted = models.Manager()
+
     # Relations
     dashboard = models.ForeignKey("posthog.Dashboard", on_delete=models.CASCADE, related_name="tiles")
     insight = models.ForeignKey("posthog.Insight", on_delete=models.CASCADE, related_name="dashboard_tiles", null=True)
@@ -99,7 +107,7 @@ class DashboardTile(models.Model):
                 "insight__last_modified_by",
                 "insight__team",
             )
-            .exclude(deleted=True)
+            .exclude(dashboard__deleted=True)
             .filter(Q(insight__deleted=False) | Q(insight__isnull=True))
             .order_by("insight__order")
         )

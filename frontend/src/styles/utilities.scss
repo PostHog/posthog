@@ -5,7 +5,7 @@
     PLEASE READ BEFORE MODIFYING THIS FILE
 
     We don't use Tailwind in PostHog but we do use a lot of helpful Utility classes to make straightforward CSS easy.
-    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible. 
+    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible.
     As such, if something is missing here, please go to Tailwind's docs and copy their implementation rather than creating your own
     custom naming conventions 🙌
 */
@@ -313,35 +313,46 @@
         max-#{$kind}: unquote('100v' + $char);
     }
 
-    .#{$char}-1\/2 {
-        #{$kind}: 50%;
-    }
-    .#{$char}-1\/3 {
-        #{$kind}: 33.333333%;
-    }
-    .#{$char}-2\/3 {
-        #{$kind}: 66.666667%;
-    }
-    .#{$char}-1\/4 {
-        #{$kind}: 25%;
-    }
-    .#{$char}-2\/4 {
-        #{$kind}: 50%;
-    }
-    .#{$char}-3\/4 {
-        #{$kind}: 75%;
-    }
-    .#{$char}-1\/5 {
-        #{$kind}: 20%;
-    }
-    .#{$char}-2\/5 {
-        #{$kind}: 40%;
-    }
-    .#{$char}-3\/5 {
-        #{$kind}: 60%;
-    }
-    .#{$char}-4\/5 {
-        #{$kind}: 80%;
+    @each $variant in ('', 'max-', 'min-') {
+        .#{$variant}#{$char}-1\/2 {
+            #{$variant}#{$kind}: 50%;
+        }
+
+        .#{$variant}#{$char}-1\/3 {
+            #{$variant}#{$kind}: 33.333333%;
+        }
+
+        .#{$variant}#{$char}-2\/3 {
+            #{$variant}#{$kind}: 66.666667%;
+        }
+
+        .#{$variant}#{$char}-1\/4 {
+            #{$variant}#{$kind}: 25%;
+        }
+
+        .#{$variant}#{$char}-2\/4 {
+            #{$variant}#{$kind}: 50%;
+        }
+
+        .#{$variant}#{$char}-3\/4 {
+            #{$variant}#{$kind}: 75%;
+        }
+
+        .#{$variant}#{$char}-1\/5 {
+            #{$variant}#{$kind}: 20%;
+        }
+
+        .#{$variant}#{$char}-2\/5 {
+            #{$variant}#{$kind}: 40%;
+        }
+
+        .#{$variant}#{$char}-3\/5 {
+            #{$variant}#{$kind}: 60%;
+        }
+
+        .#{$variant}#{$char}-4\/5 {
+            #{$variant}#{$kind}: 80%;
+        }
     }
 }
 
