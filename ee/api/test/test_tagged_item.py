@@ -4,7 +4,7 @@ import pytest
 from django.utils import timezone
 from rest_framework import status
 
-from posthog.models import Dashboard, Insight, Tag
+from posthog.models import Dashboard, FeatureFlag, Insight, Tag
 from posthog.models.tagged_item import TaggedItem
 from posthog.test.base import APIBaseTest
 
@@ -119,6 +119,10 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
         tag = Tag.objects.create(name="insight tag", team_id=self.team.id)
         insight.tagged_items.create(tag_id=tag.id)
 
+        feature_flag = FeatureFlag.objects.create(team_id=self.team.id, created_by=self.user, key="flag with tag")
+        tag = Tag.objects.create(name="feature flag tag", team_id=self.team.id)
+        feature_flag.tagged_items.create(tag_id=tag.id)
+
         response = self.client.get(f"/api/projects/{self.team.id}/tags")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == ["dashboard tag", "insight tag"]
+        assert response.json() == ["dashboard tag", "insight tag", "feature flag tag"]
