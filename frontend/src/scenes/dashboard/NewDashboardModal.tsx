@@ -84,9 +84,11 @@ export function NewDashboardModal(): JSX.Element {
                 <Field name="name" label="Name">
                     <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
                 </Field>
-                <Field name="description" label="Description" showOptional>
-                    <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
-                </Field>
+                <PayGateMini feature={AvailableFeature.DASHBOARD_COLLABORATION}>
+                    <Field name="description" label="Description" showOptional>
+                        <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
+                    </Field>
+                </PayGateMini>
                 <Field name="useTemplate" label="Template" showOptional>
                     <LemonSelect
                         placeholder="Optionally start from template"
