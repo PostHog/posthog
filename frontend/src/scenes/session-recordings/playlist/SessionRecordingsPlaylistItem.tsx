@@ -102,13 +102,13 @@ export function SessionRecordingPlaylistItem({
             </div>
             <div className="grow overflow-hidden space-y-px">
                 <div className="flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1 shrink">
+                    <div className="flex items-center gap-1 shrink overflow-hidden">
                         {(recording.pinned_count ?? 0) > 0 && (
                             <Tooltip
                                 placement="topRight"
                                 title={`This recording is pinned on ${recording.pinned_count} playlists`}
                             >
-                                <IconPin className="text-sm text-orange" />
+                                <IconPin className="text-sm text-orange shrink-0" />
                             </Tooltip>
                         )}
                         <div className="truncate font-medium text-primary ph-no-capture">
