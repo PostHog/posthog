@@ -111,24 +111,36 @@ export const insightDataLogic = kea<insightDataLogicType>([
         setQuery: (query: Node) => ({ query }),
         updateQuerySource: (query: Omit<Partial<InsightQueryNode>, 'kind'>) => ({ query }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
+        updateBreakdown: (breakdown: BreakdownFilter) => ({ breakdown }),
     }),
 
-    reducers(({ props }) => ({ query: [getDefaultQuery(props) as Node, { setQuery: (_, { query }) => query }] })),
+    reducers(({ props }) => ({
+        query: [
+            getDefaultQuery(props) as Node,
+            {
+                setQuery: (_, { query }) => query,
+            },
+        ],
+    })),
 
     selectors({
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
     }),
 
     listeners(({ actions, values }) => ({
+        updateBreakdown: ({ breakdown }) => {
+            const newQuerySource = { ...values.querySource, breakdown }
+            actions.updateQuerySource(newQuerySource)
+        },
         updateInsightFilter: ({ insightFilter }) => {
             if (isUnimplementedQuery(values.querySource)) {
                 return
             }
 
-            const filterPropery = filterPropertyForQuery(values.querySource)
+            const filterProperty = filterPropertyForQuery(values.querySource)
             const newQuerySource = { ...values.querySource }
-            newQuerySource[filterPropery] = {
-                ...values.querySource[filterPropery],
+            newQuerySource[filterProperty] = {
+                ...values.querySource[filterProperty],
                 ...insightFilter,
             }
             actions.updateQuerySource(newQuerySource)
