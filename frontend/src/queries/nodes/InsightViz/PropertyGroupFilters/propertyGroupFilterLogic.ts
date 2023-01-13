@@ -7,7 +7,7 @@ import { convertPropertiesToPropertyGroup, objectsEqual } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { StickinessQuery, TrendsQuery } from '~/queries/schema'
 
-type PropertyGroupFilterLogicProps = {
+export type PropertyGroupFilterLogicProps = {
     pageKey: string
     query: TrendsQuery | StickinessQuery
     setQuery: (node: TrendsQuery | StickinessQuery) => void
