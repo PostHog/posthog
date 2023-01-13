@@ -1376,6 +1376,7 @@ export interface FilterType {
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    new_entity?: Record<string, any>[]
 
     filter_test_accounts?: boolean
     from_dashboard?: boolean | number
@@ -1455,7 +1456,6 @@ export interface FunnelsFilterType extends FilterType {
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
-    new_entity?: Record<string, any>[]
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
 }
 export interface PathsFilterType extends FilterType {

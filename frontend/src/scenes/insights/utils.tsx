@@ -39,8 +39,8 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { ActionsNode, EventsNode, InsightQueryNode } from '~/queries/schema'
-import { isEventsNode, isLifecycleQuery } from '~/queries/utils'
+import { ActionsNode, EventsNode, InsightQueryNode, StickinessQuery } from '~/queries/schema'
+import { isEventsNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 
 export const getDisplayNameFromEntityFilter = (
     filter: EntityFilter | ActionFilter | null,
@@ -327,12 +327,24 @@ export function summarizeInsightFilters(
     return ''
 }
 
-export function summarizeInsightQuery(query: InsightQueryNode): string {
-    if (isLifecycleQuery(query)) {
+export function summarizeInsightQuery(
+    query: InsightQueryNode,
+    aggregationLabel: groupsModelType['values']['aggregationLabel']
+): string {
+    if (isStickinessQuery(query)) {
+        return capitalizeFirstLetter(
+            (query as StickinessQuery).series
+                .map((s) => {
+                    const actor = aggregationLabel(s.math_group_type_index, true).singular
+                    return `${actor} stickiness based on ${getDisplayNameFromEntityNode(s)}`
+                })
+                .join(' & ')
+        )
+    } else if (isLifecycleQuery(query)) {
         return `User lifecycle based on ${getDisplayNameFromEntityNode(query.series[0])}`
+    } else {
+        return ''
     }
-
-    return ''
 }
 
 export function formatAggregationValue(

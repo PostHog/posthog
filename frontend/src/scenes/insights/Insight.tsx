@@ -141,7 +141,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         value={insight.name || ''}
                         placeholder={
                             isUsingDataExploration
-                                ? summarizeInsightQuery((query as InsightVizNode).source)
+                                ? summarizeInsightQuery((query as InsightVizNode).source, aggregationLabel)
                                 : summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
                         }
                         onSave={(value) => setInsightMetadata({ name: value })}

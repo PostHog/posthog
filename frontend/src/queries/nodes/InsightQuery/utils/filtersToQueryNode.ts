@@ -1,7 +1,7 @@
 import { InsightQueryNode, EventsNode, ActionsNode, NodeKind, SupportedNodeKind } from '~/queries/schema'
 import { FilterType, InsightType, ActionFilter } from '~/types'
-import { isLifecycleQuery } from '~/queries/utils'
-import { isLifecycleFilter } from 'scenes/insights/sharedUtils'
+import { isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
+import { isLifecycleFilter, isStickinessFilter } from 'scenes/insights/sharedUtils'
 import { objectClean } from 'lib/utils'
 
 const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
@@ -13,32 +13,44 @@ const reverseInsightMap: Record<InsightType, SupportedNodeKind> = {
     [InsightType.LIFECYCLE]: NodeKind.LifecycleQuery,
 }
 
-type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[] }
+type FilterTypeActionsAndEvents = { events?: ActionFilter[]; actions?: ActionFilter[]; new_entity?: ActionFilter[] }
 
 export const actionsAndEventsToSeries = ({
     actions,
     events,
+    new_entity,
 }: FilterTypeActionsAndEvents): (EventsNode | ActionsNode)[] => {
-    const series: any = [...(actions || []), ...(events || [])]
+    const series: any = [...(actions || []), ...(events || []), ...(new_entity || [])]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
-        // TODO: handle new_entity type
-        .map((f) =>
-            f.type === 'actions'
-                ? {
-                      kind: NodeKind.ActionsNode,
-                      id: f.id,
-                      name: f.name || undefined,
-                      custom_name: f.custom_name,
-                      properties: f.properties,
-                  }
-                : {
-                      kind: NodeKind.EventsNode,
-                      event: f.id,
-                      name: f.name || undefined,
-                      custom_name: f.custom_name,
-                      properties: f.properties,
-                  }
-        )
+        .map((f) => {
+            const shared = {
+                name: f.name || undefined,
+                custom_name: f.custom_name,
+                properties: f.properties,
+                math: f.math,
+                math_property: f.math_property,
+                math_group_type_index: f.math_group_type_index,
+            }
+            if (f.type === 'actions') {
+                return {
+                    kind: NodeKind.ActionsNode,
+                    id: f.id,
+                    ...shared,
+                }
+            } else if (f.type === 'events') {
+                return {
+                    kind: NodeKind.EventsNode,
+                    event: f.id,
+                    ...shared,
+                }
+            } else if (f.type === 'new_entity') {
+                return {
+                    kind: NodeKind.NewEntityNode,
+                    event: f.id,
+                    ...shared,
+                }
+            }
+        })
 
     return series
 }
@@ -74,6 +86,12 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
     if (isLifecycleFilter(filters) && isLifecycleQuery(query)) {
         query.lifecycleFilter = objectClean({
             shown_as: filters.shown_as,
+        })
+    }
+
+    if (isStickinessFilter(filters) && isStickinessQuery(query)) {
+        query.stickinessFilter = objectClean({
+            display: filters.display,
         })
     }
 
