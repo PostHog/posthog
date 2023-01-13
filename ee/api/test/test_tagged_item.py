@@ -125,4 +125,4 @@ class TestEnterpriseTaggedItemSerializerMixin(APIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/tags")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == ["dashboard tag", "insight tag", "feature flag tag"]
+        assert response.json() == ["dashboard tag", "feature flag tag", "insight tag"]
