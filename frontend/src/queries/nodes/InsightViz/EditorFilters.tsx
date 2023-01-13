@@ -29,7 +29,7 @@ import { TrendsSeriesLabel } from './TrendsSeriesLabel'
 import { TrendsFormulaLabel } from './TrendsFormulaLabel'
 import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
-import { getDisplay } from './utils'
+import { getBreakdown, getDisplay } from './utils'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -47,6 +47,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const isLifecycle = isLifecycleQuery(query)
 
     const display = getDisplay(query)
+    const breakdown = getBreakdown(query)
 
     const isTrendsLike = isTrends || isLifecycle || isStickiness
     const hasBreakdown = isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(display || ChartDisplayType.ActionsLineGraph)
@@ -108,8 +109,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
         },
         {
             title: 'Breakdown',
-            // count: filters.breakdowns?.length || (filters.breakdown ? 1 : 0),
-            position: 'right',
+            count: breakdown?.breakdowns?.length || (breakdown?.breakdown ? 1 : 0),
             editorFilters: filterFalsy([
                 hasBreakdown
                     ? {
