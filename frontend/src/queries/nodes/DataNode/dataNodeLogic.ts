@@ -49,6 +49,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
         setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
+        queryError: (error: string) => ({ error }),
     }),
     loaders(({ actions, cache, values, props }) => ({
         response: [
@@ -69,6 +70,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         actions.setElapsedTime(performance.now() - now)
                         return data
                     } catch (e: any) {
+                        if (e.status === 400 && e.detail) {
+                            actions.queryError(e.detail)
+                            return null
+                        }
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             return values.response
                         } else {
@@ -159,12 +164,22 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadData: () => performance.now(),
                 loadNewData: () => performance.now(),
                 loadNextData: () => performance.now(),
+                queryError: () => null,
             },
         ],
         elapsedTime: [
             null as number | null,
             {
                 setElapsedTime: (_, { elapsedTime }) => elapsedTime,
+                loadData: () => null,
+                loadNewData: () => null,
+                loadNextData: () => null,
+            },
+        ],
+        error: [
+            null as string | null,
+            {
+                queryError: (_, { error }) => error,
                 loadData: () => null,
                 loadNewData: () => null,
                 loadNextData: () => null,

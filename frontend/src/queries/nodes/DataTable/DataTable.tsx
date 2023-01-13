@@ -27,6 +27,7 @@ import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 interface DataTableProps {
     query: DataTableNode
@@ -34,6 +35,8 @@ interface DataTableProps {
     /** Custom table columns */
     context?: QueryContext
 }
+
+const errorKey = Symbol('__error_in_query')
 
 let uniqueNode = 0
 
@@ -46,6 +49,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const {
         response,
         responseLoading,
+        error,
         canLoadNextData,
         canLoadNewData,
         nextDataLoading,
@@ -91,10 +95,10 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             dataIndex: key as any,
             ...renderColumnMeta(key, query, context),
             render: function RenderDataTableColumn(_: any, record: Record<string, any> | any[]) {
-                if (categoryRowKey in record) {
+                if (categoryRowKey in record || errorKey in record) {
                     if (index === (expandable ? 1 : 0)) {
                         return {
-                            children: record[categoryRowKey],
+                            children: record[categoryRowKey] ?? record[errorKey],
                             props: { colSpan: columns.length + (actionsColumnShown ? 1 : 0) },
                         }
                     } else {
@@ -113,7 +117,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                       dataIndex: '__more' as any,
                       title: '',
                       render: function RenderMore(_: any, record: Record<string, any> | any[]) {
-                          if (categoryRowKey in record) {
+                          if (categoryRowKey in record || errorKey in record) {
                               return { props: { colSpan: 0 } }
                           }
                           if (isEventsQuery(query.source) && columns.includes('*')) {
@@ -202,15 +206,34 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                         </div>
                     ) : null}
+
                     <LemonTable
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
                         key={columns.join('::') /* Bust the LemonTable cache when columns change */}
-                        dataSource={dataSource}
+                        dataSource={
+                            error
+                                ? [
+                                      {
+                                          [errorKey]: (
+                                              <div className="py-4 pr-4 space-y-4">
+                                                  <AlertMessage type="error">
+                                                      There was an error completing this query
+                                                  </AlertMessage>
+                                                  <div className="font-mono">{error}</div>
+                                              </div>
+                                          ),
+                                      },
+                                  ]
+                                : dataSource
+                        }
                         rowKey={(record, rowIndex) => {
                             if (categoryRowKey in record) {
                                 return `__category_row__${rowIndex}`
+                            }
+                            if (errorKey in record) {
+                                return `__error_row__${rowIndex}`
                             }
                             if (isEventsQuery(query.source)) {
                                 if (columns.includes('*')) {
@@ -246,7 +269,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 : undefined
                         }
                         expandable={
-                            expandable && isEventsQuery(query.source) && columns.includes('*')
+                            expandable && !error && isEventsQuery(query.source) && columns.includes('*')
                                 ? {
                                       expandedRowRender: function renderExpand(event) {
                                           if (isEventsQuery(query.source) && Array.isArray(event)) {
@@ -271,6 +294,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             })
                         }
                     />
+
                     {canLoadNextData && ((response as any).results.length > 0 || !responseLoading) && (
                         <LoadNext query={query.source} />
                     )}

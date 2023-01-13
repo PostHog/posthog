@@ -3,10 +3,11 @@ import urllib
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
 
+from clickhouse_driver.errors import ServerException
 from django.db.models.query import Prefetch
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from rest_framework import mixins, request, response, serializers, viewsets
+from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
 from rest_framework.permissions import IsAuthenticated
@@ -182,6 +183,19 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             if not is_csv_request and len(query_result) > limit:
                 next_url = self._build_next_url(request, query_result[limit - 1]["timestamp"], order_by)
             return response.Response({"next": next_url, "results": result})
+
+        except ValueError as err:
+            return response.Response(
+                {"detail": str(err), "code": "hogql_parsing_error", "type": "validation_error", "attr": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except ServerException as ex:
+            message = ex.message.split("Stack trace:")[0]
+            return response.Response(
+                {"detail": message, "code": "server_query_error", "type": "validation_error", "attr": None},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         except Exception as ex:
             capture_exception(ex)

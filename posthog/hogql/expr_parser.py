@@ -144,10 +144,13 @@ def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
         hql = re.sub(r"properties\.(\$[$a-zA-Z0-9_\-]+)", r"properties['\1']", hql)
         node = ast.parse(hql)
     except SyntaxError as err:
-        raise ValueError(f"SyntaxError: {err.msg}")
+        raise ValueError(f'Error parsing HogQL expression "{hql}": {err.msg}')
     if not context:
         context = ExprParserContext()
-    return translate_ast(node, [], context)
+    try:
+        return translate_ast(node, [], context)
+    except ValueError as err:
+        raise ValueError(f'Error parsing HogQL expression "{hql}": {err}')
 
 
 def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContext) -> str:

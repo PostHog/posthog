@@ -96,6 +96,31 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response.json(), self.validation_error_response("Properties are unparsable!", "invalid_input")
         )
 
+    def test_events_list_query_errors(self):
+        _create_person(properties={"email": "tim@posthog.com"}, team=self.team, distinct_ids=["2", "some-random-uid"])
+        _create_event(event="event_name", team=self.team, distinct_id="2", properties={"$browser": "Chrome"})
+        flush_persons_and_events()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?select=%s" % (json.dumps(["not_a_field"])))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertDictEqual(
+            response.json(),
+            self.validation_error_response(
+                "Error parsing HogQL expression \"not_a_field\": Unknown event field 'not_a_field'",
+                "hogql_parsing_error",
+            ),
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/events/?select=%s" % (json.dumps(["1 - 'str'"])))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertDictEqual(
+            response.json(),
+            self.validation_error_response(
+                "DB::Exception: Illegal types UInt8 and String of arguments of function minus: While processing 1 - 'str'. ",
+                "server_query_error",
+            ),
+        )
+
     def test_filter_events_by_precalculated_cohort(self):
         Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"key": "value"})
         _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-02T12:00:00Z")
