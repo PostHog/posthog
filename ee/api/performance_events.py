@@ -5,8 +5,11 @@ import pytz
 from django.utils import timezone
 from rest_framework import request, serializers, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
+from structlog import get_logger
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import sync_execute
@@ -21,6 +24,8 @@ from posthog.permissions import (
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
+
+logger = get_logger(__name__)
 
 
 class PerformanceEventSerializer(serializers.Serializer):
@@ -224,14 +229,34 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
 
     @action(methods=["GET"], detail=False)
     def recent_pageviews(self, request: request.Request, *args, **kwargs) -> Response:
-        params_serializer = RecentPageViewPerformanceEventsQuerySerializer(data=request.GET)
-        params_serializer.is_valid(raise_exception=True)
-        params = params_serializer.validated_data
+        try:
+            params_serializer = RecentPageViewPerformanceEventsQuerySerializer(data=request.GET)
+            params_serializer.is_valid(raise_exception=True)
+            params = params_serializer.validated_data
+        except ValidationError as ve:
+            logger.error(
+                "performance_events_page_view_request_validation_error",
+                error=ve,
+                exc_info=True,
+            )
+            capture_exception(ve)
+            raise ve
 
         results = RecentPageViewPerformanceEvents.query(
             self.team_id, date_from=params.get("date_from"), date_to=params.get("date_to")
         )
 
-        serializer = RecentPageViewPerformanceEventListSerializer(data=results, many=True)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer = RecentPageViewPerformanceEventListSerializer(data=results, many=True)
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as ve:
+            logger.error(
+                "performance_events_page_view_response_validation_error",
+                error=ve,
+                exc_info=True,
+                params=params,
+                results_length=len(results) if results else "None",
+            )
+            capture_exception(ve)
+            raise ve
         return Response({"results": serializer.data})
