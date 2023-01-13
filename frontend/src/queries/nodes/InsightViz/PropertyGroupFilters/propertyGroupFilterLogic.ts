@@ -37,7 +37,7 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
 
     reducers(({ props }) => ({
         filters: [
-            convertPropertiesToPropertyGroup(props.value),
+            convertPropertiesToPropertyGroup(props.query.properties),
             {
                 setFilters: (_, { filters }) => filters,
                 addFilterGroup: (state) => {
