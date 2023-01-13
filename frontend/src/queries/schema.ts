@@ -10,6 +10,7 @@ import {
     BaseMathType,
     PropertyMathType,
     CountPerActorMathType,
+    GroupMathType,
     FilterType,
     TrendsFilterType,
     FunnelsFilterType,
@@ -93,7 +94,7 @@ export interface DataNode extends Node {
 export interface EntityNode extends DataNode {
     name?: string
     custom_name?: string
-    math?: BaseMathType | PropertyMathType | CountPerActorMathType
+    math?: BaseMathType | PropertyMathType | CountPerActorMathType | GroupMathType
     math_property?: string
     math_group_type_index?: 0 | 1 | 2 | 3 | 4
     /** Properties configurable in the interface */
