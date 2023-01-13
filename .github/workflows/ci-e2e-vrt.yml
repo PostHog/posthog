@@ -32,9 +32,6 @@ jobs:
             - name: Build Storybook
               run: pnpm build-storybook --quiet
 
-            # - name: Install Playwright Browsers
-            #   run: pnpm exec playwright install --with-deps
-
             - name: Serve Storybook and run tests
               run: |
                   pnpm dlx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
