@@ -226,6 +226,14 @@ def _to_value_expression(
             if direct_on_events
             else "group_properties",
         )
+    elif breakdown_type == "hogql":
+        from posthog.hogql.expr_parser import translate_hql
+
+        if isinstance(breakdown, list):
+            expressions = [translate_hql(exp) for exp in breakdown]
+            value_expression = f"array({','.join(expressions)})"
+        else:
+            value_expression = translate_hql(cast(str, breakdown))
     else:
         value_expression = get_single_or_multi_property_string_expr(
             breakdown, table="events", query_alias=None, column="properties", normalize_url=breakdown_normalize_url

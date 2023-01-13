@@ -429,6 +429,7 @@ export enum PropertyFilterType {
     Cohort = 'cohort',
     Recording = 'recording',
     Group = 'group',
+    HogQL = 'hogql',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -482,6 +483,11 @@ export interface FeaturePropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface HogQLPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.HogQL
+    key: string
+}
+
 export type PropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -491,6 +497,7 @@ export type PropertyFilter =
     | RecordingDurationFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
+    | HogQLPropertyFilter
 
 export type AnyPropertyFilter =
     | Partial<EventPropertyFilter>
@@ -501,6 +508,7 @@ export type AnyPropertyFilter =
     | Partial<RecordingDurationFilter>
     | Partial<GroupPropertyFilter>
     | Partial<FeaturePropertyFilter>
+    | Partial<HogQLPropertyFilter>
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -1326,7 +1334,7 @@ export enum ChartDisplayType {
     BoldNumber = 'BoldNumber',
 }
 
-export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session'
+export type BreakdownType = 'cohort' | 'person' | 'event' | 'group' | 'session' | 'hogql'
 export type IntervalType = 'hour' | 'day' | 'week' | 'month'
 export type SmoothingType = number
 

@@ -18,6 +18,7 @@ export interface TaxonomicBreakdownButtonProps {
     onChange: (breakdown: TaxonomicFilterValue, taxonomicGroup: TaxonomicFilterGroup) => void
     onlyCohorts?: boolean
     includeSessions?: boolean
+    useMultiBreakdown?: boolean
 }
 
 export function TaxonomicBreakdownButton({
@@ -25,6 +26,7 @@ export function TaxonomicBreakdownButton({
     onChange,
     onlyCohorts,
     includeSessions,
+    useMultiBreakdown,
 }: TaxonomicBreakdownButtonProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const { allEventNames } = useValues(insightLogic)
@@ -38,7 +40,9 @@ export function TaxonomicBreakdownButton({
               TaxonomicFilterGroupType.EventFeatureFlags,
               ...groupsTaxonomicTypes,
               TaxonomicFilterGroupType.CohortsWithAllUsers,
-          ].concat(includeSessions ? [TaxonomicFilterGroupType.Sessions] : [])
+              ...(includeSessions ? [TaxonomicFilterGroupType.Sessions] : []),
+              ...(!useMultiBreakdown ? [TaxonomicFilterGroupType.HogQLExpression] : []),
+          ]
 
     return (
         <Popup

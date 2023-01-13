@@ -41,6 +41,7 @@ PropertyType = Literal[
     "recording",
     "behavioral",
     "session",
+    "hogql",
 ]
 
 PropertyName = str
@@ -92,6 +93,7 @@ VALIDATE_PROP_TYPES = {
     "recording": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
+    "hogql": ["key", "value"],
 }
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
@@ -280,6 +282,9 @@ class Property:
             raise ValueError(f"property_to_Q: type is not supported: {repr(self.type)}")
 
         value = self._parse_value(self.value)
+        if self.type == "hogql":
+            raise ValueError("HogQL not implemented")
+
         if self.type == "cohort":
             from posthog.models.cohort import Cohort
 

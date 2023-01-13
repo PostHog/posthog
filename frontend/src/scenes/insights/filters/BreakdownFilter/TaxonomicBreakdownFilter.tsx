@@ -126,6 +126,7 @@ export function BreakdownFilter({
             {onChange && (!hasSelectedBreakdown || useMultiBreakdown) ? (
                 <TaxonomicBreakdownButton
                     breakdownType={breakdownType}
+                    useMultiBreakdown={useMultiBreakdown}
                     onChange={onChange}
                     includeSessions={filters.insight === InsightType.TRENDS}
                 />

@@ -141,7 +141,12 @@ class ClickhouseFunnelBase(ABC):
         #
         # Once multi property breakdown is implemented in Trends this becomes unnecessary
 
-        if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in ["person", "event", None]:
+        if isinstance(self._filter.breakdowns, List) and self._filter.breakdown_type in [
+            "person",
+            "event",
+            "hogql",
+            None,
+        ]:
             data.update({"breakdown": [b.get("property") for b in self._filter.breakdowns]})
 
         if isinstance(self._filter.breakdown, str) and self._filter.breakdown_type in ["person", "event", None]:
@@ -736,6 +741,16 @@ class ClickhouseFunnelBase(ABC):
                 expression, _ = get_property_string_expr(
                     table="groups", property_name=self._filter.breakdown, var="%(breakdown)s", column=properties_field
                 )
+            basic_prop_selector = f"{expression} AS prop_basic"
+        elif self._filter.breakdown_type == "hogql":
+            from posthog.hogql.expr_parser import translate_hql
+
+            breakdown = self._filter.breakdown
+            if isinstance(breakdown, list):
+                expressions = [translate_hql(exp) for exp in breakdown]
+                expression = f"array({','.join(expressions)})"
+            else:
+                expression = translate_hql(cast(str, breakdown))
             basic_prop_selector = f"{expression} AS prop_basic"
 
         # TODO: simplify once array and string breakdowns are sorted
