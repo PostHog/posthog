@@ -16,10 +16,6 @@ from posthog.permissions import ProjectMembershipNecessaryPermissions
 
 logger = structlog.get_logger(__name__)
 
-dashboard_templates_repository_raw_url = (
-    "https://raw.githubusercontent.com/PostHog/templates-repository/main/dashboards"
-)
-
 
 class DashboardTemplateSerializer(serializers.Serializer):
     name: serializers.CharField = serializers.CharField(write_only=True, required=True)
@@ -77,7 +73,7 @@ class DashboardTemplateViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         The repository in GitHub will change infrequently,
         there is no point loading it over-the-wire on every request
         """
-        url = f"{dashboard_templates_repository_raw_url}/dashboards.json"
+        url = "https://raw.githubusercontent.com/PostHog/templates-repository/main/dashboards/dashboards.json"
         loaded_templates: List[Dict] = json.loads(requests.get(url).text)
         return loaded_templates
 
