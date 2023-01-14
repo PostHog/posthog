@@ -3,728 +3,542 @@ import json
 from freezegun import freeze_time
 
 from posthog.constants import FILTER_TEST_ACCOUNTS, TRENDS_LIFECYCLE
-from posthog.models import Filter
+from posthog.models import Action, ActionStep, Filter
 from posthog.models.instance_setting import get_instance_setting
-from posthog.test.base import APIBaseTest, _create_event, snapshot_clickhouse_queries
+from posthog.queries.trends.trends import Trends
+from posthog.test.base import (
+    APIBaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_person,
+    snapshot_clickhouse_queries,
+)
 from posthog.utils import relative_date_parse
 
 
-# parameterize tests to reuse in EE
-def lifecycle_test_factory(trends, event_factory, person_factory, action_factory):
-    class TestLifecycle(APIBaseTest):
-        def _create_events(self, data):
-            person_result = []
-            for id, timestamps in data:
-                with freeze_time(timestamps[0]):
-                    person_result.append(
-                        person_factory(
-                            team_id=self.team.pk,
-                            distinct_ids=[id],
-                            properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
-                        )
+def create_action(**kwargs):
+    team = kwargs.pop("team")
+    name = kwargs.pop("name")
+    event_name = kwargs.pop("event_name")
+    action = Action.objects.create(team=team, name=name)
+    ActionStep.objects.create(action=action, event=event_name)
+    return action
+
+
+class TestLifecycle(ClickhouseTestMixin, APIBaseTest):
+    def _create_events(self, data):
+        person_result = []
+        for id, timestamps in data:
+            with freeze_time(timestamps[0]):
+                person_result.append(
+                    _create_person(
+                        team_id=self.team.pk,
+                        distinct_ids=[id],
+                        properties={"name": id, **({"email": "test@posthog.com"} if id == "p1" else {})},
                     )
-                for timestamp in timestamps:
-                    event_factory(team=self.team, event="$pageview", distinct_id=id, timestamp=timestamp)
-            return person_result
+                )
+            for timestamp in timestamps:
+                _create_event(team=self.team, event="$pageview", distinct_id=id, timestamp=timestamp)
+        return person_result
 
-        def test_lifecycle_trend(self):
-            self._create_events(
-                data=[
-                    (
-                        "p1",
-                        [
-                            "2020-01-11T12:00:00Z",
-                            "2020-01-12T12:00:00Z",
-                            "2020-01-13T12:00:00Z",
-                            "2020-01-15T12:00:00Z",
-                            "2020-01-17T12:00:00Z",
-                            "2020-01-19T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
-                    ("p3", ["2020-01-12T12:00:00Z"]),
-                    ("p4", ["2020-01-15T12:00:00Z"]),
-                ]
-            )
-
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
+    def test_lifecycle_trend(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
                 ),
-                self.team,
-            )
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
 
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
-                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
-
-        def test_lifecycle_trend_with_zero_person_ids(self):
-            # only a person-on-event test
-            if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
-                return True
-
-            self._create_events(
-                data=[
-                    (
-                        "p1",
-                        [
-                            "2020-01-11T12:00:00Z",
-                            "2020-01-12T12:00:00Z",
-                            "2020-01-13T12:00:00Z",
-                            "2020-01-15T12:00:00Z",
-                            "2020-01-17T12:00:00Z",
-                            "2020-01-19T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
-                    ("p3", ["2020-01-12T12:00:00Z"]),
-                    ("p4", ["2020-01-15T12:00:00Z"]),
-                ]
-            )
-
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p5",
-                timestamp="2020-01-13T12:00:00Z",
-                person_id="00000000-0000-0000-0000-000000000000",
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p5",
-                timestamp="2020-01-14T12:00:00Z",
-                person_id="00000000-0000-0000-0000-000000000000",
-            )
-
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
-                ),
-                self.team,
-            )
-
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
-                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
-
-        def test_lifecycle_trend_prop_filtering(self):
-
-            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-11T12:00:00Z",
-                properties={"$number": 1},
-            )
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-12T12:00:00Z",
-                properties={"$number": 1},
-            )
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-13T12:00:00Z",
-                properties={"$number": 1},
-            )
-
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-15T12:00:00Z",
-                properties={"$number": 1},
-            )
-
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-17T12:00:00Z",
-                properties={"$number": 1},
-            )
-
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-19T12:00:00Z",
-                properties={"$number": 1},
-            )
-
-            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-            event_factory(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z")
-            event_factory(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z")
-
-            person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
-            event_factory(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z")
-
-            person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
-            event_factory(team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z")
-
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                        "properties": [{"key": "$number", "value": 1}],
-                    }
-                ),
-                self.team,
-            )
-
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
-                    {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
-
-            #  entities filtering
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [
-                            {
-                                "properties": [{"key": "$number", "value": 1}],
-                                "id": "$pageview",
-                                "type": "events",
-                                "order": 0,
-                            }
-                        ],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
-                ),
-                self.team,
-            )
-
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
-                    {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
-
-        def test_lifecycle_trend_person_prop_filtering(self):
-
-            person_factory(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-11T12:00:00Z",
-                properties={"$number": 1},
-            )
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-12T12:00:00Z",
-                properties={"$number": 1},
-            )
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-13T12:00:00Z",
-                properties={"$number": 1},
-            )
-
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-15T12:00:00Z",
-                properties={"$number": 1},
-            )
-
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-17T12:00:00Z",
-                properties={"$number": 1},
-            )
-
-            event_factory(
-                team=self.team,
-                event="$pageview",
-                distinct_id="p1",
-                timestamp="2020-01-19T12:00:00Z",
-                properties={"$number": 1},
-            )
-
-            person_factory(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
-            event_factory(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z")
-            event_factory(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z")
-
-            person_factory(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
-            event_factory(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z")
-
-            person_factory(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
-            event_factory(team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z")
-
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [
-                            {
-                                "id": "$pageview",
-                                "type": "events",
-                                "order": 0,
-                                "properties": [{"key": "name", "value": "p1", "type": "person"}],
-                            }
-                        ],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
-                ),
-                self.team,
-            )
-
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
-                    {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
-
-        def test_lifecycle_trends_distinct_id_repeat(self):
-            with freeze_time("2020-01-12T12:00:00Z"):
-                person_factory(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})
-
-            event_factory(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z")
-            event_factory(team=self.team, event="$pageview", distinct_id="another_p1", timestamp="2020-01-14T12:00:00Z")
-            event_factory(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-15T12:00:00Z")
-
-            event_factory(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-17T12:00:00Z")
-
-            event_factory(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-19T12:00:00Z")
-
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
-                ),
-                self.team,
-            )
-
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, -1, 0]},
-                    {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [0, 0, 1, 0, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [0, 0, 0, 1, 0, 0, 0, 0]},
-                ],
-            )
-
-        def test_lifecycle_trend_people(self):
-
-            people = self._create_events(
-                data=[
-                    (
-                        "p1",
-                        [
-                            "2020-01-11T12:00:00Z",
-                            "2020-01-12T12:00:00Z",
-                            "2020-01-13T12:00:00Z",
-                            "2020-01-15T12:00:00Z",
-                            "2020-01-17T12:00:00Z",
-                            "2020-01-19T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
-                    ("p3", ["2020-01-12T12:00:00Z"]),
-                    ("p4", ["2020-01-15T12:00:00Z"]),
-                ]
-            )
-
-            p1 = people[0]
-
-            result = trends().get_people(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
-                ),
-                self.team,
-                relative_date_parse("2020-01-13T00:00:00Z"),
-                "returning",
-            )
-
-            self.assertEqual(len(result), 1)
-            self.assertEqual(result[0]["id"], p1.pk)
-
-            dormant_result = trends().get_people(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
-                ),
-                self.team,
-                relative_date_parse("2020-01-13T00:00:00Z"),
-                "dormant",
-            )
-
-            self.assertEqual(len(dormant_result), 2)
-
-            dormant_result = trends().get_people(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
-                ),
-                self.team,
-                relative_date_parse("2020-01-14T00:00:00Z"),
-                "dormant",
-            )
-
-            self.assertEqual(len(dormant_result), 1)
-
-        def test_lifecycle_trend_people_paginated(self):
-            with freeze_time("2020-01-15T12:00:00Z"):
-                for i in range(150):
-                    person_id = "person{}".format(i)
-                    person_factory(team_id=self.team.pk, distinct_ids=[person_id])
-                    event_factory(
-                        team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z"
-                    )
-            # even if set to hour 6 it should default to beginning of day and include all pageviews above
-            result = self.client.get(
-                "/api/person/lifecycle",
+        result = Trends().run(
+            Filter(
                 data={
                     "date_from": "2020-01-12T00:00:00Z",
                     "date_to": "2020-01-19T00:00:00Z",
-                    "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
                     "shown_as": TRENDS_LIFECYCLE,
-                    "lifecycle_type": "new",
-                    "target_date": "2020-01-15T00:00:00Z",
-                },
-            ).json()
-            self.assertEqual(len(result["results"][0]["people"]), 100)
+                }
+            ),
+            self.team,
+        )
 
-            second_result = self.client.get(result["next"]).json()
-            self.assertEqual(len(second_result["results"][0]["people"]), 50)
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
 
-        def test_lifecycle_trend_action(self):
+    def test_lifecycle_trend_with_zero_person_ids(self):
+        # only a person-on-event test
+        if not get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
+            return True
 
-            self._create_events(
-                data=[
-                    (
-                        "p1",
-                        [
-                            "2020-01-11T12:00:00Z",
-                            "2020-01-12T12:00:00Z",
-                            "2020-01-13T12:00:00Z",
-                            "2020-01-15T12:00:00Z",
-                            "2020-01-17T12:00:00Z",
-                            "2020-01-19T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
-                    ("p3", ["2020-01-12T12:00:00Z"]),
-                    ("p4", ["2020-01-15T12:00:00Z"]),
-                ]
-            )
-
-            pageview_action = action_factory(team=self.team, name="$pageview")
-
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "actions": [{"id": pageview_action.pk, "type": "actions", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    }
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
                 ),
-                self.team,
-            )
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
 
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
-                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p5",
+            timestamp="2020-01-13T12:00:00Z",
+            person_id="00000000-0000-0000-0000-000000000000",
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p5",
+            timestamp="2020-01-14T12:00:00Z",
+            person_id="00000000-0000-0000-0000-000000000000",
+        )
 
-        def test_lifecycle_trend_all_time(self):
-            self._create_events(
-                data=[
-                    (
-                        "p1",
-                        [
-                            "2020-01-11T12:00:00Z",
-                            "2020-01-12T12:00:00Z",
-                            "2020-01-13T12:00:00Z",
-                            "2020-01-15T12:00:00Z",
-                            "2020-01-17T12:00:00Z",
-                            "2020-01-19T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
-                    ("p3", ["2020-01-12T12:00:00Z"]),
-                    ("p4", ["2020-01-15T12:00:00Z"]),
-                ]
-            )
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                }
+            ),
+            self.team,
+        )
 
-            with freeze_time("2020-01-17T13:01:01Z"):
-                result = trends().run(
-                    Filter(
-                        data={
-                            "date_from": "all",
-                            "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                            "shown_as": TRENDS_LIFECYCLE,
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_trend_prop_filtering(self):
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$number": 1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={"$number": 1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-13T12:00:00Z",
+            properties={"$number": 1},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-15T12:00:00Z",
+            properties={"$number": 1},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-17T12:00:00Z",
+            properties={"$number": 1},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-19T12:00:00Z",
+            properties={"$number": 1},
+        )
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z")
+        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z")
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z")
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z")
+
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                    "properties": [{"key": "$number", "value": 1}],
+                }
+            ),
+            self.team,
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
+                {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+        #  entities filtering
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [
+                        {
+                            "properties": [{"key": "$number", "value": 1}],
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
                         }
-                    ),
-                    self.team,
+                    ],
+                    "shown_as": TRENDS_LIFECYCLE,
+                }
+            ),
+            self.team,
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
+                {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_trend_person_prop_filtering(self):
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"name": "p1"})
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-11T12:00:00Z",
+            properties={"$number": 1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-12T12:00:00Z",
+            properties={"$number": 1},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-13T12:00:00Z",
+            properties={"$number": 1},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-15T12:00:00Z",
+            properties={"$number": 1},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-17T12:00:00Z",
+            properties={"$number": 1},
+        )
+
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="p1",
+            timestamp="2020-01-19T12:00:00Z",
+            properties={"$number": 1},
+        )
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p2"], properties={"name": "p2"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-09T12:00:00Z")
+        _create_event(team=self.team, event="$pageview", distinct_id="p2", timestamp="2020-01-12T12:00:00Z")
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p3"], properties={"name": "p3"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p3", timestamp="2020-01-12T12:00:00Z")
+
+        _create_person(team_id=self.team.pk, distinct_ids=["p4"], properties={"name": "p4"})
+        _create_event(team=self.team, event="$pageview", distinct_id="p4", timestamp="2020-01-15T12:00:00Z")
+
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [
+                        {
+                            "id": "$pageview",
+                            "type": "events",
+                            "order": 0,
+                            "properties": [{"key": "name", "value": "p1", "type": "person"}],
+                        }
+                    ],
+                    "shown_as": TRENDS_LIFECYCLE,
+                }
+            ),
+            self.team,
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, 0, -1, 0, -1, 0, -1, 0]},
+                {"status": "new", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_trends_distinct_id_repeat(self):
+        with freeze_time("2020-01-12T12:00:00Z"):
+            _create_person(team_id=self.team.pk, distinct_ids=["p1", "another_p1"], properties={"name": "p1"})
+
+        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-12T12:00:00Z")
+        _create_event(team=self.team, event="$pageview", distinct_id="another_p1", timestamp="2020-01-14T12:00:00Z")
+        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-15T12:00:00Z")
+
+        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-17T12:00:00Z")
+
+        _create_event(team=self.team, event="$pageview", distinct_id="p1", timestamp="2020-01-19T12:00:00Z")
+
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                }
+            ),
+            self.team,
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -1, 0, 0, -1, 0, -1, 0]},
+                {"status": "new", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 1, 0, 0, 1, 0, 1]},
+                {"status": "returning", "data": [0, 0, 0, 1, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_lifecycle_trend_people(self):
+
+        people = self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
+
+        p1 = people[0]
+
+        result = self.client.get(
+            "/api/person/lifecycle",
+            data={
+                "date_from": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-19T00:00:00Z",
+                "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
+                "shown_as": TRENDS_LIFECYCLE,
+                "lifecycle_type": "returning",
+                "target_date": "2020-01-13T00:00:00Z",
+            },
+        ).json()
+
+        self.assertEqual(len(result["results"][0]["people"]), 1)
+        self.assertEqual(result["results"][0]["people"][0]["uuid"], str(p1.uuid))
+
+        dormant_result = self.client.get(
+            "/api/person/lifecycle",
+            data={
+                "date_from": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-19T00:00:00Z",
+                "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
+                "shown_as": TRENDS_LIFECYCLE,
+                "lifecycle_type": "dormant",
+                "target_date": "2020-01-13T00:00:00Z",
+            },
+        ).json()
+
+        self.assertEqual(len(dormant_result["results"][0]["people"]), 2)
+
+        dormant_result = self.client.get(
+            "/api/person/lifecycle",
+            data={
+                "date_from": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-19T00:00:00Z",
+                "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
+                "shown_as": TRENDS_LIFECYCLE,
+                "lifecycle_type": "dormant",
+                "target_date": "2020-01-14T00:00:00Z",
+            },
+        ).json()
+
+        self.assertEqual(len(dormant_result["results"][0]["people"]), 1)
+
+    def test_lifecycle_trend_people_paginated(self):
+        with freeze_time("2020-01-15T12:00:00Z"):
+            for i in range(150):
+                person_id = "person{}".format(i)
+                _create_person(team_id=self.team.pk, distinct_ids=[person_id])
+                _create_event(
+                    team=self.team, event="$pageview", distinct_id=person_id, timestamp="2020-01-15T12:00:00Z"
                 )
+        # even if set to hour 6 it should default to beginning of day and include all pageviews above
+        result = self.client.get(
+            "/api/person/lifecycle",
+            data={
+                "date_from": "2020-01-12T00:00:00Z",
+                "date_to": "2020-01-19T00:00:00Z",
+                "events": json.dumps([{"id": "$pageview", "type": "events", "order": 0}]),
+                "shown_as": TRENDS_LIFECYCLE,
+                "lifecycle_type": "new",
+                "target_date": "2020-01-15T00:00:00Z",
+            },
+        ).json()
+        self.assertEqual(len(result["results"][0]["people"]), 100)
 
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, -1, 0, 0, -2, -1, 0, -2, 0]},
-                    {"status": "new", "data": [1, 0, 1, 1, 0, 0, 1, 0, 0]},
-                    {"status": "returning", "data": [0, 0, 0, 1, 1, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 0, 1, 0, 1]},
-                ],
-            )
+        second_result = self.client.get(result["next"]).json()
+        self.assertEqual(len(second_result["results"][0]["people"]), 50)
 
-        def test_lifecycle_trend_weeks(self):
-            # lifecycle weeks rounds the date to the nearest following week  2/5 -> 2/10
-            self._create_events(
-                data=[
-                    (
-                        "p1",
-                        [
-                            "2020-02-01T12:00:00Z",
-                            "2020-02-05T12:00:00Z",
-                            "2020-02-10T12:00:00Z",
-                            "2020-02-15T12:00:00Z",
-                            "2020-02-27T12:00:00Z",
-                            "2020-03-02T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2020-02-11T12:00:00Z", "2020-02-18T12:00:00Z"]),
-                    ("p3", ["2020-02-12T12:00:00Z"]),
-                    ("p4", ["2020-02-27T12:00:00Z"]),
-                ]
-            )
+    def test_lifecycle_trend_action(self):
 
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-02-05T00:00:00Z",
-                        "date_to": "2020-03-09T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                        "interval": "week",
-                    }
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
                 ),
-                self.team,
-            )
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
 
-            self.assertEqual(
-                result[0]["days"], ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
-            )
+        pageview_action = create_action(team=self.team, name="$pageview", event_name="$pageview")
 
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, 0, -2, -1, -1, -1]},
-                    {"status": "new", "data": [0, 2, 0, 1, 0, 0]},
-                    {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 0]},
-                    {"status": "returning", "data": [1, 1, 1, 0, 1, 0]},
-                ],
-            )
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "actions": [{"id": pageview_action.pk, "type": "actions", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                }
+            ),
+            self.team,
+        )
 
-        def test_lifecycle_trend_months(self):
-            self._create_events(
-                data=[
-                    (
-                        "p1",
-                        [
-                            "2020-01-11T12:00:00Z",
-                            "2020-02-12T12:00:00Z",
-                            "2020-03-13T12:00:00Z",
-                            "2020-05-15T12:00:00Z",
-                            "2020-07-17T12:00:00Z",
-                            "2020-09-19T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2019-12-09T12:00:00Z", "2020-02-12T12:00:00Z"]),
-                    ("p3", ["2020-02-12T12:00:00Z"]),
-                    ("p4", ["2020-05-15T12:00:00Z"]),
-                ]
-            )
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
 
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-02-01T00:00:00Z",
-                        "date_to": "2020-09-01T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                        "interval": "month",
-                    }
+    def test_lifecycle_trend_all_time(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
                 ),
-                self.team,
-            )
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
 
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
-                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
-
-        def test_filter_test_accounts(self):
-            self._create_events(
-                data=[
-                    (
-                        "p1",  # p1 gets test@posthog.com as email and gets filtered out
-                        [
-                            "2020-01-11T12:00:00Z",
-                            "2020-01-12T12:00:00Z",
-                            "2020-01-13T12:00:00Z",
-                            "2020-01-15T12:00:00Z",
-                            "2020-01-17T12:00:00Z",
-                            "2020-01-19T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
-                    ("p3", ["2020-01-12T12:00:00Z"]),
-                    ("p4", ["2020-01-15T12:00:00Z"]),
-                ]
-            )
-
-            result = trends().run(
+        with freeze_time("2020-01-17T13:01:01Z"):
+            result = Trends().run(
                 Filter(
                     data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                        FILTER_TEST_ACCOUNTS: True,
-                    },
-                    team=self.team,
-                ),
-                self.team,
-            )
-
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, -2, 0, 0, -1, 0, 0, 0]},
-                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
-                    {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
-
-            trends().get_people(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                        FILTER_TEST_ACCOUNTS: True,
-                    },
-                    team=self.team,
-                ),
-                self.team,
-                relative_date_parse("2020-01-13T00:00:00Z"),
-                "dormant",
-            )
-
-        @snapshot_clickhouse_queries
-        def test_timezones(self):
-            self._create_events(
-                data=[
-                    (
-                        "p1",
-                        [
-                            "2020-01-11T23:00:00Z",
-                            "2020-01-12T01:00:00Z",
-                            "2020-01-13T12:00:00Z",
-                            "2020-01-15T12:00:00Z",
-                            "2020-01-17T12:00:00Z",
-                            "2020-01-19T12:00:00Z",
-                        ],
-                    ),
-                    ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
-                    ("p3", ["2020-01-12T12:00:00Z"]),
-                    ("p4", ["2020-01-15T12:00:00Z"]),
-                ]
-            )
-
-            result = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
+                        "date_from": "all",
                         "events": [{"id": "$pageview", "type": "events", "order": 0}],
                         "shown_as": TRENDS_LIFECYCLE,
                     }
@@ -732,42 +546,234 @@ def lifecycle_test_factory(trends, event_factory, person_factory, action_factory
                 self.team,
             )
 
-            assertLifecycleResults(
-                result,
-                [
-                    {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
-                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -1, 0, 0, -2, -1, 0, -2, 0]},
+                {"status": "new", "data": [1, 0, 1, 1, 0, 0, 1, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 1, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 0, 1, 0, 1]},
+            ],
+        )
 
-            self.team.timezone = "US/Pacific"
-            self.team.save()
-
-            result_pacific = trends().run(
-                Filter(
-                    data={
-                        "date_from": "2020-01-12T00:00:00Z",
-                        "date_to": "2020-01-19T00:00:00Z",
-                        "events": [{"id": "$pageview", "type": "events", "order": 0}],
-                        "shown_as": TRENDS_LIFECYCLE,
-                    },
-                    team=self.team,
+    def test_lifecycle_trend_weeks(self):
+        # lifecycle weeks rounds the date to the nearest following week  2/5 -> 2/10
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-02-01T12:00:00Z",
+                        "2020-02-05T12:00:00Z",
+                        "2020-02-10T12:00:00Z",
+                        "2020-02-15T12:00:00Z",
+                        "2020-02-27T12:00:00Z",
+                        "2020-03-02T12:00:00Z",
+                    ],
                 ),
-                self.team,
-            )
-            assertLifecycleResults(
-                result_pacific,
-                [
-                    {"status": "dormant", "data": [-1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0, 0.0]},
-                    {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
-                    {"status": "resurrecting", "data": [1, 1, 0, 1, 0, 1, 0, 1]},
-                    {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
-                ],
-            )
+                ("p2", ["2020-02-11T12:00:00Z", "2020-02-18T12:00:00Z"]),
+                ("p3", ["2020-02-12T12:00:00Z"]),
+                ("p4", ["2020-02-27T12:00:00Z"]),
+            ]
+        )
 
-    return TestLifecycle
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-02-05T00:00:00Z",
+                    "date_to": "2020-03-09T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                    "interval": "week",
+                }
+            ),
+            self.team,
+        )
+
+        self.assertEqual(
+            result[0]["days"], ["2020-02-03", "2020-02-10", "2020-02-17", "2020-02-24", "2020-03-02", "2020-03-09"]
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, 0, -2, -1, -1, -1]},
+                {"status": "new", "data": [0, 2, 0, 1, 0, 0]},
+                {"status": "resurrecting", "data": [0, 0, 0, 1, 0, 0]},
+                {"status": "returning", "data": [1, 1, 1, 0, 1, 0]},
+            ],
+        )
+
+    def test_lifecycle_trend_months(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-02-12T12:00:00Z",
+                        "2020-03-13T12:00:00Z",
+                        "2020-05-15T12:00:00Z",
+                        "2020-07-17T12:00:00Z",
+                        "2020-09-19T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2019-12-09T12:00:00Z", "2020-02-12T12:00:00Z"]),
+                ("p3", ["2020-02-12T12:00:00Z"]),
+                ("p4", ["2020-05-15T12:00:00Z"]),
+            ]
+        )
+
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-02-01T00:00:00Z",
+                    "date_to": "2020-09-01T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                    "interval": "month",
+                }
+            ),
+            self.team,
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+    def test_filter_test_accounts(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",  # p1 gets test@posthog.com as email and gets filtered out
+                    [
+                        "2020-01-11T12:00:00Z",
+                        "2020-01-12T12:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
+
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                    FILTER_TEST_ACCOUNTS: True,
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -2, 0, 0, -1, 0, 0, 0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 0, 0, 0, 0, 0, 0, 0]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+        Trends().get_people(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                    FILTER_TEST_ACCOUNTS: True,
+                },
+                team=self.team,
+            ),
+            self.team,
+            relative_date_parse("2020-01-13T00:00:00Z"),
+            "dormant",
+        )
+
+    @snapshot_clickhouse_queries
+    def test_timezones(self):
+        self._create_events(
+            data=[
+                (
+                    "p1",
+                    [
+                        "2020-01-11T23:00:00Z",
+                        "2020-01-12T01:00:00Z",
+                        "2020-01-13T12:00:00Z",
+                        "2020-01-15T12:00:00Z",
+                        "2020-01-17T12:00:00Z",
+                        "2020-01-19T12:00:00Z",
+                    ],
+                ),
+                ("p2", ["2020-01-09T12:00:00Z", "2020-01-12T12:00:00Z"]),
+                ("p3", ["2020-01-12T12:00:00Z"]),
+                ("p4", ["2020-01-15T12:00:00Z"]),
+            ]
+        )
+
+        result = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                }
+            ),
+            self.team,
+        )
+
+        assertLifecycleResults(
+            result,
+            [
+                {"status": "dormant", "data": [0, -2, -1, 0, -2, 0, -1, 0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 0, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [1, 1, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
+
+        self.team.timezone = "US/Pacific"
+        self.team.save()
+
+        result_pacific = Trends().run(
+            Filter(
+                data={
+                    "date_from": "2020-01-12T00:00:00Z",
+                    "date_to": "2020-01-19T00:00:00Z",
+                    "events": [{"id": "$pageview", "type": "events", "order": 0}],
+                    "shown_as": TRENDS_LIFECYCLE,
+                },
+                team=self.team,
+            ),
+            self.team,
+        )
+        assertLifecycleResults(
+            result_pacific,
+            [
+                {"status": "dormant", "data": [-1.0, -2.0, -1.0, 0.0, -2.0, 0.0, -1.0, 0.0]},
+                {"status": "new", "data": [1, 0, 0, 1, 0, 0, 0, 0]},
+                {"status": "resurrecting", "data": [1, 1, 0, 1, 0, 1, 0, 1]},
+                {"status": "returning", "data": [0, 0, 0, 0, 0, 0, 0, 0]},
+            ],
+        )
 
 
 def assertLifecycleResults(results, expected):
