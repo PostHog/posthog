@@ -12,6 +12,7 @@ import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/typ
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     // detail.name
@@ -178,6 +179,32 @@ const featureFlagActionsMapping: Record<
         const describeChange: string = isEnabled ? 'enabled' : 'disabled'
 
         return { description: [<>{describeChange} experience continuity</>] }
+    },
+    tags: function onTags(change) {
+        const tagsBefore = change?.before as string[]
+        const tagsAfter = change?.after as string[]
+        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
+        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
+
+        const changes: Description[] = []
+        if (addedTags.length) {
+            changes.push(
+                <>
+                    added {pluralize(addedTags.length, 'tag', 'tags', false)}{' '}
+                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+        if (removedTags.length) {
+            changes.push(
+                <>
+                    removed {pluralize(removedTags.length, 'tag', 'tags', false)}{' '}
+                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+
+        return { description: changes }
     },
     // fields that are excluded on the backend
     id: () => null,

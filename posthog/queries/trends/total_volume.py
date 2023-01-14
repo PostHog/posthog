@@ -1,6 +1,6 @@
 import urllib.parse
-from datetime import datetime
-from typing import Any, Callable, Dict, List, Tuple
+from datetime import date, datetime
+from typing import Any, Callable, Dict, List, Tuple, Union
 
 from posthog.constants import (
     MONTHLY_ACTIVE,
@@ -26,6 +26,7 @@ from posthog.queries.trends.sql import (
     VOLUME_PER_ACTOR_SQL,
     VOLUME_SQL,
 )
+from posthog.queries.trends.trends_actors import offset_time_series_date_by_interval
 from posthog.queries.trends.trends_event_query import TrendsEventQuery
 from posthog.queries.trends.util import (
     COUNT_PER_ACTOR_MATH_FUNCTIONS,
@@ -183,7 +184,13 @@ class TrendsTotalVolume:
             if result is not None:
                 for stats in result:
                     parsed_result = parse_response(stats, filter)
-                    parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team.pk, stats[0])})
+                    point_dates: List[Union[datetime, date]] = stats[0]
+                    # Ensure we have datetimes for all points
+                    point_datetimes: List[datetime] = [
+                        datetime.combine(d, datetime.min.time()) if not isinstance(d, datetime) else d
+                        for d in point_dates
+                    ]
+                    parsed_result.update({"persons_urls": self._get_persons_url(filter, entity, team, point_datetimes)})
                     parsed_results.append(parsed_result)
                     parsed_result.update({"filter": filter.to_dict()})
             return parsed_results
@@ -219,17 +226,17 @@ class TrendsTotalVolume:
         return _parse
 
     def _get_persons_url(
-        self, filter: Filter, entity: Entity, team_id: int, dates: List[datetime]
+        self, filter: Filter, entity: Entity, team: Team, point_datetimes: List[datetime]
     ) -> List[Dict[str, Any]]:
         persons_url = []
-        for date in dates:
+        for point_datetime in point_datetimes:
             filter_params = filter.to_params()
             extra_params = {
                 "entity_id": entity.id,
                 "entity_type": entity.type,
                 "entity_math": entity.math,
-                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else date,
-                "date_to": date,
+                "date_from": filter.date_from if filter.display == TRENDS_CUMULATIVE else point_datetime,
+                "date_to": offset_time_series_date_by_interval(point_datetime, filter=filter, team=team),
                 "entity_order": entity.order,
             }
 
@@ -237,7 +244,7 @@ class TrendsTotalVolume:
             persons_url.append(
                 {
                     "filter": extra_params,
-                    "url": f"api/projects/{team_id}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
+                    "url": f"api/projects/{team.pk}/persons/trends/?{urllib.parse.urlencode(parsed_params)}",
                 }
             )
         return persons_url

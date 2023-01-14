@@ -127,25 +127,22 @@ export const FEATURE_FLAGS = {
     EXPOSURES_ON_FEATURE_FLAGS: 'exposures-on-feature-flags', // owner: @EDsCODE
     AUTO_ROLLBACK_FEATURE_FLAGS: 'auto-rollback-feature-flags', // owner: @EDsCODE
     WEBSITE_ANALYTICS_TEMPLATE: 'website-analytics-template', // owner: @pauldambra
-    VARIANT_OVERRIDES: 'variant-overrides', // owner: @neilkakkar
     ONBOARDING_V2_EXPERIMENT: 'onboarding-v2-experiment', // owner: #team-growth
-    ONBOARDING_DEMO_EXPERIMENT: 'onboarding-demo-experiment', // owner: #team-growth
+    ONBOARDING_V2_DEMO: 'onboarding-v2-demo', // owner: #team-growth
     FEATURE_FLAG_ROLLOUT_UX: 'feature-flag-rollout-ux', // owner: @neilkakkar
     ROLE_BASED_ACCESS: 'role-based-access', // owner: #team-experiments, @liyiy
     DASHBOARD_TEMPLATES: 'dashboard-templates', // owner @pauldambra
     DATA_EXPLORATION_LIVE_EVENTS: 'data-exploration-live-events', // owner @mariusandra
     BILLING_FEATURES_EXPERIMENT: 'billing-features-experiment', // owner: #team-growth
     BILLING_PLAN_MOST_POPULAR_EXPERIMENT: 'billing-plan-most-popular-experiment', // owner: #team-growth, @raquelmsmith
-    RECORDINGS_EXPORT: 'recordings-export', // owner: #team-session-recordings
-    SOCIAL_AUTH_BUTTONS_EXPERIMENT: 'social-auth-buttons-experiment', // owner: #team-growth
     YEAR_IN_HOG: 'year-in-hog', // owner: @pauldambra
     YULE_HOG: 'yule-hog', // owner: @benjackwhite
     HOGQL_EXPRESSIONS: 'hogql_expressions', // owner @mariusandra
-    ACTOR_PROPERTIES_TIMELINE: 'actor-properties-timeline', // owner: @Twixes
     QUERY_RUNNING_TIME: 'query_running_time', // owner: @mariusandra
     RECORDINGS_INSPECTOR_V2: 'recordings-inspector-v2', // owner: #team-session-recordings
     RECORDINGS_INSPECTOR_PERFORMANCE: 'recordings-inspector-performance', // owner: #team-session-recordings
     DATA_EXPLORATION_INSIGHTS: 'data-exploration-insights', // owner @thmsobrmlr
+    RECORDING_DEBUGGING: 'recording-debugging', // owner #team-session-recordings
 }
 
 /** Which self-hosted plan's features are available with Cloud's "Standard" plan (aka card attached). */

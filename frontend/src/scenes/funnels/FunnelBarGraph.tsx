@@ -387,7 +387,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                         },
                                                         {
                                                             title: 'Conversion rate (total)',
-                                                            value: percentage(breakdown.conversionRates.total, 1, true),
+                                                            value: percentage(breakdown.conversionRates.total, 2, true),
                                                         },
                                                         {
                                                             title: `Conversion rate (from step ${
@@ -395,7 +395,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                             })`,
                                                             value: percentage(
                                                                 breakdown.conversionRates.fromPrevious,
-                                                                1,
+                                                                2,
                                                                 true
                                                             ),
                                                             visible: step.order !== 0,
@@ -412,10 +412,12 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                                 breakdown.droppedOffFromPrevious > 0,
                                                         },
                                                         {
-                                                            title: `Dropoff rate (from step ${previousStep.order + 1})`,
+                                                            title: `Drop-off rate (from step ${
+                                                                previousStep.order + 1
+                                                            })`,
                                                             value: percentage(
                                                                 1 - breakdown.conversionRates.fromPrevious,
-                                                                1,
+                                                                2,
                                                                 true
                                                             ),
                                                             visible:
@@ -462,11 +464,11 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                 },
                                                 {
                                                     title: 'Conversion rate (total)',
-                                                    value: percentage(step.conversionRates.total, 1, true),
+                                                    value: percentage(step.conversionRates.total, 2, true),
                                                 },
                                                 {
                                                     title: `Conversion rate (from step ${previousStep.order + 1})`,
-                                                    value: percentage(step.conversionRates.fromPrevious, 1, true),
+                                                    value: percentage(step.conversionRates.fromPrevious, 2, true),
                                                     visible: step.order !== 0,
                                                 },
                                                 {
@@ -479,8 +481,8 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
                                                 {
-                                                    title: `Dropoff rate (from step ${previousStep.order + 1})`,
-                                                    value: percentage(1 - step.conversionRates.fromPrevious, 1, true),
+                                                    title: `Drop-off rate (from step ${previousStep.order + 1})`,
+                                                    value: percentage(1 - step.conversionRates.fromPrevious, 2, true),
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
                                                 {
@@ -525,7 +527,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             (
                                             {percentage(
                                                 step.order > 0 ? step.count / steps[stepIndex - 1].count : 1,
-                                                1,
+                                                2,
                                                 true
                                             )}
                                             )
@@ -557,7 +559,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             (
                                             {percentage(
                                                 step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0,
-                                                1,
+                                                2,
                                                 true
                                             )}
                                             )

@@ -8,16 +8,18 @@
 .TimelineSeekbar__meta {
     display: flex;
     justify-content: space-between;
+    gap: 0.5rem;
 }
 
 .TimelineSeekbar__note {
+    display: flex;
+    align-items: center;
     font-size: 0.8125rem;
     line-height: 1.25rem;
 }
 
 .TimelineSeekbar__current {
-    display: flex;
-    align-items: center;
+    width: fit-content;
     padding: 0 0.25rem;
     border-radius: var(--radius);
     background: var(--primary);
@@ -95,6 +97,7 @@
 .TimelineSeekbar__line-end {
     left: 100%;
     width: var(--timeline-seekbar-arrow-width);
+    cursor: pointer;
     &::before {
         clip-path: polygon(0 0, 100% 50%, 0 100%);
     }

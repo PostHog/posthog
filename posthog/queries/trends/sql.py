@@ -44,12 +44,18 @@ SESSION_DURATION_AGGREGATE_SQL = """
 SELECT {aggregate_operation} as data FROM (
     SELECT any(session_duration) as session_duration
     {event_query_base}
-    GROUP BY $session_id
+    GROUP BY sessions.$session_id
 )
 """
 
 # This query performs poorly due to aggregation happening outside of subqueries.
 # :TODO: Fix this!
+# Query intuition:
+# 1. Get all the buckets we care about (subquery `d`) based on the chosen interval (e.g. per hour, per week)
+# 2. Get all events within the insight's range by the actor_id based on the filters (subquery `e`)
+# 3. Cross join the two, making a table with a mapping of every event <> every bucket
+# 4. For each bucket, determine if the event's timestamp falls within the bucket i.e. happened within a week/month of the bucket
+# 5. Count up the unique actor IDs per bucket
 ACTIVE_USERS_SQL = """
 SELECT counts AS total, timestamp AS day_start FROM (
     SELECT d.timestamp, COUNT(DISTINCT actor_id) AS counts FROM (

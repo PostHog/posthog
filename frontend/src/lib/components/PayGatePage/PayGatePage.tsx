@@ -40,6 +40,7 @@ export function PayGatePage({
                     <LemonButton
                         type={hideUpgradeButton ? 'primary' : 'secondary'}
                         to={`${docsLink}?utm_medium=in-product&utm_campaign=${featureKey}-upgrade-learn-more`}
+                        targetBlank
                         center
                         data-attr={`${featureKey}-learn-more`}
                     >

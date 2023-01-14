@@ -20,12 +20,10 @@ export const insight: InsightModel = {
         insight: InsightType.TRENDS,
         interval: 'day',
     },
-    filters_hash: 'cache_60da01cbc38f11c52af35debe7e16c02',
     order: null,
     deleted: false,
     dashboards: [1],
     last_refresh: '2022-07-01T10:29:05.135Z',
-    refreshing: false,
     result: [
         {
             action: {
@@ -218,14 +216,11 @@ export const dashboard: DashboardType = {
                 },
             },
             color: InsightColor.Blue,
-            filters_hash: 'cache_60da01cbc38f11c52af35debe7e16c02',
             last_refresh: '2022-07-01T13:33:12.871519Z',
-            refreshing: false,
             insight: {
                 id: 1,
                 short_id: 'Bhtk8tjh' as InsightShortId,
                 last_refresh: '2022-07-01T13:33:12.871519Z',
-                refreshing: false,
                 name: 'Daily active users (DAUs)',
                 derived_name: null,
                 filters: {
@@ -239,7 +234,6 @@ export const dashboard: DashboardType = {
                     insight: InsightType.TRENDS,
                     interval: 'day',
                 },
-                filters_hash: 'cache_60da01cbc38f11c52af35debe7e16c02',
                 order: null,
                 deleted: false,
                 dashboards: [1],
@@ -431,11 +425,8 @@ export const dashboard: DashboardType = {
             },
             color: InsightColor.Green,
             last_refresh: '2022-07-01T13:33:13.630227Z',
-            filters_hash: 'cache_cb137fcbd18fc821881bd6c02755ef05',
-            refreshing: false,
             insight: {
                 last_refresh: '2022-07-01T13:33:13.630227Z',
-                refreshing: false,
 
                 id: 2,
                 short_id: 'e8FxXHZ6' as InsightShortId,
@@ -452,7 +443,6 @@ export const dashboard: DashboardType = {
                     insight: InsightType.TRENDS,
                     interval: 'week',
                 },
-                filters_hash: 'cache_cb137fcbd18fc821881bd6c02755ef05',
                 order: null,
                 deleted: false,
                 dashboards: [1],
@@ -581,9 +571,7 @@ export const dashboard: DashboardType = {
                 },
             },
             color: InsightColor.Black,
-            filters_hash: 'cache_f280830187fe684f8f0fc8d83e81c75e',
             last_refresh: '2022-07-01T13:33:13.694015Z',
-            refreshing: false,
             insight: {
                 id: 5,
                 short_id: 'sMPkWHir' as InsightShortId,
@@ -604,9 +592,7 @@ export const dashboard: DashboardType = {
                     date_from: '-14d',
                     breakdown_type: 'event',
                 },
-                filters_hash: 'cache_f280830187fe684f8f0fc8d83e81c75e',
                 last_refresh: '2022-07-01T13:33:13.694015Z',
-                refreshing: false,
                 order: null,
                 deleted: false,
                 dashboards: [1],
@@ -763,9 +749,7 @@ export const dashboard: DashboardType = {
                 },
             },
             color: InsightColor.Purple,
-            filters_hash: 'cache_ff58c27220825b2f58ac2635423ac58f',
             last_refresh: '2022-07-01T13:33:14.001864Z',
-            refreshing: false,
             insight: {
                 id: 4,
                 short_id: 'KcoMGkag' as InsightShortId,
@@ -788,9 +772,7 @@ export const dashboard: DashboardType = {
                 order: null,
                 deleted: false,
                 dashboards: [1],
-                filters_hash: 'cache_ff58c27220825b2f58ac2635423ac58f',
                 last_refresh: '2022-07-01T13:33:14.001864Z',
-                refreshing: false,
                 result: [
                     {
                         action: {
@@ -907,9 +889,7 @@ export const dashboard: DashboardType = {
                 },
             },
             color: InsightColor.Blue,
-            filters_hash: 'cache_45a45f6ba56272d9414204cb715615ef',
             last_refresh: '2022-07-01T13:33:14.399653Z',
-            refreshing: false,
             insight: {
                 id: 3,
                 short_id: '4nk6BVnw' as InsightShortId,
@@ -932,9 +912,7 @@ export const dashboard: DashboardType = {
                 order: null,
                 deleted: false,
                 dashboards: [1],
-                filters_hash: 'cache_45a45f6ba56272d9414204cb715615ef',
                 last_refresh: '2022-07-01T13:33:14.399653Z',
-                refreshing: false,
                 result: [
                     {
                         values: [
@@ -1308,7 +1286,6 @@ export const dashboard: DashboardType = {
         } as DashboardTile,
         {
             id: 5,
-            filters_hash: 'cache_7f58a22916945c13e3646371ebea391b',
             layouts: {
                 sm: {
                     h: 5,
@@ -1331,7 +1308,6 @@ export const dashboard: DashboardType = {
             },
             color: InsightColor.Green,
             last_refresh: '2022-07-01T13:33:15.069874Z',
-            refreshing: false,
             insight: {
                 id: 6,
                 short_id: 'Ht75IvAs' as InsightShortId,
@@ -1371,9 +1347,7 @@ export const dashboard: DashboardType = {
                     breakdown_type: 'event',
                     funnel_viz_type: FunnelVizType.Steps,
                 },
-                filters_hash: 'cache_7f58a22916945c13e3646371ebea391b',
                 last_refresh: '2022-07-01T13:33:15.069874Z',
-                refreshing: false,
                 order: null,
                 deleted: false,
                 dashboards: [1],

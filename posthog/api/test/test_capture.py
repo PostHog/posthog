@@ -1245,3 +1245,41 @@ class TestCapture(BaseTest):
                 # refactor best suited for another PR, hence accessing the call_args
                 # directly here
                 self.assertEqual(kafka_produce.call_args[1]["data"]["token"], "token123")
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_can_override_attributes_important_in_replicator_exports(self, kafka_produce):
+        # Check that for the values required to import historical data, we override appropriately.
+        response = self.client.post(
+            "/track/",
+            {
+                "data": json.dumps(
+                    [
+                        {
+                            "event": "event1",
+                            "uuid": "017d37c1-f285-0000-0e8b-e02d131925dc",
+                            "sent_at": "2020-01-01T00:00:00Z",
+                            "distinct_id": "id1",
+                            "timestamp": "2020-01-01T00:00:00Z",
+                            "properties": {"token": self.team.api_token},
+                        }
+                    ]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        event_data = json.loads(kafka_produce_call["data"]["data"])
+
+        self.assertDictContainsSubset(
+            {
+                "uuid": "017d37c1-f285-0000-0e8b-e02d131925dc",
+                "sent_at": "2020-01-01T00:00:00Z",
+                "timestamp": "2020-01-01T00:00:00Z",
+                "event": "event1",
+                "distinct_id": "id1",
+            },
+            event_data,
+        )

@@ -111,10 +111,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         syncScroll: [
-            true,
+            false,
             {
-                setTab: () => true,
-                setMiniFilter: () => true,
                 setSyncScroll: (_, { syncScroll }) => syncScroll,
                 setItemExpanded: () => false,
             },
@@ -238,6 +236,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // ALSO: We could move the individual filtering logic into the MiniFilters themselves
                 const items: InspectorListItem[] = []
 
+                // PERFORMANCE EVENTS
                 if (
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
                     (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
@@ -261,7 +260,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = true
                         }
                         if (
-                            miniFiltersByKey['performance-fetch']?.enabled &&
+                            (miniFiltersByKey['performance-fetch']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
                             event.entry_type === 'resource' &&
                             ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '')
                         ) {
@@ -310,6 +310,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
                 }
 
+                // CONSOLE LOGS
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
                     for (const event of consoleLogs || []) {
                         const timestamp = dayjs(event.timestamp)
@@ -358,6 +359,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     }
                 }
 
+                // EVENTS
                 if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.EVENTS) {
                     for (const event of eventsData?.events || []) {
                         let include = false
@@ -449,6 +451,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                 return startIndex
             },
+        ],
+
+        playbackIndicatorIndexStop: [
+            (s) => [s.playbackIndicatorIndex, s.items],
+            (playbackIndicatorIndex, items): number => (items.length + playbackIndicatorIndex) % items.length,
         ],
 
         fuse: [

@@ -28,7 +28,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         """
         see https://sentry.io/organizations/posthog/issues/3706110236/events/db0167ece56649f59b013cbe9de7ba7a/?project=1899813
         """
-        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(5), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             self.assertEqual(len(response["results"]), 0)
 
@@ -40,7 +40,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             self.assertEqual(len(response["results"]), 1)
 
@@ -52,7 +52,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             content=now().isoformat(),
         )
 
-        with self.assertNumQueries(7), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(6), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             self.assertEqual(len(response["results"]), 2)
 

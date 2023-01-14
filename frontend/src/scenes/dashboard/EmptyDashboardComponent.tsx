@@ -75,7 +75,7 @@ function SkeletonCardTwo({ active }: { active: boolean }): JSX.Element {
     )
 }
 
-export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.Element {
+export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean; canEdit: boolean }): JSX.Element {
     const {
         allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
     } = useValues(dashboardLogic)
@@ -95,6 +95,7 @@ export function EmptyDashboardComponent({ loading }: { loading: boolean }): JSX.
                                 icon={<IconPlus />}
                                 center
                                 fullWidth
+                                disabled={!canEdit}
                             >
                                 Add insight
                             </LemonButton>

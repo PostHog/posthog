@@ -4,7 +4,6 @@ import { Pool } from 'pg'
 import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
-import { delayUntilEventIngested } from '../tests/helpers/clickhouse'
 import { getMetric } from './api'
 import { waitForExpect } from './expectations'
 
@@ -66,8 +65,10 @@ test.concurrent(`handles empty messages`, async () => {
         ],
     })
 
-    const messages = await delayUntilEventIngested(() => dlq.filter((message) => message.key?.toString() === key))
-    expect(messages.length).toBe(1)
+    await waitForExpect(() => {
+        const messages = dlq.filter((message) => message.key?.toString() === key)
+        expect(messages.length).toBe(1)
+    })
 })
 
 test.concurrent(`handles invalid JSON`, async () => {
@@ -83,8 +84,10 @@ test.concurrent(`handles invalid JSON`, async () => {
         ],
     })
 
-    const messages = await delayUntilEventIngested(() => dlq.filter((message) => message.key?.toString() === key))
-    expect(messages.length).toBe(1)
+    await waitForExpect(() => {
+        const messages = dlq.filter((message) => message.key?.toString() === key)
+        expect(messages.length).toBe(1)
+    })
 })
 
 test.concurrent('consumer updates timestamp exported to prometheus', async () => {
@@ -113,5 +116,5 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
         expect(metricAfter).toBeGreaterThan(metricBefore)
         expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
         expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
-    })
+    }, 10_000)
 })

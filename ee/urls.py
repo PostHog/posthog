@@ -3,7 +3,7 @@ from typing import Any, List
 from django.urls.conf import path
 from rest_framework_extensions.routers import NestedRegistryItem
 
-from ee.api import integration
+from ee.api import integration, time_to_see_data
 from posthog.api.routing import DefaultRouterPlusPlus
 
 from .api import (
@@ -16,6 +16,7 @@ from .api import (
     hooks,
     license,
     organization_resource_access,
+    performance_events,
     role,
     sentry_stats,
     session_recording_playlist,
@@ -34,6 +35,7 @@ def extend_api_router(
     root_router.register(r"billing-v2", billing.BillingViewset, "billing")
     root_router.register(r"license", license.LicenseViewSet)
     root_router.register(r"debug_ch_queries", debug_ch_queries.DebugCHQueries, "debug_ch_queries")
+    root_router.register(r"time_to_see_data", time_to_see_data.TimeToSeeDataViewSet, "query_metrics")
     root_router.register(r"integrations", integration.PublicIntegrationViewSet)
     organization_roles_router = organizations_router.register(
         r"roles",
@@ -75,6 +77,13 @@ def extend_api_router(
         r"session_recording_playlists",
         session_recording_playlist.SessionRecordingPlaylistViewSet,
         "project_session_recording_playlists",
+        ["team_id"],
+    )
+
+    projects_router.register(
+        r"performance_events",
+        performance_events.PerformanceEventsViewSet,
+        "performance_events",
         ["team_id"],
     )
 

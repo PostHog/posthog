@@ -69,7 +69,7 @@ export const thirdPartySources: ThirdPartySource[] = [
         name: 'Segment',
         type: ThirdPartySourceType.Integration,
         icon: <Segment />,
-        docsLink: 'https://segment.com/docs/connections/destinations/catalog/posthog/',
+        docsLink: 'https://posthog.com/docs/integrate/third-party/segment',
     },
     {
         name: 'Rudderstack',
@@ -80,12 +80,12 @@ export const thirdPartySources: ThirdPartySource[] = [
                 src={'https://raw.githubusercontent.com/rudderlabs/rudderstack-posthog-plugin/main/logo.png'}
             />
         ),
-        docsLink: 'https://www.rudderstack.com/docs/destinations/analytics/posthog/',
+        docsLink: 'https://posthog.com/docs/integrate/third-party/rudderstack',
     },
     {
         name: 'Redshift',
         type: ThirdPartySourceType.Plugin,
-        pluginName: 'redshift-import-plugin-(beta)',
+        pluginName: 'redshift-import',
         labels: ['beta'],
         icon: (
             <img

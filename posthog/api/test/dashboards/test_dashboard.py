@@ -202,8 +202,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         dashboard_two_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard-2"})
         self.dashboard_api.create_insight({"dashboards": [dashboard_two_id, dashboard_one_id], "name": f"insight"})
 
-        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["items"]) == 1
-        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["items"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_one_id)["tiles"]) == 1
+        assert len(self.dashboard_api.get_dashboard(dashboard_two_id)["tiles"]) == 1
 
         response = self.dashboard_api.list_dashboards(query_params={"limit": 100})
 
@@ -336,19 +336,25 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         assert len(dashboard_before_delete["tiles"]) == 1
 
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
+        self.dashboard_api.get_dashboard(dashboard_id, expected_status=status.HTTP_404_NOT_FOUND)
         self.dashboard_api.get_insight(insight_id, self.team.id, expected_status=status.HTTP_200_OK)
 
-        tile = DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=insight_id)
+        with self.assertRaises(DashboardTile.DoesNotExist):
+            DashboardTile.objects.get(dashboard_id=dashboard_id, insight_id=insight_id)
+
+        tile = DashboardTile.objects_including_soft_deleted.get(dashboard_id=dashboard_id, insight_id=insight_id)
         assert tile.deleted is True
 
     def test_delete_dashboard_can_delete_tiles(self):
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
         dashboard_two_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-14d"}})
 
-        insight_on_one_dashboard_id, _ = self.dashboard_api.create_insight({"dashboards": [dashboard_one_id]})
+        insight_on_one_dashboard_id, _ = self.dashboard_api.create_insight(
+            {"name": "on one dashboard", "dashboards": [dashboard_one_id]}
+        )
 
         insight_on_two_dashboards_id, _ = self.dashboard_api.create_insight(
-            {"dashboards": [dashboard_one_id, dashboard_two_id]}
+            {"name": "on two dashboards", "dashboards": [dashboard_one_id, dashboard_two_id]}
         )
 
         dashboard_one_before_delete = self.dashboard_api.get_dashboard(dashboard_one_id)
@@ -428,11 +434,10 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         response = self.dashboard_api.get_dashboard(dashboard_id)
         self.assertEqual(len(response["tiles"]), 1)
         self.assertEqual(len(response["tiles"]), 1)
-        item_insight = response["tiles"][0]
         tile = response["tiles"][0]
 
-        assert item_insight["filters_hash"] == tile["filters_hash"]
         assert tile["insight"]["id"] == insight_id
+        assert tile["insight"]["filters"]["date_from"] == "-14d"
 
     def test_dashboard_filtering_on_properties(self):
         dashboard_id, _ = self.dashboard_api.create_dashboard({"filters": {"date_from": "-24h"}})
@@ -625,6 +630,31 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         after_duplication_tile_id = duplicate_response["tiles"][1]["text"]["id"]
         assert after_duplication_tile_id == dashboard_with_tiles["tiles"][1]["text"]["id"]
 
+    def test_dashboard_duplication_without_tile_duplicate_excludes_soft_deleted_tiles(self):
+        existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
+        insight_one_id, _ = self.dashboard_api.create_insight(
+            {"dashboards": [existing_dashboard.pk], "name": "the insight"}
+        )
+        _, dashboard_with_tiles = self.dashboard_api.create_text_tile(existing_dashboard.id)
+        insight_two_id, _ = self.dashboard_api.create_insight(
+            {"dashboards": [existing_dashboard.pk], "name": "the second insight"}
+        )
+        dashboard_json = self.dashboard_api.get_dashboard(existing_dashboard.pk)
+        assert len(dashboard_json["tiles"]) == 3
+        tile_to_delete = dashboard_json["tiles"][2]
+        assert tile_to_delete["insight"]["id"] == insight_two_id
+
+        self.dashboard_api.update_dashboard(
+            existing_dashboard.pk, {"tiles": [{"id": tile_to_delete["id"], "deleted": True}]}
+        )
+        dashboard_json = self.dashboard_api.get_dashboard(existing_dashboard.pk)
+        assert len(dashboard_json["tiles"]) == 2
+
+        _, duplicate_response = self.dashboard_api.create_dashboard(
+            {"name": "another", "use_dashboard": existing_dashboard.pk}
+        )
+        assert len(duplicate_response["tiles"]) == 2
+
     def test_dashboard_duplication_can_duplicate_tiles(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
         insight_one_id, _ = self.dashboard_api.create_insight(
@@ -699,13 +729,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         }
 
         # create two insights with a -7d date from filter
-        insight_one_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-        insight_two_id, _ = self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
-
-        insight_one_original_filter_hash = self.dashboard_api.get_insight(insight_one_id)["filters_hash"]
-        insight_two_original_filter_hash = self.dashboard_api.get_insight(insight_two_id)["filters_hash"]
-
-        self.assertEqual(insight_one_original_filter_hash, insight_two_original_filter_hash)
+        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
+        self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard.pk]})
 
         # cache insight results for trends with a -7d date from
         response = self.client.get(
@@ -713,6 +738,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             % (json.dumps(filter_dict["events"]), json.dumps(filter_dict["properties"]))
         )
         self.assertEqual(response.status_code, 200)
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard.pk)
+        self.assertEqual(len(dashboard_json["tiles"][0]["insight"]["result"][0]["days"]), 8)
 
         # set a filter on the dashboard
         _, patch_response_json = self.dashboard_api.update_dashboard(
@@ -723,28 +750,6 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.assertEqual(patch_response_json["tiles"][0]["insight"]["result"], None)
         dashboard.refresh_from_db()
         self.assertEqual(dashboard.filters, {"date_from": "-24h"})
-
-        # doesn't change the filters hash on the Insight itself
-        self.assertEqual(insight_one_original_filter_hash, Insight.objects.get(pk=insight_one_id).filters_hash)
-        self.assertEqual(insight_two_original_filter_hash, Insight.objects.get(pk=insight_two_id).filters_hash)
-
-        # the updated filters_hashes are from the dashboard tiles
-        tile_one = DashboardTile.objects.filter(insight__id=insight_one_id).first()
-        if tile_one is None:
-            breakpoint()
-        self.assertEqual(
-            patch_response_json["tiles"][0]["filters_hash"],
-            tile_one.filters_hash
-            if tile_one is not None
-            else f"should have been able to load a single tile for {insight_one_id}",
-        )
-        tile_two = DashboardTile.objects.filter(insight__id=insight_two_id).first()
-        self.assertEqual(
-            patch_response_json["tiles"][1]["filters_hash"],
-            tile_two.filters_hash
-            if tile_two is not None
-            else f"should have been able to load a single tile for {insight_two_id}",
-        )
 
         # cache results
         response = self.client.get(

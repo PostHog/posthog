@@ -29,12 +29,10 @@ const EXAMPLE_TRENDS: InsightModel = {
         insight: InsightType.TRENDS,
         interval: 'day',
     },
-    filters_hash: 'cache_10242f26e25fd30ec2c9721e4f90a018',
     deleted: false,
     dashboards: [1],
     order: 0,
     last_refresh: '2021-12-14T12:57:57.125157Z',
-    refreshing: false,
     result: [
         {
             action: {
@@ -221,12 +219,10 @@ const EXAMPLE_FUNNEL: InsightModel = {
         properties: [],
         funnel_viz_type: FunnelVizType.Steps,
     } as FunnelsFilterType,
-    filters_hash: 'cache_efe341a46f090f397007fe97d8faf263',
     order: 1,
     deleted: false,
     dashboards: [6],
     last_refresh: null,
-    refreshing: false,
     result: [
         {
             action_id: '$pageview',

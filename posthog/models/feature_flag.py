@@ -360,13 +360,15 @@ class FeatureFlagMatcher:
         )
 
     def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
-        flags_enabled = {}
+        flag_values = {}
         flag_evaluation_reasons = {}
         for feature_flag in self.feature_flags:
             try:
                 flag_match = self.get_match(feature_flag)
                 if flag_match.match:
-                    flags_enabled[feature_flag.key] = flag_match.variant or True
+                    flag_values[feature_flag.key] = flag_match.variant or True
+                else:
+                    flag_values[feature_flag.key] = False
 
                 flag_evaluation_reasons[feature_flag.key] = {
                     "reason": flag_match.reason,
@@ -374,7 +376,7 @@ class FeatureFlagMatcher:
                 }
             except Exception as err:
                 capture_exception(err)
-        return flags_enabled, flag_evaluation_reasons
+        return flag_values, flag_evaluation_reasons
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
         for variant in self.variant_lookup_table(feature_flag):
@@ -573,8 +575,8 @@ def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
     return feature_flag_to_key_overrides
 
 
-# Return a Dict with all active flags and their values
-def _get_active_feature_flags(
+# Return a Dict with all flags and their values
+def _get_all_feature_flags(
     feature_flags: List[FeatureFlag],
     team_id: int,
     distinct_id: str,
@@ -605,7 +607,7 @@ def _get_active_feature_flags(
 
 
 # Return feature flags
-def get_active_feature_flags(
+def get_all_feature_flags(
     team_id: int,
     distinct_id: str,
     groups: Dict[GroupTypeName, str] = {},
@@ -623,7 +625,7 @@ def get_active_feature_flags(
     )
 
     if not flags_have_experience_continuity_enabled:
-        return _get_active_feature_flags(
+        return _get_all_feature_flags(
             list(all_feature_flags),
             team_id,
             distinct_id,
@@ -664,7 +666,7 @@ def get_active_feature_flags(
     # as overrides are stored on personIDs.
     # We can optimise by not going down this path when person_id doesn't exist, or
     # no flags have experience continuity enabled
-    return _get_active_feature_flags(
+    return _get_all_feature_flags(
         list(all_feature_flags),
         team_id,
         distinct_id,
@@ -694,7 +696,12 @@ def set_feature_flag_hash_key_overrides(
             )
 
     if new_overrides:
-        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides)
+        # :TRICKY: regarding the ignore_conflicts parameter:
+        # This can happen if the same person is being processed by multiple workers
+        # / we got multiple requests for the same person
+        # at the same time. In this case, we can safely ignore the error.
+        # We don't want to return an error response for `/decide` just because of this.
+        FeatureFlagHashKeyOverride.objects.bulk_create(new_overrides, ignore_conflicts=True)
 
 
 def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_index: Optional[GroupTypeIndex] = None):

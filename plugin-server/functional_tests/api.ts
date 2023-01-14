@@ -9,7 +9,7 @@ import {
     PluginLogEntry,
     RawAction,
     RawClickHouseEvent,
-    RawPerson,
+    RawPerformanceEvent,
     RawSessionRecordingEvent,
 } from '../src/types'
 import { Plugin, PluginConfig } from '../src/types'
@@ -24,8 +24,14 @@ export const capture = async (
     uuid: string,
     event: string,
     properties: object = {},
-    token: string | null = null
+    token: string | null = null,
+    sentAt: Date = new Date(),
+    eventTime: Date = new Date(),
+    now: Date = new Date()
 ) => {
+    // WARNING: this capture method is meant to simulate the ingestion of events
+    // from the capture endpoint, but there is no guarantee that is is 100%
+    // accurate.
     await producer.send({
         topic: 'events_plugin_ingestion',
         messages: [
@@ -37,15 +43,15 @@ export const capture = async (
                     ip: '',
                     site_url: '',
                     team_id: teamId,
-                    now: new Date(),
-                    sent_at: new Date(),
+                    now: now,
+                    sent_at: sentAt,
                     uuid: uuid,
                     data: JSON.stringify({
                         event,
                         properties: { ...properties, uuid },
                         distinct_id: distinctId,
                         team_id: teamId,
-                        timestamp: new Date(),
+                        timestamp: eventTime,
                     }),
                 }),
             },
@@ -109,8 +115,8 @@ export const fetchEvents = async (clickHouseClient: ClickHouse, teamId: number, 
 export const fetchPersons = async (clickHouseClient: ClickHouse, teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM person WHERE team_id = ${teamId} ORDER BY created_at ASC`
-    )) as unknown as ClickHouse.ObjectQueryResult<RawPerson>
-    return queryResult.data
+    )) as unknown as ClickHouse.ObjectQueryResult<any>
+    return queryResult.data.map((person) => ({ ...person, properties: JSON.parse(person.properties) }))
 }
 
 export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
@@ -123,6 +129,13 @@ export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse,
             snapshot_data: event.snapshot_data ? JSON.parse(event.snapshot_data) : null,
         }
     })
+}
+
+export const fetchPerformanceEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
+    const queryResult = (await clickHouseClient.querying(
+        `SELECT * FROM performance_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
+    )) as unknown as ClickHouse.ObjectQueryResult<RawPerformanceEvent>
+    return queryResult.data
 }
 
 export const fetchPluginLogEntries = async (clickHouseClient: ClickHouse, pluginConfigId: number) => {

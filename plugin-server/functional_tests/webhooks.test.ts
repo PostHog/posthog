@@ -52,7 +52,10 @@ test.concurrent(`webhooks: fires slack webhook`, async () => {
     })
 
     try {
-        server.listen()
+        await new Promise((resolve) => {
+            server.on('listening', resolve)
+            server.listen()
+        })
 
         const distinctId = new UUIDT().toString()
 

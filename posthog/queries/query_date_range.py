@@ -42,6 +42,9 @@ class QueryDateRange(Generic[F]):
         elif isinstance(self._filter._date_to, datetime):
             date_to = self._localize_to_team(self._filter._date_to)
 
+        if not self.is_hourly(self._filter._date_to) and not self._filter.use_explicit_dates:
+            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+
         return date_to
 
     def get_earliest_timestamp(self):
@@ -65,6 +68,9 @@ class QueryDateRange(Generic[F]):
             date_from = self._now.replace(hour=0, minute=0, second=0, microsecond=0) - relativedelta(
                 days=DEFAULT_DATE_FROM_DAYS
             )
+
+        if not self.is_hourly(self._filter._date_from) and not self._filter.use_explicit_dates:
+            date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         return date_from
 
@@ -155,9 +161,6 @@ class QueryDateRange(Generic[F]):
         date_to_query = self.date_to_clause
         date_to = self.date_to_param
 
-        if not self.is_hourly(self._filter._date_to) and not self._filter.use_explicit_dates:
-            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=99999)
-
         date_to_param = {"date_to": date_to.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
 
         return date_to_query, date_to_param
@@ -166,9 +169,6 @@ class QueryDateRange(Generic[F]):
     def date_from(self) -> Tuple[str, Dict]:
         date_from_query = self.date_from_clause
         date_from = self.date_from_param
-
-        if not self.is_hourly(self._filter._date_from) and not self._filter.use_explicit_dates:
-            date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         date_from_param = {"date_from": date_from.strftime("%Y-%m-%d %H:%M:%S"), "timezone": self._team.timezone}
 

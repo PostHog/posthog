@@ -17,8 +17,8 @@ describe('playerMetaLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
-                '/api/projects/:team/session_recordings/:id/snapshots/': { result: recordingSnapshotsJson },
+                '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+                '/api/projects/:team/session_recordings/:id/snapshots/': recordingSnapshotsJson,
                 '/api/projects/:team/events': { results: recordingEventsJson },
             },
         })

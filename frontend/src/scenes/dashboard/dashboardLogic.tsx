@@ -47,7 +47,7 @@ import { userLogic } from 'scenes/userLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { lemonToast } from 'lib/components/lemonToast'
 import { Link } from 'lib/components/Link'
-import { captureTimeToSeeData, TimeToSeeDataPayload } from 'lib/internalMetrics'
+import { captureTimeToSeeData, currentSessionId, TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { getResponseBytes, sortDates } from '../insights/utils'
 import { loaders } from 'kea-loaders'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -943,6 +943,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     refresh: true,
                     from_dashboard: dashboardId, // needed to load insight in correct context
                     client_query_id: queryId,
+                    session_id: currentSessionId(),
                 })}`
 
                 try {
@@ -962,7 +963,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     captureTimeToSeeData(values.currentTeamId, {
                         type: 'insight_load',
                         context: 'dashboard',
-                        dashboard_query_id: dashboardQueryId,
+                        primary_interaction_id: dashboardQueryId,
                         query_id: queryId,
                         status: 'success',
                         time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),
@@ -992,21 +993,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         type: 'dashboard_load',
                         context: 'dashboard',
                         action,
-                        dashboard_query_id: dashboardQueryId,
+                        primary_interaction_id: dashboardQueryId,
                         api_response_bytes: totalResponseBytes,
                         time_to_see_data_ms: Math.floor(performance.now() - refreshStartTime),
                         insights_fetched: insights.length,
                         insights_fetched_cached: 0,
                     }
-                    captureTimeToSeeData(values.currentTeamId, payload)
+                    captureTimeToSeeData(values.currentTeamId, {
+                        ...payload,
+                        is_primary_interaction: !initialLoad,
+                    })
                     if (initialLoad) {
-                        const { dashboardQueryId, startTime, responseBytes } = values.dashboardLoadTimerData
+                        const { startTime, responseBytes } = values.dashboardLoadTimerData
                         captureTimeToSeeData(values.currentTeamId, {
                             ...payload,
-                            dashboard_query_id: dashboardQueryId,
                             action: 'initial_load_full',
                             time_to_see_data_ms: Math.floor(performance.now() - startTime),
                             api_response_bytes: responseBytes + totalResponseBytes,
+                            is_primary_interaction: true,
                         })
                     }
                 }
@@ -1110,13 +1114,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 type: 'dashboard_load',
                 context: 'dashboard',
                 action,
-                dashboard_query_id: dashboardQueryId,
+                primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
                 api_response_bytes: responseBytes,
                 insights_fetched: dashboard.tiles.length,
                 insights_fetched_cached: dashboard.tiles.reduce((acc, curr) => acc + (curr.is_cached ? 1 : 0), 0),
                 min_last_refresh: lastRefresh[0],
                 max_last_refresh: lastRefresh[lastRefresh.length - 1],
+                is_primary_interaction: !initialLoad,
             }
 
             captureTimeToSeeData(values.currentTeamId, payload)
@@ -1124,6 +1129,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 captureTimeToSeeData(values.currentTeamId, {
                     ...payload,
                     action: 'initial_load_full',
+                    is_primary_interaction: true,
                 })
             }
 
@@ -1168,7 +1174,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             await captureTimeToSeeData(values.currentTeamId, {
                 type: 'insight_load',
                 context: 'dashboard',
-                dashboard_query_id: dashboardQueryId,
+                primary_interaction_id: dashboardQueryId,
                 query_id: queryId,
                 status: 'cancelled',
                 time_to_see_data_ms: Math.floor(performance.now() - queryStartTime),

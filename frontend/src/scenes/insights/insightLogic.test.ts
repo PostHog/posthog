@@ -92,14 +92,12 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
         updated_at: '2021-03-09T14: 00: 00.000Z',
         updated_by: null,
         visibility: null,
-        refreshing: false,
         last_modified_at: '2021-03-31T15:00:00.000Z',
         last_modified_by: null,
         effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
         effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
-        filters_hash: 'hash',
         ...properties,
     } as InsightModel
 }
@@ -802,7 +800,7 @@ describe('insightLogic', () => {
         }).toDispatchActions(['setFilters', 'saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
     })
 
-    test('saveInsight and updateInsight reload the saved insights list', async () => {
+    test('saveInsight and updateInsight update the saved insights list', async () => {
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: Insight42,
@@ -815,10 +813,10 @@ describe('insightLogic', () => {
         logic.mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.loadInsights])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
 
         logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.loadInsights])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.setInsight])
     })
 
     test('saveInsight updates dashboards', async () => {

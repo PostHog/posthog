@@ -3,10 +3,10 @@ import './storybook.scss'
 import type { Meta } from '@storybook/react'
 import { worker } from '~/mocks/browser'
 import { loadPostHogJS } from '~/loadPostHogJS'
-
 import { getStorybookAppContext } from './app-context'
 import { withKea } from './decorators/withKea'
 import { withMockDate } from './decorators/withMockDate'
+import { defaultMocks } from '~/mocks/handlers'
 
 const setupMsw = () => {
     // Make sure the msw worker is started
@@ -58,6 +58,9 @@ export const parameters = {
     // auto-expand code blocks in docs
     docs: {
         source: { state: 'closed' },
+    },
+    msw: {
+        mocks: defaultMocks,
     },
 }
 

@@ -25,7 +25,6 @@ export enum BillingAlertType {
     SetupBilling = 'setup_billing',
     UsageNearLimit = 'usage_near_limit',
     UsageLimitExceeded = 'usage_limit_exceeded',
-    FreeUsageNearLimit = 'free_usage_near_limit',
 }
 
 export const billingLogic = kea<billingLogicType>([
@@ -188,11 +187,6 @@ export const billingLogic = kea<billingLogicType>([
                     percentage >= ALLOCATION_THRESHOLD_ALERT
                 ) {
                     return BillingAlertType.UsageNearLimit
-                }
-
-                // Priority 4: Users on free account that are almost reaching free events threshold
-                if (!billing?.is_billing_active && billing?.current_usage && percentage > ALLOCATION_THRESHOLD_ALERT) {
-                    return BillingAlertType.FreeUsageNearLimit
                 }
             },
         ],

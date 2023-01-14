@@ -1,7 +1,7 @@
 import { LemonButton, LemonDivider, Link } from '@posthog/lemon-ui'
 import clsx from 'clsx'
 import { dayjs, Dayjs } from 'lib/dayjs'
-import { capitalizeFirstLetter, humanizeBytes } from 'lib/utils'
+import { capitalizeFirstLetter, humanizeBytes, humanFriendlyMilliseconds } from 'lib/utils'
 import { PerformanceEvent } from '~/types'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
 
@@ -10,18 +10,6 @@ export interface ItemPerformanceEvent {
     expanded: boolean
     setExpanded: (expanded: boolean) => void
     finalTimestamp?: Dayjs
-}
-
-const ms = (timestamp: number | undefined): string | undefined => {
-    if (typeof timestamp !== 'number') {
-        return undefined
-    }
-
-    if (timestamp < 1000) {
-        return `${Math.ceil(timestamp)}ms`
-    }
-
-    return `${(timestamp / 1000).toFixed(2)}s`
 }
 
 export function ItemPerformanceEvent({
@@ -49,6 +37,20 @@ export function ItemPerformanceEvent({
         ...otherProps
     } = item
 
+    // NOTE: This is a bit of a quick-fix for the fact that each event has all values despite most not applying.
+    // We should probably do a specific mapping depending on the event type to display it properly (and probably give an info indicator what it all means...)
+
+    const sanitizedProps = Object.entries(otherProps).reduce((acc, [key, value]) => {
+        if (value === 0 || value === '') {
+            return acc
+        }
+
+        return {
+            ...acc,
+            [key]: typeof value === 'number' ? Math.round(value) : value,
+        }
+    }, {} as Record<string, any>)
+
     return (
         <div>
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
@@ -68,17 +70,17 @@ export function ItemPerformanceEvent({
                             <div className="flex items-center p-2">
                                 <div className="flex-1 p-2 text-center">
                                     <div className="text-sm font-semibold">Interactive</div>
-                                    <div className="text-lg">{ms(item.dom_interactive)}</div>
+                                    <div className="text-lg">{humanFriendlyMilliseconds(item.dom_interactive)}</div>
                                 </div>
                                 <LemonDivider vertical dashed />
                                 <div className="flex-1 p-2 text-center">
                                     <div className="text-sm font-semibold">Ready</div>
-                                    <div className="text-lg">{ms(item.dom_complete)}</div>
+                                    <div className="text-lg">{humanFriendlyMilliseconds(item.dom_complete)}</div>
                                 </div>
                                 <LemonDivider vertical dashed />
                                 <div className="flex-1 p-2 text-center">
                                     <div className="text-sm font-semibold">Done</div>
-                                    <div className="text-lg">{ms(item.duration)}</div>
+                                    <div className="text-lg">{humanFriendlyMilliseconds(item.duration)}</div>
                                 </div>
                             </div>
                             <div className={clsx('text-xs flex-1 overflow-hidden p-2', !expanded && 'truncate')}>
@@ -96,7 +98,7 @@ export function ItemPerformanceEvent({
                                     'text-warning-dark': startTime > 500 && startTime < 2000,
                                 })}
                             >
-                                {ms(startTime)}
+                                {humanFriendlyMilliseconds(startTime)}
                             </span>
                         </div>
                     ) : (
@@ -109,7 +111,7 @@ export function ItemPerformanceEvent({
                                     'text-warning-dark': duration > 500 && duration < 2000,
                                 })}
                             >
-                                {ms(duration)}
+                                {humanFriendlyMilliseconds(duration)}
                             </span>
                         </div>
                     )}
@@ -150,8 +152,8 @@ export function ItemPerformanceEvent({
                         </p>
                     ) : (
                         <p>
-                            started at <b>{ms(item.start_time || item.fetch_start)}</b> and took{' '}
-                            <b>{ms(item.duration)}</b> to complete
+                            started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
+                            <b>{humanFriendlyMilliseconds(item.duration)}</b> to complete
                         </p>
                     )}
 
@@ -171,7 +173,7 @@ export function ItemPerformanceEvent({
                         </>
                     ) : null}
                     <LemonDivider dashed />
-                    <SimpleKeyValueList item={otherProps} />
+                    <SimpleKeyValueList item={sanitizedProps} />
                 </div>
             )}
         </div>

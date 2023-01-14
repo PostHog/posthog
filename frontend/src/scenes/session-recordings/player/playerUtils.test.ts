@@ -13,7 +13,7 @@ import {
     guessPlayerPositionFromEpochTimeWithoutWindowId,
 } from './playerUtils'
 
-const metadata = parseMetadataResponse(recordingMetaJson['session_recording'])
+const metadata = parseMetadataResponse(recordingMetaJson)
 const segments: RecordingSegment[] = metadata.segments ?? []
 
 describe('comparePlayerPositions', () => {

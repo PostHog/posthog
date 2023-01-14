@@ -3,7 +3,6 @@ from typing import Optional
 import structlog
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
-from django.db.models.signals import pre_save
 from django.utils import timezone
 from django_deprecate_fields import deprecate_field
 from rest_framework.exceptions import ValidationError
@@ -11,10 +10,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.logging.timing import timed
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.utils import get_filter
-from posthog.models.signals import mutable_receiver
 from posthog.utils import absolute_uri, generate_cache_key, generate_short_id
 
 logger = structlog.get_logger(__name__)
+
+
+class InsightManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
 
 
 class Insight(models.Model):
@@ -22,6 +25,9 @@ class Insight(models.Model):
     Stores saved insights along with their entire configuration options. Saved insights can be stored as standalone
     reports or part of a dashboard.
     """
+
+    objects = InsightManager()
+    objects_including_soft_deleted = models.Manager()
 
     name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
     derived_name: models.CharField = models.CharField(max_length=400, null=True, blank=True)
@@ -172,18 +178,6 @@ class InsightViewed(models.Model):
     user: models.ForeignKey = models.ForeignKey("User", on_delete=models.CASCADE)
     insight: models.ForeignKey = models.ForeignKey(Insight, on_delete=models.CASCADE)
     last_viewed_at: models.DateTimeField = models.DateTimeField()
-
-
-@mutable_receiver(pre_save, sender=Insight)
-def insight_saving(sender, instance: Insight, **kwargs):
-    update_fields = kwargs.get("update_fields")
-    if update_fields in [frozenset({"filters_hash"}), frozenset({"last_refresh"}), frozenset({"filters"})]:
-        # Don't always update the filters_hash
-        return
-
-    # ensure there's a filters hash
-    if instance.filters and instance.filters != {}:
-        instance.filters_hash = generate_insight_cache_key(instance, None)
 
 
 @timed("generate_insight_cache_key")
