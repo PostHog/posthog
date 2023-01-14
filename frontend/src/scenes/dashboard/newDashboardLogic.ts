@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { DashboardType } from '~/types'
@@ -70,8 +70,10 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                         router.actions.push(urls.dashboard(result.id))
                     }
                 } catch (e: any) {
-                    const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e
-                    lemonToast.error(`Could not create dashboard: ${message}`)
+                    if (!isBreakpoint(e)) {
+                        const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e
+                        lemonToast.error(`Could not create dashboard: ${message}`)
+                    }
                 }
             },
         },

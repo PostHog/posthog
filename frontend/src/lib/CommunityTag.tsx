@@ -1,5 +1,5 @@
-import { Tag } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
+import { Tag } from 'antd'
 
 export function CommunityTag({ isCommunity, noun = 'app' }: { isCommunity?: boolean; noun?: string }): JSX.Element {
     return (

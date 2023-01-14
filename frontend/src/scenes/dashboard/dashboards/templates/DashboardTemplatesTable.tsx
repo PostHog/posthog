@@ -3,10 +3,10 @@ import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/templates/types'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { CommunityTag } from 'scenes/plugins/plugin/CommunityTag'
 import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
 import { LemonButton } from 'lib/components/LemonButton'
 import { CloudDownloadOutlined } from '@ant-design/icons'
+import { CommunityTag } from 'lib/CommunityTag'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
