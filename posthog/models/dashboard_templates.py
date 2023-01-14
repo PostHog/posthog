@@ -45,7 +45,7 @@ class DashboardTemplate(UUIDModel):
                     "color": "blue",
                     "filters": {
                         "events": [{"id": "$pageview", "math": "dau", "type": "events"}],
-                        "display": "BoldNumber",
+                        "display": "ActionsLineGraph",
                         "insight": "TRENDS",
                         "interval": "day",
                         "date_from": "-30d",
