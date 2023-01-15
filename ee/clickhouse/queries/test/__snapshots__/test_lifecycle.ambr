@@ -29,7 +29,7 @@
         FROM
           (SELECT pdi.person_id as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous, 'returning', 'resurrecting')), previous_activity, all_activity) as initial_status,
                   arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
@@ -101,7 +101,7 @@
         FROM
           (SELECT pdi.person_id as person_id,
                   arraySort(groupUniqArray(dateTrunc('month', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('month', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('month', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('month', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current) -> if(previous = current, 'new', if(current - INTERVAL 1 month = previous, 'returning', 'resurrecting')), previous_activity, all_activity) as initial_status,
                   arrayMap((current, next) -> if(current + INTERVAL 1 month = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
@@ -173,7 +173,7 @@
         FROM
           (SELECT pdi.person_id as person_id,
                   arraySort(groupUniqArray(dateTrunc('week', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('week', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('week', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('week', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current) -> if(previous = current, 'new', if(current - INTERVAL 1 week = previous, 'returning', 'resurrecting')), previous_activity, all_activity) as initial_status,
                   arrayMap((current, next) -> if(current + INTERVAL 1 week = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
@@ -245,7 +245,7 @@
         FROM
           (SELECT pdi.person_id as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous, 'returning', 'resurrecting')), previous_activity, all_activity) as initial_status,
                   arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
@@ -317,7 +317,7 @@
         FROM
           (SELECT pdi.person_id as person_id,
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
-                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(created_at, 'UTC'), 'UTC')))) as previous_activity,
+                  arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
                   arrayMap((previous, current) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous, 'returning', 'resurrecting')), previous_activity, all_activity) as initial_status,
                   arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
