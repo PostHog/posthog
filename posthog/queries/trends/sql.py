@@ -393,7 +393,7 @@ LIFECYCLE_EVENTS_QUERY = """
 SELECT
     {person_column} as person_id,
     arraySort(groupUniqArray(dateTrunc(%(interval)s, toTimeZone(toDateTime(events.timestamp, %(timezone)s), %(timezone)s)))) AS all_activity,
-    arrayPopBack(arrayPushFront(all_activity, dateTrunc(%(interval)s, toTimeZone(toDateTime(created_at, %(timezone)s), %(timezone)s)))) as previous_activity,
+    arrayPopBack(arrayPushFront(all_activity, dateTrunc(%(interval)s, toTimeZone(toDateTime(min({created_at_clause}), %(timezone)s), %(timezone)s)))) as previous_activity,
     arrayPopFront(arrayPushBack(all_activity, dateTrunc(%(interval)s, toDateTime('1970-01-01')))) as following_activity,
     arrayMap((previous,current) -> if(
         previous = current, 'new', if(
