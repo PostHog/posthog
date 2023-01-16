@@ -34,7 +34,7 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
                 disabled={!localValue}
                 center
             >
-                Add expression
+                {value ? 'Edit HogQL expression' : 'Add HogQL expression'}
             </LemonButton>
         </div>
     )
