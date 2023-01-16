@@ -30,6 +30,7 @@ import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LemonButton } from 'lib/components/LemonButton'
 import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 interface DataTableProps {
     query: DataTableNode
@@ -107,6 +108,42 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             more:
                 showActions && isEventsQuery(query.source) ? (
                     <>
+                        <div className="px-2 py-1">
+                            <div className="font-mono font-bold">{extractExpressionComment(key)}</div>
+                            {extractExpressionComment(key) !== removeExpressionComment(key) && (
+                                <div className="font-mono">{removeExpressionComment(key)}</div>
+                            )}
+                        </div>
+                        <LemonDivider />
+                        <TaxonomicPopup
+                            groupType={TaxonomicFilterGroupType.HogQLExpression}
+                            value={key}
+                            renderValue={() => <>Edit column</>}
+                            onChange={(v, g) => {
+                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                if (hogQl && isEventsQuery(query.source)) {
+                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    const isOrderBy = query.source?.orderBy?.[0] === key
+                                    const isDescOrderBy = query.source?.orderBy?.[0] === `-${key}`
+                                    setQuery?.({
+                                        ...query,
+                                        source: {
+                                            ...query.source,
+                                            select: query.source.select
+                                                .map((s, i) => (i === index ? hogQl : s))
+                                                .filter((c) => (isAggregation ? c !== '*' : true)),
+                                            orderBy:
+                                                isOrderBy || isDescOrderBy
+                                                    ? [isDescOrderBy ? `-${hogQl}` : hogQl]
+                                                    : query.source?.orderBy,
+                                        },
+                                    })
+                                }
+                            }}
+                            groupTypes={groupTypes}
+                            buttonProps={{ type: undefined }}
+                        />
+                        <LemonDivider />
                         {canSort ? (
                             <>
                                 <LemonButton
@@ -142,29 +179,6 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 <LemonDivider />
                             </>
                         ) : null}
-                        <TaxonomicPopup
-                            groupType={TaxonomicFilterGroupType.HogQLExpression}
-                            value={key}
-                            placeholder="Edit column"
-                            onChange={(v, g) => {
-                                const hogQl = taxonomicFilterToHogQl(g, v)
-                                if (hogQl) {
-                                    const isAggregation = isHogQlAggregation(hogQl)
-                                    setQuery?.({
-                                        ...query,
-                                        source: {
-                                            ...query.source,
-                                            select: (query.source as EventsQuery).select
-                                                .map((s, i) => (i === index ? hogQl : s))
-                                                .filter((c) => (isAggregation ? c !== '*' : true)),
-                                        } as EventsQuery,
-                                    })
-                                }
-                            }}
-                            groupTypes={groupTypes}
-                            buttonProps={{ type: undefined }}
-                        />
-                        <LemonDivider />
                         <TaxonomicPopup
                             groupType={TaxonomicFilterGroupType.EventProperties}
                             value={''}
