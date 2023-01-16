@@ -153,7 +153,7 @@ export const eachBatch =
                     // If it's an error that is transient, we want to
                     // initiate the KafkaJS retry logic, which kicks in when
                     // we throw.
-                    // throw error
+                    throw error
                 }
 
                 // On non-retriable errors, e.g. perhaps the produced message
@@ -185,7 +185,7 @@ export const eachBatch =
             status.error('⚠️', 'flush_error')
 
             if (error instanceof DependencyUnavailableError) {
-                // throw error
+                throw error
             }
 
             // NOTE: for errors coming from `flush` we don't have much by the
