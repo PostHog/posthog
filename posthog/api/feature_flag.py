@@ -164,9 +164,12 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         if not isinstance(payloads, dict):
             raise serializers.ValidationError("Payloads must be passed as a dictionary")
 
-        for key in payloads:
-            if key != "true" and key not in variants:
-                raise serializers.ValidationError("Payload keys must be 'true' or match a variant key")
+        if filters.get("multivariate"):
+            if not all(key in variants for key in payloads):
+                raise serializers.ValidationError("Payload keys must match a variant key for multivariate flags")
+        else:
+            if len(payloads) > 1 or any(key != "true" for key in payloads):
+                raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
 
         return filters
 
