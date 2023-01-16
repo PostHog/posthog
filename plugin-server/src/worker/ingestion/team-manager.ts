@@ -67,6 +67,7 @@ export class TeamManager {
             updateAgeOnGet: true,
         })
         this.tokenToTeamIdCache = new LRU({
+            // TODO: add `maxAge` to ensure we avoid negatively caching teamId as null.
             max: 100_000,
         })
         this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
@@ -117,32 +118,6 @@ export class TeamManager {
             this.tokenToTeamIdCache.set(token, team.id)
             this.teamCache.set(team.id, team)
             return team
-        } finally {
-            clearTimeout(timeout)
-        }
-    }
-
-    public async getTeamIdByToken(token: string): Promise<number | null> {
-        // TODO: avoid thundering herd on the DB for the same `token`
-        const cachedTeamId = this.tokenToTeamIdCache.get(token)
-
-        // tokenToTeamIdCache.get returns `undefined` if the value doesn't
-        // exist so we check for the value being `null` as that means we've
-        // explictly cached that the team does not exist
-        if (cachedTeamId === null) {
-            return null
-        } else if (cachedTeamId != null) {
-            const cachedTeam = this.teamCache.get(cachedTeamId)
-            if (cachedTeam?.id != null) {
-                return cachedTeam.id
-            }
-        }
-
-        const timeout = timeoutGuard(`Still running "fetchTeamIdByToken". Timeout warning after 30 sec!`)
-        try {
-            const teamId = await this.db.fetchTeamIdByToken(token)
-            this.tokenToTeamIdCache.set(token, teamId)
-            return teamId
         } finally {
             clearTimeout(timeout)
         }

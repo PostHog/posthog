@@ -109,7 +109,7 @@ export const eachBatch =
 
             try {
                 teamId =
-                    messagePayload.team_id ?? (event.token ? await teamManager.getTeamIdByToken(event.token) : null)
+                    messagePayload.team_id ?? (event.token ? (await teamManager.getTeamByToken(event.token))?.id : null)
 
                 if (!teamId) {
                     status.warn('⚠️', 'invalid_message', {
