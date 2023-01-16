@@ -19,7 +19,7 @@ export const startSessionRecordingEventsConsumer = async ({
 }: {
     teamManager: TeamManager
     kafka: Kafka
-    statsd: StatsD
+    statsd?: StatsD
 }) => {
     /*
         For Session Recordings we need to prepare the data for ClickHouse.

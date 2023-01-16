@@ -265,7 +265,7 @@ export async function startPluginsServer(
             sessionRecordingEventsConsumer = await startSessionRecordingEventsConsumer({
                 teamManager: hub.teamManager,
                 kafka: hub.kafka,
-                producer: hub.kafkaProducer,
+                statsd: hub.statsd,
             })
 
             bufferConsumer = await startAnonymousEventBufferConsumer({
