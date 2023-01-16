@@ -60,9 +60,7 @@ export function InsightContainer({
         activeView,
         loadedView,
         filters,
-        showTimeoutMessage,
         timedOutQueryId,
-        showErrorMessage,
         erroredQueryId,
         exporterResourceParams,
         isUsingSessionAnalysis,
@@ -73,7 +71,7 @@ export function InsightContainer({
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !timedOutQueryId)) {
+        if (activeView !== loadedView || (insightLoading && timedOutQueryId === null)) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -94,10 +92,10 @@ export function InsightContainer({
         }
 
         // Insight agnostic empty states
-        if (!!showErrorMessage) {
+        if (!!erroredQueryId) {
             return <InsightErrorState queryId={erroredQueryId} />
         }
-        if (!!showTimeoutMessage) {
+        if (!!timedOutQueryId) {
             return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
         }
 
@@ -107,8 +105,8 @@ export function InsightContainer({
     function renderTable(): JSX.Element | null {
         if (
             isFunnelsFilter(filters) &&
-            !showErrorMessage &&
-            !showTimeoutMessage &&
+            erroredQueryId === null &&
+            timedOutQueryId === null &&
             areFiltersValid &&
             isValidFunnel &&
             filters.funnel_viz_type === FunnelVizType.Steps &&

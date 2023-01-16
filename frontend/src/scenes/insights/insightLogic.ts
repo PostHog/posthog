@@ -501,7 +501,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         timedOutQueryId: [null as string | null, { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId }],
-        showTimeoutMessage: [
+        maybeShowTimeoutMessage: [
             false,
             {
                 // Only show timeout message if timer is still running
@@ -512,7 +512,7 @@ export const insightLogic = kea<insightLogicType>([
             },
         ],
         erroredQueryId: [null as string | null, { marktInsightErrored: (_, { erroredQueryId }) => erroredQueryId }],
-        showErrorMessage: [
+        maybeShowErrorMessage: [
             false,
             {
                 endQuery: (_, { exception }) => {
@@ -904,8 +904,8 @@ export const insightLogic = kea<insightLogicType>([
                 clearTimeout(values.timeout)
             }
             if (view === values.activeView && values.currentTeamId) {
-                actions.markInsightTimedOut(values.showTimeoutMessage ? queryId : null)
-                actions.marktInsightErrored(values.showErrorMessage ? queryId : null)
+                actions.markInsightTimedOut(values.maybeShowTimeoutMessage ? queryId : null)
+                actions.marktInsightErrored(values.maybeShowErrorMessage ? queryId : null)
                 actions.setLastRefresh(lastRefresh || null)
                 actions.setIsLoading(false)
 
@@ -933,7 +933,7 @@ export const insightLogic = kea<insightLogicType>([
                     insight: values.activeView,
                     is_primary_interaction: true,
                 })
-                if (values.showErrorMessage) {
+                if (values.maybeShowErrorMessage) {
                     posthog.capture('insight error message shown', { ...tags, duration })
                 }
             }
