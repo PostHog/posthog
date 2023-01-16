@@ -1,7 +1,7 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
-import { CorrelationConfigType, TeamType } from '~/types'
+import { CorrelationConfigType, PropertyOperator, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
@@ -11,6 +11,7 @@ import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
 import { OrganizationMembershipLevel } from '../lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -132,6 +133,46 @@ export const teamLogic = kea<teamLogicType>([
             (currentTeam): boolean =>
                 !!currentTeam?.effective_membership_level &&
                 currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+        ],
+        testAccountFilterWarning: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): JSX.Element | null => {
+                const positiveFilterOperators = [PropertyOperator.IContains, PropertyOperator.Regex]
+                const positiveFilters = []
+                for (const filter of currentTeam.test_account_filters) {
+                    if (
+                        'operator' in filter &&
+                        !!filter.operator &&
+                        positiveFilterOperators.includes(filter.operator)
+                    ) {
+                        positiveFilters.push(filter)
+                    }
+                }
+                if (positiveFilters.length > 0) {
+                    const labels = positiveFilters.map(
+                        (filter) => getKeyMapping(filter.key, filter.type)?.label || filter.key
+                    )
+                    return (
+                        <>
+                            <p>
+                                Positive filters here mean only events or persons matching these filters will be
+                                included. Internal and test account filters are normally excluding filters like does not
+                                equal or does not contain.
+                            </p>
+                            <p>Positive filters are currently set for the following properties: </p>
+                            <ul className={'list-disc'}>
+                                {labels.map((l, i) => (
+                                    <li key={i} className={'ml-4'}>
+                                        {l}
+                                    </li>
+                                ))}
+                            </ul>
+                        </>
+                    )
+                } else {
+                    return null
+                }
+            },
         ],
     }),
     listeners(({ actions }) => ({

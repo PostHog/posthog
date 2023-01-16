@@ -6,11 +6,12 @@ import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonSwitch } from '@posthog/lemon-ui'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading, testAccountFilterWarning } = useValues(teamLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const handleChange = (filters: AnyPropertyFilter[]): void => {
@@ -21,6 +22,11 @@ export function TestAccountFiltersConfig(): JSX.Element {
     return (
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4">
+                {!!testAccountFilterWarning && (
+                    <AlertMessage type="warning" className={'m-2'}>
+                        {testAccountFilterWarning}
+                    </AlertMessage>
+                )}
                 {currentTeam && (
                     <PropertyFilters
                         pageKey="testaccountfilters"
