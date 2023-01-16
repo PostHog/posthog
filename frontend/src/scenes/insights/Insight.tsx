@@ -41,6 +41,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema'
+import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     // insightSceneLogic
@@ -167,6 +168,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
+                        {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
                         {insightMode !== ItemMode.Edit && (
                             <>
                                 <More
