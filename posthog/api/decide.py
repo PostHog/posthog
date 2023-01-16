@@ -167,9 +167,6 @@ def get_decide(request: HttpRequest):
                 # default v1
                 response["featureFlags"] = list(active_flags.keys())
 
-            # TODO: right now these are all false because not in the cache.
-            # should we explicitly choose what to save, or just put everything in the cache?
-            # will help future people adding things here not bang their heads over why it's not working
             response["capturePerformance"] = True if team.capture_performance_opt_in else False
 
             if team.session_recording_opt_in and (
@@ -181,7 +178,18 @@ def get_decide(request: HttpRequest):
                     "consoleLogRecordingEnabled": capture_console_logs,
                 }
 
-            response["siteApps"] = get_decide_site_apps(team) if team.inject_web_apps else []
+            site_apps = []
+            if team.inject_web_apps:
+                try:
+                    site_apps = get_decide_site_apps(team)
+                except Exception:
+                    pass
+
+            response["siteApps"] = site_apps
+
+            # NOTE: Whenever you add something to decide response, update this test:
+            # `test_decide_doesnt_error_out_when_database_is_down`
+            # which ensures that decide doesn't error out when the database is down
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

@@ -82,6 +82,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
             "capture_console_log_opt_in",
             "session_recording_opt_in",
             "recording_domains",
+            "inject_web_apps",
         ]
 
 
@@ -124,6 +125,7 @@ class TeamSerializer(serializers.ModelSerializer):
             "recording_domains",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
+            "inject_web_apps",
         )
         read_only_fields = (
             "id",

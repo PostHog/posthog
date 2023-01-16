@@ -3,6 +3,7 @@ import json
 from typing import Dict, List, Optional
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db import connection
 from django.db.utils import OperationalError
 from django.test import TestCase
@@ -37,6 +38,10 @@ class TestFeatureFlag(APIBaseTest):
     feature_flag: FeatureFlag = None  # type: ignore
 
     maxDiff = None
+
+    def setUp(self):
+        cache.clear()
+        return super().setUp()
 
     @classmethod
     def setUpTestData(cls):
@@ -1297,19 +1302,6 @@ class TestFeatureFlag(APIBaseTest):
             format="json",
         )
 
-        self.client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Group feature",
-                "key": "group-feature",
-                "filters": {
-                    "aggregation_group_type_index": 0,
-                    "groups": [{"rollout_percentage": 61}],
-                },
-            },
-            format="json",
-        )
-
         # old style feature flags
         FeatureFlag.objects.create(
             name="Beta feature",
@@ -1328,6 +1320,19 @@ class TestFeatureFlag(APIBaseTest):
             rollout_percentage=100,
             filters={"properties": []},
             created_by=self.user,
+        )
+
+        self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            {
+                "name": "Group feature",
+                "key": "group-feature",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"rollout_percentage": 61}],
+                },
+            },
+            format="json",
         )
 
         # general test
@@ -2210,8 +2215,6 @@ class QueryTimeoutWrapper:
 
 
 class TestResiliency(TestCase, QueryMatchingTest):
-
-    # TODO: test with hash key overrides
     def test_feature_flags_v3_with_group_properties(self):
         self.organization = Organization.objects.create(name="test")
         self.team = Team.objects.create(organization=self.organization)
@@ -2262,8 +2265,8 @@ class TestResiliency(TestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(5):
-            # TODO: 5 seems too much here, there are 2 person queries for some reason?
+        with self.assertNumQueries(2):
+            # one query to get group type mappings, another to get group properties
             all_flags, _ = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
             self.assertTrue(all_flags["group-flag"])
             self.assertTrue(all_flags["default-flag"])
@@ -2280,6 +2283,7 @@ class TestResiliency(TestCase, QueryMatchingTest):
 
             # # now db is down, but decide was sent email parameter with correct email
             with self.assertNumQueries(2):
+                # these 2 queries are "None", not executed
                 all_flags, _ = get_all_feature_flags(
                     team_id,
                     "random",
@@ -2293,6 +2297,7 @@ class TestResiliency(TestCase, QueryMatchingTest):
 
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(2):
+                # these 2 queries are "None", not executed
                 all_flags, _ = get_all_feature_flags(
                     team_id,
                     "exam",
@@ -2349,7 +2354,8 @@ class TestResiliency(TestCase, QueryMatchingTest):
         self.assertTrue(serialized_data.is_valid())
         serialized_data.save()
 
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(1):
+            # 1 query to get person properties
             all_flags, _ = get_all_feature_flags(team_id, "example_id")
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])

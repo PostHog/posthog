@@ -630,7 +630,7 @@ def get_all_feature_flags(
     from posthog.api.feature_flag import get_feature_flags_for_team_in_cache, set_feature_flags_for_team_in_cache
 
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
-    if not all_feature_flags:
+    if all_feature_flags is None:
         all_feature_flags = list(
             FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
                 "id",

@@ -433,7 +433,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
 
 
 def set_feature_flags_for_team_in_cache(team_id: int, feature_flags: Optional[List[FeatureFlag]] = None) -> None:
-    if feature_flags:
+    if feature_flags is not None:
         all_feature_flags = feature_flags
     else:
         all_feature_flags = list(FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False))
@@ -450,14 +450,9 @@ def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFl
         # redis is unavailable
         return None
 
-    if flag_data:
+    if flag_data is not None:
         try:
             parsed_data = json.loads(flag_data)
-            # print(parsed_data)
-            # all_flags_deserialized = MinimalFeatureFlagSerializer(data=parsed_data, many=True)
-            # all_flags_deserialized.is_valid(raise_exception=True)
-            # print(all_flags_deserialized.data)
-            # return [FeatureFlag(**flag) for flag in all_flags_deserialized.data]
             return [FeatureFlag(**flag) for flag in parsed_data]
         except Exception as e:
             capture_exception(e)
