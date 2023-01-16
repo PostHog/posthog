@@ -75,7 +75,7 @@ export function TimeoutState(): JSX.Element {
         router.actions.push(`/insights/${insight.short_id}`)
         window.setTimeout(() => {
             const logic = insightLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
-            logic?.actions.insightTimedOut('a-uuid-query-id')
+            logic?.actions.markInsightTimedOut('a-uuid-query-id')
         }, 50)
     }, [])
     return <App />
