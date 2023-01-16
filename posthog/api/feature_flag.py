@@ -158,6 +158,16 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                         raise serializers.ValidationError(
                             detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
                         )
+
+        payloads = filters.get("payloads", {})
+
+        if not isinstance(payloads, dict):
+            raise serializers.ValidationError("Payloads must be passed as a dictionary")
+
+        for key in payloads:
+            if key != "true" and key not in variants:
+                raise serializers.ValidationError("Payload keys must be 'true' or match a variant key")
+
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:

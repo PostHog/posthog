@@ -362,7 +362,7 @@ class FeatureFlagMatcher:
                 highest_priority_evaluation_reason, highest_priority_index, evaluation_reason, index
             )
 
-        payload = None
+        payload = self.get_matching_payload(False, None, feature_flag)
         return FeatureFlagMatch(
             match=False,
             reason=highest_priority_evaluation_reason,

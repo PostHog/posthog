@@ -248,10 +248,14 @@ class TestDecide(BaseTest):
         FeatureFlag.objects.create(
             team=self.team,
             filters={
-                "properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}],
+                "groups": [
+                    {
+                        "properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}],
+                        "rollout_percentage": None,
+                    }
+                ],
                 "payloads": {"true": {"color": "blue"}},
             },
-            rollout_percentage=100,
             name="Filter by property",
             key="filter-by-property",
             created_by=self.user,
