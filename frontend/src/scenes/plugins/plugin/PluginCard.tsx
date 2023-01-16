@@ -20,7 +20,6 @@ import { PluginError } from './PluginError'
 import { LocalPluginTag } from './LocalPluginTag'
 import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SourcePluginTag } from './SourcePluginTag'
-import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
 import { endWithPunctation } from 'lib/utils'
@@ -33,6 +32,7 @@ import { PluginsAccessLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
 import { SuccessRateBadge } from './SuccessRateBadge'
 import clsx from 'clsx'
+import { CommunityTag } from 'lib/CommunityTag'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -160,9 +160,7 @@ export function PluginCard({
                                 )}
                                 {name}
                             </strong>
-                            {hasSpecifiedMaintainer && (
-                                <CommunityPluginTag isCommunity={pluginMaintainer === 'community'} />
-                            )}
+                            {hasSpecifiedMaintainer && <CommunityTag isCommunity={pluginMaintainer === 'community'} />}
                             {pluginConfig?.error ? (
                                 <PluginError
                                     error={pluginConfig.error}
