@@ -73,7 +73,7 @@ export function InsightContainer({
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
+        if (activeView !== loadedView || (insightLoading && !timedOutQueryId)) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -94,10 +94,10 @@ export function InsightContainer({
         }
 
         // Insight agnostic empty states
-        if (showErrorMessage) {
+        if (!!showErrorMessage) {
             return <InsightErrorState queryId={erroredQueryId} />
         }
-        if (showTimeoutMessage) {
+        if (!!showTimeoutMessage) {
             return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
         }
 

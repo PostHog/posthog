@@ -138,8 +138,8 @@ export const insightLogic = kea<insightLogicType>([
             scene: Scene | null
             exception?: Record<string, any>
         }) => payload,
-        insightTimedOut: (timedOutQueryId: string | null) => ({ timedOutQueryId }),
-        insightErrored: (erroredQueryId: string | null) => ({ erroredQueryId }),
+        markInsightTimedOut: (timedOutQueryId: string | null) => ({ timedOutQueryId }),
+        marktInsightErrored: (erroredQueryId: string | null) => ({ erroredQueryId }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
@@ -500,21 +500,19 @@ export const insightLogic = kea<insightLogicType>([
                 }),
             },
         ],
-        showTimeoutMessage: [false, { insightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId }],
-        timedOutQueryId: [null as string | null, { insightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId }],
-        maybeShowTimeoutMessage: [
+        timedOutQueryId: [null as string | null, { markInsightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId }],
+        showTimeoutMessage: [
             false,
             {
                 // Only show timeout message if timer is still running
-                insightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId,
+                markInsightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId,
                 endQuery: (_, { exception }) => !!exception && exception.status !== 500,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
         ],
-        showErrorMessage: [false, { insightErrored: (_, { erroredQueryId }) => !!erroredQueryId }],
-        erroredQueryId: [null as string | null, { insightErrored: (_, { erroredQueryId }) => erroredQueryId }],
-        maybeShowErrorMessage: [
+        erroredQueryId: [null as string | null, { marktInsightErrored: (_, { erroredQueryId }) => erroredQueryId }],
+        showErrorMessage: [
             false,
             {
                 endQuery: (_, { exception }) => {
@@ -858,14 +856,14 @@ export const insightLogic = kea<insightLogicType>([
             }
         },
         startQuery: ({ queryId }) => {
-            actions.insightTimedOut(null)
-            actions.insightErrored(null)
+            actions.markInsightTimedOut(null)
+            actions.marktInsightErrored(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
                 window.setTimeout(() => {
                     if (values && view == values.activeView) {
-                        actions.insightTimedOut(queryId)
+                        actions.markInsightTimedOut(queryId)
                         const tags = {
                             insight: values.activeView,
                             scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
@@ -906,8 +904,8 @@ export const insightLogic = kea<insightLogicType>([
                 clearTimeout(values.timeout)
             }
             if (view === values.activeView && values.currentTeamId) {
-                actions.insightTimedOut(values.maybeShowTimeoutMessage ? queryId : null)
-                actions.insightErrored(values.maybeShowErrorMessage ? queryId : null)
+                actions.markInsightTimedOut(values.showTimeoutMessage ? queryId : null)
+                actions.marktInsightErrored(values.showErrorMessage ? queryId : null)
                 actions.setLastRefresh(lastRefresh || null)
                 actions.setIsLoading(false)
 
@@ -935,15 +933,15 @@ export const insightLogic = kea<insightLogicType>([
                     insight: values.activeView,
                     is_primary_interaction: true,
                 })
-                if (values.maybeShowErrorMessage) {
+                if (values.showErrorMessage) {
                     posthog.capture('insight error message shown', { ...tags, duration })
                 }
             }
         },
         setActiveView: ({ type }) => {
             actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
-            actions.insightTimedOut(null)
-            actions.insightErrored(null)
+            actions.markInsightTimedOut(null)
+            actions.marktInsightErrored(null)
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }
