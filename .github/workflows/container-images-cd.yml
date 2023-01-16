@@ -56,7 +56,7 @@ jobs:
                   buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: true
+                  push: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
                   tags: posthog/posthog:latest
                   platforms: linux/amd64,linux/arm64
 
@@ -108,7 +108,7 @@ jobs:
                   buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: true
+                  push: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
                   tags: ${{ steps.aws-ecr.outputs.registry }}/posthog-cloud:latest
                   platforms: linux/amd64,linux/arm64
                   file: Dockerfile.cloud
