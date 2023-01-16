@@ -31,7 +31,8 @@
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'UTC'), 'UTC')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'UTC'), 'UTC')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
-                  arrayMap((previous, current) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous, 'returning', 'resurrecting')), previous_activity, all_activity) as initial_status,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
                   arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
                   arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
                   arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
@@ -103,7 +104,8 @@
                   arraySort(groupUniqArray(dateTrunc('day', toTimeZone(toDateTime(events.timestamp, 'US/Pacific'), 'US/Pacific')))) AS all_activity,
                   arrayPopBack(arrayPushFront(all_activity, dateTrunc('day', toTimeZone(toDateTime(min(person.created_at), 'US/Pacific'), 'US/Pacific')))) as previous_activity,
                   arrayPopFront(arrayPushBack(all_activity, dateTrunc('day', toDateTime('1970-01-01')))) as following_activity,
-                  arrayMap((previous, current) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous, 'returning', 'resurrecting')), previous_activity, all_activity) as initial_status,
+                  arrayMap((previous, current, index) -> if(previous = current, 'new', if(current - INTERVAL 1 day = previous
+                                                                                          AND index != 1, 'returning', 'resurrecting')), previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
                   arrayMap((current, next) -> if(current + INTERVAL 1 day = next, '', 'dormant'), all_activity, following_activity) as dormant_status,
                   arrayMap(x -> x + INTERVAL 1 day, arrayFilter((current, is_dormant) -> is_dormant = 'dormant', all_activity, dormant_status)) as dormant_periods,
                   arrayMap(x -> 'dormant', dormant_periods) as dormant_label,
