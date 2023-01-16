@@ -37,6 +37,7 @@ export interface PropertyValueProps {
     outerOptions?: Option[] // If no endpoint provided, options are given here
     autoFocus?: boolean
     allowCustom?: boolean
+    eventNames?: string[]
 }
 
 function matchesLowerCase(needle?: string, haystack?: string): boolean {
@@ -59,6 +60,7 @@ export function PropertyValue({
     outerOptions = undefined,
     autoFocus = false,
     allowCustom = true,
+    eventNames = [],
 }: PropertyValueProps): JSX.Element {
     // what the human has typed into the box
     const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
@@ -106,17 +108,22 @@ export function PropertyValue({
                 },
             })
         } else {
-            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
-                (propValues: PropValue[]) => {
-                    setOptions({
-                        ...options,
-                        [propertyKey]: {
-                            values: [...Array.from(new Set(propValues))],
-                            status: 'loaded',
-                        },
-                    })
-                }
-            )
+            let eventParams = ''
+            for (const eventName of eventNames) {
+                eventParams += `&event_name=${eventName}`
+            }
+
+            api.get(
+                endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '') + eventParams
+            ).then((propValues: PropValue[]) => {
+                setOptions({
+                    ...options,
+                    [propertyKey]: {
+                        values: [...Array.from(new Set(propValues))],
+                        status: 'loaded',
+                    },
+                })
+            })
         }
     }, 300)
 

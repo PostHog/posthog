@@ -16,9 +16,10 @@
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
-    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
+    AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
   LIMIT 10
   '
 ---
@@ -28,9 +29,10 @@
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
-    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%QW%'
+    AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%QW%'
   LIMIT 10
   '
 ---
@@ -40,9 +42,53 @@
   SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
   FROM events
   WHERE team_id = 2
-    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+    AND JSONHas(properties, 'random_prop')
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  LIMIT 10
+  '
+---
+# name: TestEvents.test_event_property_values.4
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND JSONHas(properties, 'random_prop')
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = 'random event')
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  LIMIT 10
+  '
+---
+# name: TestEvents.test_event_property_values.5
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND JSONHas(properties, 'random_prop')
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = 'foo'
+         OR event = 'random event')
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%6%'
+  LIMIT 10
+  '
+---
+# name: TestEvents.test_event_property_values.6
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT DISTINCT replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '')
+  FROM events
+  WHERE team_id = 2
+    AND JSONHas(properties, 'random_prop')
+    AND timestamp >= '2020-01-13 00:00:00'
+    AND timestamp <= '2020-01-20 23:59:59'
+    AND (event = '404_i_dont_exist')
+    AND replaceRegexpAll(JSONExtractRaw(properties, 'random_prop'), '^"|"$', '') ILIKE '%qw%'
   LIMIT 10
   '
 ---
