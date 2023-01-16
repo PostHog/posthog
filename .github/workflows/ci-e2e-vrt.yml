@@ -29,14 +29,17 @@ jobs:
             - name: Install package.json dependencies with pnpm
               run: pnpm install --frozen-lockfile
 
+            - name: Install CI utilities with pnpm
+              run: pnpm install concurrently http-server wait-on
+
             - name: Build Storybook
               run: pnpm build-storybook --quiet
 
             - name: Serve Storybook and run tests
               run: |
-                  pnpm dlx concurrently -k -s first -n "SB,TEST" -c "magenta,blue" \
-                    "pnpm dlx http-server storybook-static --port 6006" \
-                    "pnpm dlx wait-on http://127.0.0.1:6006 --timeout 60 && pnpm exec playwright test"
+                  pnpm exec concurrently -k -s first -n "SRVR,TEST" -c "magenta,blue" \
+                    "pnpm exec http-server storybook-static --port 6006" \
+                    "pnpm exec wait-on http://127.0.0.1:6006 --timeout 60 && pnpm exec playwright test"
 
             - name: Upload Playwright report
               uses: actions/upload-artifact@v3
@@ -46,4 +49,4 @@ jobs:
                   path: |
                       playwright-report/
                       test-results/
-                  retention-days: 30
+                  retention-days: 7
