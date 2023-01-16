@@ -148,6 +148,10 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 
 class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
+    """
+    To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
+    """
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -402,6 +406,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
+    @extend_schema(exclude=True)
     def update(self, request, *args, **kwargs):
         """
         Only for setting properties on the person. "properties" from the request data will be updated via a "$set" event.
@@ -410,6 +415,14 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         """
         self._set_properties(request.data["properties"], request.user)
         return Response(status=204)
+
+    @extend_schema(exclude=True)
+    def partial_update(self, *args, **kwargs):
+        return Response(status=404)
+
+    @extend_schema(exclude=True)
+    def create(self, *args, **kwargs):
+        return Response(status=404)
 
     def _set_properties(self, properties, user):
         instance = self.get_object()
