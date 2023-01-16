@@ -150,11 +150,10 @@ class RecentPageViewPerformanceEvents:
             columnized_item = {
                 "session_id": result[0],
                 "pageview_id": result[1],
-                "page_url": result[2],
+                "page_url": result[2] or "(empty string)",
                 "duration": result[3],
                 "timestamp": result[4],
             }
-
             columnized_results.append(columnized_item)
 
         return columnized_results
