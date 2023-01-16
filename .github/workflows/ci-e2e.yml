@@ -129,6 +129,8 @@ jobs:
                   mkdir -p /tmp/logs
 
                   echo "Starting PostHog using the container image ${{ steps.meta.outputs.tags }}"
+                  docker pull ${{ steps.meta.outputs.tags }} || docker build -t ${{ steps.meta.outputs.tags }}
+
                   DOCKER_RUN="docker run --rm --network host --add-host kafka:127.0.0.1 --env-file .env ${{ steps.meta.outputs.tags }}"
 
                   $DOCKER_RUN ./bin/migrate
