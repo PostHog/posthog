@@ -125,6 +125,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
+        insightFilter: [(s) => [s.querySource], (querySource) => querySource[filterPropertyForQuery(querySource)]],
     }),
 
     listeners(({ actions, values }) => ({

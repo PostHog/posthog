@@ -31,6 +31,8 @@ describe('insightDataLogic', () => {
                     }),
                 }),
             })
+
+            expect(logic.values.querySource).toMatchObject({ filterTestAccounts: true })
         })
     })
 
@@ -53,6 +55,8 @@ describe('insightDataLogic', () => {
                     }),
                 }),
             })
+
+            expect(logic.values.insightFilter).toMatchObject({ display: 'ActionsAreaGraph' })
         })
     })
 })
