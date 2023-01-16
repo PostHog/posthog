@@ -11,6 +11,7 @@ import { PaginationAuto, PaginationControl, PaginationManual, usePagination } fr
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { LemonSkeleton } from '../LemonSkeleton'
 import { LemonTableLoader } from './LemonTableLoader'
+import { More } from 'lib/components/LemonButton/More'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -277,6 +278,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                     style={{ justifyContent: column.align }}
                                                 >
                                                     {column.title}
+                                                    {column.more && <More overlay={column.more} />}
                                                     {column.sorter && (
                                                         <Tooltip
                                                             title={() => {

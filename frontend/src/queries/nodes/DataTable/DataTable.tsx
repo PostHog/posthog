@@ -1,7 +1,7 @@
 import './DataTable.scss'
 import { DataTableNode, EventsNode, EventsQuery, Node, PersonsNode, QueryContext } from '~/queries/schema'
 import { useCallback, useState } from 'react'
-import { useValues, BindLogic } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { dataNodeLogic, DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { LemonTable, LemonTableColumn } from 'lib/components/LemonTable'
 import { EventName } from '~/queries/nodes/EventsNode/EventName'
@@ -21,12 +21,16 @@ import { EventBufferNotice } from 'scenes/events/EventBufferNotice'
 import clsx from 'clsx'
 import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
 import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
-import { isEventsQuery, isPersonsNode } from '~/queries/utils'
+import { isEventsQuery, isHogQlAggregation, isPersonsNode, taxonomicFilterToHogQl } from '~/queries/utils'
 import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropertyFilters'
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
+import { LemonButton } from 'lib/components/LemonButton'
+import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface DataTableProps {
     query: DataTableNode
@@ -106,6 +110,152 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                 return renderColumn(key, record[key], record, query, setQuery, context)
             },
             sorter: canSort || undefined, // we sort on the backend
+            more:
+                showActions && isEventsQuery(query.source) ? (
+                    <>
+                        <LemonButton
+                            fullWidth
+                            status="stealth"
+                            onClick={() => {
+                                setQuery?.({
+                                    ...query,
+                                    source: {
+                                        ...query.source,
+                                        orderBy: [removeExpressionComment(key)],
+                                    } as EventsQuery,
+                                })
+                            }}
+                        >
+                            Sort ascending
+                        </LemonButton>
+                        <LemonButton
+                            fullWidth
+                            status="stealth"
+                            onClick={() => {
+                                setQuery?.({
+                                    ...query,
+                                    source: {
+                                        ...query.source,
+                                        orderBy: [`-${removeExpressionComment(key)}`],
+                                    } as EventsQuery,
+                                })
+                            }}
+                        >
+                            Sort descending
+                        </LemonButton>
+                        <LemonDivider />
+                        <TaxonomicPopup
+                            groupType={TaxonomicFilterGroupType.HogQLExpression}
+                            value={key}
+                            placeholder="Edit column"
+                            onChange={(v, g) => {
+                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                if (hogQl) {
+                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    setQuery?.({
+                                        ...query,
+                                        source: {
+                                            ...query.source,
+                                            select: (query.source as EventsQuery).select
+                                                .map((s, i) => (i === index ? hogQl : s))
+                                                .filter((c) => (isAggregation ? c !== '*' : true)),
+                                        } as EventsQuery,
+                                    })
+                                }
+                            }}
+                            groupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                            ]}
+                            buttonProps={{ type: undefined }}
+                        />
+                        <LemonDivider />
+                        <TaxonomicPopup
+                            groupType={TaxonomicFilterGroupType.EventProperties}
+                            value={''}
+                            placeholder={<span className="not-italic">Add column left</span>}
+                            onChange={(v, g) => {
+                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                if (hogQl && isEventsQuery(query.source)) {
+                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    setQuery?.({
+                                        ...query,
+                                        source: {
+                                            ...query.source,
+                                            select: [
+                                                ...(query.source.select || []).slice(0, index),
+                                                hogQl,
+                                                ...(query.source.select || []).slice(index),
+                                            ].filter((c) => (isAggregation ? c !== '*' : true)),
+                                        } as EventsQuery,
+                                    })
+                                }
+                            }}
+                            groupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                            ]}
+                            buttonProps={{ type: undefined }}
+                        />
+                        <TaxonomicPopup
+                            groupType={TaxonomicFilterGroupType.EventProperties}
+                            value={''}
+                            placeholder={<span className="not-italic">Add column right</span>}
+                            onChange={(v, g) => {
+                                const hogQl = taxonomicFilterToHogQl(g, v)
+                                if (hogQl && isEventsQuery(query.source)) {
+                                    const isAggregation = isHogQlAggregation(hogQl)
+                                    setQuery?.({
+                                        ...query,
+                                        source: {
+                                            ...query.source,
+                                            select: [
+                                                ...(query.source.select || []).slice(0, index + 1),
+                                                hogQl,
+                                                ...(query.source.select || []).slice(index + 1),
+                                            ].filter((c) => (isAggregation ? c !== '*' : true)),
+                                        } as EventsQuery,
+                                    })
+                                }
+                            }}
+                            groupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                                TaxonomicFilterGroupType.HogQLExpression,
+                            ]}
+                            buttonProps={{ type: undefined }}
+                        />
+                        {columns.filter((c) => c !== '*').length > 1 ? (
+                            <>
+                                <LemonDivider />
+                                <LemonButton
+                                    fullWidth
+                                    status="danger"
+                                    onClick={() => {
+                                        setQuery?.({
+                                            ...query,
+                                            source: {
+                                                ...query.source,
+                                                select: (query.source as EventsQuery).select.filter(
+                                                    (_, i) => i !== index
+                                                ),
+                                            } as EventsQuery,
+                                        })
+                                    }}
+                                >
+                                    Remove column
+                                </LemonButton>
+                            </>
+                        ) : (
+                            <></>
+                        )}
+                    </>
+                ) : undefined,
         })),
         ...(actionsColumnShown
             ? [
