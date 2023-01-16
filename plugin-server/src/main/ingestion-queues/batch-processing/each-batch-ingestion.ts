@@ -4,6 +4,7 @@ import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 import { Hub, PipelineEvent, WorkerMethods } from '../../../types'
 import { formPipelineEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
+import { groupIntoBatches } from '../../../utils/utils'
 import { IngestionConsumer } from '../kafka-queue'
 import { eachBatch } from './each-batch'
 
@@ -12,29 +13,7 @@ export async function eachMessageIngestion(message: KafkaMessage, queue: Ingesti
 }
 
 export async function eachBatchIngestion(payload: EachBatchPayload, queue: IngestionConsumer): Promise<void> {
-    function groupIntoBatchesIngestion(kafkaMessages: KafkaMessage[], batchSize: number): KafkaMessage[][] {
-        // Once we see a distinct ID we've already seen break up the batch
-        const batches = []
-        const seenIds: Set<string> = new Set()
-        let currentBatch: KafkaMessage[] = []
-        for (const message of kafkaMessages) {
-            const pluginEvent = formPipelineEvent(message)
-            const seenKey = `${pluginEvent.team_id}:${pluginEvent.distinct_id}`
-            if (currentBatch.length === batchSize || seenIds.has(seenKey)) {
-                seenIds.clear()
-                batches.push(currentBatch)
-                currentBatch = []
-            }
-            seenIds.add(seenKey)
-            currentBatch.push(message)
-        }
-        if (currentBatch) {
-            batches.push(currentBatch)
-        }
-        return batches
-    }
-
-    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatchesIngestion, 'ingestion')
+    await eachBatch(payload, queue, eachMessageIngestion, groupIntoBatches, 'ingestion')
 }
 
 export async function ingestEvent(
