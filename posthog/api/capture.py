@@ -415,7 +415,7 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     kafka_partition_key = None
 
     if event["event"] in ("$snapshot", "$performance_event"):
-        kafka_partition_key = event["properties"]["$session_id"]
+        kafka_partition_key = None
     else:
         candidate_partition_key = f"{team_id}:{distinct_id}"
 
