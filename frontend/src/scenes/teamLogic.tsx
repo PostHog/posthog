@@ -137,7 +137,11 @@ export const teamLogic = kea<teamLogicType>([
         testAccountFilterWarning: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): JSX.Element | null => {
-                const positiveFilterOperators = [PropertyOperator.IContains, PropertyOperator.Regex]
+                const positiveFilterOperators = [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IContains,
+                    PropertyOperator.Regex,
+                ]
                 const positiveFilters = []
                 for (const filter of currentTeam.test_account_filters) {
                     if (
