@@ -71,6 +71,7 @@ jobs:
     posthog_cloud_build:
         name: Build PostHog Cloud
         runs-on: ubuntu-latest
+        if: ${{ github.event.pull_request.head.repo.full_name == 'PostHog/posthog' }}
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
             contents: read # allow at least reading the repo contents, add other permissions if necessary
