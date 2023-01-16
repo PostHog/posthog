@@ -138,17 +138,11 @@ class FeatureFlag(models.Model):
         else:
             # :TRICKY: Keep this backwards compatible.
             #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
-            response = {
+            return {
                 "groups": [
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
                 ],
             }
-
-            payloads = self.filters.get("payloads", {})
-            if payloads:
-                response.update({"payloads": payloads})
-
-            return response
 
     def transform_cohort_filters_for_easy_evaluation(self):
         """
@@ -368,7 +362,7 @@ class FeatureFlagMatcher:
                 highest_priority_evaluation_reason, highest_priority_index, evaluation_reason, index
             )
 
-        payload = self.get_matching_payload(False, None, feature_flag)
+        payload = None
         return FeatureFlagMatch(
             match=False,
             reason=highest_priority_evaluation_reason,
