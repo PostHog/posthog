@@ -395,13 +395,13 @@ SELECT
     arraySort(groupUniqArray(dateTrunc(%(interval)s, toTimeZone(toDateTime(events.timestamp, %(timezone)s), %(timezone)s)))) AS all_activity,
     arrayPopBack(arrayPushFront(all_activity, dateTrunc(%(interval)s, toTimeZone(toDateTime(min({created_at_clause}), %(timezone)s), %(timezone)s)))) as previous_activity,
     arrayPopFront(arrayPushBack(all_activity, dateTrunc(%(interval)s, toDateTime('1970-01-01')))) as following_activity,
-    arrayMap((previous,current) -> if(
+    arrayMap((previous,current, index) -> if(
         previous = current, 'new', if(
-                current - INTERVAL 1 {interval} = previous,
+                current - INTERVAL 1 {interval} = previous AND index != 1,
                 'returning',
                 'resurrecting'
             )
-        ) , previous_activity, all_activity) as initial_status,
+        ) , previous_activity, all_activity, arrayEnumerate(all_activity)) as initial_status,
     arrayMap((current, next) -> if(
         current + INTERVAL 1 {interval} = next,
         '',
