@@ -134,9 +134,9 @@ export const teamLogic = kea<teamLogicType>([
                 !!currentTeam?.effective_membership_level &&
                 currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
         ],
-        testAccountFilterWarning: [
+        testAccountFilterWarningLabels: [
             (selectors) => [selectors.currentTeam],
-            (currentTeam): JSX.Element | null => {
+            (currentTeam) => {
                 if (!currentTeam) {
                     return null
                 }
@@ -155,40 +155,20 @@ export const teamLogic = kea<teamLogicType>([
                         positiveFilters.push(filter)
                     }
                 }
-                if (positiveFilters.length > 0) {
-                    const labels = positiveFilters.map((filter) => {
-                        if (!!filter.type && !!filter.key) {
-                            // person properties can be checked for a label as if they were event properties
-                            // so, we can check each acceptable type and see if it returns a value
-                            return (
-                                getPropertyLabel(filter.key, 'event') ||
-                                getPropertyLabel(filter.key, 'element') ||
-                                filter.key
-                            )
-                        } else {
-                            return filter.key
-                        }
-                    })
-                    return (
-                        <>
-                            <p>
-                                Positive filters here mean only events or persons matching these filters will be
-                                included. Internal and test account filters are normally excluding filters like does not
-                                equal or does not contain.
-                            </p>
-                            <p>Positive filters are currently set for the following properties: </p>
-                            <ul className={'list-disc'}>
-                                {labels.map((l, i) => (
-                                    <li key={i} className={'ml-4'}>
-                                        {l}
-                                    </li>
-                                ))}
-                            </ul>
-                        </>
-                    )
-                } else {
-                    return null
-                }
+
+                return positiveFilters.map((filter) => {
+                    if (!!filter.type && !!filter.key) {
+                        // person properties can be checked for a label as if they were event properties
+                        // so, we can check each acceptable type and see if it returns a value
+                        return (
+                            getPropertyLabel(filter.key, 'event') ||
+                            getPropertyLabel(filter.key, 'element') ||
+                            filter.key
+                        )
+                    } else {
+                        return filter.key
+                    }
+                })
             },
         ],
     }),
