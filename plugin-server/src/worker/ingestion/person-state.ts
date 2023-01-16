@@ -468,7 +468,7 @@ export class PersonState {
             // so we need to know the newer person's age
             const oldPersonAgeInMonths = Math.floor(Math.abs(oldPerson.created_at.diffNow('months').months))
             const newPersonAgeInMonths = Math.floor(Math.abs(newPerson.created_at.diffNow('months').months))
-            // max for getting low cardinality
+            // max for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
             const newerPersonAge = Math.max(Math.min(oldPersonAgeInMonths, newPersonAgeInMonths), 36)
 
             this.statsd?.increment('merge_users', {
