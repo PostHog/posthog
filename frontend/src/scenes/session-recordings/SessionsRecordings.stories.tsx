@@ -16,7 +16,7 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/session_recordings': { results: recordings },
+                '/api/projects/:team_id/session_recordings': { results: recordings },
                 '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
                 '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
                 '/api/projects/:team/events': { results: recordingEventsJson },

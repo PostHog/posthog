@@ -1,3 +1,4 @@
+import datetime
 import uuid
 
 from freezegun import freeze_time
@@ -88,6 +89,69 @@ class TestLicensedPerformanceEvents(APILicensedTest):
         )
         assert res.status_code == 200
         assert len(res.json()["results"]) == 0
+
+    def test_list_recent_pageviews(self):
+
+        # recent navigation matches if requesting at least six days
+        create_performance_event(
+            self.team.id,
+            distinct_id="user_1",
+            session_id="matching_session_one",
+            current_url="https://posthog.com",
+            entry_type="navigation",
+            timestamp=datetime.datetime.now() - datetime.timedelta(days=6),
+        )
+
+        # recent navigation matches  if requesting at least 3 days
+        create_performance_event(
+            self.team.id,
+            distinct_id="user_1",
+            session_id="matching_session_two",
+            current_url="https://posthog.com",
+            entry_type="navigation",
+            timestamp=datetime.datetime.now() - datetime.timedelta(days=2),
+        )
+        # recent resource does not match
+        create_performance_event(
+            self.team.id, "user_1", "non_matching_one", current_url="https://posthog.com", entry_type="resource"
+        )
+        # old navigation does not match
+        create_performance_event(
+            self.team.id,
+            "user_2",
+            "non_matching_two",
+            current_url="https://posthog.com",
+            entry_type="navigation",
+            timestamp=datetime.datetime.fromisoformat("2008-04-10 11:47:58"),
+        )
+
+        seven_days_ago = datetime.datetime.now() - datetime.timedelta(days=7)
+        res = self.client.get(
+            f"/api/projects/@current/performance_events/recent_pageviews?date_from={seven_days_ago.isoformat()}"
+        )
+        self.assertEqual(res.status_code, 200, res.json())
+        assert [r["session_id"] for r in res.json()["results"]] == ["matching_session_two", "matching_session_one"]
+
+        three_days_ago = datetime.datetime.now() - datetime.timedelta(days=3)
+        res = self.client.get(
+            f"/api/projects/@current/performance_events/recent_pageviews?date_from={three_days_ago.isoformat()}"
+        )
+        self.assertEqual(res.status_code, 200, res.json())
+        assert [r["session_id"] for r in res.json()["results"]] == ["matching_session_two"]
+
+    def test_list_recent_pageviews_cannot_request_more_than_thirty_days(self):
+        thirty_days_ago = datetime.datetime.now() - datetime.timedelta(days=30)
+        thirty_one_days_ago = datetime.datetime.now() - datetime.timedelta(days=31)
+
+        res = self.client.get(
+            f"/api/projects/@current/performance_events/recent_pageviews?date_from={thirty_days_ago.isoformat()}"
+        )
+        assert res.status_code == 200
+
+        res = self.client.get(
+            f"/api/projects/@current/performance_events/recent_pageviews?date_from={thirty_one_days_ago.isoformat()}"
+        )
+        assert res.status_code == 400
 
 
 class TestUnlicensedPerformanceEvents(APIBaseTest):

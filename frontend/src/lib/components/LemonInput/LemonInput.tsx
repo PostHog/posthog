@@ -23,6 +23,8 @@ type LemonInputPropsBase = Pick<
     ref?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
+    /** Use the danger status for invalid input. */
+    status?: 'default' | 'danger'
     /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
     allowClear?: boolean
     /** Element to prefix input field */
@@ -35,9 +37,8 @@ type LemonInputPropsBase = Pick<
     fullWidth?: boolean
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
-
+    /** Size of the element. Default: `'medium'`. */
     size?: 'small' | 'medium'
-
     'data-attr'?: string
     'aria-label'?: string
 }
@@ -68,14 +69,15 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onFocus,
         onBlur,
         onPressEnter,
-        allowClear,
-        fullWidth,
+        status = 'default',
+        allowClear = false,
+        fullWidth = false,
         prefix,
         suffix,
         type,
         value,
-        transparentBackground,
-        size,
+        transparentBackground = false,
+        size = 'medium',
         ...textProps
     },
     ref
@@ -140,12 +142,14 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         <span
             className={clsx(
                 'LemonInput',
-                !textProps.disabled && focused && 'LemonInput--focused',
-                value && 'LemonInput--hascontent',
-                fullWidth && 'LemonInput--fullwidth',
+                status !== 'default' && `LemonInput--status-${status}`,
                 type && `LemonInput--type-${type}`,
-                transparentBackground && 'LemonInput--transparent-background',
                 size && `LemonInput--${size}`,
+                textProps.disabled && 'LemonInput--disabled',
+                fullWidth && 'LemonInput--full-width',
+                value && 'LemonInput--has-content',
+                !textProps.disabled && focused && 'LemonInput--focused',
+                transparentBackground && 'LemonInput--transparent-background',
                 className
             )}
             onKeyDown={(event) => {

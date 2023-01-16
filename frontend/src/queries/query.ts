@@ -6,6 +6,7 @@ import {
     isPersonsNode,
     isTimeToSeeDataSessionsQuery,
     isTimeToSeeDataQuery,
+    isRecentPerformancePageViewNode,
 } from './utils'
 import api, { ApiMethodOptions } from 'lib/api'
 import { getCurrentTeamId } from 'lib/utils/logics'
@@ -76,6 +77,8 @@ export async function query<N extends DataNode = DataNode>(
             session_start: query.sessionStart ?? now().subtract(1, 'day').toISOString(),
             session_end: query.sessionEnd ?? now().toISOString(),
         })
+    } else if (isRecentPerformancePageViewNode(query)) {
+        return await api.performanceEvents.recentPageViews()
     }
     throw new Error(`Unsupported query: ${query.kind}`)
 }
@@ -92,6 +95,7 @@ export function getEventsEndpoint(query: EventsQuery): string {
             ...(query.before ? { before: query.before } : {}),
             ...(query.after ? { after: query.after } : {}),
             ...(query.orderBy ? { orderBy: query.orderBy } : {}),
+            ...(query.offset ? { offset: query.offset } : {}),
         },
         query.limit ?? DEFAULT_QUERY_LIMIT
     )

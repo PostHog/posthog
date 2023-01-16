@@ -700,16 +700,28 @@ export function IconExclamation(props: SvgIconProps): JSX.Element {
         </SvgIcon>
     )
 }
-/** Material Design Push Pin icon. */
+
+/** Material Design Push Pin icon, outlined. */
 export function IconPin(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
-            <g fill="currentColor">
-                <path
-                    d="M16,9V4l1,0c0.55,0,1-0.45,1-1v0c0-0.55-0.45-1-1-1H7C6.45,2,6,2.45,6,3v0 c0,0.55,0.45,1,1,1l1,0v5c0,1.66-1.34,3-3,3h0v2h5.97v7l1,1l1-1v-7H19v-2h0C17.34,12,16,10.66,16,9z"
-                    fillRule="evenodd"
-                />
-            </g>
+            <path
+                d="M14,4v5c0,1.12,0.37,2.16,1,3H9c0.65-0.86,1-1.9,1-3V4H14 M17,2H7C6.45,2,6,2.45,6,3c0,0.55,0.45,1,1,1c0,0,0,0,0,0l1,0v5 c0,1.66-1.34,3-3,3v2h5.97v7l1,1l1-1v-7H19v-2c0,0,0,0,0,0c-1.66,0-3-1.34-3-3V4l1,0c0,0,0,0,0,0c0.55,0,1-0.45,1-1 C18,2.45,17.55,2,17,2L17,2z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Push Pin icon, filled. */
+export function IconPinFilled(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
+            <path
+                d="M16,9V4l1,0c0.55,0,1-0.45,1-1v0c0-0.55-0.45-1-1-1H7C6.45,2,6,2.45,6,3v0 c0,0.55,0.45,1,1,1l1,0v5c0,1.66-1.34,3-3,3h0v2h5.97v7l1,1l1-1v-7H19v-2h0C17.34,12,16,10.66,16,9z"
+                fillRule="evenodd"
+                fill="currentColor"
+            />
         </SvgIcon>
     )
 }
@@ -747,7 +759,7 @@ export function IconComment(props: SvgIconProps): JSX.Element {
     )
 }
 
-/** Material Design Person Outlined icon. */
+/** Material Design Person icon, outlined. */
 export function IconPerson(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon fill="none" width="1em" height="1em" viewBox="0 0 24 24" {...props}>
@@ -759,7 +771,7 @@ export function IconPerson(props: SvgIconProps): JSX.Element {
     )
 }
 
-/** Material Design Person Filled icon. */
+/** Material Design Person icon, filled. */
 export function IconPersonFilled(props: SvgIconProps): JSX.Element {
     return (
         <SvgIcon viewBox="0 0 24 24" fill="currentColor" {...props}>
@@ -1252,6 +1264,18 @@ export function IconLockOpen(props: SvgIconProps): JSX.Element {
         <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
             <path
                 d="m18 8h-1v-2c0-2.76-2.24-5-5-5s-5 2.24-5 5h2c0-1.66 1.34-3 3-3s3 1.34 3 3v2h-9c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-10c0-1.1-.9-2-2-2zm0 12h-12v-10h12zm-6-3c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2z"
+                fill="currentColor"
+            />
+        </SvgIcon>
+    )
+}
+
+/** Material Design Share icon. */
+export function IconShare(props: SvgIconProps): JSX.Element {
+    return (
+        <SvgIcon version="1.1" viewBox="0 0 24 24" {...props}>
+            <path
+                d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92s2.92-1.31 2.92-2.92c0-1.61-1.31-2.92-2.92-2.92zM18 4c.55 0 1 .45 1 1s-.45 1-1 1-1-.45-1-1 .45-1 1-1zM6 13c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm12 7.02c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"
                 fill="currentColor"
             />
         </SvgIcon>

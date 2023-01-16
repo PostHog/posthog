@@ -2,24 +2,36 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 import pytz
+from django.utils import timezone
 from rest_framework import request, serializers, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from sentry_sdk import capture_exception
+from structlog import get_logger
 
 from posthog.api.routing import StructuredViewSetMixin
 from posthog.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models.performance.sql import PERFORMANCE_EVENT_COLUMNS, _column_names_from_column_definitions
+from posthog.models.performance.sql import (
+    PERFORMANCE_EVENT_COLUMNS,
+    RECENT_PAGE_VIEWS_SQL,
+    _column_names_from_column_definitions,
+)
 from posthog.permissions import (
     PremiumFeaturePermission,
     ProjectMembershipNecessaryPermissions,
     TeamMemberAccessPermission,
 )
 
+logger = get_logger(__name__)
+
 
 class PerformanceEventSerializer(serializers.Serializer):
     uuid = serializers.UUIDField()
     session_id = serializers.CharField()
+    window_id = serializers.CharField()
     pageview_id = serializers.CharField(required=False, allow_blank=True)
     distinct_id = serializers.CharField()
     current_url = serializers.CharField()
@@ -114,6 +126,62 @@ class PerformanceEvents:
         return columnized_results
 
 
+class RecentPageViewPerformanceEvents:
+    @classmethod
+    def query(
+        cls,
+        team_id: int,
+        date_from: datetime,
+        date_to: datetime,
+    ) -> List[Dict]:
+        query = RECENT_PAGE_VIEWS_SQL
+
+        ch_results = sync_execute(
+            query,
+            {
+                "team_id": team_id,
+                "date_from": date_from,
+                "date_to": date_to,
+            },
+        )
+
+        columnized_results = []
+        for result in ch_results:
+            columnized_item = {
+                "session_id": result[0],
+                "pageview_id": result[1],
+                "page_url": result[2] or "(empty string)",
+                "duration": result[3],
+                "timestamp": result[4],
+            }
+            columnized_results.append(columnized_item)
+
+        return columnized_results
+
+
+class RecentPageViewPerformanceEventsQuerySerializer(serializers.Serializer):
+    date_from = serializers.DateTimeField(required=True)
+    date_to = serializers.DateTimeField(required=False, default=timezone.now)
+
+    def validate(self, data: Dict) -> Dict:
+        if data["date_to"] < data["date_from"]:
+            raise serializers.ValidationError("date_to must be after date_from")
+
+        # difference between date_from and date_to must be less than 31 days
+        range_length = data["date_to"] - data["date_from"]
+        if range_length.total_seconds() > (31 * 86400):
+            raise serializers.ValidationError("date_to must be within 31 days of date_from")
+        return data
+
+
+class RecentPageViewPerformanceEventListSerializer(serializers.Serializer):
+    session_id = serializers.CharField()
+    pageview_id = serializers.CharField()
+    page_url = serializers.CharField()
+    duration = serializers.FloatField()
+    timestamp = serializers.DateTimeField()
+
+
 class ListPerformanceEventQuerySerializer(serializers.Serializer):
     session_id = serializers.CharField(required=True)
     pageview_id = serializers.CharField(required=False)
@@ -156,4 +224,38 @@ class PerformanceEventsViewSet(StructuredViewSetMixin, viewsets.GenericViewSet):
         serializer = PerformanceEventSerializer(data=results, many=True)
         serializer.is_valid(raise_exception=True)
 
+        return Response({"results": serializer.data})
+
+    @action(methods=["GET"], detail=False)
+    def recent_pageviews(self, request: request.Request, *args, **kwargs) -> Response:
+        try:
+            params_serializer = RecentPageViewPerformanceEventsQuerySerializer(data=request.GET)
+            params_serializer.is_valid(raise_exception=True)
+            params = params_serializer.validated_data
+        except ValidationError as ve:
+            logger.error(
+                "performance_events_page_view_request_validation_error",
+                error=ve,
+                exc_info=True,
+            )
+            capture_exception(ve)
+            raise ve
+
+        results = RecentPageViewPerformanceEvents.query(
+            self.team_id, date_from=params.get("date_from"), date_to=params.get("date_to")
+        )
+
+        try:
+            serializer = RecentPageViewPerformanceEventListSerializer(data=results, many=True)
+            serializer.is_valid(raise_exception=True)
+        except ValidationError as ve:
+            logger.error(
+                "performance_events_page_view_response_validation_error",
+                error=ve,
+                exc_info=True,
+                params=params,
+                results_length=len(results) if results else "None",
+            )
+            capture_exception(ve)
+            raise ve
         return Response({"results": serializer.data})

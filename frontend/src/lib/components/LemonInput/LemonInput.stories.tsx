@@ -46,6 +46,9 @@ Password.args = { type: 'password', placeholder: 'Enter your password' }
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
 
+export const DangerStatus = Template.bind({})
+DangerStatus.args = { status: 'danger' }
+
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true }
 

@@ -6,7 +6,6 @@ import structlog
 from django.conf import settings
 
 from ee.tasks.subscriptions.subscription_utils import generate_assets
-from posthog.celery import app
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -93,6 +92,5 @@ def _handle_slack_event(event_payload: Any) -> None:
             raise e
 
 
-@app.task()
 def handle_slack_event(payload: Any) -> None:
     return _handle_slack_event(payload)

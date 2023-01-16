@@ -14,7 +14,7 @@ import { ItemPerformanceEvent } from './components/ItemPerformanceEvent'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useDebouncedCallback } from 'use-debounce'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PlayerInspectorList.scss'
 import { range } from 'd3'
@@ -114,6 +114,19 @@ function PlayerInspectorListItem({
                     <ItemConsoleLog item={item} {...itemProps} />
                 ) : item.type === 'events' ? (
                     <ItemEvent item={item} {...itemProps} />
+                ) : null}
+
+                {isExpanded ? (
+                    <div className="text-xs">
+                        <LemonDivider dashed />
+
+                        <div
+                            className="flex gap-2 justify-end cursor-pointer m-2"
+                            onClick={() => setItemExpanded(index, false)}
+                        >
+                            <span className="text-muted-alt">Collapse</span>
+                        </div>
+                    </div>
                 ) : null}
             </span>
             {!isExpanded && (

@@ -32,8 +32,8 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId': { id: 2 },
-                '/api/projects/:projectId/event_definitions': {
+                '/api/projects/:team_id': { id: 2 },
+                '/api/projects/:team_id/event_definitions': {
                     count: eventDefinitions.length,
                     next: null,
                     previous: null,

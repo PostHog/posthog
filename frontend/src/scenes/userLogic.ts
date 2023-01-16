@@ -124,6 +124,7 @@ export const userLogic = kea<userLogicType>([
                             ingested_event: user.team.ingested_event,
                             is_demo: user.team.is_demo,
                             timezone: user.team.timezone,
+                            instance_tag: user.organization?.metadata?.instance_tag,
                         })
                     }
 

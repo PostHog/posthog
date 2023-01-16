@@ -7,7 +7,15 @@ from posthog.constants import AvailableFeature
 from posthog.utils import absolute_uri
 
 
+class DashboardManager(models.Manager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
+
 class Dashboard(models.Model):
+    objects = DashboardManager()
+    objects_including_soft_deleted = models.Manager()
+
     class CreationMode(models.TextChoices):
         DEFAULT = "default", "Default"
         TEMPLATE = "template", "Template"  # dashboard was created from a predefined template
