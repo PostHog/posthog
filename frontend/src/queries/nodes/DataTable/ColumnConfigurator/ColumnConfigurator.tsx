@@ -34,12 +34,12 @@ interface ColumnConfiguratorProps {
 }
 
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {
-    const { columns } = useValues(dataTableLogic)
+    const { columnsInQuery } = useValues(dataTableLogic)
 
     const [key] = useState(() => String(uniqueNode++))
     const columnConfiguratorLogicProps: ColumnConfiguratorLogicProps = {
         key,
-        columns,
+        columns: columnsInQuery,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
                 setQuery?.({

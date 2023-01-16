@@ -40,8 +40,8 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
 
     if (isEventsQuery(query.source) && !query.allowSorting) {
         const sortKey = isEventsQuery(query.source) ? query.source?.orderBy?.[0] : null
-        const sortOrder = key === sortKey ? 1 : `-${key}` === sortKey ? -1 : null
-        if (sortOrder !== null) {
+        const sortOrder = key === sortKey ? 1 : `-${key}` === sortKey ? -1 : undefined
+        if (sortOrder) {
             title = (
                 <>
                     {title}

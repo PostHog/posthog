@@ -30,7 +30,7 @@ export function SortingIndicator({
     className,
 }: {
     order: Sorting['order'] | null
-    className?: string | null
+    className?: string
 }): JSX.Element {
     return (
         <div

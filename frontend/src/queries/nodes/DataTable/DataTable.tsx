@@ -38,6 +38,13 @@ interface DataTableProps {
     context?: QueryContext
 }
 
+const groupTypes = [
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.EventFeatureFlags,
+    TaxonomicFilterGroupType.HogQLExpression,
+]
+
 let uniqueNode = 0
 
 export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Element {
@@ -57,12 +64,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key }
-    const {
-        resultsWithLabelRows,
-        columns: columnsFromQuery,
-        queryWithDefaults,
-        canSort,
-    } = useValues(dataTableLogic(dataTableLogicProps))
+    const { resultsWithLabelRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
+        dataTableLogic(dataTableLogicProps)
+    )
 
     const {
         showActions,
@@ -78,15 +82,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         expandable,
     } = queryWithDefaults
 
-    const columnsInResponse: string[] | null =
-        response &&
-        'columns' in response &&
-        Array.isArray(response.columns) &&
-        !response.columns.find((c) => typeof c !== 'string')
-            ? (response?.columns as string[])
-            : null
-
-    const columns: string[] = columnsInResponse ?? columnsFromQuery
+    const columns: string[] = columnsInResponse ?? columnsInQuery
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columns.includes('*')
     const lemonColumns: LemonTableColumn<Record<string, any> | any[], any>[] = [
         ...columns.map((key, index) => ({
@@ -165,12 +161,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                     })
                                 }
                             }}
-                            groupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
+                            groupTypes={groupTypes}
                             buttonProps={{ type: undefined }}
                         />
                         <LemonDivider />
@@ -195,12 +186,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                     })
                                 }
                             }}
-                            groupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
+                            groupTypes={groupTypes}
                             buttonProps={{ type: undefined }}
                         />
                         <TaxonomicPopup
@@ -224,12 +210,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                     })
                                 }
                             }}
-                            groupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.PersonProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                TaxonomicFilterGroupType.HogQLExpression,
-                            ]}
+                            groupTypes={groupTypes}
                             buttonProps={{ type: undefined }}
                         />
                         {columns.filter((c) => c !== '*').length > 1 ? (
@@ -253,9 +234,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                     Remove column
                                 </LemonButton>
                             </>
-                        ) : (
-                            <></>
-                        )}
+                        ) : null}
                     </>
                 ) : undefined,
         })),
