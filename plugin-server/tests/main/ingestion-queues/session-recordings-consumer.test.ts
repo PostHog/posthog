@@ -8,9 +8,7 @@ import { KafkaProducerWrapper } from '../../../src/utils/db/kafka-producer-wrapp
 import { TeamManager } from '../../../src/worker/ingestion/team-manager'
 
 describe('session-recordings-consumer', () => {
-    const producer = {
-        sendBatch: jest.fn(),
-    } as any
+    let producer
     let producerWrapper: KafkaProducerWrapper
     let db: DB
     let teamManager: TeamManager
@@ -18,6 +16,10 @@ describe('session-recordings-consumer', () => {
 
     beforeEach(() => {
         jest.useFakeTimers()
+
+        producer = {
+            sendBatch: jest.fn(),
+        } as any
         producerWrapper = new KafkaProducerWrapper(producer, undefined, { KAFKA_FLUSH_FREQUENCY_MS: 0 } as any)
         db = {
             postgres: new Pool(),
