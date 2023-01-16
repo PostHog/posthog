@@ -33,7 +33,7 @@ import { tagsModel } from '~/models/tagsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 export const DASHBOARD_CANNOT_EDIT_MESSAGE =
-    "You don't have edit permissions in this dashboard. Ask a dashboard collaborator with edit access to add you."
+    "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
 export function DashboardHeader(): JSX.Element | null {
     const {
