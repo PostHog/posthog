@@ -11,7 +11,7 @@ import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
 import { OrganizationMembershipLevel } from '../lib/constants'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -137,6 +137,9 @@ export const teamLogic = kea<teamLogicType>([
         testAccountFilterWarning: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): JSX.Element | null => {
+                if (!currentTeam) {
+                    return null
+                }
                 const positiveFilterOperators = [
                     PropertyOperator.Exact,
                     PropertyOperator.IContains,
@@ -153,9 +156,19 @@ export const teamLogic = kea<teamLogicType>([
                     }
                 }
                 if (positiveFilters.length > 0) {
-                    const labels = positiveFilters.map(
-                        (filter) => getKeyMapping(filter.key, filter.type)?.label || filter.key
-                    )
+                    const labels = positiveFilters.map((filter) => {
+                        if (!!filter.type && !!filter.key) {
+                            // person properties can be checked for a label as if they were event properties
+                            // so, we can check each acceptable type and see if it returns a value
+                            return (
+                                getPropertyLabel(filter.key, 'event') ||
+                                getPropertyLabel(filter.key, 'element') ||
+                                filter.key
+                            )
+                        } else {
+                            return filter.key
+                        }
+                    })
                     return (
                         <>
                             <p>
