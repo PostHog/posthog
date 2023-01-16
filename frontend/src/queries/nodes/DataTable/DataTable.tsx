@@ -149,6 +149,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 <LemonButton
                                     fullWidth
                                     status={query.source?.orderBy?.[0] === key ? 'primary' : 'stealth'}
+                                    data-attr="datatable-sort-asc"
                                     onClick={() => {
                                         setQuery?.({
                                             ...query,
@@ -164,6 +165,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 <LemonButton
                                     fullWidth
                                     status={query.source?.orderBy?.[0] === `-${key}` ? 'primary' : 'stealth'}
+                                    data-attr="datatable-sort-desc"
                                     onClick={() => {
                                         setQuery?.({
                                             ...query,
@@ -183,6 +185,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             groupType={TaxonomicFilterGroupType.EventProperties}
                             value={''}
                             placeholder={<span className="not-italic">Add column left</span>}
+                            data-attr="datatable-add-column-left"
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -207,6 +210,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             groupType={TaxonomicFilterGroupType.EventProperties}
                             value={''}
                             placeholder={<span className="not-italic">Add column right</span>}
+                            data-attr="datatable-add-column-right"
                             onChange={(v, g) => {
                                 const hogQl = taxonomicFilterToHogQl(g, v)
                                 if (hogQl && isEventsQuery(query.source)) {
@@ -233,6 +237,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 <LemonButton
                                     fullWidth
                                     status="danger"
+                                    data-attr="datatable-remove-column"
                                     onClick={() => {
                                         setQuery?.({
                                             ...query,

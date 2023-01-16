@@ -306,7 +306,9 @@ export function LemonTable<T extends Record<string, any>>({
                                                             {/* this non-breaking space lets antd's tooltip work*/}{' '}
                                                         </Tooltip>
                                                     )}
-                                                    {column.more && <More overlay={column.more} />}
+                                                    {column.more && (
+                                                        <More overlay={column.more} data-attr="table-header-more" />
+                                                    )}
                                                 </div>
                                             </th>
                                         ))
