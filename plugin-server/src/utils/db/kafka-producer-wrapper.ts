@@ -140,7 +140,8 @@ export class KafkaProducerWrapper {
                 this.statsd?.increment('query.kafka_send.failure', {
                     firstTopic: messages[0].topic,
                 })
-                status.warn('⚠️', 'Failed to flush kafka messages that were produced', {
+                status.error('⚠️', 'Failed to flush kafka messages that were produced', {
+                    error: err,
                     batchCount: messages.length,
                     topics: messages.map((record) => record.topic),
                     messageCounts: messages.map((record) => record.messages.length),

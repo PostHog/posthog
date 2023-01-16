@@ -35,6 +35,7 @@ export const startSessionRecordingEventsConsumer = async ({
     // This ensures that we can handle Kafka Producer errors within the body of
     // the Kafka consumer handler.
     const producer = kafka.producer()
+    await producer.connect()
     const producerWrapper = new KafkaProducerWrapper(producer, statsd, { KAFKA_FLUSH_FREQUENCY_MS: 0 } as any)
 
     const consumer = kafka.consumer({ groupId: 'session-recordings' })
@@ -143,7 +144,7 @@ export const eachBatch =
                     )
                 }
             } catch (error) {
-                status.warn('⚠️', 'processing_error', {
+                status.error('⚠️', 'processing_error', {
                     eventId: event.uuid,
                     error: error,
                 })
@@ -152,7 +153,7 @@ export const eachBatch =
                     // If it's an error that is transient, we want to
                     // initiate the KafkaJS retry logic, which kicks in when
                     // we throw.
-                    throw error
+                    // throw error
                 }
 
                 // On non-retriable errors, e.g. perhaps the produced message
@@ -181,10 +182,10 @@ export const eachBatch =
             // messages if Kafka production fails for a retriable reason.
             await producer.flush()
         } catch (error) {
-            status.warn('⚠️', 'flush_error')
+            status.error('⚠️', 'flush_error')
 
             if (error instanceof DependencyUnavailableError) {
-                throw error
+                // throw error
             }
 
             // NOTE: for errors coming from `flush` we don't have much by the
