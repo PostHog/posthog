@@ -157,7 +157,9 @@ def get_previous_day(at: Optional[datetime.datetime] = None) -> Tuple[datetime.d
     return (period_start, period_end)
 
 
-def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
+def relative_date_parse_with_delta_mapping(
+    input: str, *, now: Optional[datetime.datetime] = None
+) -> Tuple[datetime.datetime, Optional[Dict[str, int]]]:
     """Returns the parsed datetime, along with the period mapping - if the input was a relative datetime string."""
     try:
         return datetime.datetime.strptime(input, "%Y-%m-%d").replace(tzinfo=pytz.UTC), None
@@ -173,7 +175,7 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
 
     regex = r"\-?(?P<number>[0-9]+)?(?P<type>[a-z])(?P<position>Start|End)?"
     match = re.search(regex, input)
-    date = timezone.now()
+    date = now or timezone.now()
     delta_mapping: Dict[str, int] = {}
     if not match:
         return date, delta_mapping
@@ -213,8 +215,8 @@ def relative_date_parse_with_delta_mapping(input: str) -> Tuple[datetime.datetim
     return date, delta_mapping
 
 
-def relative_date_parse(input: str) -> datetime.datetime:
-    return relative_date_parse_with_delta_mapping(input)[0]
+def relative_date_parse(input: str, *, now: Optional[datetime.datetime] = None) -> datetime.datetime:
+    return relative_date_parse_with_delta_mapping(input, now=now)[0]
 
 
 def request_to_date_query(filters: Dict[str, Any], exact: Optional[bool]) -> Dict[str, datetime.datetime]:
