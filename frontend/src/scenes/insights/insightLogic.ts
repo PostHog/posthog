@@ -138,8 +138,8 @@ export const insightLogic = kea<insightLogicType>([
             scene: Scene | null
             exception?: Record<string, any>
         }) => payload,
-        setShowTimeoutMessage: (showTimeoutMessage: boolean) => ({ showTimeoutMessage }),
-        setShowErrorMessage: (showErrorMessage: boolean) => ({ showErrorMessage }),
+        insightTimedOut: (timedOutQueryId: string | null) => ({ timedOutQueryId }),
+        insightErrored: (erroredQueryId: string | null) => ({ erroredQueryId }),
         setIsLoading: (isLoading: boolean) => ({ isLoading }),
         setTimeout: (timeout: number | null) => ({ timeout }),
         setLastRefresh: (lastRefresh: string | null) => ({ lastRefresh }),
@@ -500,18 +500,20 @@ export const insightLogic = kea<insightLogicType>([
                 }),
             },
         ],
-        showTimeoutMessage: [false, { setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage }],
+        showTimeoutMessage: [false, { insightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId }],
+        timedOutQueryId: [null as string | null, { insightTimedOut: (_, { timedOutQueryId }) => timedOutQueryId }],
         maybeShowTimeoutMessage: [
             false,
             {
                 // Only show timeout message if timer is still running
-                setShowTimeoutMessage: (_, { showTimeoutMessage }) => showTimeoutMessage,
+                insightTimedOut: (_, { timedOutQueryId }) => !!timedOutQueryId,
                 endQuery: (_, { exception }) => !!exception && exception.status !== 500,
                 startQuery: () => false,
                 setActiveView: () => false,
             },
         ],
-        showErrorMessage: [false, { setShowErrorMessage: (_, { showErrorMessage }) => showErrorMessage }],
+        showErrorMessage: [false, { insightErrored: (_, { erroredQueryId }) => !!erroredQueryId }],
+        erroredQueryId: [null as string | null, { insightErrored: (_, { erroredQueryId }) => erroredQueryId }],
         maybeShowErrorMessage: [
             false,
             {
@@ -855,15 +857,15 @@ export const insightLogic = kea<insightLogicType>([
                 )
             }
         },
-        startQuery: () => {
-            actions.setShowTimeoutMessage(false)
-            actions.setShowErrorMessage(false)
+        startQuery: ({ queryId }) => {
+            actions.insightTimedOut(null)
+            actions.insightErrored(null)
             values.timeout && clearTimeout(values.timeout || undefined)
             const view = values.activeView
             actions.setTimeout(
                 window.setTimeout(() => {
                     if (values && view == values.activeView) {
-                        actions.setShowTimeoutMessage(true)
+                        actions.insightTimedOut(queryId)
                         const tags = {
                             insight: values.activeView,
                             scene: sceneLogic.isMounted() ? sceneLogic.values.scene : null,
@@ -904,8 +906,8 @@ export const insightLogic = kea<insightLogicType>([
                 clearTimeout(values.timeout)
             }
             if (view === values.activeView && values.currentTeamId) {
-                actions.setShowTimeoutMessage(values.maybeShowTimeoutMessage)
-                actions.setShowErrorMessage(values.maybeShowErrorMessage)
+                actions.insightTimedOut(values.maybeShowTimeoutMessage ? queryId : null)
+                actions.insightErrored(values.maybeShowErrorMessage ? queryId : null)
                 actions.setLastRefresh(lastRefresh || null)
                 actions.setIsLoading(false)
 
@@ -940,8 +942,8 @@ export const insightLogic = kea<insightLogicType>([
         },
         setActiveView: ({ type }) => {
             actions.setFilters(cleanFilters({ ...values.filters, insight: type as InsightType }, values.filters))
-            actions.setShowTimeoutMessage(false)
-            actions.setShowErrorMessage(false)
+            actions.insightTimedOut(null)
+            actions.insightErrored(null)
             if (values.timeout) {
                 clearTimeout(values.timeout)
             }

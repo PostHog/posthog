@@ -75,7 +75,9 @@ export function InsightContainer({
         loadedView,
         filters,
         showTimeoutMessage,
+        timedOutQueryId,
         showErrorMessage,
+        erroredQueryId,
         // exporterResourceParams,
         // isUsingSessionAnalysis,
     } = useValues(insightLogic)
@@ -111,10 +113,10 @@ export function InsightContainer({
 
         // Insight agnostic empty states
         if (showErrorMessage) {
-            return <InsightErrorState />
+            return <InsightErrorState queryId={erroredQueryId} />
         }
         if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={insightLoading} />
+            return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
         }
 
         return null

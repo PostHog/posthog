@@ -30,7 +30,13 @@ export function InsightEmptyState(): JSX.Element {
     )
 }
 
-export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.Element {
+export function InsightTimeoutState({
+    isLoading,
+    queryId,
+}: {
+    isLoading: boolean
+    queryId?: string | null
+}): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     return (
         <div className="insight-empty-state warning">
@@ -39,6 +45,7 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
                     {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
                 </div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
+                {!!queryId ? <div className={'mb-2 text-muted text-center'}>query id: {queryId}</div> : null}
                 {isLoading ? (
                     <>
                         Your query is taking a long time to complete. <b>We're still working on it.</b> However, here
@@ -92,9 +99,10 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
     title?: string
+    queryId?: string | null
 }
 
-export function InsightErrorState({ excludeDetail, title }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
     return (
         <div className={clsx(['insight-empty-state', 'error', { 'match-container': excludeDetail }])}>
             <div className="empty-state-inner">
@@ -102,6 +110,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
                     <IconErrorOutline />
                 </div>
                 <h2>{title || 'There was an error completing this query'}</h2>
+                {!!queryId ? <div className={'text-muted text-center'}>query id: {queryId}</div> : null}
                 {!excludeDetail && (
                     <div className="mt-4">
                         We apologize for this unexpected situation. There are a few things you can do:

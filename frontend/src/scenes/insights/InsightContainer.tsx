@@ -61,7 +61,9 @@ export function InsightContainer({
         loadedView,
         filters,
         showTimeoutMessage,
+        timedOutQueryId,
         showErrorMessage,
+        erroredQueryId,
         exporterResourceParams,
         isUsingSessionAnalysis,
     } = useValues(insightLogic)
@@ -93,10 +95,10 @@ export function InsightContainer({
 
         // Insight agnostic empty states
         if (showErrorMessage) {
-            return <InsightErrorState />
+            return <InsightErrorState queryId={erroredQueryId} />
         }
         if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={insightLoading} />
+            return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
         }
 
         return null
@@ -122,7 +124,7 @@ export function InsightContainer({
 
         // InsightsTable is loaded for all trend views (except below), plus the sessions view.
         // Exclusions:
-        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        // 1. Table view. Because table is already loaded anyway in `Trends.tsx` as the main component.
         // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
             isTrendsFilter(filters) &&

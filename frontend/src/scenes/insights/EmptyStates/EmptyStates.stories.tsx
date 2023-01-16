@@ -39,6 +39,11 @@ export function ErrorState(): JSX.Element {
                 ctx.status(200),
                 ctx.json({ count: 1, results: [{ ...insight, result: null }] }),
             ],
+            '/api/projects/:team_id/insights/:id': (_, __, ctx) => [
+                ctx.delay(100),
+                ctx.status(500),
+                ctx.json({ detail: 'a fake error' }),
+            ],
         },
     })
     useEffect(() => {
@@ -59,13 +64,18 @@ export function TimeoutState(): JSX.Element {
                 ctx.status(200),
                 ctx.json({ result: insight.result }),
             ],
+            '/api/projects/:team_id/insights/:id': (_, __, ctx) => [
+                ctx.delay(86400000),
+                ctx.status(200),
+                ctx.json({ result: insight.result }),
+            ],
         },
     })
     useEffect(() => {
         router.actions.push(`/insights/${insight.short_id}`)
         window.setTimeout(() => {
-            const logic = insightLogic({ dashboardItemId: insight.short_id as InsightShortId })
-            logic.actions.setShowTimeoutMessage(true)
+            const logic = insightLogic.findMounted({ dashboardItemId: insight.short_id as InsightShortId })
+            logic?.actions.insightTimedOut('a-uuid-query-id')
         }, 100)
     }, [])
     return <App />
