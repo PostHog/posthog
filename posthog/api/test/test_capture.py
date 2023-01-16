@@ -1175,7 +1175,7 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce.call_count, 1)
         self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
         key = kafka_produce.call_args_list[0][1]["key"]
-        self.assertEqual(key, "fake-session-id")
+        self.assertEqual(key, None)
         data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
 
         # Decompress the data sent to kafka to compare it to the original data
