@@ -349,6 +349,39 @@
   
   '
 ---
+# name: test_create_table_query[elements_chain_counts_daily]
+  '
+  
+  CREATE TABLE elements_chain_counts_daily ON CLUSTER 'posthog'
+  (
+          day            DateTime64(3, 'UTC'),
+      team_id        int,
+      elements_chain String,
+      "$current_url" String,
+      count          int
+  )
+  ENGINE=Distributed('posthog', 'posthog_test', 'sharded_elements_chain_counts_daily', rand())
+  
+  '
+---
+# name: test_create_table_query[elements_chain_counts_daily_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW elements_chain_counts_daily_mv ON CLUSTER 'posthog'
+  TO posthog_test.sharded_elements_chain_counts_daily
+  AS SELECT
+      toStartOfDay(timestamp) as day,
+      team_id,
+      elements_chain,
+      replaceRegexpAll(JSONExtractRaw(properties, '$current_url'), '^"|"$', '') as "$current_url",
+      count(*) as count
+  FROM events
+  WHERE event = '$autocapture'
+  AND elements_chain != ''
+  GROUP BY team_id, day, elements_chain, "$current_url";
+  
+  '
+---
 # name: test_create_table_query[events]
   '
   
@@ -1147,6 +1180,22 @@
   
   '
 ---
+# name: test_create_table_query[sharded_elements_chain_counts_daily]
+  '
+  
+  CREATE TABLE sharded_elements_chain_counts_daily ON CLUSTER 'posthog'
+  (
+      day            DateTime64(3, 'UTC'),
+      team_id        int,
+      elements_chain String,
+      "$current_url" String,
+      count          int
+  )
+  ENGINE = SummingMergeTree()
+  PARTITION BY toYYYYMM(day) ORDER BY (team_id,day,"$current_url", elements_chain);
+  
+  '
+---
 # name: test_create_table_query[sharded_events]
   '
   
@@ -1296,7 +1345,7 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
       
       
   , _timestamp DateTime
@@ -1644,6 +1693,22 @@
   
   '
 ---
+# name: test_create_table_query_replicated_and_storage[sharded_elements_chain_counts_daily]
+  '
+  
+  CREATE TABLE sharded_elements_chain_counts_daily ON CLUSTER 'posthog'
+  (
+      day            DateTime64(3, 'UTC'),
+      team_id        int,
+      elements_chain String,
+      "$current_url" String,
+      count          int
+  )
+  ENGINE = ReplicatedSummingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_elements_chain_counts_daily', '{replica}')
+  PARTITION BY toYYYYMM(day) ORDER BY (team_id,day,"$current_url", elements_chain);
+  
+  '
+---
 # name: test_create_table_query_replicated_and_storage[sharded_events]
   '
   
@@ -1793,7 +1858,7 @@
       window_id VARCHAR,
       snapshot_data VARCHAR,
       created_at DateTime64(6, 'UTC')
-      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
+      , has_full_snapshot Int8 MATERIALIZED JSONExtractBool(snapshot_data, 'has_full_snapshot'), events_summary Array(String) MATERIALIZED JSONExtract(JSON_QUERY(snapshot_data, '$.events_summary[*]'), 'Array(String)'), click_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 2, events_summary)), keypress_count Int8 MATERIALIZED length(arrayFilter((x) -> JSONExtractInt(x, 'type') = 3 AND JSONExtractInt(x, 'data', 'source') = 5, events_summary)), timestamps_summary Array(DateTime64(6, 'UTC')) MATERIALIZED arraySort(arrayMap((x) -> toDateTime(JSONExtractInt(x, 'timestamp') / 1000), events_summary)), first_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('min', timestamps_summary)), last_event_timestamp Nullable(DateTime64(6, 'UTC')) MATERIALIZED if(empty(timestamps_summary), NULL, arrayReduce('max', timestamps_summary)), urls Array(String) MATERIALIZED arrayFilter(x -> x != '', arrayMap((x) -> JSONExtractString(x, 'data', 'href'), events_summary))
       
       
   , _timestamp DateTime
