@@ -1,0 +1,153 @@
+openapi: 3.0.0
+info:
+    version: '1.0.0'
+    title: PostHog Capture API
+    description: |
+        As explained in our API overview page, PostHog provides two different APIs.
+
+        This page refers to our public endpoints, which use the same API key as the
+        PostHog snippet. The endpoints documented here are used solely with POST
+        requests, and will not return any sensitive data from your PostHog instance.
+
+paths:
+    # /track/:
+    #   $ref: "#/paths/~1e~1"
+
+    /track/:
+        post:
+            summary: Capture an event
+            description: |
+                Capture an event. Events are the core of PostHog, and are what you use
+                to track user behavior, and then analyze and visualize in PostHog.
+            responses:
+                '200':
+                    description: |
+                        On successful capture of an event or events, we notify you with a
+                        200 response. A 200 response guarantees that the event was persisted
+                        by PostHog, but does not guarantee that it will be processed
+                        successfully.
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/EventsCaptureResponse'
+                '400':
+                    description: |
+                        If you send an invalid request, we will return a 400 response. This
+                        can happen if you send an invalid JSON payload among other things.
+            requestBody:
+                content:
+                    application/json:
+                        schema:
+                            $ref: '#/components/schemas/EventsCaptureRequest'
+                description: |
+                    Provides a method to capture events. Events are the core of PostHog,
+                    and are what you use to track user behavior, and then analyze and
+                    visualize in PostHog.
+
+components:
+    schemas:
+        Event:
+            oneOf:
+                - $ref: '#/components/schemas/GeneralEvent'
+                # - $ref: "#/components/schemas/AutoCaptureEvent"
+                # - $ref: "#/components/schemas/RecordingEvent"
+
+        GeneralEvent:
+            type: object
+            properties:
+                event:
+                    type: string
+                distinct_id:
+                    type: string
+                asdfzxcv:
+                    type: string
+
+        AutoCaptureEvent:
+            type: object
+            properties:
+                event:
+                    type: string
+                    enum: ['$autocapture']
+                distinct_id:
+                    type: string
+                properties:
+                    type: object
+                    properties:
+                        $lib:
+                            type: string
+                        $lib_version:
+                            type: string
+                        distinct_id:
+                            type: string
+                        token:
+                            type: string
+                        $elements:
+                            type: array
+                            items:
+                                type: object
+                                properties:
+                                    tag_name:
+                                        type: string
+                                    href:
+                                        type: string
+                                    text:
+                                        type: string
+                                    attr_class:
+                                        type: string
+                                    attr_id:
+                                        type: string
+                                    nth_child:
+                                        type: number
+                                    nth_of_type:
+                                        type: number
+                                    attributes:
+                                        type: object
+                                        additionalProperties:
+                                            type: string
+                                    order:
+                                        type: number
+                    additionalProperties:
+                        type: string
+
+        EventsCaptureRequest:
+            oneOf:
+                - type: object
+                  properties:
+                      api_key:
+                          type: string
+                          description: |
+                              The API key for your project. You can find this in your project
+                              settings.
+                      batch:
+                          type: array
+                          items:
+                              $ref: '#/components/schemas/Event'
+                - $ref: '#/components/schemas/Event'
+
+        EventsCaptureResponse:
+            type: object
+            properties:
+                status:
+                    type: number
+                    enum: [0, 1]
+                    example: 1
+
+        RecordingEvent:
+            type: object
+            properties:
+                distinct_id:
+                    type: string
+                session_id:
+                    type: string
+                timestamp:
+                    type: string
+                snapshot_data:
+                    type: object
+                    additionalProperties:
+                        type: string
+                event:
+                    type: string
+                properties:
+                    type: object
+                    additionalProperties:
+                        type: string
