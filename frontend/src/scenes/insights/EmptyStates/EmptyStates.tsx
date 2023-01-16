@@ -45,7 +45,6 @@ export function InsightTimeoutState({
                     {isLoading ? <Animation type={AnimationType.SportsHog} /> : <IconErrorOutline />}
                 </div>
                 <h2>{isLoading ? 'Looks like things are a little slow…' : 'Your query took too long to complete'}</h2>
-                {!!queryId ? <div className={'mb-2 text-muted text-center'}>query id: {queryId}</div> : null}
                 {isLoading ? (
                     <>
                         Your query is taking a long time to complete. <b>We're still working on it.</b> However, here
@@ -91,6 +90,7 @@ export function InsightTimeoutState({
                         .
                     </li>
                 </ol>
+                {!!queryId ? <div className={'text-muted text-center'}>query id: {queryId}</div> : null}
             </div>
         </div>
     )
@@ -110,7 +110,6 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                     <IconErrorOutline />
                 </div>
                 <h2>{title || 'There was an error completing this query'}</h2>
-                {!!queryId ? <div className={'text-muted text-center'}>query id: {queryId}</div> : null}
                 {!excludeDetail && (
                     <div className="mt-4">
                         We apologize for this unexpected situation. There are a few things you can do:
@@ -155,6 +154,7 @@ export function InsightErrorState({ excludeDetail, title, queryId }: InsightErro
                         </ol>
                     </div>
                 )}
+                {!!queryId ? <div className={'text-muted text-center'}>query id: {queryId}</div> : null}
             </div>
         </div>
     )
