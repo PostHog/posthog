@@ -141,13 +141,6 @@ export class TeamManager {
         const timeout = timeoutGuard(`Still running "fetchTeamIdByToken". Timeout warning after 30 sec!`)
         try {
             const teamId = await this.db.fetchTeamIdByToken(token)
-            if (!teamId) {
-                // explicitly cache a null to avoid
-                // unnecessary lookups in the future
-                this.tokenToTeamIdCache.set(token, null)
-                return null
-            }
-
             this.tokenToTeamIdCache.set(token, teamId)
             return teamId
         } finally {
