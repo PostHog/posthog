@@ -46,7 +46,7 @@ export interface LemonButtonPropsBase
     /** @deprecated Buttons should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string | null
+    disabledReason?: string | null | false
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string

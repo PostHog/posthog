@@ -173,7 +173,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
             <BindLogic logic={dataNodeLogic} props={dataNodeLogicProps}>
                 <div className="space-y-4 relative">
                     {showFirstRow && (
-                        <div className="flex gap-4">
+                        <div className="flex gap-4 items-center">
                             {firstRow}
                             {inlineEditorButtonOnRow === 1 ? (
                                 <>

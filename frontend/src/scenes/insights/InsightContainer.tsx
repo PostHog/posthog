@@ -65,9 +65,7 @@ export function InsightContainer({
         exporterResourceParams,
         isUsingSessionAnalysis,
     } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
-        funnelLogic(insightProps)
-    )
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
@@ -228,9 +226,7 @@ export function InsightContainer({
                 </div>
             </Card>
             {renderTable()}
-            {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
-                <FunnelCorrelation />
-            )}
+            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }
