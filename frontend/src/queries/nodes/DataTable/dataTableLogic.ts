@@ -4,7 +4,6 @@ import { DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
-import { Sorting } from 'lib/components/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -119,23 +118,6 @@ export const dataTableLogic = kea<dataTableLogicType>([
         canSort: [
             (s) => [s.queryWithDefaults],
             (query: DataTableNode): boolean => isEventsQuery(query.source) && !!query.allowSorting,
-        ],
-        sorting: [
-            (s) => [s.canSort, s.queryWithDefaults, s.orderBy],
-            (canSort, query, orderBy): Sorting | null => {
-                if (canSort && isEventsQuery(query.source) && orderBy && orderBy.length > 0) {
-                    return orderBy[0] === '-'
-                        ? {
-                              columnKey: orderBy[0].substring(1),
-                              order: -1,
-                          }
-                        : {
-                              columnKey: orderBy[0],
-                              order: 1,
-                          }
-                }
-                return null
-            },
         ],
     }),
     propsChanged(({ actions, props }, oldProps) => {

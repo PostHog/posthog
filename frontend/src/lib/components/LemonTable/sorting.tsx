@@ -25,9 +25,16 @@ export function getNextSorting(
     }
 }
 
-export function SortingIndicator({ order }: { order: Sorting['order'] | null }): JSX.Element {
+export function SortingIndicator({
+    order,
+    className,
+}: {
+    order: Sorting['order'] | null
+    className?: string | null
+}): JSX.Element {
     return (
         <div
+            className={className}
             style={{
                 fontSize: 10,
                 marginLeft: 8,

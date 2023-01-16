@@ -28,7 +28,6 @@ import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { LemonButton } from 'lib/components/LemonButton'
-import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
 import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -63,7 +62,6 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         columns: columnsFromQuery,
         queryWithDefaults,
         canSort,
-        sorting,
     } = useValues(dataTableLogic(dataTableLogicProps))
 
     const {
@@ -109,41 +107,45 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                 }
                 return renderColumn(key, record[key], record, query, setQuery, context)
             },
-            sorter: canSort || undefined, // we sort on the backend
+            sorter: undefined, // using custom sorting code
             more:
                 showActions && isEventsQuery(query.source) ? (
                     <>
-                        <LemonButton
-                            fullWidth
-                            status="stealth"
-                            onClick={() => {
-                                setQuery?.({
-                                    ...query,
-                                    source: {
-                                        ...query.source,
-                                        orderBy: [removeExpressionComment(key)],
-                                    } as EventsQuery,
-                                })
-                            }}
-                        >
-                            Sort ascending
-                        </LemonButton>
-                        <LemonButton
-                            fullWidth
-                            status="stealth"
-                            onClick={() => {
-                                setQuery?.({
-                                    ...query,
-                                    source: {
-                                        ...query.source,
-                                        orderBy: [`-${removeExpressionComment(key)}`],
-                                    } as EventsQuery,
-                                })
-                            }}
-                        >
-                            Sort descending
-                        </LemonButton>
-                        <LemonDivider />
+                        {canSort ? (
+                            <>
+                                <LemonButton
+                                    fullWidth
+                                    status={query.source?.orderBy?.[0] === key ? 'primary' : 'stealth'}
+                                    onClick={() => {
+                                        setQuery?.({
+                                            ...query,
+                                            source: {
+                                                ...query.source,
+                                                orderBy: [key],
+                                            } as EventsQuery,
+                                        })
+                                    }}
+                                >
+                                    Sort ascending
+                                </LemonButton>
+                                <LemonButton
+                                    fullWidth
+                                    status={query.source?.orderBy?.[0] === `-${key}` ? 'primary' : 'stealth'}
+                                    onClick={() => {
+                                        setQuery?.({
+                                            ...query,
+                                            source: {
+                                                ...query.source,
+                                                orderBy: [`-${key}`],
+                                            } as EventsQuery,
+                                        })
+                                    }}
+                                >
+                                    Sort descending
+                                </LemonButton>
+                                <LemonDivider />
+                            </>
+                        ) : null}
                         <TaxonomicPopup
                             groupType={TaxonomicFilterGroupType.HogQLExpression}
                             value={key}
@@ -379,22 +381,8 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 )
                             }
                         }}
-                        sorting={canSort && setQuery ? sorting : undefined}
+                        sorting={null}
                         useURLForSorting={false}
-                        onSort={
-                            canSort && setQuery
-                                ? (newSorting) =>
-                                      setQuery?.({
-                                          ...query,
-                                          source: {
-                                              ...query.source,
-                                              orderBy: newSorting
-                                                  ? [(newSorting.order === -1 ? '-' : '') + newSorting.columnKey]
-                                                  : undefined,
-                                          } as EventsNode,
-                                      } as DataTableNode)
-                                : undefined
-                        }
                         expandable={
                             expandable && isEventsQuery(query.source) && columns.includes('*')
                                 ? {

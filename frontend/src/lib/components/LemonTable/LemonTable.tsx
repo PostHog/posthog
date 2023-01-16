@@ -260,7 +260,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                 )}
                                                 style={{ textAlign: column.align }}
                                                 onClick={
-                                                    column.sorter
+                                                    column.sorter && !column.more
                                                         ? () => {
                                                               const nextSorting = getNextSorting(
                                                                   currentSorting,
@@ -278,7 +278,6 @@ export function LemonTable<T extends Record<string, any>>({
                                                     style={{ justifyContent: column.align }}
                                                 >
                                                     {column.title}
-                                                    {column.more && <More overlay={column.more} />}
                                                     {column.sorter && (
                                                         <Tooltip
                                                             title={() => {
@@ -307,6 +306,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                             {/* this non-breaking space lets antd's tooltip work*/}{' '}
                                                         </Tooltip>
                                                     )}
+                                                    {column.more && <More overlay={column.more} />}
                                                 </div>
                                             </th>
                                         ))
