@@ -33,9 +33,17 @@ export const heatmapLogic = kea<heatmapLogicType>({
         setShowHeatmapTooltip: (showHeatmapTooltip: boolean) => ({ showHeatmapTooltip }),
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
+        loadMoreElementStats: true,
     },
 
     reducers: {
+        canLoadMoreElementStats: [
+            true,
+            {
+                getElementStatsSuccess: (_, { elementStats }) => elementStats.next !== null,
+                getElementStatsFailure: () => true, // so at least someone can recover from transient errors
+            },
+        ],
         heatmapEnabled: [
             false,
             {
@@ -79,14 +87,6 @@ export const heatmapLogic = kea<heatmapLogicType>({
             {
                 resetElementStats: () => emptyElementsStatsPages,
                 getElementStats: async ({ url }, breakpoint) => {
-                    if (url && (values.elementStats?.pagesLoaded || 0) > 10) {
-                        posthog.capture('exceeded max page limit loading toolbar element stats pages', {
-                            pageNumber: values.elementStats?.pagesLoaded || 0,
-                            nextURL: url,
-                        })
-                        return { ...values.elementStats, next: undefined } as ElementStatsPages // stop paging
-                    }
-
                     const { href, wildcardHref } = currentPageLogic.values
                     let defaultUrl: string = ''
                     if (!url) {
@@ -152,7 +152,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
                             if (domElements.length === 1) {
                                 const e = event.elements[i]
 
-                                // element like "svg" (only tag, no class/id/etc) as the first one
+                                // element like "svg" (only tag, no class/id/etc.) as the first one
                                 if (
                                     i === 0 &&
                                     e.tag_name &&
@@ -278,6 +278,11 @@ export const heatmapLogic = kea<heatmapLogicType>({
     }),
 
     listeners: ({ actions, values }) => ({
+        loadMoreElementStats: () => {
+            if (values.elementStats?.next) {
+                actions.getElementStats(values.elementStats.next)
+            }
+        },
         [currentPageLogic.actionTypes.setHref]: () => {
             if (values.heatmapEnabled) {
                 actions.resetElementStats()
@@ -300,15 +305,7 @@ export const heatmapLogic = kea<heatmapLogicType>({
             actions.setShowHeatmapTooltip(false)
             posthog.capture('toolbar mode triggered', { mode: 'heatmap', enabled: false })
         },
-        getElementStatsSuccess: ({ elementStats }) => {
-            if (elementStats?.next) {
-                actions.getElementStats(elementStats.next)
-            } else {
-                posthog.capture('loaded every toolbar element stats pages', {
-                    pageNumber: elementStats?.pagesLoaded,
-                    finalPage: elementStats?.previous,
-                })
-            }
+        getElementStatsSuccess: () => {
             actions.setShowHeatmapTooltip(true)
         },
         setShowHeatmapTooltip: async ({ showHeatmapTooltip }, breakpoint) => {
