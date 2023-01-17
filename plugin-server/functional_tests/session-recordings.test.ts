@@ -98,6 +98,42 @@ test.concurrent(
 )
 
 test.concurrent(
+    `snapshot captured, processed, ingested via session_recording_events topic with no team_id set`,
+    async () => {
+        // We have switched from pushing the `events_plugin_ingestion` to
+        // pushing to `session_recording_events`. There will still be session
+        // recording events in the `events_plugin_ingestion` topic for a while
+        // so we need to still handle these events with the current consumer.
+        const token = uuidv4()
+        const teamId = await createTeam(postgres, organizationId, undefined, token)
+        const distinctId = new UUIDT().toString()
+        const uuid = new UUIDT().toString()
+
+        await capture(
+            producer,
+            null,
+            distinctId,
+            uuid,
+            '$snapshot',
+            {
+                $session_id: '1234abc',
+                $snapshot_data: 'yes way',
+            },
+            token
+        )
+
+        await waitForExpect(async () => {
+            const events = await fetchSessionRecordingsEvents(clickHouseClient, teamId)
+            expect(events.length).toBe(1)
+
+            // processEvent did not modify
+            expect(events[0].snapshot_data).toEqual('yes way')
+        })
+    },
+    20000
+)
+
+test.concurrent(
     `snapshot captured, processed, ingested via session_recording_events topic same as events_plugin_ingestion`,
     async () => {
         // We are moving from using `events_plugin_ingestion` as the kafka topic
