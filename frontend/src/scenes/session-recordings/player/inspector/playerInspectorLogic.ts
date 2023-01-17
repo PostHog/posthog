@@ -309,34 +309,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         if (
-                            (miniFiltersByKey['performance-2xx']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'resource' &&
-                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '') &&
-                            responseStatus < 300 &&
-                            responseStatus >= 200
-                        ) {
-                            include = true
-                        }
-
-                        if (
-                            (miniFiltersByKey['performance-4xx']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'resource' &&
-                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '') &&
-                            responseStatus < 500 &&
+                            (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
                             responseStatus >= 400
-                        ) {
-                            include = true
-                        }
-
-                        if (
-                            (miniFiltersByKey['performance-5xx']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'resource' &&
-                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '') &&
-                            responseStatus < 600 &&
-                            responseStatus >= 500
                         ) {
                             include = true
                         }

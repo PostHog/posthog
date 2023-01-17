@@ -154,13 +154,13 @@ export function ItemPerformanceEvent({
                                     <Fragment key={key}>
                                         {index !== 0 && <LemonDivider vertical dashed />}
                                         <div className="flex-1 p-2 text-center">
-                                            <div className="text-sm font-semibold">
+                                            <div className="text-sm">
                                                 {label}
                                                 <Tooltip isDefaultTooltip title={description}>
                                                     <InfoCircleOutlined className="ml-2 text-xs" />
                                                 </Tooltip>
                                             </div>
-                                            <div className="text-lg">
+                                            <div className="text-lg font-semibold">
                                                 {item?.[key] === undefined ? (
                                                     '-'
                                                 ) : (
@@ -184,8 +184,18 @@ export function ItemPerformanceEvent({
                     ) : (
                         <div className="flex gap-2 items-start p-2 text-xs cursor-pointer">
                             <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>{eventName}</span>
-                            <span className={clsx('font-semibold')}>{bytes}</span>
+                            {/* We only show the status if it exists and is an error status */}
+                            {otherProps.response_status && otherProps.response_status >= 400 ? (
+                                <span
+                                    className={clsx('font-semibold', {
+                                        'text-danger-dark': otherProps.response_status >= 400,
+                                    })}
+                                >
+                                    {otherProps.response_status}
+                                </span>
+                            ) : null}
                             {renderTimeBenchmark(duration)}
+                            <span className={clsx('font-semibold')}>{bytes}</span>
                         </div>
                     )}
                 </div>
@@ -196,9 +206,9 @@ export function ItemPerformanceEvent({
                     <CodeSnippet language={Language.Markup} wrap copyDescription="performance event name">
                         {item.name}
                     </CodeSnippet>
-                    <p>
-                        started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and took{' '}
-                        <b>{humanFriendlyMilliseconds(item.duration)}</b> to complete
+                    <p className="text-sm">
+                        Request started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and
+                        took <b>{humanFriendlyMilliseconds(item.duration)}</b> to complete.
                     </p>
 
                     {item.decoded_body_size && item.encoded_body_size ? (
