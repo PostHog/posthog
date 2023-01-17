@@ -94,7 +94,7 @@ function PlayerInspectorListItem({
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (
-                <div className="shrink-0 text-lg text-muted-alt h-8 w-6 flex items-center justify-center gap-1">
+                <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
                     {showIcon ? TabToIcon[item.type] : null}
                     {windowNumber ? <IconWindow value={windowNumber} className="shrink-0" /> : null}
                 </div>
