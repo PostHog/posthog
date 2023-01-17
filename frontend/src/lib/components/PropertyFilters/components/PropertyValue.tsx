@@ -34,7 +34,6 @@ export interface PropertyValueProps {
     onSet: CallableFunction
     value?: string | number | Array<string | number> | null
     operator: PropertyOperator
-    outerOptions?: Option[] // If no endpoint provided, options are given here
     autoFocus?: boolean
     allowCustom?: boolean
 }
@@ -56,7 +55,6 @@ export function PropertyValue({
     onSet,
     value,
     operator,
-    outerOptions = undefined,
     autoFocus = false,
     allowCustom = true,
 }: PropertyValueProps): JSX.Element {
@@ -97,27 +95,17 @@ export function PropertyValue({
         }
         const key = propertyKey.split('__')[0]
         setOptions({ ...options, [propertyKey]: { ...options[propertyKey], status: 'loading' } })
-        if (outerOptions) {
-            setOptions({
-                ...options,
-                [propertyKey]: {
-                    values: [...Array.from(new Set(outerOptions))],
-                    status: 'loaded',
-                },
-            })
-        } else {
-            api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
-                (propValues: PropValue[]) => {
-                    setOptions({
-                        ...options,
-                        [propertyKey]: {
-                            values: [...Array.from(new Set(propValues))],
-                            status: 'loaded',
-                        },
-                    })
-                }
-            )
-        }
+        api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
+            (propValues: PropValue[]) => {
+                setOptions({
+                    ...options,
+                    [propertyKey]: {
+                        values: [...Array.from(new Set(propValues))],
+                        status: 'loaded',
+                    },
+                })
+            }
+        )
     }, 300)
 
     function setValue(newValue: PropertyValueProps['value']): void {
