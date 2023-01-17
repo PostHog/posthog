@@ -51,7 +51,7 @@ export function PropertyValue({
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
-    const { loadOptions } = useActions(propertyDefinitionsModel)
+    const { loadPropertyValues } = useActions(propertyDefinitionsModel)
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -71,8 +71,8 @@ export function PropertyValue({
         }
     }, [value])
 
-    const loadPropertyValues = (newInput: string | undefined): void => {
-        loadOptions({ endpoint, type, newInput, propertyKey })
+    const load = (newInput: string | undefined): void => {
+        loadPropertyValues({ endpoint, type, newInput, propertyKey })
     }
 
     function setValue(newValue: PropertyValueProps['value']): void {
@@ -83,7 +83,7 @@ export function PropertyValue({
     }
 
     useEffect(() => {
-        loadPropertyValues('')
+        load('')
     }, [propertyKey])
 
     useEffect(() => {
@@ -101,7 +101,7 @@ export function PropertyValue({
         onSearch: (newInput: string) => {
             setInput(newInput)
             if (!Object.keys(options).includes(newInput) && !(operator && isOperatorFlag(operator))) {
-                loadPropertyValues(newInput)
+                load(newInput)
             }
         },
         ['data-attr']: 'prop-val',

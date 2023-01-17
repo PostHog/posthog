@@ -11,6 +11,8 @@ import type { propertyDefinitionsModelType } from './propertyDefinitionsModelTyp
 import { dayjs } from 'lib/dayjs'
 import { TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 import { colonDelimitedDuration } from 'lib/utils'
+import { captureTimeToSeeData } from '../lib/internalMetrics'
+import { teamLogic } from '../scenes/teamLogic'
 
 export type PropertyDefinitionStorage = Record<string, PropertyDefinition | PropertyDefinitionState>
 
@@ -74,7 +76,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             propertyDefinitions,
         }),
         // PropertyValue
-        loadOptions: (payload: {
+        loadPropertyValues: (payload: {
             endpoint: string | undefined
             type: string
             newInput: string | undefined
@@ -186,13 +188,15 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
         },
 
-        loadOptions: async ({ endpoint, type, newInput, propertyKey }, breakpoint) => {
+        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey }, breakpoint) => {
             if (['cohort', 'session'].includes(type)) {
                 return
             }
             if (!propertyKey) {
                 return
             }
+
+            const start = performance.now()
 
             await breakpoint(300)
             const key = propertyKey.split('__')[0]
@@ -211,6 +215,16 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             breakpoint()
             actions.setOptions(propertyKey, propValues)
             cache.abortController = null
+
+            await captureTimeToSeeData(teamLogic.values.currentTeamId, {
+                type: 'property_load',
+                context: 'filters',
+                action: 'load_property_values',
+                primary_interaction_id: '',
+                status: 'success',
+                time_to_see_data_ms: Math.floor(performance.now() - start),
+                api_response_bytes: 0,
+            })
         },
 
         abortAnyRunningQuery: () => {
