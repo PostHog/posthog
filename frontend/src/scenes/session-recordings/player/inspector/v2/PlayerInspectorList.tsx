@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
-import { useEffect, useMemo, useRef, cloneElement } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
@@ -24,9 +24,28 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from '../../icons'
-import { tabToIconAndDescription } from 'scenes/session-recordings/player/inspector/v2/PlayerInspectorControls'
+import { IconConsoleLine, IconGauge, UnverifiedEvent } from 'lib/components/icons'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
+
+const typeToIconAndDescription = {
+    [SessionRecordingPlayerTab.ALL]: {
+        Icon: undefined,
+        tooltip: 'All events',
+    },
+    [SessionRecordingPlayerTab.EVENTS]: {
+        Icon: UnverifiedEvent,
+        tooltip: 'Recording event',
+    },
+    [SessionRecordingPlayerTab.CONSOLE]: {
+        Icon: IconConsoleLine,
+        tooltip: 'Console log',
+    },
+    [SessionRecordingPlayerTab.PERFORMANCE]: {
+        Icon: IconGauge,
+        tooltip: 'Network event',
+    },
+}
 
 function PlayerInspectorListItem({
     item,
@@ -76,6 +95,8 @@ function PlayerInspectorListItem({
     const windowNumber =
         windowIds.length > 1 && item.windowId ? windowIds.indexOf(item.windowId) + 1 || undefined : undefined
 
+    const TypeIcon = typeToIconAndDescription[item.type].Icon
+
     return (
         <div
             ref={ref}
@@ -87,18 +108,14 @@ function PlayerInspectorListItem({
                 marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
             }}
         >
-            {!isExpanded && (
+            {!isExpanded && (showIcon || windowNumber) && (
                 <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
-                    {showIcon && tabToIconAndDescription[item.type].icon ? (
-                        <Tooltip placement="left" title={tabToIconAndDescription[item.type].tooltip}>
-                            {cloneElement(tabToIconAndDescription[item.type].icon, { width: 20, height: 20 })}
+                    {showIcon && TypeIcon ? (
+                        <Tooltip placement="left" title={typeToIconAndDescription[item.type].tooltip}>
+                            <TypeIcon width={20} height={20} />
                         </Tooltip>
                     ) : null}
-                    {windowNumber ? (
-                        <IconWindow size="small" value={windowNumber} className="shrink-0" />
-                    ) : (
-                        <IconWindow size="small" value="A" className="shrink-0" />
-                    )}
+                    {windowNumber ? <IconWindow size="small" value={windowNumber} className="shrink-0" /> : null}
                 </div>
             )}
 

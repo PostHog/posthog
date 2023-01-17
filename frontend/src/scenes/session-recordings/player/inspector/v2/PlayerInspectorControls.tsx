@@ -13,30 +13,18 @@ import { Spinner } from 'lib/components/Spinner/Spinner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { cloneElement, useMemo } from 'react'
+import { useMemo } from 'react'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from '../playerInspectorLogic'
 
-export const tabToIconAndDescription = {
-    [SessionRecordingPlayerTab.ALL]: {
-        icon: undefined,
-        tooltip: 'All events',
-    },
-    [SessionRecordingPlayerTab.EVENTS]: {
-        icon: <UnverifiedEvent />,
-        tooltip: 'Recording event',
-    },
-    [SessionRecordingPlayerTab.CONSOLE]: {
-        icon: <IconConsoleLine />,
-        tooltip: 'Console log',
-    },
-    [SessionRecordingPlayerTab.PERFORMANCE]: {
-        icon: <IconGauge />,
-        tooltip: 'Network event',
-    },
+const TabToIcon = {
+    [SessionRecordingPlayerTab.ALL]: undefined,
+    [SessionRecordingPlayerTab.EVENTS]: UnverifiedEvent,
+    [SessionRecordingPlayerTab.CONSOLE]: IconConsoleLine,
+    [SessionRecordingPlayerTab.PERFORMANCE]: IconGauge,
 }
 
 export function PlayerInspectorControls({
@@ -68,27 +56,30 @@ export function PlayerInspectorControls({
         <div className="bg-side p-2 space-y-2">
             <div className="flex justify-between gap-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
-                    {tabs.map((tabId) => (
-                        <LemonButton
-                            key={tabId}
-                            size="small"
-                            // We want to indicate the tab is loading, but not disable it so we just override the icon here
-                            icon={
-                                tabId !== SessionRecordingPlayerTab.ALL ? (
-                                    tabsState[tabId] === 'loading' ? (
-                                        <Spinner monocolor />
-                                    ) : (
-                                        cloneElement(tabToIconAndDescription[tabId].icon, { width: 24, height: 24 })
-                                    )
-                                ) : undefined
-                            }
-                            status={tab === tabId ? 'primary' : 'primary-alt'}
-                            active={tab === tabId}
-                            onClick={() => setTab(tabId)}
-                        >
-                            {capitalizeFirstLetter(tabId)}
-                        </LemonButton>
-                    ))}
+                    {tabs.map((tabId) => {
+                        const TabIcon = TabToIcon[tabId]
+                        return (
+                            <LemonButton
+                                key={tabId}
+                                size="small"
+                                // We want to indicate the tab is loading, but not disable it so we just override the icon here
+                                icon={
+                                    TabIcon ? (
+                                        tabsState[tabId] === 'loading' ? (
+                                            <Spinner monocolor />
+                                        ) : (
+                                            <TabIcon width={24} height={24} />
+                                        )
+                                    ) : undefined
+                                }
+                                status={tab === tabId ? 'primary' : 'primary-alt'}
+                                active={tab === tabId}
+                                onClick={() => setTab(tabId)}
+                            >
+                                {capitalizeFirstLetter(tabId)}
+                            </LemonButton>
+                        )
+                    })}
                 </div>
 
                 <div className="flex items-center gap-2 flex-1">
