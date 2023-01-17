@@ -24,7 +24,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
     }),
     reducers: () => ({
         enabledIntervals: [
-            { ...intervals },
+            { ...intervals } as Intervals,
             {
                 setEnabledIntervals: (_, { enabledIntervals }) => enabledIntervals,
             },
