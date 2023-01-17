@@ -21,11 +21,11 @@ def get_property_values_for_key(
     value_filter = ""
     extra_params = {}
 
-    if mat_column_exists:
+    if not mat_column_exists:
         property_exists_filter = "AND JSONHas(properties, %(key)s)"
         extra_params["key"] = key
 
-    if event_names is not None:
+    if event_names is not None and len(event_names) > 0:
         event_conditions = " OR ".join(f"event = '{event_name}'" for event_name in event_names)
         event_filter = "AND ({})".format(event_conditions)
 
