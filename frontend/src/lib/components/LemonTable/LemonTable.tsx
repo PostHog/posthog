@@ -11,6 +11,7 @@ import { PaginationAuto, PaginationControl, PaginationManual, usePagination } fr
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { LemonSkeleton } from '../LemonSkeleton'
 import { LemonTableLoader } from './LemonTableLoader'
+import { More } from 'lib/components/LemonButton/More'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -259,7 +260,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                 )}
                                                 style={{ textAlign: column.align }}
                                                 onClick={
-                                                    column.sorter
+                                                    column.sorter && !column.more
                                                         ? () => {
                                                               const nextSorting = getNextSorting(
                                                                   currentSorting,
@@ -304,6 +305,9 @@ export function LemonTable<T extends Record<string, any>>({
                                                             />
                                                             {/* this non-breaking space lets antd's tooltip work*/}{' '}
                                                         </Tooltip>
+                                                    )}
+                                                    {column.more && (
+                                                        <More overlay={column.more} data-attr="table-header-more" />
                                                     )}
                                                 </div>
                                             </th>

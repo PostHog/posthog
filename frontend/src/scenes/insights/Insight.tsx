@@ -61,7 +61,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
-        showErrorMessage,
+        erroredQueryId,
     } = useValues(logic)
     const {
         saveInsight,
@@ -97,7 +97,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     useEffect(() => {
         // if users navigate away from insights then we may cancel an API call
         // and when they come back they may see an error state, so clear it
-        if (showErrorMessage) {
+        if (!!erroredQueryId) {
             loadResults()
         }
         return () => {

@@ -23,6 +23,21 @@ import { eventWithTime } from 'rrweb/typings/types'
 import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
 import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
 
+export const IMAGE_WEB_EXTENSIONS = [
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'tif',
+    'tiff',
+    'gif',
+    'svg',
+    'webp',
+    'bmp',
+    'ico',
+    'cur',
+]
+
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<InspectorListItem> {}
@@ -243,6 +258,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 ) {
                     for (const event of performanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
+                        const responseStatus = event.response_status || 200
+
+                        // NOTE: Navigtion events are missing the first contentful paint info so we find the relevant first contentful paint event and add it to the navigation event
+                        if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
+                            const firstContentfulPaint = (performanceEvents || []).find(
+                                (x) => x.entry_type === 'paint' && x.name === 'first-contentful-paint'
+                            )
+                            if (firstContentfulPaint) {
+                                event.first_contentful_paint = firstContentfulPaint.start_time
+                            }
+                        }
 
                         let include = false
 
@@ -255,7 +281,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             (miniFiltersByKey['performance-document']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'navigation'
+                            ['navigation'].includes(event.entry_type || '')
                         ) {
                             include = true
                         }
@@ -269,9 +295,30 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         if (
-                            miniFiltersByKey['performance-assets']?.enabled &&
+                            miniFiltersByKey['performance-assets-js']?.enabled &&
                             event.entry_type === 'resource' &&
-                            ['img', 'script', 'css', 'link'].includes(event.initiator_type || '')
+                            (event.initiator_type === 'script' ||
+                                (['link', 'other'].includes(event.initiator_type || '') && event.name?.includes('.js')))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets-css']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            (event.initiator_type === 'css' ||
+                                (['link', 'other'].includes(event.initiator_type || '') &&
+                                    event.name?.includes('.css')))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets-img']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            (event.initiator_type === 'img' ||
+                                (['link', 'other'].includes(event.initiator_type || '') &&
+                                    !!IMAGE_WEB_EXTENSIONS.some((ext) => event.name?.includes(`.${ext}`))))
                         ) {
                             include = true
                         }
@@ -279,19 +326,25 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             miniFiltersByKey['performance-other']?.enabled &&
                             event.entry_type === 'resource' &&
-                            ['other'].includes(event.initiator_type || '')
+                            ['other'].includes(event.initiator_type || '') &&
+                            ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => event.name?.includes(`.${ext}`))
                         ) {
                             include = true
                         }
+
                         if (
-                            (miniFiltersByKey['performance-paint']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'paint'
+                            (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
+                            responseStatus >= 400
                         ) {
                             include = true
                         }
 
                         if (windowIdFilter && event.window_id !== windowIdFilter) {
+                            include = false
+                        }
+
+                        if (event.entry_type === 'paint') {
+                            // We don't include paint events as they are covered in the navigation events
                             include = false
                         }
 
@@ -305,6 +358,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
                             data: event,
+                            highlightColor: responseStatus >= 400 ? 'danger' : undefined,
                             windowId: event.window_id,
                         })
                     }

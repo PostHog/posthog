@@ -15,7 +15,7 @@ from posthog.queries.event_query import EventQuery
 from posthog.queries.insight import insight_sync_execute
 from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import QueryDateRange
-from posthog.queries.trends.sql import LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
+from posthog.queries.trends.sql import LIFECYCLE_EVENTS_QUERY, LIFECYCLE_PEOPLE_SQL, LIFECYCLE_SQL
 from posthog.queries.trends.util import parse_response
 from posthog.utils import encode_get_request_params
 
@@ -152,24 +152,21 @@ class LifecycleEventQuery(EventQuery):
         created_at_clause = "person.created_at" if not self._using_person_on_events else "person_created_at"
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
-
         return (
-            f"""
-            SELECT DISTINCT
-                {self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id as person_id,
-                dateTrunc(%(interval)s, toTimeZone(toDateTime(events.timestamp, 'UTC'), %(timezone)s)) AS period,
-                toDateTime({created_at_clause}, %(timezone)s) AS created_at
-            FROM events AS {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
-            {person_query}
-            {groups_query}
-            WHERE team_id = %(team_id)s
-            {entity_format_params["entity_query"]}
-            {date_query}
-            {prop_query}
-            {entity_prop_query}
-            {null_person_filter}
-        """,
+            LIFECYCLE_EVENTS_QUERY.format(
+                event_table_alias=self.EVENT_TABLE_ALIAS,
+                person_column=f"{self.DISTINCT_ID_TABLE_ALIAS if not self._using_person_on_events else self.EVENT_TABLE_ALIAS}.person_id",
+                created_at_clause=created_at_clause,
+                distinct_id_query=self._get_distinct_id_query(),
+                person_query=person_query,
+                groups_query=groups_query,
+                prop_query=prop_query,
+                entity_filter=entity_format_params["entity_query"],
+                date_query=date_query,
+                null_person_filter=null_person_filter,
+                entity_prop_query=entity_prop_query,
+                interval=self._filter.interval,
+            ),
             self.params,
         )
 

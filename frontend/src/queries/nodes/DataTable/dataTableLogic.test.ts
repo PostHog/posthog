@@ -126,7 +126,7 @@ describe('dataTableLogic', () => {
         })
         logic.mount()
         await expectLogic(logic).toMatchValues({
-            columns: ['*', 'event', 'timestamp'],
+            columnsInQuery: ['*', 'event', 'timestamp'],
         })
 
         // change props
@@ -142,7 +142,7 @@ describe('dataTableLogic', () => {
         })
 
         await expectLogic(logic).toMatchValues({
-            columns: ['*', 'event', 'timestamp', 'properties.foobar'],
+            columnsInQuery: ['*', 'event', 'timestamp', 'properties.foobar'],
         })
     })
 
