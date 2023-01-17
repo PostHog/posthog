@@ -1,5 +1,5 @@
 import { actions, kea, listeners, path, reducers, selectors } from 'kea'
-import api from 'lib/api'
+import api, { ApiMethodOptions } from 'lib/api'
 import {
     BreakdownKeyType,
     PropertyDefinition,
@@ -84,6 +84,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         setOptions: (key: string, values: PropValue[]) => ({ key, values }),
         // internal
         fetchAllPendingDefinitions: true,
+        abortAnyRunningQuery: true,
     }),
     reducers({
         propertyDefinitionStorage: [
@@ -111,7 +112,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         loadPropertyDefinitions: async ({ propertyKeys }) => {
             const { propertyDefinitionStorage } = values
 
@@ -196,11 +197,27 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             await breakpoint(300)
             const key = propertyKey.split('__')[0]
             actions.setOptionsLoading(propertyKey)
+            actions.abortAnyRunningQuery()
+
+            cache.abortController = new AbortController()
+            const methodOptions: ApiMethodOptions = {
+                signal: cache.abortController.signal,
+            }
+
             const propValues: PropValue[] = await api.get(
-                endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')
+                endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : ''),
+                methodOptions
             )
             breakpoint()
             actions.setOptions(propertyKey, propValues)
+            cache.abortController = null
+        },
+
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+                cache.abortController = null
+            }
         },
     })),
     selectors({
