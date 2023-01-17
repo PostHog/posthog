@@ -161,19 +161,19 @@ export async function getInsightId(shortId: InsightShortId): Promise<number | un
               .results[0]?.id
 }
 
-export function humanizePathsEventTypes(filters: Partial<PathsFilterType>): string[] {
+export function humanizePathsEventTypes(include_event_types: PathsFilterType['include_event_types']): string[] {
     let humanEventTypes: string[] = []
-    if (filters.include_event_types) {
+    if (include_event_types) {
         let matchCount = 0
-        if (filters.include_event_types.includes(PathType.PageView)) {
+        if (include_event_types.includes(PathType.PageView)) {
             humanEventTypes.push('page views')
             matchCount++
         }
-        if (filters.include_event_types.includes(PathType.Screen)) {
+        if (include_event_types.includes(PathType.Screen)) {
             humanEventTypes.push('screen views')
             matchCount++
         }
-        if (filters.include_event_types.includes(PathType.CustomEvent)) {
+        if (include_event_types.includes(PathType.CustomEvent)) {
             humanEventTypes.push('custom events')
             matchCount++
         }

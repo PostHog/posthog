@@ -30,6 +30,7 @@ import { TrendsFormulaLabel } from './TrendsFormulaLabel'
 import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
 import { getBreakdown, getDisplay } from './utils'
+import { PathsEventsTypesDataExploration } from 'scenes/insights/EditorFilters/PathsEventTypes'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -60,6 +61,20 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
 
     const editorFilters: QueryInsightEditorFilterGroup[] = [
+        {
+            title: 'General',
+            editorFilters: filterFalsy([
+                ...(isPaths
+                    ? filterFalsy([
+                          {
+                              key: 'event-types',
+                              label: 'Event Types',
+                              component: PathsEventsTypesDataExploration,
+                          },
+                      ])
+                    : []),
+            ]),
+        },
         {
             title: 'Series',
             editorFilters: filterFalsy([
