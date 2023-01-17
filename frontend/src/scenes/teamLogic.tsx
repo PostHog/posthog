@@ -144,6 +144,7 @@ export const teamLogic = kea<teamLogicType>([
                     PropertyOperator.Exact,
                     PropertyOperator.IContains,
                     PropertyOperator.Regex,
+                    PropertyOperator.IsSet,
                 ]
                 const positiveFilters = []
                 for (const filter of currentTeam.test_account_filters) {
