@@ -35,6 +35,10 @@ import { getBreakdown, getDisplay } from './utils'
 import { PathsEventsTypesDataExploration } from 'scenes/insights/EditorFilters/PathsEventTypes'
 import { PathsAdvancedPaywall } from 'scenes/insights/EditorFilters/PathsAdvancedPaywall'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import {
+    PathsTargetEndDataExploration,
+    PathsTargetStartDataExploration,
+} from 'scenes/insights/EditorFilters/PathsTarget'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -81,6 +85,30 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                               key: 'event-types',
                               label: 'Event Types',
                               component: PathsEventsTypesDataExploration,
+                          },
+                          // hasPathsAdvanced && {
+                          //     key: 'wildcard-groups',
+                          //     label: 'Wildcard Groups',
+                          //     showOptional: true,
+                          //     component: PathsWildcardGroups,
+                          //     tooltip: (
+                          //         <>
+                          //             Use wildcard matching to group events by unique values in path item names. Use an
+                          //             asterisk (*) in place of unique values. For example, instead of
+                          //             /merchant/1234/payment, replace the unique value with an asterisk
+                          //             /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
+                          //         </>
+                          //     ),
+                          // },
+                          {
+                              key: 'start-target',
+                              label: 'Starts at',
+                              component: PathsTargetStartDataExploration,
+                          },
+                          hasPathsAdvanced && {
+                              key: 'ends-target',
+                              label: 'Ends at',
+                              component: PathsTargetEndDataExploration,
                           },
                       ])
                     : []),
