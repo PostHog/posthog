@@ -239,6 +239,79 @@ class TestDecide(BaseTest):
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
 
+    def test_feature_flags_v3_json(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "email", "value": "tim@posthog.com", "type": "person"}],
+                        "rollout_percentage": None,
+                    }
+                ],
+                "payloads": {"true": {"color": "blue"}},
+            },
+            name="Filter by property",
+            key="filter-by-property",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(3):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        self.assertEqual({"color": "blue"}, response.json()["featureFlagPayloads"]["filter-by-property"])
+
+    def test_feature_flags_v3_json_multivariate(self):
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        self.client.logout()
+        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
+        FeatureFlag.objects.create(
+            team=self.team, rollout_percentage=50, name="Beta feature", key="beta-feature", created_by=self.user
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
+            name="This is a feature flag with default params, no filters.",
+            key="default-flag",
+            created_by=self.user,
+        )  # Should be enabled for everyone
+        FeatureFlag.objects.create(
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
+                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
+                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
+                    ]
+                },
+                "payloads": {"first-variant": {"color": "blue"}},
+            },
+            name="This is a feature flag with multiple variants.",
+            key="multivariate-flag",
+            created_by=self.user,
+        )
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=2)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertIn("beta-feature", response.json()["featureFlags"])
+            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+
+        with self.assertNumQueries(2):
+            response = self._post_decide(api_version=3)
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
+            self.assertEqual({"color": "blue"}, response.json()["featureFlagPayloads"]["multivariate-flag"])
+
     def test_feature_flags_v2(self):
         self.team.app_urls = ["https://example.com"]
         self.team.save()

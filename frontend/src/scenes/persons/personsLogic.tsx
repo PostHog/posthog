@@ -180,9 +180,9 @@ export const personsLogic = kea<personsLogicType>({
                 }
 
                 actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
-                // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
-                //      the 'updated' properties yet.
-                await api.persons.updateProperty(person.id, key, newValue)
+                // :KLUDGE: Person properties are updated asynchronously in the plugin server - the response won't reflect
+                //      the _updated_ properties yet.
+                await api.persons.updateProperty(person.id, key, parsedValue)
                 lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
