@@ -38,6 +38,12 @@ from posthog.utils import cors_response, get_ip_address
 logger = structlog.get_logger(__name__)
 
 
+# These event names are reserved for internal use and refer to non-analytics
+# events that are ingested via a separate path than analytics events. They have
+# fewer restrictions on e.g. the order they need to be processed in.
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
+
+
 def parse_kafka_event_data(
     distinct_id: str,
     ip: Optional[str],
@@ -69,7 +75,7 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     # TODO: split `$performance_event` out to it's own topic.
     kafka_topic = (
         KAFKA_SESSION_RECORDING_EVENTS
-        if event_name in ("$snapshot", "$performance_event")
+        if event_name in SESSION_RECORDING_EVENT_NAMES
         else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
     )
 
