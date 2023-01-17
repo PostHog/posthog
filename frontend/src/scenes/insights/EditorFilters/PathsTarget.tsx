@@ -19,69 +19,51 @@ export function PathsTargetEndDataExploration({ insightProps, ...rest }: QueryEd
     return <PathsTarget position="end" taxonomicGroupTypes={taxonomicGroupTypes} {...rest} />
 }
 
-export function PathsTargetStart({ insightProps }: EditorFilterProps): JSX.Element {
-    const { taxonomicGroupTypes } = useValues(pathsLogic(insightProps))
-    const { filter, wildcards } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
-
-    const setStartPoint = (pathItem: string): void => {
-        setFilter({ start_point: pathItem })
-    }
-    const onReset = (): void => {
-        setFilter({ start_point: undefined, funnel_filter: undefined, funnel_paths: undefined })
-    }
-
-    const props = {
-        funnel_paths: filter.funnel_paths,
-        funnel_filter: filter.funnel_filter,
-        start_point: filter.start_point,
-        end_point: filter.end_point,
-        wildcards,
-    }
-
-    return (
-        <PathsTarget
-            position="start"
-            taxonomicGroupTypes={taxonomicGroupTypes}
-            onChange={setStartPoint}
-            onReset={onReset}
-            {...props}
-        />
-    )
+export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
+    return <PathsTarget position="start" {...props} />
 }
 
-export function PathsTargetEnd({ insightProps }: EditorFilterProps): JSX.Element {
-    const { taxonomicGroupTypes } = useValues(pathsLogic(insightProps))
-    const { filter, wildcards } = useValues(pathsLogic(insightProps))
-    const { setFilter } = useActions(pathsLogic(insightProps))
-
-    const setEndPoint = (pathItem: string): void => {
-        setFilter({ end_point: pathItem })
-    }
-    const onReset = (): void => {
-        setFilter({ end_point: undefined, funnel_filter: undefined, funnel_paths: undefined })
-    }
-
-    const props = {
-        funnel_paths: filter.funnel_paths,
-        funnel_filter: filter.funnel_filter,
-        start_point: filter.start_point,
-        end_point: filter.end_point,
-        wildcards,
-    }
-
-    return (
-        <PathsTarget
-            position="end"
-            taxonomicGroupTypes={taxonomicGroupTypes}
-            onChange={setEndPoint}
-            onReset={onReset}
-            {...props}
-        />
-    )
+export function PathsTargetEnd(props: EditorFilterProps): JSX.Element {
+    return <PathsTarget position="end" {...props} />
 }
 
 type PathsTargetProps = {
+    position: 'start' | 'end'
+} & EditorFilterProps
+
+function PathsTarget({ position, insightProps }: PathsTargetProps): JSX.Element {
+    const { taxonomicGroupTypes } = useValues(pathsLogic(insightProps))
+    const { filter, wildcards } = useValues(pathsLogic(insightProps))
+    const { setFilter } = useActions(pathsLogic(insightProps))
+
+    const key = position === 'start' ? 'start_point' : 'end_point'
+    const onChange = (item: string): void => {
+        setFilter({ [key]: item })
+    }
+    const onReset = (): void => {
+        setFilter({ [key]: undefined, funnel_filter: undefined, funnel_paths: undefined })
+    }
+
+    const props = {
+        funnel_paths: filter.funnel_paths,
+        funnel_filter: filter.funnel_filter,
+        start_point: filter.start_point,
+        end_point: filter.end_point,
+        wildcards,
+    }
+
+    return (
+        <PathsTargetComponent
+            position={position}
+            taxonomicGroupTypes={taxonomicGroupTypes}
+            onChange={onChange}
+            onReset={onReset}
+            {...props}
+        />
+    )
+}
+
+type PathsTargetComponentProps = {
     position: 'start' | 'end'
     funnel_paths?: FunnelPathType
     funnel_filter?: Record<string, any>
@@ -93,7 +75,7 @@ type PathsTargetProps = {
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
 }
 
-function PathsTarget({
+function PathsTargetComponent({
     position,
     funnel_paths,
     funnel_filter,
@@ -103,7 +85,7 @@ function PathsTarget({
     onReset,
     wildcards,
     taxonomicGroupTypes,
-}: PathsTargetProps): JSX.Element {
+}: PathsTargetComponentProps): JSX.Element {
     const overrideStartInput = funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(funnel_paths)
     const overrideEndInput = funnel_paths && [FunnelPathType.between, FunnelPathType.before].includes(funnel_paths)
     const overrideInputs = overrideStartInput || overrideEndInput
