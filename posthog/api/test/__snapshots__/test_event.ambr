@@ -98,7 +98,7 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND JSONHas(properties, 'random_prop')
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
   LIMIT 10
@@ -110,7 +110,7 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND JSONHas(properties, 'random_prop')
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%qw%'
@@ -123,7 +123,7 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND JSONHas(properties, 'random_prop')
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%QW%'
@@ -136,7 +136,7 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND JSONHas(properties, 'random_prop')
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND "mat_random_prop" ILIKE '%6%'
@@ -149,7 +149,7 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND JSONHas(properties, 'random_prop')
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND (event = 'random event')
@@ -163,7 +163,7 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND JSONHas(properties, 'random_prop')
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND (event = 'foo'
@@ -178,7 +178,7 @@
   SELECT DISTINCT "mat_random_prop"
   FROM events
   WHERE team_id = 2
-    AND JSONHas(properties, 'random_prop')
+    AND notEmpty("mat_random_prop")
     AND timestamp >= '2020-01-13 00:00:00'
     AND timestamp <= '2020-01-20 23:59:59'
     AND (event = '404_i_dont_exist')
