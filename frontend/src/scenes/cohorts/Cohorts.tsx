@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -7,7 +6,6 @@ import { AvailableFeature, CohortType } from '~/types'
 import './Cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
-import { Tooltip } from 'lib/components/Tooltip'
 import { Link } from 'lib/components/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
@@ -69,14 +67,9 @@ export function Cohorts(): JSX.Element {
         createdByColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         createdAtColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         {
-            title: (
-                <span>
-                    <Tooltip title="PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 15 minutes, or whenever a cohort is updated.">
-                        Last calculated
-                        <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                    </Tooltip>
-                </span>
-            ),
+            title: 'Last calculated',
+            tooltip:
+                'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 15 minutes, or whenever a cohort is updated',
             render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>

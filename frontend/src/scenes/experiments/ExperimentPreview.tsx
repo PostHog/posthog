@@ -6,11 +6,11 @@ import { dayjs } from 'lib/dayjs'
 import { ActionFilter as ActionFilterType, AnyPropertyFilter, InsightType, MultivariateFlagVariant } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 import { Field, Form } from 'kea-forms'
 import { MetricSelector } from './MetricSelector'
+import { IconInfo } from 'lib/components/icons'
 
 interface ExperimentPreviewProps {
     experimentId: number | 'new'
@@ -96,7 +96,7 @@ export function ExperimentPreview({
                                         'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
                                     }
                                 >
-                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                    <IconInfo className="ml-1 text-muted text-xl" />
                                 </Tooltip>
                             </div>
                             <Row className="mde-slider">

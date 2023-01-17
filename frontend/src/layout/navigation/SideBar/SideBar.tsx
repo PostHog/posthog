@@ -15,7 +15,7 @@ import {
     IconLive,
     IconOpenInApp,
     IconPerson,
-    IconPin,
+    IconPinOutline,
     IconPlus,
     IconRecording,
     IconSettings,
@@ -127,7 +127,7 @@ function Pages(): JSX.Element {
                                         ) : (
                                             <>
                                                 <div className="flex items-center gap-2">
-                                                    <IconPin className="text-2xl text-muted-alt" />
+                                                    <IconPinOutline className="text-2xl text-muted-alt" />
                                                     <div>
                                                         <Link
                                                             onClick={() => setArePinnedDashboardsShown(false)}
