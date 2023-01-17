@@ -100,6 +100,7 @@
   SELECT event,
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
@@ -115,6 +116,7 @@
   SELECT event,
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
@@ -129,12 +131,13 @@
   SELECT event,
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
     AND timestamp > '2020-01-09 12:14:00.000000'
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(1, 2))
+    AND (equals('a%sd', 'foo'))
   ORDER BY event ASC
   LIMIT 101
   '
@@ -145,11 +148,12 @@
   SELECT event,
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(1, 2))
+    AND (equals('a%sd', 'foo'))
   ORDER BY event ASC
   LIMIT 101
   '
@@ -160,12 +164,13 @@
   SELECT event,
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
     AND timestamp > '2020-01-09 12:14:00.000000'
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(1, 1))
+    AND (equals('a%sd', 'a%sd'))
   ORDER BY event ASC
   LIMIT 101
   '
@@ -176,11 +181,12 @@
   SELECT event,
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(1, 1))
+    AND (equals('a%sd', 'a%sd'))
   ORDER BY event ASC
   LIMIT 101
   '
@@ -191,6 +197,7 @@
   SELECT event,
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
@@ -207,6 +214,7 @@
   SELECT event,
          distinct_id,
          replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''),
+         'a%sd',
          concat(event, ' ', replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', ''))
   FROM events
   WHERE team_id = 2
@@ -222,6 +230,7 @@
   SELECT event,
          distinct_id,
          "mat_key",
+         'a%sd',
          concat(event, ' ', "mat_key")
   FROM events
   WHERE team_id = 2
@@ -237,6 +246,7 @@
   SELECT event,
          distinct_id,
          "mat_key",
+         'a%sd',
          concat(event, ' ', "mat_key")
   FROM events
   WHERE team_id = 2
@@ -251,12 +261,13 @@
   SELECT event,
          distinct_id,
          "mat_key",
+         'a%sd',
          concat(event, ' ', "mat_key")
   FROM events
   WHERE team_id = 2
     AND timestamp > '2020-01-09 12:14:00.000000'
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(1, 2))
+    AND (equals('a%sd', 'foo'))
   ORDER BY event ASC
   LIMIT 101
   '
@@ -267,11 +278,12 @@
   SELECT event,
          distinct_id,
          "mat_key",
+         'a%sd',
          concat(event, ' ', "mat_key")
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(1, 2))
+    AND (equals('a%sd', 'foo'))
   ORDER BY event ASC
   LIMIT 101
   '
@@ -282,12 +294,13 @@
   SELECT event,
          distinct_id,
          "mat_key",
+         'a%sd',
          concat(event, ' ', "mat_key")
   FROM events
   WHERE team_id = 2
     AND timestamp > '2020-01-09 12:14:00.000000'
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(1, 1))
+    AND (equals('a%sd', 'a%sd'))
   ORDER BY event ASC
   LIMIT 101
   '
@@ -298,11 +311,12 @@
   SELECT event,
          distinct_id,
          "mat_key",
+         'a%sd',
          concat(event, ' ', "mat_key")
   FROM events
   WHERE team_id = 2
     AND timestamp < '2020-01-10 12:14:05.000000'
-    AND (equals(1, 1))
+    AND (equals('a%sd', 'a%sd'))
   ORDER BY event ASC
   LIMIT 101
   '
@@ -313,6 +327,7 @@
   SELECT event,
          distinct_id,
          "mat_key",
+         'a%sd',
          concat(event, ' ', "mat_key")
   FROM events
   WHERE team_id = 2
@@ -329,6 +344,7 @@
   SELECT event,
          distinct_id,
          "mat_key",
+         'a%sd',
          concat(event, ' ', "mat_key")
   FROM events
   WHERE team_id = 2

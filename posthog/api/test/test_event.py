@@ -785,18 +785,18 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with freeze_time("2020-01-10 12:14:00"):
-            select = ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"]
+            select = ["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
 
             response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
             self.assertEqual(len(response["results"]), 4)
 
-            properties = [{"type": "hogql", "key": "1 == 2"}]
+            properties = [{"type": "hogql", "key": "'a%sd' == 'foo'"}]
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&properties={json.dumps(properties)}"
             ).json()
             self.assertEqual(len(response["results"]), 0)
 
-            properties = [{"type": "hogql", "key": "1 == 1"}]
+            properties = [{"type": "hogql", "key": "'a%sd' == 'a%sd'"}]
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&properties={json.dumps(properties)}"
             ).json()

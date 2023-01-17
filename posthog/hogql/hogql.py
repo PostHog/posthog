@@ -147,9 +147,9 @@ def translate_hogql(
         node = ast.parse(hql)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
-    if not context:
+    if context is None:
         context = HogQLParserContext()
-    if collect_values:
+    if collect_values is not None:
         context.collect_values = collect_values
     return translate_ast(node, [], context)
 
