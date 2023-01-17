@@ -50,7 +50,6 @@ export const capture = async (
                     data: JSON.stringify({
                         event,
                         properties: { ...properties, uuid },
-                        distinct_id: distinctId,
                         team_id: teamId,
                         timestamp: eventTime,
                     }),

@@ -125,8 +125,8 @@ export const eachBatch =
                 if (event.event === '$snapshot') {
                     await createSessionRecordingEvent(
                         messagePayload.uuid,
-                        messagePayload.team_id,
-                        event.distinct_id,
+                        teamId,
+                        messagePayload.distinct_id,
                         parseEventTimestamp(event as PluginEvent),
                         event.ip,
                         event.properties || {},
@@ -135,8 +135,8 @@ export const eachBatch =
                 } else if (event.event === '$performance_event') {
                     await createPerformanceEvent(
                         messagePayload.uuid,
-                        messagePayload.team_id,
-                        event.distinct_id,
+                        teamId,
+                        messagePayload.distinct_id,
                         event.properties || {},
                         event.ip,
                         parseEventTimestamp(event as PluginEvent),
@@ -198,5 +198,5 @@ export const eachBatch =
             // to the DLQ.
         }
 
-        status.info('✅', 'Processed batch', { size: batch.messages.length })
+        status.debug('✅', 'Processed batch', { size: batch.messages.length })
     }

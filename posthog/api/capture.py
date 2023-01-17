@@ -27,7 +27,7 @@ from posthog.api.utils import (
 )
 from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
@@ -36,6 +36,12 @@ from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
+
+
+# These event names are reserved for internal use and refer to non-analytics
+# events that are ingested via a separate path than analytics events. They have
+# fewer restrictions on e.g. the order they need to be processed in.
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
 
 def parse_kafka_event_data(
@@ -67,16 +73,11 @@ def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
     # To allow for different quality of service on session recordings and
     # `$performance_event` and other events, we push to a different topic.
     # TODO: split `$performance_event` out to it's own topic.
-    # NOTE: switch back to KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC temporarily
-    # TODO: resolve distinct_id issue and revert back to
-    # KAFKA_SESSION_RECORDING_EVENTS
-    # whilst resolving issue with distinct_ids not being set correctly.
-    # kafka_topic = (
-    #     KAFKA_SESSION_RECORDING_EVENTS
-    #     if event_name in ("$snapshot", "$performance_event")
-    #     else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
-    # )
-    kafka_topic = KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+    kafka_topic = (
+        KAFKA_SESSION_RECORDING_EVENTS
+        if event_name in SESSION_RECORDING_EVENT_NAMES
+        else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+    )
 
     logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
