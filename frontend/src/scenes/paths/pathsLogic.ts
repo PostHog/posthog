@@ -57,7 +57,6 @@ export const pathsLogic = kea<pathsLogicType>({
     actions: {
         setProperties: (properties: PropertyFilter[]) => ({ properties }),
         setFilter: (filter: Partial<PathsFilterType>) => ({ filter }),
-        showPathEvents: (event: PathType) => ({ event }),
         updateExclusions: (exclusions: string[]) => ({ exclusions }),
         openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
             props,
@@ -93,17 +92,6 @@ export const pathsLogic = kea<pathsLogicType>({
                         isDropOff: Boolean(path_dropoff_key),
                     }),
                 })
-            }
-        },
-        showPathEvents: ({ event }) => {
-            const { filter } = values
-            if (filter.include_event_types) {
-                const include_event_types = filter.include_event_types.includes(event)
-                    ? filter.include_event_types.filter((e) => e !== event)
-                    : [...filter.include_event_types, event]
-                actions.setFilter({ ...filter, include_event_types })
-            } else {
-                actions.setFilter({ ...filter, include_event_types: [event] })
             }
         },
         viewPathToFunnel: ({ pathItemCard }) => {
