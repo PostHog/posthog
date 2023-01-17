@@ -46,7 +46,7 @@ export interface LemonButtonPropsBase
     /** @deprecated Buttons should never be quietly disabled. Use `disabledReason` to provide an explanation instead. */
     disabled?: boolean
     /** Like plain `disabled`, except we enforce a reason to be shown in the tooltip. */
-    disabledReason?: string | null
+    disabledReason?: string | null | false
     noPadding?: boolean
     size?: 'small' | 'medium' | 'large'
     'data-attr'?: string
@@ -146,8 +146,8 @@ function LemonButtonInternal(
     if (tooltipContent) {
         workingButton = (
             <Tooltip title={tooltipContent} placement={tooltipPlacement}>
-                {/* If the button is disabled, wrap it in a div so that the tooltip can still work */}
-                {disabled ? <div>{workingButton}</div> : workingButton}
+                {/* If the button is a `button` element and disabled, wrap it in a div so that the tooltip works */}
+                {disabled && ButtonComponent === 'button' ? <div>{workingButton}</div> : workingButton}
             </Tooltip>
         )
     }

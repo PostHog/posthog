@@ -60,18 +60,16 @@ export function InsightContainer({
         activeView,
         loadedView,
         filters,
-        showTimeoutMessage,
-        showErrorMessage,
+        timedOutQueryId,
+        erroredQueryId,
         exporterResourceParams,
         isUsingSessionAnalysis,
     } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
-        funnelLogic(insightProps)
-    )
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
+        if (activeView !== loadedView || (insightLoading && timedOutQueryId === null)) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -92,11 +90,11 @@ export function InsightContainer({
         }
 
         // Insight agnostic empty states
-        if (showErrorMessage) {
-            return <InsightErrorState />
+        if (!!erroredQueryId) {
+            return <InsightErrorState queryId={erroredQueryId} />
         }
-        if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={insightLoading} />
+        if (!!timedOutQueryId) {
+            return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
         }
 
         return null
@@ -105,8 +103,8 @@ export function InsightContainer({
     function renderTable(): JSX.Element | null {
         if (
             isFunnelsFilter(filters) &&
-            !showErrorMessage &&
-            !showTimeoutMessage &&
+            erroredQueryId === null &&
+            timedOutQueryId === null &&
             areFiltersValid &&
             isValidFunnel &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
@@ -122,7 +120,7 @@ export function InsightContainer({
 
         // InsightsTable is loaded for all trend views (except below), plus the sessions view.
         // Exclusions:
-        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        // 1. Table view. Because table is already loaded anyway in `Trends.tsx` as the main component.
         // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
             isTrendsFilter(filters) &&
@@ -228,9 +226,7 @@ export function InsightContainer({
                 </div>
             </Card>
             {renderTable()}
-            {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
-                <FunnelCorrelation />
-            )}
+            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }
