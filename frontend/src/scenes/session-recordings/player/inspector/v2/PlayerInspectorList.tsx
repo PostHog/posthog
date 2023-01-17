@@ -1,8 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { UnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, cloneElement } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
 import { CellMeasurer, CellMeasurerCache } from 'react-virtualized/dist/es/CellMeasurer'
 import { AvailableFeature, SessionRecordingPlayerTab } from '~/types'
@@ -25,12 +24,7 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from '../../icons'
-
-const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
-    [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
-    [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
-}
+import { tabToIconAndDescription } from 'scenes/session-recordings/player/inspector/v2/PlayerInspectorControls'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
 
@@ -93,10 +87,18 @@ function PlayerInspectorListItem({
                 marginBottom: PLAYER_INSPECTOR_LIST_ITEM_MARGIN / 2,
             }}
         >
-            {!isExpanded && (showIcon || windowNumber) && (
+            {!isExpanded && (
                 <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
-                    {showIcon ? TabToIcon[item.type] : null}
-                    {windowNumber ? <IconWindow value={windowNumber} className="shrink-0" /> : null}
+                    {showIcon && tabToIconAndDescription[item.type].icon ? (
+                        <Tooltip placement="left" title={tabToIconAndDescription[item.type].tooltip}>
+                            {cloneElement(tabToIconAndDescription[item.type].icon, { width: 20, height: 20 })}
+                        </Tooltip>
+                    ) : null}
+                    {windowNumber ? (
+                        <IconWindow size="small" value={windowNumber} className="shrink-0" />
+                    ) : (
+                        <IconWindow size="small" value="A" className="shrink-0" />
+                    )}
                 </div>
             )}
 

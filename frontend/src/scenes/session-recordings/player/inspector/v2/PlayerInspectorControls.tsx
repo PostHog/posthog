@@ -1,22 +1,42 @@
-import { LemonButton, LemonInput, LemonSelect, LemonCheckbox } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 import { Tooltip } from 'antd'
-import { useValues, useActions } from 'kea'
-import { IconInfo, IconSchedule, IconPlayCircle, IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import { useActions, useValues } from 'kea'
+import {
+    IconConsoleLine,
+    IconGauge,
+    IconInfo,
+    IconPlayCircle,
+    IconSchedule,
+    UnverifiedEvent,
+} from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import { useMemo } from 'react'
+import { cloneElement, useMemo } from 'react'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
 import { playerSettingsLogic } from '../../playerSettingsLogic'
 import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLogic'
 import { playerInspectorLogic } from '../playerInspectorLogic'
 
-const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
-    [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
-    [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
+export const tabToIconAndDescription = {
+    [SessionRecordingPlayerTab.ALL]: {
+        icon: undefined,
+        tooltip: 'All events',
+    },
+    [SessionRecordingPlayerTab.EVENTS]: {
+        icon: <UnverifiedEvent />,
+        tooltip: 'Recording event',
+    },
+    [SessionRecordingPlayerTab.CONSOLE]: {
+        icon: <IconConsoleLine />,
+        tooltip: 'Console log',
+    },
+    [SessionRecordingPlayerTab.PERFORMANCE]: {
+        icon: <IconGauge />,
+        tooltip: 'Network event',
+    },
 }
 
 export function PlayerInspectorControls({
@@ -53,7 +73,15 @@ export function PlayerInspectorControls({
                             key={tabId}
                             size="small"
                             // We want to indicate the tab is loading, but not disable it so we just override the icon here
-                            icon={tabsState[tabId] === 'loading' ? <Spinner monocolor /> : TabToIcon[tabId]}
+                            icon={
+                                tabId !== SessionRecordingPlayerTab.ALL ? (
+                                    tabsState[tabId] === 'loading' ? (
+                                        <Spinner monocolor />
+                                    ) : (
+                                        cloneElement(tabToIconAndDescription[tabId].icon, { width: 24, height: 24 })
+                                    )
+                                ) : undefined
+                            }
                             status={tab === tabId ? 'primary' : 'primary-alt'}
                             active={tab === tabId}
                             onClick={() => setTab(tabId)}

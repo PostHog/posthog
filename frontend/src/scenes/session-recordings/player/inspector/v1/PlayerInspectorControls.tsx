@@ -1,7 +1,7 @@
 import { LemonButton, LemonInput, LemonSwitch, LemonSelect } from '@posthog/lemon-ui'
 import { Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
-import { IconInfo, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import { IconInfo } from 'lib/components/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
@@ -11,11 +11,7 @@ import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLo
 import { playerInspectorLogic } from '../playerInspectorLogic'
 import { consoleLogsListLogic } from './consoleLogsListLogic'
 import { eventsListLogic } from './eventsListLogic'
-
-const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
-    [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
-}
+import { tabToIconAndDescription } from 'scenes/session-recordings/player/inspector/v2/PlayerInspectorControls'
 
 export function PlayerInspectorControls({
     sessionRecordingId,
@@ -43,7 +39,7 @@ export function PlayerInspectorControls({
                         <LemonButton
                             key={tabId}
                             size="small"
-                            icon={TabToIcon[tabId]}
+                            icon={tabToIconAndDescription[tabId].icon}
                             status={tab === tabId ? 'primary' : 'primary-alt'}
                             active={tab === tabId}
                             onClick={() => setTab(tabId)}
