@@ -168,7 +168,7 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             if not all(key in variants for key in payloads):
                 raise serializers.ValidationError("Payload keys must match a variant key for multivariate flags")
         else:
-            if len(payloads) > 1 or any(key != "true" for key in payloads):
+            if len(payloads) > 1 or any(key != "true" for key in payloads):  # only expect one key
                 raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
 
         return filters
