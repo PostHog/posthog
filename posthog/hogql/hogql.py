@@ -118,7 +118,7 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 
 @dataclass
-class ExprParserContext:
+class HogQLParserContext:
     """Context given to a HogQL expression parser"""
 
     # If set, will save string constants to this list instead of inlining them
@@ -129,7 +129,9 @@ class ExprParserContext:
     is_aggregation: bool = False
 
 
-def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
+def translate_hogql(
+    hql: str, collect_values: Optional[Dict] = None, context: Optional[HogQLParserContext] = None
+) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
     if hql == "*":
         return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
@@ -146,11 +148,13 @@ def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
     if not context:
-        context = ExprParserContext()
+        context = HogQLParserContext()
+    if collect_values:
+        context.collect_values = collect_values
     return translate_ast(node, [], context)
 
 
-def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContext) -> str:
+def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLParserContext) -> str:
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     stack.append(node)
     if isinstance(node, ast.Module):

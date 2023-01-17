@@ -743,14 +743,14 @@ class ClickhouseFunnelBase(ABC):
                 )
             basic_prop_selector = f"{expression} AS prop_basic"
         elif self._filter.breakdown_type == "hogql":
-            from posthog.hogql.expr_parser import translate_hql
+            from posthog.hogql.hogql import translate_hogql
 
             breakdown = self._filter.breakdown
             if isinstance(breakdown, list):
-                expressions = [translate_hql(exp) for exp in breakdown]
+                expressions = [translate_hogql(exp) for exp in breakdown]
                 expression = f"array({','.join(expressions)})"
             else:
-                expression = translate_hql(cast(str, breakdown))
+                expression = translate_hogql(cast(str, breakdown))
             basic_prop_selector = f"{expression} AS prop_basic"
 
         # TODO: simplify once array and string breakdowns are sorted

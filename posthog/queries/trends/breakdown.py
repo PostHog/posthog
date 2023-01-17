@@ -391,9 +391,9 @@ class TrendsBreakdown:
 
     def _get_breakdown_value(self, breakdown: str) -> str:
         if self.filter.breakdown_type == "hogql":
-            from posthog.hogql.expr_parser import translate_hql
+            from posthog.hogql.hogql import translate_hogql
 
-            breakdown_value = translate_hql(breakdown)
+            breakdown_value = translate_hogql(breakdown)
         elif self.filter.breakdown_type == "session":
             if breakdown == "$session_duration":
                 # Return the session duration expression right away because it's already an number,
