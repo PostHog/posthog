@@ -436,6 +436,7 @@ export function InsightViz({
     return (
         <div
             className="InsightViz"
+            // eslint-disable-next-line react/forbid-dom-props
             style={style}
             onClick={
                 setAreDetailsShown
