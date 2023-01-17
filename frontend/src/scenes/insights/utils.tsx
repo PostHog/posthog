@@ -239,7 +239,7 @@ export function summarizeInsightFilters(
         )
     } else if (isPathsFilter(filters)) {
         // Sync format with PathsSummary in InsightDetails
-        let summary = `User paths based on ${humanizePathsEventTypes(filters).join(' and ')}`
+        let summary = `User paths based on ${humanizePathsEventTypes(filters.include_event_types).join(' and ')}`
         if (filters.start_point) {
             summary += ` starting at ${filters.start_point}`
         }
