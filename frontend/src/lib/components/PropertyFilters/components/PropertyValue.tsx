@@ -4,25 +4,13 @@ import { useThrottledCallback } from 'use-debounce'
 import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { PropertyOperator, PropertyType } from '~/types'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { useValues } from 'kea'
+import { propertyDefinitionsModel, PropValue } from '~/models/propertyDefinitionsModel'
+import { useActions, useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
 import './PropertyValue.scss'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import clsx from 'clsx'
-
-type PropValue = {
-    id?: number
-    name?: string | boolean
-}
-
-type Option = {
-    label?: string
-    name?: string
-    status?: 'loading' | 'loaded'
-    values?: PropValue[]
-}
 
 export interface PropertyValueProps {
     propertyKey: string
@@ -60,13 +48,12 @@ export function PropertyValue({
 }: PropertyValueProps): JSX.Element {
     // what the human has typed into the box
     const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
-    // options from the server for search
-    const [options, setOptions] = useState({} as Record<string, Option>)
 
     const [shouldBlur, setShouldBlur] = useState(false)
     const autoCompleteRef = useRef<HTMLElement>(null)
 
-    const { formatPropertyValueForDisplay, describeProperty } = useValues(propertyDefinitionsModel)
+    const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
+    const { setOptions, setOptionsLoading } = useActions(propertyDefinitionsModel)
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -94,16 +81,10 @@ export function PropertyValue({
             return
         }
         const key = propertyKey.split('__')[0]
-        setOptions({ ...options, [propertyKey]: { ...options[propertyKey], status: 'loading' } })
+        setOptionsLoading(propertyKey)
         api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
             (propValues: PropValue[]) => {
-                setOptions({
-                    ...options,
-                    [propertyKey]: {
-                        values: [...Array.from(new Set(propValues))],
-                        status: 'loaded',
-                    },
-                })
+                setOptions(propertyKey, propValues)
             }
         )
     }, 300)

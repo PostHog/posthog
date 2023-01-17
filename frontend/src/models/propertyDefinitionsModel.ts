@@ -39,6 +39,18 @@ export const updatePropertyDefinitions = (
     propertyDefinitionsModel.findMounted()?.actions.updatePropertyDefinitions(propertyDefinitions)
 }
 
+export type PropValue = {
+    id?: number
+    name?: string | boolean
+}
+
+export type Option = {
+    label?: string
+    name?: string
+    status?: 'loading' | 'loaded'
+    values?: PropValue[]
+}
+
 /** Schedules an immediate background task, that fetches property definitions after a 10ms debounce */
 const checkOrLoadPropertyDefinition = (
     propertyName: BreakdownKeyType | undefined,
@@ -61,6 +73,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         updatePropertyDefinitions: (propertyDefinitions: PropertyDefinition[] | PropertyDefinitionStorage) => ({
             propertyDefinitions,
         }),
+        setOptionsLoading: (key: string) => ({ key }),
+        setOptions: (key: string, values: PropValue[]) => ({ key, values }),
         // internal
         fetchAllPendingDefinitions: true,
     }),
@@ -73,6 +87,19 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                     ...(Array.isArray(propertyDefinitions)
                         ? Object.fromEntries(propertyDefinitions.map((p) => [p.name, p]))
                         : propertyDefinitions),
+                }),
+            },
+        ],
+        options: [
+            {} as Record<string, Option>,
+            {
+                setOptionsLoading: (state, { key }) => ({ ...state, [key]: { ...state[key], status: 'loading' } }),
+                setOptions: (state, { key, values }) => ({
+                    ...state,
+                    [key]: {
+                        values: [...Array.from(new Set(values))],
+                        status: 'loaded',
+                    },
                 }),
             },
         ],
