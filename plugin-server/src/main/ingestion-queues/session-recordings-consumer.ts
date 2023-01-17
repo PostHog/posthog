@@ -198,5 +198,5 @@ export const eachBatch =
             // to the DLQ.
         }
 
-        status.info('✅', 'Processed batch', { size: batch.messages.length })
+        status.debug('✅', 'Processed batch', { size: batch.messages.length })
     }
