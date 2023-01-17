@@ -9,14 +9,48 @@ import { IconClose, IconFunnelVertical } from 'lib/components/icons'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 import { SimpleOption, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-export function PathsTargetStartDataExploration({ insightProps, ...rest }: QueryEditorFilterProps): JSX.Element {
-    const { taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
-    return <PathsTarget position="start" taxonomicGroupTypes={taxonomicGroupTypes} {...rest} />
+export function PathsTargetStartDataExploration(props: QueryEditorFilterProps): JSX.Element {
+    return <PathsTargetDataExploration position="start" {...props} />
 }
 
-export function PathsTargetEndDataExploration({ insightProps, ...rest }: QueryEditorFilterProps): JSX.Element {
+export function PathsTargetEndDataExploration(props: QueryEditorFilterProps): JSX.Element {
+    return <PathsTargetDataExploration position="end" {...props} />
+}
+
+type PathTargetDataExplorationProps = {
+    position: 'start' | 'end'
+} & QueryEditorFilterProps
+
+function PathsTargetDataExploration({ position, insightProps }: PathTargetDataExplorationProps): JSX.Element {
     const { taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
-    return <PathsTarget position="end" taxonomicGroupTypes={taxonomicGroupTypes} {...rest} />
+    // const { filter, wildcards } = useValues(pathsLogic(insightProps))
+    // const { setFilter } = useActions(pathsLogic(insightProps))
+
+    // const key = position === 'start' ? 'start_point' : 'end_point'
+    // const onChange = (item: string): void => {
+    //     setFilter({ [key]: item })
+    // }
+    // const onReset = (): void => {
+    //     setFilter({ [key]: undefined, funnel_filter: undefined, funnel_paths: undefined })
+    // }
+
+    const props = {
+        //     funnel_paths: filter.funnel_paths,
+        //     funnel_filter: filter.funnel_filter,
+        //     start_point: filter.start_point,
+        //     end_point: filter.end_point,
+        //     wildcards,
+    }
+
+    return (
+        <PathsTargetComponent
+            position={position}
+            // taxonomicGroupTypes={taxonomicGroupTypes}
+            // onChange={onChange}
+            // onReset={onReset}
+            {...props}
+        />
+    )
 }
 
 export function PathsTargetStart(props: EditorFilterProps): JSX.Element {
