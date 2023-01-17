@@ -33,6 +33,8 @@ from posthog.test.base import (
     QueryMatchingTest,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
+    snapshot_clickhouse_queries,
     snapshot_postgres_queries,
 )
 from posthog.test.db_context_capturing import capture_db_queries
@@ -2228,3 +2230,69 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         self.maxDiff = None
         assert activity == expected
+
+    @also_test_with_materialized_columns(["int_value"])
+    @snapshot_clickhouse_queries
+    def test_insight_hogql_filters(self) -> None:
+        with freeze_time("2012-01-14T03:21:34.000Z"):
+            for i in range(25):
+                _create_event(
+                    team=self.team,
+                    event="$pageview",
+                    distinct_id="1",
+                    properties={"int_value": i},
+                )
+
+        with freeze_time("2012-01-15T04:01:34.000Z"):
+            # 25 events total
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={"events": json.dumps([{"id": "$pageview"}])},
+            )
+            found_data_points = response.json()["result"][0]["count"]
+            self.assertEqual(found_data_points, 25)
+
+            # test trends global property filter
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={
+                    "events": json.dumps([{"id": "$pageview"}]),
+                    "properties": json.dumps([{"key": "toInt(properties.int_value) > 10", "type": "hogql"}]),
+                },
+            )
+            found_data_points = response.json()["result"][0]["count"]
+            self.assertEqual(found_data_points, 14)
+
+            # test trends local property filter
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={
+                    "events": json.dumps(
+                        [
+                            {
+                                "id": "$pageview",
+                                "properties": json.dumps(
+                                    [{"key": "toInt(properties.int_value) < 10", "type": "hogql"}]
+                                ),
+                            }
+                        ]
+                    )
+                },
+            )
+            found_data_points = response.json()["result"][0]["count"]
+            self.assertEqual(found_data_points, 10)
+
+            # test trends breakdown
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/insights/trend/",
+                data={
+                    "events": json.dumps([{"id": "$pageview"}]),
+                    "breakdown_type": "hogql",
+                    "breakdown": "ifElse(toInt(properties.int_value) < 10, 'less', 'more')",
+                },
+            )
+            result = response.json()["result"]
+            self.assertEqual(result[0]["count"], 15)
+            self.assertEqual(result[0]["breakdown_value"], "more")
+            self.assertEqual(result[1]["count"], 10)
+            self.assertEqual(result[1]["breakdown_value"], "less")
