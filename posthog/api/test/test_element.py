@@ -10,6 +10,29 @@ from posthog.models import Element, ElementGroup, Organization
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person
 
 
+class TestElementChainMaterializedView(ClickhouseTestMixin, APIBaseTest):
+    def test_does_not_use_table_if_flag_is_not_enabled(self) -> None:
+        assert 1 == 2
+
+    def test_does_not_use_table_if_not_enough_data_for_range(self) -> None:
+        assert 1 == 2
+
+    def test_can_query_element_chain_mv_by_exact_url(self) -> None:
+        assert 1 == 2
+
+    def test_can_query_element_chain_mv_by_regex_url(self) -> None:
+        assert 1 == 2
+
+    def test_can_query_element_chain_mv_by_several_date_ranges(self) -> None:
+        assert 1 == 2
+
+    def test_validation_error_if_date_range_greater_than_thirty_days(self) -> None:
+        assert 1 == 2
+
+    def test_validation_error_if_unexpected_property_operator(self) -> None:
+        assert 1 == 2
+
+
 class TestElement(ClickhouseTestMixin, APIBaseTest):
     def test_element_automatic_order(self) -> None:
         elements = [
