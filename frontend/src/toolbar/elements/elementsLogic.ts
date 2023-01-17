@@ -51,6 +51,7 @@ export const elementsLogic = kea<elementsLogicType>({
                 enableInspect: () => null,
                 disableInspect: () => null,
                 createAction: () => null,
+                selectElement: () => null,
             },
         ],
         highlightElement: [
@@ -367,10 +368,10 @@ export const elementsLogic = kea<elementsLogicType>({
             posthog.capture('toolbar mode triggered', { mode: 'inspect', enabled: false })
         },
         selectElement: ({ element }) => {
-            const inpsectForAction =
+            const inspectForAction =
                 actionsTabLogic.values.buttonActionsVisible && actionsTabLogic.values.inspectingElement !== null
 
-            if (inpsectForAction) {
+            if (inspectForAction) {
                 actions.setHoverElement(null)
                 if (element) {
                     actionsTabLogic.actions.inspectElementSelected(element, actionsTabLogic.values.inspectingElement)

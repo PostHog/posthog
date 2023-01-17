@@ -73,8 +73,8 @@ export function Elements(): JSX.Element {
                             ...getBoxColors('blue', hoverElement === element || selectedElement === element),
                         }}
                         onClick={() => selectElement(element)}
-                        onMouseOver={() => setHoverElement(element)}
-                        onMouseOut={() => setHoverElement(null)}
+                        onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                        onMouseOut={() => selectedElement === null && setHoverElement(null)}
                     />
                 ))}
 
@@ -96,8 +96,8 @@ export function Elements(): JSX.Element {
                                     ),
                                 }}
                                 onClick={() => selectElement(element)}
-                                onMouseOver={() => setHoverElement(element)}
-                                onMouseOut={() => setHoverElement(null)}
+                                onMouseOver={() => !!selectedElement && setHoverElement(element)}
+                                onMouseOut={() => !!selectedElement && setHoverElement(null)}
                             />
                             <HeatmapLabel
                                 rect={rect}
@@ -116,8 +116,8 @@ export function Elements(): JSX.Element {
                                     )}, 100%, 32%, 1) 0px 1px 5px 1px`,
                                 }}
                                 onClick={() => selectElement(element)}
-                                onMouseOver={() => setHoverElement(element)}
-                                onMouseOut={() => setHoverElement(null)}
+                                onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             >
                                 {compactNumber(count || 0)}
                             </HeatmapLabel>
@@ -144,8 +144,8 @@ export function Elements(): JSX.Element {
                                     boxShadow: 'hsla(141, 100%, 32%, 1) 0px 1px 5px 1px',
                                 }}
                                 onClick={() => selectElement(element)}
-                                onMouseOver={() => setHoverElement(element)}
-                                onMouseOut={() => setHoverElement(null)}
+                                onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             >
                                 {(index || loopIndex) + 1}
                             </HeatmapLabel>
