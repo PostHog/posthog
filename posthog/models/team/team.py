@@ -311,7 +311,7 @@ class Team(UUIDClassicModel):
     __repr__ = sane_repr("uuid", "name", "api_token")
 
 
-def set_team_in_cache(token: str, team: Optional[Team]) -> None:
+def set_team_in_cache(token: str, team: Optional[Team] = None) -> None:
     from posthog.api.team import CachingTeamSerializer
 
     if not team:

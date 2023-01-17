@@ -228,7 +228,6 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
 class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
-    # team_id = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = FeatureFlag

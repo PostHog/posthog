@@ -76,6 +76,7 @@ class CachingTeamSerializer(serializers.ModelSerializer):
         model = Team
         fields = [
             "id",
+            "uuid",
             "name",
             "api_token",
             "capture_performance_opt_in",
