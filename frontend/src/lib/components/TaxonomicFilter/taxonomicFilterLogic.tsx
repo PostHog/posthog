@@ -514,12 +514,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                             !type.startsWith(TaxonomicFilterGroupType.GroupNamesPrefix)
                     )
                 }
-                const names = searchGroupTypes.map((type) => {
-                    const taxonomicGroup = allTaxonomicGroups.find(
-                        (tGroup) => tGroup.type == type
-                    ) as TaxonomicFilterGroup
-                    return taxonomicGroup.searchPlaceholder
-                })
+                const names = searchGroupTypes
+                    .map((type) => {
+                        const taxonomicGroup = allTaxonomicGroups.find(
+                            (tGroup) => tGroup.type == type
+                        ) as TaxonomicFilterGroup
+                        return taxonomicGroup?.searchPlaceholder
+                    })
+                    .filter((a) => !!a)
                 return names
                     .map(
                         (name, index) =>
