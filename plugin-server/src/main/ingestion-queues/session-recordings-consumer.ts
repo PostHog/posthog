@@ -182,7 +182,7 @@ export const eachBatch =
             // messages if Kafka production fails for a retriable reason.
             await producer.flush()
         } catch (error) {
-            status.error('⚠️', 'flush_error')
+            status.error('⚠️', 'flush_error', { error: error, topic: batch.topic, partition: batch.partition })
 
             if (error instanceof DependencyUnavailableError) {
                 throw error
