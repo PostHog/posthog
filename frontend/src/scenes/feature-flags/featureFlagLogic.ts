@@ -122,6 +122,20 @@ export interface FeatureFlagLogicProps {
     id: number | 'new'
 }
 
+const indexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFlagType => {
+    const newPayload = {}
+    flag.filters.multivariate?.variants.forEach((variant, index) => {
+        newPayload[index] = flag.filters.payloads[variant.key]
+    })
+    return {
+        ...flag,
+        filters: {
+            ...flag.filters,
+            payloads: newPayload,
+        },
+    }
+}
+
 export const featureFlagLogic = kea<featureFlagLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagLogic']),
     props({} as FeatureFlagLogicProps),
@@ -410,7 +424,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             loadFeatureFlag: async () => {
                 if (props.id && props.id !== 'new') {
                     try {
-                        return await api.get(`api/projects/${values.currentTeamId}/feature_flags/${props.id}`)
+                        const retrievedFlag: FeatureFlagType = await api.get(
+                            `api/projects/${values.currentTeamId}/feature_flags/${props.id}`
+                        )
+                        return indexFeatureFlagPayloads(retrievedFlag)
                     } catch (e) {
                         actions.setFeatureFlagMissing()
                         throw e
@@ -421,35 +438,41 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag
 
-                // Add payloads mapped to keys
-                const newPayload = flag.filters.payloads
-                flag.filters.multivariate?.variants.forEach(({ key }, index) => {
-                    const payload = featureFlag.filters.payloads[index]
-                    newPayload[key] = payload
-                })
-                const preparedFlag = {
-                    ...flag,
-                    filters: {
-                        ...flag.filters,
-                        payloads: newPayload,
-                    },
+                let preparedFlag = flag
+                // Add payloads mapped to keys in multivariate
+                if (preparedFlag.filters?.multivariate) {
+                    const newPayload = {}
+                    preparedFlag.filters?.multivariate?.variants.forEach(({ key }, index) => {
+                        const payload = preparedFlag.filters?.payloads[index]
+                        if (payload) {
+                            newPayload[key] = payload
+                        }
+                    })
+                    preparedFlag = {
+                        ...preparedFlag,
+                        filters: {
+                            ...preparedFlag.filters,
+                            payloads: newPayload,
+                        },
+                    }
                 }
 
                 try {
                     if (!updatedFlag.id) {
-                        const newFlag = await api.create(
+                        const newFlag: FeatureFlagType = await api.create(
                             `api/projects/${values.currentTeamId}/feature_flags`,
                             preparedFlag
                         )
                         if (values.roleBasedAccessEnabled) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(newFlag.id)
                         }
-                        return newFlag
+                        return indexFeatureFlagPayloads(newFlag)
                     } else {
-                        return await api.update(
+                        const flagResponse: FeatureFlagType = await api.update(
                             `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
                             preparedFlag
                         )
+                        return indexFeatureFlagPayloads(flagResponse)
                     }
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {

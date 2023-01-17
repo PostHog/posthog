@@ -605,10 +605,10 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     </span>
                                                 </Col>
                                                 <Col span={9}>
-                                                    {featureFlag.filters.payloads[variant.key] ? (
+                                                    {featureFlag.filters.payloads[index] ? (
                                                         <JSONEditorInput
                                                             readOnly={true}
-                                                            value={featureFlag.filters.payloads[variant.key]}
+                                                            value={featureFlag.filters.payloads[index]}
                                                         />
                                                     ) : (
                                                         <span className="text-muted">
@@ -770,108 +770,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                     )}
                 </div>
             )}
-            {!readOnly && multivariateEnabled && (
-                <div className="feature-flag-variants">
-                    <h3 className="l4">Variant keys</h3>
-                    <span>The rollout percentage of feature flag variants must add up to 100%</span>
-                    <div className="variant-form-list space-y-2">
-                        <Row gutter={8} className="label-row">
-                            <Col span={1} />
-                            <Col span={6}>Variant key</Col>
-                            <Col span={12}>Description</Col>
-                            <Col span={4}>
-                                Rollout
-                                <LemonButton type="tertiary" onClick={distributeVariantsEqually}>
-                                    (Redistribute)
-                                </LemonButton>
-                            </Col>
-                        </Row>
-                        {variants.map((_, index) => (
-                            <Group key={index} name={['filters', 'multivariate', 'variants', index]}>
-                                <Row gutter={8} align="middle">
-                                    <Col span={1}>
-                                        <Lettermark name={alphabet[index]} color={LettermarkColor.Gray} />
-                                    </Col>
-                                    <Col span={6}>
-                                        <Field name="key">
-                                            <LemonInput
-                                                data-attr="feature-flag-variant-key"
-                                                data-key-index={index.toString()}
-                                                className="ph-ignore-input"
-                                                placeholder={`example-variant-${index + 1}`}
-                                                autoComplete="off"
-                                                autoCapitalize="off"
-                                                autoCorrect="off"
-                                                spellCheck={false}
-                                            />
-                                        </Field>
-                                    </Col>
-                                    <Col span={12}>
-                                        <Field name="name">
-                                            <LemonInput
-                                                data-attr="feature-flag-variant-name"
-                                                className="ph-ignore-input"
-                                                placeholder="Description"
-                                            />
-                                        </Field>
-                                    </Col>
-                                    <Col span={3}>
-                                        <Field name="rollout_percentage">
-                                            {({ value, onChange }) => (
-                                                <LemonInput
-                                                    type="number"
-                                                    min={0}
-                                                    max={100}
-                                                    value={value}
-                                                    onChange={(changedValue) => {
-                                                        if (changedValue !== null && changedValue !== undefined) {
-                                                            const valueInt = parseInt(changedValue.toString())
-                                                            if (!isNaN(valueInt)) {
-                                                                onChange(valueInt)
-                                                            }
-                                                        }
-                                                    }}
-                                                />
-                                            )}
-                                        </Field>
-                                    </Col>
-                                    <Col span={2}>
-                                        <Row>
-                                            {variants.length > 1 && (
-                                                <LemonButton
-                                                    icon={<IconDelete />}
-                                                    status="primary-alt"
-                                                    data-attr={`delete-prop-filter-${index}`}
-                                                    noPadding
-                                                    onClick={() => removeVariant(index)}
-                                                />
-                                            )}
-                                        </Row>
-                                    </Col>
-                                </Row>
-                            </Group>
-                        ))}
-                        {variants.length > 0 && !areVariantRolloutsValid && (
-                            <p className="text-danger">
-                                Percentage rollouts for variants must sum to 100 (currently {variantRolloutSum}
-                                ).
-                            </p>
-                        )}
-                        <LemonButton
-                            type="secondary"
-                            onClick={() => {
-                                const newIndex = variants.length
-                                addVariant()
-                                focusVariantKeyField(newIndex)
-                            }}
-                            icon={<IconPlus />}
-                            center
-                        >
-                            Add variant
-                        </LemonButton>
-                    </div>
-                </div>
-            )}
             {!readOnly &&
                 multivariateEnabled &&
                 (featureFlags[FEATURE_FLAGS.FF_JSON_PAYLOADS] ? (
@@ -928,18 +826,15 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                         <Col span={8}>
                                             <Field name={['payloads', index]}>
                                                 {({ value, onChange }) => {
-                                                    const valToShow =
-                                                        index in featureFlag.filters.payloads
-                                                            ? value
-                                                            : featureFlag.filters.payloads?.[variant.key]
-                                                    return <JSONEditorInput onChange={onChange} value={valToShow} />
+                                                    return <JSONEditorInput onChange={onChange} value={value} />
                                                 }}
                                             </Field>
                                         </Col>
                                         <Col span={3}>
                                             <Field name={['multivariate', 'variants', index, 'rollout_percentage']}>
                                                 {({ value, onChange }) => (
-                                                    <InputNumber
+                                                    <LemonInput
+                                                        type="number"
                                                         min={0}
                                                         max={100}
                                                         value={value}
@@ -950,12 +845,6 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                                     onChange(valueInt)
                                                                 }
                                                             }
-                                                        }}
-                                                        style={{
-                                                            width: '100%',
-                                                            borderColor: areVariantRolloutsValid
-                                                                ? undefined
-                                                                : 'var(--danger)',
                                                         }}
                                                     />
                                                 )}
