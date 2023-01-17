@@ -6,6 +6,7 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { IconPlus } from 'lib/components/icons'
 import './EmptyDashboardComponent.scss'
 import React from 'react'
+import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 
 function SkeletonCard({ children, active }: { children: React.ReactNode; active: boolean }): JSX.Element {
     return (
@@ -95,7 +96,7 @@ export function EmptyDashboardComponent({ loading, canEdit }: { loading: boolean
                                 icon={<IconPlus />}
                                 center
                                 fullWidth
-                                disabled={!canEdit}
+                                disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                             >
                                 Add insight
                             </LemonButton>

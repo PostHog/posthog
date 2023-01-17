@@ -127,6 +127,11 @@ export function ItemPerformanceEvent({
         }
     }, {} as Record<string, any>)
 
+    const compressionPercentage =
+        item.decoded_body_size && item.encoded_body_size
+            ? ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) * 100
+            : undefined
+
     return (
         <div>
             <LemonButton noPadding onClick={() => setExpanded(!expanded)} status={'primary-alt'} fullWidth>
@@ -141,7 +146,7 @@ export function ItemPerformanceEvent({
                             width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
                         }}
                     />
-                    {item.entry_type === 'performance-summary' ? (
+                    {item.entry_type === 'navigation' ? (
                         <>
                             <div className="flex gap-2 items-start p-2 text-xs">
                                 <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
@@ -206,27 +211,24 @@ export function ItemPerformanceEvent({
                     <CodeSnippet language={Language.Markup} wrap copyDescription="performance event name">
                         {item.name}
                     </CodeSnippet>
-                    <p className="text-sm">
+                    <p>
                         Request started at <b>{humanFriendlyMilliseconds(item.start_time || item.fetch_start)}</b> and
-                        took <b>{humanFriendlyMilliseconds(item.duration)}</b> to complete.
+                        took <b>{humanFriendlyMilliseconds(item.duration)}</b>
+                        {item.decoded_body_size ? (
+                            <>
+                                {' '}
+                                to load <b>{humanizeBytes(item.decoded_body_size)}</b> of data
+                            </>
+                        ) : null}
+                        {compressionPercentage && item.encoded_body_size ? (
+                            <>
+                                , compressed to <b>{humanizeBytes(item.encoded_body_size)}</b> saving{' '}
+                                <b>{compressionPercentage.toFixed(1)}%</b>
+                            </>
+                        ) : null}
+                        .
                     </p>
 
-                    {item.decoded_body_size && item.encoded_body_size ? (
-                        <span>
-                            Resource is {humanizeBytes(item.decoded_body_size)}.
-                            {item.encoded_body_size !== item.decoded_body_size && (
-                                <>
-                                    {' '}
-                                    Was compressed. Sent {humanizeBytes(item.encoded_body_size)}. Saving{' '}
-                                    {(
-                                        ((item.decoded_body_size - item.encoded_body_size) / item.decoded_body_size) *
-                                        100
-                                    ).toFixed(1)}
-                                    %
-                                </>
-                            )}
-                        </span>
-                    ) : null}
                     <LemonDivider dashed />
                     <SimpleKeyValueList item={sanitizedProps} />
                 </div>

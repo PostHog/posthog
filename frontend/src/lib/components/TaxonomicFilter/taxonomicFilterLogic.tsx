@@ -32,7 +32,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { groupPropertiesModel } from '~/models/groupPropertiesModel'
 import { capitalizeFirstLetter, pluralize, toParams } from 'lib/utils'
 import { combineUrl } from 'kea-router'
-import { CohortIcon } from 'lib/components/icons'
+import { IconCohort } from 'lib/components/icons'
 import { keyMapping } from 'lib/components/PropertyKeyInfo'
 import { getEventDefinitionIcon, getPropertyDefinitionIcon } from 'scenes/data-management/events/DefinitionHeader'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -290,7 +290,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getValue: (cohort: CohortType) => cohort.id,
                         getPopupHeader: (cohort: CohortType) => `${cohort.is_static ? 'Static' : 'Dynamic'} Cohort`,
                         getIcon: function _getIcon(): JSX.Element {
-                            return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
+                            return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
                     },
                     {
@@ -303,7 +303,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>({
                         getValue: (cohort: CohortType) => cohort.id,
                         getPopupHeader: () => `All Users`,
                         getIcon: function _getIcon(): JSX.Element {
-                            return <CohortIcon className="taxonomy-icon taxonomy-icon-muted" />
+                            return <IconCohort className="taxonomy-icon taxonomy-icon-muted" />
                         },
                     },
                     {

@@ -598,10 +598,6 @@ body {
         line-height: 1.5rem;
     }
 
-    .ant-tooltip-open {
-        width: max-content;
-    }
-
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`
     .ant-tabs-top,
     .ant-tabs-bottom {

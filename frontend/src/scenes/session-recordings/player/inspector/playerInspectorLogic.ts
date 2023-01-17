@@ -22,7 +22,21 @@ import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
 import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
 import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
-import { IMAGE_WEB_EXTENSIONS } from 'scenes/session-recordings/player/inspector/v2/utils'
+
+export const IMAGE_WEB_EXTENSIONS = [
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'tif',
+    'tiff',
+    'gif',
+    'svg',
+    'webp',
+    'bmp',
+    'ico',
+    'cur',
+]
 
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
@@ -235,6 +249,16 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         const timestamp = dayjs(event.timestamp)
                         const responseStatus = event.response_status || 200
 
+                        // NOTE: Navigtion events are missing the first contentful paint info so we find the relevant first contentful paint event and add it to the navigation event
+                        if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
+                            const firstContentfulPaint = (performanceEvents || []).find(
+                                (x) => x.entry_type === 'paint' && x.name === 'first-contentful-paint'
+                            )
+                            if (firstContentfulPaint) {
+                                event.first_contentful_paint = firstContentfulPaint.start_time
+                            }
+                        }
+
                         let include = false
 
                         if (
@@ -246,7 +270,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             (miniFiltersByKey['performance-document']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['performance-summary'].includes(event.entry_type || '')
+                            ['navigation'].includes(event.entry_type || '')
                         ) {
                             include = true
                         }
@@ -305,6 +329,11 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         if (windowIdFilter && event.window_id !== windowIdFilter) {
+                            include = false
+                        }
+
+                        if (event.entry_type === 'paint') {
+                            // We don't include paint events as they are covered in the navigation events
                             include = false
                         }
 

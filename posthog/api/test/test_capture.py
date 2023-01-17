@@ -27,6 +27,7 @@ from rest_framework import status
 
 from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
+from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -1113,7 +1114,42 @@ class TestCapture(BaseTest):
         self._send_session_recording_event()
         self.assertEqual(kafka_produce.call_count, 1)
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
-        self.assertEqual(kafka_topic_used, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, None)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
+        # `$performance_events` are not normal analytics events but rather
+        # displayed along side session recordings. They are sent to the
+        # `KAFKA_SESSION_RECORDING_EVENTS` topic to isolate them from causing
+        # any issues with normal analytics events.
+        session_id = "abc123"
+        window_id = "def456"
+        distinct_id = "ghi789"
+
+        event = {
+            "event": "$performance_event",
+            "properties": {
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "distinct_id": distinct_id,
+            },
+            "offset": 1993,
+        }
+
+        response = self.client.post(
+            "/e/",
+            data={"batch": [event], "api_key": self.team.api_token},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, None)
 
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1137,7 +1173,9 @@ class TestCapture(BaseTest):
             event_data=event_data,
         )
         self.assertEqual(kafka_produce.call_count, 1)
-        self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+        self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, None)
         data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
 
         # Decompress the data sent to kafka to compare it to the original data
@@ -1203,7 +1241,7 @@ class TestCapture(BaseTest):
         ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
         self._send_session_recording_event(event_data=data)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
-        self.assertGreater(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
+        self.assertGreater(topic_counter[KAFKA_SESSION_RECORDING_EVENTS], 1)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_database_unavailable(self, kafka_produce):

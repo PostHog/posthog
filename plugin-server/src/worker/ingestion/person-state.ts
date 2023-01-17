@@ -463,11 +463,20 @@ export class PersonState {
             // $create_alias and $identify will not merge a user who's already identified into anyone else
             const isCallToMergeAnIdentifiedUser = oldPerson.is_identified
 
+            // For analyzing impact of merges we need to know how old data would need to get updated
+            // If we are smart we merge the newer person into the older one,
+            // so we need to know the newer person's age
+            const oldPersonAgeInMonths = Math.floor(Math.abs(oldPerson.created_at.diffNow('months').months))
+            const newPersonAgeInMonths = Math.floor(Math.abs(newPerson.created_at.diffNow('months').months))
+            // max for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
+            const newerPersonAge = Math.max(Math.min(oldPersonAgeInMonths, newPersonAgeInMonths), 36)
+
             this.statsd?.increment('merge_users', {
                 call: isIdentifyCall ? 'identify' : 'alias',
                 teamId: newPerson.team_id.toString(),
                 oldPersonIdentified: String(oldPerson.is_identified),
                 newPersonIdentified: String(newPerson.is_identified),
+                newerPersonAge: String(newerPersonAge),
             })
             if (isCallToMergeAnIdentifiedUser) {
                 captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
