@@ -226,7 +226,9 @@ class Property:
 
         if value is None and self.operator in ["is_set", "is_not_set"]:
             self.value = self.operator
-        elif value is None and self.type != "hogql":
+        elif self.type == "hogql":
+            pass  # keep value as None
+        elif value is None:
             raise ValueError(f"Value must be set for property type {self.type} & operator {self.operator}")
         else:
             self.value = value
