@@ -98,21 +98,33 @@ const MiniFilters: SharedListMiniFilter[] = [
     },
     {
         tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-document',
-        name: 'Document',
-        tooltip: 'Page load information collected on a fresh browser page load or a refresh',
-    },
-    {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
         key: 'performance-fetch',
-        name: 'XHR / Fetch',
+        name: 'Fetch/XHR',
         tooltip: 'Requests during the session to external resources like APIs via XHR or Fetch',
     },
     {
         tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-assets',
-        name: 'Assets',
-        tooltip: 'Assets loaded during the session such as images, CSS and JS',
+        key: 'performance-document',
+        name: 'Doc',
+        tooltip: 'Page load information collected on a fresh browser page load, refresh, or page paint.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-assets-js',
+        name: 'JS',
+        tooltip: 'Scripts loaded during the session.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-assets-css',
+        name: 'CSS',
+        tooltip: 'CSS loaded during the session.',
+    },
+    {
+        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        key: 'performance-assets-img',
+        name: 'Img',
+        tooltip: 'Images loaded during the session.',
     },
     {
         tab: SessionRecordingPlayerTab.PERFORMANCE,
@@ -120,12 +132,32 @@ const MiniFilters: SharedListMiniFilter[] = [
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
     },
-    {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
-        key: 'performance-paint',
-        name: 'Paint',
-        tooltip: 'Events indicating when the browser has painted the page',
-    },
+
+    // NOTE: The below filters use the `response_status` property which is currently experiemental
+    // and as such doesn't show for many browsers: https://developer.mozilla.org/en-US/docs/Web/API/PerformanceResourceTiming/responseStatus
+    // We should only add these in if the recording in question has those values (otherwiseit is a confusing experience for the user)
+
+    // {
+    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
+    //     key: 'performance-2xx',
+    //     name: '2xx',
+    //     tooltip:
+    //         'Requests that returned a HTTP status code of 2xx. The request was successfully received, understood, and accepted.',
+    // },
+    // {
+    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
+    //     key: 'performance-4xx',
+    //     name: '4xx',
+    //     tooltip:
+    //         'Requests that returned a HTTP status code of 4xx. The request contains bad syntax or cannot be fulfilled.',
+    // },
+    // {
+    //     tab: SessionRecordingPlayerTab.PERFORMANCE,
+    //     key: 'performance-5xx',
+    //     name: '5xx',
+    //     tooltip:
+    //         'Requests that returned a HTTP status code of 5xx. The server failed to fulfil an apparently valid request.',
+    // },
 ]
 
 // This logic contains player settings that should persist across players

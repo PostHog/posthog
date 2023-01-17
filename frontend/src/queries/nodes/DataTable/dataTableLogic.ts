@@ -1,10 +1,9 @@
 import { actions, connect, kea, key, path, props, propsChanged, reducers, selectors } from 'kea'
 import type { dataTableLogicType } from './dataTableLogicType'
-import { DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
+import { AnyDataNode, DataTableNode, EventsQuery, HogQLExpression, NodeKind } from '~/queries/schema'
 import { getColumnsForQuery, removeExpressionComment } from './utils'
 import { objectsEqual, sortedKeys } from 'lib/utils'
 import { isDataTableNode, isEventsQuery } from '~/queries/utils'
-import { Sorting } from 'lib/components/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -29,9 +28,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
         return props.key
     }),
     path(['queries', 'nodes', 'DataTable', 'dataTableLogic']),
-    actions({ setColumns: (columns: HogQLExpression[]) => ({ columns }) }),
+    actions({ setColumnsInQuery: (columns: HogQLExpression[]) => ({ columns }) }),
     reducers(({ props }) => ({
-        columns: [getColumnsForQuery(props.query), { setColumns: (_, { columns }) => columns }],
+        columnsInQuery: [getColumnsForQuery(props.query), { setColumnsInQuery: (_, { columns }) => columns }],
     })),
     connect((props: DataTableLogicProps) => ({
         values: [
@@ -48,14 +47,24 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (query): string[] | null => (isEventsQuery(query.source) ? query.source.orderBy || ['-timestamp'] : null),
             { resultEqualityCheck: objectsEqual },
         ],
+        columnsInResponse: [
+            (s) => [s.response],
+            (response: AnyDataNode['response']): string[] | null =>
+                response &&
+                'columns' in response &&
+                Array.isArray(response.columns) &&
+                !response.columns.find((c) => typeof c !== 'string')
+                    ? (response?.columns as string[])
+                    : null,
+        ],
         resultsWithLabelRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columns],
-            (sourceKind, orderBy, response, columns): any[] | null => {
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, s.columnsInQuery],
+            (sourceKind, orderBy, response, columnsInResponse, columnsInQuery): any[] | null => {
                 if (sourceKind === NodeKind.EventsQuery) {
                     const results = (response as EventsQuery['response'] | null)?.results
                     if (results) {
                         const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
-                        const orderKeyIndex = columns.findIndex(
+                        const orderKeyIndex = (columnsInResponse ?? columnsInQuery).findIndex(
                             (column) =>
                                 removeExpressionComment(column) === orderKey ||
                                 removeExpressionComment(column) === `-${orderKey}`
@@ -86,14 +95,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
             },
         ],
         queryWithDefaults: [
-            (s, p) => [p.query, s.columns, s.featureFlags],
-            (query: DataTableNode, columns, featureFlags): Required<DataTableNode> => {
+            (s, p) => [p.query, s.columnsInQuery, s.featureFlags],
+            (query: DataTableNode, columnsInQuery, featureFlags): Required<DataTableNode> => {
                 const { kind, columns: _columns, source, ...rest } = query
                 const showIfFull = !!query.full
                 const flagQueryRunningTimeEnabled = featureFlags[FEATURE_FLAGS.QUERY_RUNNING_TIME]
                 return {
                     kind,
-                    columns: columns,
+                    columns: columnsInQuery,
                     hiddenColumns: [],
                     source,
                     ...sortedKeys({
@@ -120,29 +129,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
             (s) => [s.queryWithDefaults],
             (query: DataTableNode): boolean => isEventsQuery(query.source) && !!query.allowSorting,
         ],
-        sorting: [
-            (s) => [s.canSort, s.queryWithDefaults, s.orderBy],
-            (canSort, query, orderBy): Sorting | null => {
-                if (canSort && isEventsQuery(query.source) && orderBy && orderBy.length > 0) {
-                    return orderBy[0] === '-'
-                        ? {
-                              columnKey: orderBy[0].substring(1),
-                              order: -1,
-                          }
-                        : {
-                              columnKey: orderBy[0],
-                              order: 1,
-                          }
-                }
-                return null
-            },
-        ],
     }),
     propsChanged(({ actions, props }, oldProps) => {
         const newColumns = getColumnsForQuery(props.query)
         const oldColumns = getColumnsForQuery(oldProps.query)
         if (JSON.stringify(newColumns) !== JSON.stringify(oldColumns)) {
-            actions.setColumns(newColumns)
+            actions.setColumnsInQuery(newColumns)
         }
     }),
 ])

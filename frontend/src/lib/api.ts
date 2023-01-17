@@ -1114,7 +1114,7 @@ const api = {
         ): Promise<PaginatedResponse<RecentPerformancePageView>> {
             return new ApiRequest()
                 .recentPageViewPerformanceEvents(
-                    dateFrom || dayjs().subtract(1, 'day').toISOString(),
+                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
                     dateTo || dayjs().toISOString(),
                     teamId
                 )

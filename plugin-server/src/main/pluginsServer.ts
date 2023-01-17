@@ -24,6 +24,7 @@ import { startJobsConsumer } from './ingestion-queues/jobs-consumer'
 import { IngestionConsumer } from './ingestion-queues/kafka-queue'
 import { startQueues } from './ingestion-queues/queue'
 import { startScheduledTasksConsumer } from './ingestion-queues/scheduled-tasks-consumer'
+import { startSessionRecordingEventsConsumer } from './ingestion-queues/session-recordings-consumer'
 import { createHttpServer } from './services/http-server'
 import { createMmdbServer, performMmdbStalenessCheck, prepareMmdb } from './services/mmdb'
 
@@ -85,6 +86,7 @@ export async function startPluginsServer(
     // (default 60 seconds) to allow for the person to be created in the
     // meantime.
     let bufferConsumer: Consumer | undefined
+    let sessionRecordingEventsConsumer: Consumer | undefined
     let jobsConsumer: Consumer | undefined
     let schedulerTasksConsumer: Consumer | undefined
 
@@ -121,6 +123,7 @@ export async function startPluginsServer(
             graphileWorker?.stop(),
             bufferConsumer?.disconnect(),
             jobsConsumer?.disconnect(),
+            sessionRecordingEventsConsumer?.disconnect(),
             schedulerTasksConsumer?.disconnect(),
         ])
 
@@ -259,6 +262,12 @@ export async function startPluginsServer(
         }
 
         if (hub.capabilities.ingestion) {
+            sessionRecordingEventsConsumer = await startSessionRecordingEventsConsumer({
+                teamManager: hub.teamManager,
+                kafka: hub.kafka,
+                statsd: hub.statsd,
+            })
+
             bufferConsumer = await startAnonymousEventBufferConsumer({
                 hub: hub,
                 piscina: piscina,

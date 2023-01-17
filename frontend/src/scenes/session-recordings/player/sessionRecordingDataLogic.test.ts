@@ -410,7 +410,11 @@ describe('sessionRecordingDataLogic', () => {
                             ],
                         },
                     },
-                    performanceEvents: recordingPerformanceEventsJson,
+                    performanceEvents: expect.arrayContaining([
+                        expect.objectContaining({
+                            entry_type: 'navigation',
+                        }),
+                    ]),
                 })
         })
     })
