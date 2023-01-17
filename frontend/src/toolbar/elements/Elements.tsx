@@ -96,8 +96,8 @@ export function Elements(): JSX.Element {
                                     ),
                                 }}
                                 onClick={() => selectElement(element)}
-                                onMouseOver={() => !!selectedElement && setHoverElement(element)}
-                                onMouseOut={() => !!selectedElement && setHoverElement(null)}
+                                onMouseOver={() => selectedElement === null && setHoverElement(element)}
+                                onMouseOut={() => selectedElement === null && setHoverElement(null)}
                             />
                             <HeatmapLabel
                                 rect={rect}
