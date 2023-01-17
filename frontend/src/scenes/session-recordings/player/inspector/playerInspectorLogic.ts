@@ -61,7 +61,7 @@ export type InspectorListItemConsole = InspectorListItemBase & {
 }
 
 export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.PERFORMANCE
+    type: SessionRecordingPlayerTab.NETWORK
     data: PerformanceEvent
 }
 
@@ -243,7 +243,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // PERFORMANCE EVENTS
                 if (
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
-                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
+                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.NETWORK)
                 ) {
                     for (const event of performanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
@@ -342,7 +342,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         items.push({
-                            type: SessionRecordingPlayerTab.PERFORMANCE,
+                            type: SessionRecordingPlayerTab.NETWORK,
                             timestamp,
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
@@ -514,7 +514,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             : logs.length
                             ? 'ready'
                             : 'empty',
-                    [SessionRecordingPlayerTab.PERFORMANCE]:
+                    [SessionRecordingPlayerTab.NETWORK]:
                         performanceEventsLoading || !performanceEvents
                             ? 'loading'
                             : performanceEvents.length

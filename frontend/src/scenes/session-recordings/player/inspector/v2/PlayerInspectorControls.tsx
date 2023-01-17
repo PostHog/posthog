@@ -24,7 +24,7 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,
     [SessionRecordingPlayerTab.EVENTS]: UnverifiedEvent,
     [SessionRecordingPlayerTab.CONSOLE]: IconConsoleLine,
-    [SessionRecordingPlayerTab.PERFORMANCE]: IconGauge,
+    [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
 export function PlayerInspectorControls({
@@ -48,7 +48,7 @@ export function PlayerInspectorControls({
             SessionRecordingPlayerTab.ALL,
             SessionRecordingPlayerTab.EVENTS,
             SessionRecordingPlayerTab.CONSOLE,
-            inspectorPerformance ? SessionRecordingPlayerTab.PERFORMANCE : undefined,
+            inspectorPerformance ? SessionRecordingPlayerTab.NETWORK : undefined,
         ].filter(Boolean) as SessionRecordingPlayerTab[]
     }, [inspectorPerformance])
 

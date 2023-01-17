@@ -41,7 +41,7 @@ const typeToIconAndDescription = {
         Icon: IconConsoleLine,
         tooltip: 'Console log',
     },
-    [SessionRecordingPlayerTab.PERFORMANCE]: {
+    [SessionRecordingPlayerTab.NETWORK]: {
         Icon: IconGauge,
         tooltip: 'Network event',
     },
@@ -127,11 +127,11 @@ function PlayerInspectorListItem({
                     !item.highlightColor && 'bg-light'
                 )}
             >
-                {item.type === 'performance' ? (
+                {item.type === SessionRecordingPlayerTab.NETWORK ? (
                     <ItemPerformanceEvent item={item.data} finalTimestamp={recordingTimeInfo.end} {...itemProps} />
-                ) : item.type === 'console' ? (
+                ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
                     <ItemConsoleLog item={item} {...itemProps} />
-                ) : item.type === 'events' ? (
+                ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
                     <ItemEvent item={item} {...itemProps} />
                 ) : null}
 
@@ -313,7 +313,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                 </LemonButton>
                             </div>
                         </>
-                    ) : tab === SessionRecordingPlayerTab.PERFORMANCE ? (
+                    ) : tab === SessionRecordingPlayerTab.NETWORK ? (
                         !performanceEnabled ? (
                             <div className="p-4">
                                 <PayGatePage

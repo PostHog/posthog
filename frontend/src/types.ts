@@ -586,7 +586,7 @@ export enum SessionRecordingPlayerTab {
     ALL = 'all',
     EVENTS = 'events',
     CONSOLE = 'console',
-    PERFORMANCE = 'performance',
+    NETWORK = 'network',
 }
 
 export enum SessionPlayerState {
