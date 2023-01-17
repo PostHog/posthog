@@ -73,6 +73,13 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
         updatePropertyDefinitions: (propertyDefinitions: PropertyDefinition[] | PropertyDefinitionStorage) => ({
             propertyDefinitions,
         }),
+        // PropertyValue
+        loadOptions: (payload: {
+            endpoint: string | undefined
+            type: string
+            newInput: string | undefined
+            propertyKey: string
+        }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[]) => ({ key, values }),
         // internal
@@ -176,6 +183,24 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             if (values.pendingProperties.length > 0) {
                 actions.fetchAllPendingDefinitions()
             }
+        },
+
+        loadOptions: async ({ endpoint, type, newInput, propertyKey }, breakpoint) => {
+            if (['cohort', 'session'].includes(type)) {
+                return
+            }
+            if (!propertyKey) {
+                return
+            }
+
+            await breakpoint(300)
+            const key = propertyKey.split('__')[0]
+            actions.setOptionsLoading(propertyKey)
+            const propValues: PropValue[] = await api.get(
+                endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')
+            )
+            breakpoint()
+            actions.setOptions(propertyKey, propValues)
         },
     })),
     selectors({

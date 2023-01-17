@@ -1,10 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { AutoComplete } from 'antd'
-import { useThrottledCallback } from 'use-debounce'
-import api from 'lib/api'
 import { isOperatorDate, isOperatorFlag, isOperatorMulti, toString } from 'lib/utils'
 import { PropertyOperator, PropertyType } from '~/types'
-import { propertyDefinitionsModel, PropValue } from '~/models/propertyDefinitionsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { useActions, useValues } from 'kea'
 import { PropertyFilterDatePicker } from 'lib/components/PropertyFilters/components/PropertyFilterDatePicker'
 import { DurationPicker } from 'lib/components/DurationPicker/DurationPicker'
@@ -53,7 +51,7 @@ export function PropertyValue({
     const autoCompleteRef = useRef<HTMLElement>(null)
 
     const { formatPropertyValueForDisplay, describeProperty, options } = useValues(propertyDefinitionsModel)
-    const { setOptions, setOptionsLoading } = useActions(propertyDefinitionsModel)
+    const { loadOptions } = useActions(propertyDefinitionsModel)
 
     const isMultiSelect = operator && isOperatorMulti(operator)
     const isDateTimeProperty = operator && isOperatorDate(operator)
@@ -73,21 +71,9 @@ export function PropertyValue({
         }
     }, [value])
 
-    const loadPropertyValues = useThrottledCallback((newInput) => {
-        if (['cohort', 'session'].includes(type)) {
-            return
-        }
-        if (!propertyKey) {
-            return
-        }
-        const key = propertyKey.split('__')[0]
-        setOptionsLoading(propertyKey)
-        api.get(endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '')).then(
-            (propValues: PropValue[]) => {
-                setOptions(propertyKey, propValues)
-            }
-        )
-    }, 300)
+    const loadPropertyValues = (newInput: string | undefined): void => {
+        loadOptions({ endpoint, type, newInput, propertyKey })
+    }
 
     function setValue(newValue: PropertyValueProps['value']): void {
         onSet(newValue)
