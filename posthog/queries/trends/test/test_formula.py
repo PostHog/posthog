@@ -85,6 +85,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             )
         return action_response
 
+    @snapshot_clickhouse_queries
     def test_hour_interval(self):
         data = self._run({"date_from": "-1d", "interval": "hour"}, run_at="2020-01-03T13:05:01Z")[0]["data"]
         self.assertEqual(
