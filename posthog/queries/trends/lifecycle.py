@@ -31,9 +31,14 @@ from posthog.utils import encode_get_request_params
 
 
 class Lifecycle:
-    def _format_lifecycle_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+    def _format_lifecycle_query(
+        self, entity: Entity, filter: Filter, team: Team, hogql_values: Dict
+    ) -> Tuple[str, Dict, Callable]:
         event_query, event_params = LifecycleEventQuery(
-            team=team, filter=filter, using_person_on_events=team.person_on_events_querying_enabled
+            team=team,
+            filter=filter,
+            hogql_values=hogql_values,
+            using_person_on_events=team.person_on_events_querying_enabled,
         ).get_query()
 
         return (
@@ -176,6 +181,7 @@ class LifecycleEventQuery(EventQuery):
         return PersonQuery(
             self._filter,
             self._team_id,
+            self._hogql_values,
             self._column_optimizer,
             extra_fields=["created_at"],
             entity=self._filter.entities[0],

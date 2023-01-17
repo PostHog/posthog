@@ -15,13 +15,13 @@ from posthog.models.utils import PersonPropertiesMode
 def format_action_filter(
     team_id: int,
     action: Action,
+    hogql_values: Dict,
     prepend: str = "action",
     use_loop: bool = False,
     filter_by_team=True,
     table_name: str = "",
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
-    hogql_values: Dict = {},
 ) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
@@ -103,7 +103,12 @@ def filter_event(
 
 
 def format_entity_filter(
-    team_id: int, entity: Entity, person_id_joined_alias: str, prepend: str = "action", filter_by_team=True
+    team_id: int,
+    entity: Entity,
+    person_id_joined_alias: str,
+    hogql_values: Dict,
+    prepend: str = "action",
+    filter_by_team=True,
 ) -> Tuple[str, Dict]:
     if entity.type == TREND_FILTER_TYPE_ACTIONS:
         action = entity.get_action()
@@ -113,6 +118,7 @@ def format_entity_filter(
             prepend=prepend,
             filter_by_team=filter_by_team,
             person_id_joined_alias=person_id_joined_alias,
+            hogql_values=hogql_values,
         )
     else:
         key = f"{prepend}_event"

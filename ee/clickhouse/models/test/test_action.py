@@ -1,5 +1,5 @@
 import dataclasses
-from typing import List
+from typing import Dict, List
 
 from posthog.client import sync_execute
 from posthog.models.action import Action
@@ -16,7 +16,10 @@ class MockEvent:
 
 
 def _get_events_for_action(action: Action) -> List[MockEvent]:
-    formatted_query, params = format_action_filter(team_id=action.team_id, action=action, prepend="")
+    hogql_values: Dict = {}
+    formatted_query, params = format_action_filter(
+        team_id=action.team_id, action=action, prepend="", hogql_values=hogql_values
+    )
     query = f"""
         SELECT
             events.uuid,
@@ -26,7 +29,7 @@ def _get_events_for_action(action: Action) -> List[MockEvent]:
         AND events.team_id = %(team_id)s
         ORDER BY events.timestamp DESC
     """
-    events = sync_execute(query, {"team_id": action.team_id, **params})
+    events = sync_execute(query, {"team_id": action.team_id, **params, **hogql_values})
     return [MockEvent(str(uuid), distinct_id) for uuid, distinct_id in events]
 
 

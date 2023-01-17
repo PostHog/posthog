@@ -47,6 +47,7 @@ class EventQuery(metaclass=ABCMeta):
             Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
         ],
         team: Team,
+        hogql_values: Dict,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
@@ -57,7 +58,6 @@ class EventQuery(metaclass=ABCMeta):
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
         using_person_on_events: bool = False,
-        hogql_values: Dict[str, Any] = {},
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -157,7 +157,13 @@ class EventQuery(metaclass=ABCMeta):
     def _person_query(self) -> PersonQuery:
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs person query")
-        return PersonQuery(self._filter, self._team_id, self._column_optimizer, extra_fields=self._extra_person_fields)
+        return PersonQuery(
+            self._filter,
+            self._team_id,
+            self._hogql_values,
+            self._column_optimizer,
+            extra_fields=self._extra_person_fields,
+        )
 
     def _get_person_query(self) -> Tuple[str, Dict]:
         if self._should_join_persons:

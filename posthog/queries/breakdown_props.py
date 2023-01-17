@@ -80,13 +80,19 @@ def get_breakdown_prop_values(
         person_id_joined_alias = "e.person_id"
 
         if not groups_on_events_querying_enabled():
-            groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
+            groups_join_clause, groups_join_params = GroupsJoinQuery(
+                filter, team.pk, hogql_values, column_optimizer
+            ).get_join_query()
     else:
         outer_properties = column_optimizer.property_optimizer.parse_property_groups(props_to_filter).outer
         person_id_joined_alias = "pdi.person_id"
 
         person_query = PersonQuery(
-            filter, team.pk, column_optimizer=column_optimizer, entity=entity if not use_all_funnel_entities else None
+            filter,
+            team.pk,
+            hogql_values,
+            column_optimizer=column_optimizer,
+            entity=entity if not use_all_funnel_entities else None,
         )
         if person_query.is_used:
             person_subquery, person_join_params = person_query.get_query()
@@ -99,7 +105,9 @@ def get_breakdown_prop_values(
                 INNER JOIN ({get_team_distinct_ids_query(team.pk)}) AS pdi ON e.distinct_id = pdi.distinct_id
             """
 
-        groups_join_clause, groups_join_params = GroupsJoinQuery(filter, team.pk, column_optimizer).get_join_query()
+        groups_join_clause, groups_join_params = GroupsJoinQuery(
+            filter, team.pk, hogql_values, column_optimizer
+        ).get_join_query()
 
     session_query = SessionQuery(filter=filter, team=team)
     if session_query.is_used:
@@ -267,7 +275,7 @@ def _to_bucketing_expression(bin_count: int) -> str:
     return f"arrayCompact(arrayMap(x -> floor(x, 2), {qunatile_expression}))"
 
 
-def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
+def _format_all_query(team: Team, filter: Filter, hogql_values: Dict, **kwargs) -> Tuple[str, Dict]:
     entity = kwargs.pop("entity", None)
 
     date_params = {}
@@ -283,7 +291,11 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
         props_to_filter = props_to_filter.combine_property_group(PropertyOperatorType.AND, entity.property_groups)
 
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=props_to_filter, prepend="all_cohort_", table_name="all_events"
+        team_id=team.pk,
+        hogql_values=hogql_values,
+        property_group=props_to_filter,
+        prepend="all_cohort_",
+        table_name="all_events",
     )
     query = f"""
             SELECT DISTINCT distinct_id, {ALL_USERS_COHORT_ID} as value
@@ -296,7 +308,9 @@ def _format_all_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, Dict]:
     return query, {**date_params, **prop_filter_params}
 
 
-def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> Tuple[str, List, Dict]:
+def format_breakdown_cohort_join_query(
+    team: Team, filter: Filter, hogql_values: Dict, **kwargs
+) -> Tuple[str, List, Dict]:
     entity = kwargs.pop("entity", None)
     cohorts = (
         Cohort.objects.filter(team_id=team.pk, pk__in=[b for b in filter.breakdown if b != "all"])
@@ -306,7 +320,7 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
     cohort_queries, params = _parse_breakdown_cohorts(list(cohorts))
     ids = [cohort.pk for cohort in cohorts]
     if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
-        all_query, all_params = _format_all_query(team, filter, entity=entity)
+        all_query, all_params = _format_all_query(team, filter, hogql_values=hogql_values, entity=entity)
         cohort_queries.append(all_query)
         params = {**params, **all_params}
         ids.append(ALL_USERS_COHORT_ID)

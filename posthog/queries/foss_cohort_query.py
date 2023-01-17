@@ -505,10 +505,14 @@ class FOSSCohortQuery(EventQuery):
 
         if event[0] == "actions":
             self._add_action(int(event[1]))
-            res, params = get_entity_query(None, int(event[1]), self._team_id, f"{prepend}_entity_{idx}")
+            res, params = get_entity_query(
+                None, int(event[1]), self._team_id, f"{prepend}_entity_{idx}", self._hogql_values
+            )
         elif event[0] == "events":
             self._add_event(str(event[1]))
-            res, params = get_entity_query(str(event[1]), None, self._team_id, f"{prepend}_entity_{idx}")
+            res, params = get_entity_query(
+                str(event[1]), None, self._team_id, f"{prepend}_entity_{idx}", self._hogql_values
+            )
         else:
             raise ValueError(f"Event type must be 'events' or 'actions'")
 

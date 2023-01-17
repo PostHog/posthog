@@ -112,6 +112,7 @@ class FunnelCorrelation:
         self._filter = filter
         self._team = team
         self._base_uri = base_uri
+        self._hogql_values: Dict = {}
 
         if self._filter.funnel_step is None:
             self._filter = self._filter.with_data({"funnel_step": 1})
@@ -499,7 +500,7 @@ class FunnelCorrelation:
                 return "", {}
 
             person_query, person_query_params = PersonQuery(
-                self._filter, self._team.pk, EnterpriseColumnOptimizer(self._filter, self._team.pk)
+                self._filter, self._team.pk, self._hogql_values, EnterpriseColumnOptimizer(self._filter, self._team.pk)
             ).get_query()
 
             return (
@@ -510,7 +511,9 @@ class FunnelCorrelation:
                 person_query_params,
             )
         else:
-            return GroupsJoinQuery(self._filter, self._team.pk, join_key="funnel_actors.actor_id").get_join_query()
+            return GroupsJoinQuery(
+                self._filter, self._team.pk, self._hogql_values, join_key="funnel_actors.actor_id"
+            ).get_join_query()
 
     def _get_properties_prop_clause(self):
 
@@ -803,7 +806,9 @@ class FunnelCorrelation:
         """
 
         query, params = self.get_contingency_table_query()
-        results_with_total = insight_sync_execute(query, params, query_type="funnel_correlation", filter=self._filter)
+        results_with_total = insight_sync_execute(
+            query, {**params, **self._hogql_values}, query_type="funnel_correlation", filter=self._filter
+        )
 
         # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]

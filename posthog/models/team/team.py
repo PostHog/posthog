@@ -1,6 +1,6 @@
 import re
 from functools import lru_cache
-from typing import TYPE_CHECKING, Any, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import posthoganalytics
 import pytz
@@ -257,7 +257,8 @@ class Team(UUIDClassicModel):
         from posthog.queries.person_query import PersonQuery
 
         filter = Filter(data={"full": "true"})
-        person_query, person_query_params = PersonQuery(filter, self.id).get_query()
+        hogql_values: Dict = {}
+        person_query, person_query_params = PersonQuery(filter, self.id, hogql_values).get_query()
 
         return sync_execute(
             f"""
@@ -265,7 +266,7 @@ class Team(UUIDClassicModel):
                 {person_query}
             )
         """,
-            person_query_params,
+            {**person_query_params, **hogql_values},
         )[0][0]
 
     @lru_cache(maxsize=5)

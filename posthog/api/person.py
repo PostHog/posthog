@@ -191,9 +191,10 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         elif not filter.limit:
             filter = filter.with_data({LIMIT: DEFAULT_PAGE_LIMIT})
 
-        query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
+        hogql_values: Dict = {}
+        query, params = PersonQuery(filter, team.pk, hogql_values).get_query(paginate=True)
 
-        raw_result = sync_execute(query, params)
+        raw_result = sync_execute(query, {**params, **hogql_values})
 
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)

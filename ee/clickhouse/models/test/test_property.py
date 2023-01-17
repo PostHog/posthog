@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Literal, Union, cast
+from typing import Dict, List, Literal, Union, cast
 from uuid import UUID
 
 import pytest
@@ -38,11 +38,16 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, **kwargs) -> List:
+        hogql_values: Dict = {}
         query, params = parse_prop_grouped_clauses(
-            property_group=filter.property_groups, allow_denormalized_props=True, team_id=self.team.pk, **kwargs
+            property_group=filter.property_groups,
+            allow_denormalized_props=True,
+            team_id=self.team.pk,
+            hogql_values=hogql_values,
+            **kwargs,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        return sync_execute(final_query, {**params, "team_id": self.team.pk})
+        return sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
 
     def test_prop_person(self):
 
@@ -414,15 +419,17 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> List:
         outer_properties = PropertyOptimizer().parse_property_groups(filter.property_groups).outer
+        hogql_values: Dict = {}
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=outer_properties,
             allow_denormalized_props=True,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_values=hogql_values,
         )
         joins = ""
         if join_person_tables:
-            person_query = PersonQuery(filter, self.team.pk)
+            person_query = PersonQuery(filter, self.team.pk, hogql_values)
             person_subquery, person_join_params = person_query.get_query()
             joins = f"""
                 INNER JOIN ({get_team_distinct_ids_query(self.team.pk)}) AS pdi ON events.distinct_id = pdi.distinct_id
@@ -433,7 +440,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         final_query = f"SELECT uuid FROM events {joins} WHERE team_id = %(team_id)s {query}"
         # Make sure we don't accidentally use json on the properties field
         self.assertNotIn("json", final_query.lower())
-        return sync_execute(final_query, {**params, "team_id": self.team.pk})
+        return sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
 
     def test_prop_event_denormalized(self):
         _create_event(
@@ -602,7 +609,9 @@ def test_parse_prop_clauses_defaults(snapshot):
     )
 
     assert (
-        parse_prop_grouped_clauses(property_group=filter.property_groups, allow_denormalized_props=False, team_id=1)
+        parse_prop_grouped_clauses(
+            property_group=filter.property_groups, allow_denormalized_props=False, team_id=1, hogql_values={}
+        )
         == snapshot
     )
     assert (
@@ -611,6 +620,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=False,
             team_id=1,
+            hogql_values={},
         )
         == snapshot
     )
@@ -620,6 +630,7 @@ def test_parse_prop_clauses_defaults(snapshot):
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             allow_denormalized_props=False,
+            hogql_values={},
         )
         == snapshot
     )
@@ -634,7 +645,11 @@ def test_parse_prop_clauses_funnel_step_element_prepend_regression(snapshot):
 
     assert (
         parse_prop_grouped_clauses(
-            property_group=filter.property_groups, allow_denormalized_props=False, team_id=1, prepend="PREPEND"
+            property_group=filter.property_groups,
+            allow_denormalized_props=False,
+            team_id=1,
+            prepend="PREPEND",
+            hogql_values={},
         )
         == snapshot
     )
@@ -651,6 +666,7 @@ def test_parse_groups_persons_edge_case_with_single_filter(snapshot):
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=True,
+            hogql_values={},
         )
         == snapshot
     )
@@ -1290,24 +1306,24 @@ def test_session_property_validation():
     # Property key not valid for type session
     with pytest.raises(ValidationError):
         filter = Filter(data={"properties": [{"type": "session", "key": "some_prop", "value": 0, "operator": "gt"}]})
-        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups, hogql_values={})
 
     # Operator not valid for $session_duration
     with pytest.raises(ValidationError):
         filter = Filter(
             data={"properties": [{"type": "session", "key": "$session_duration", "value": 0, "operator": "is_set"}]}
         )
-        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups, hogql_values={})
 
     # Value not valid for $session_duration
     with pytest.raises(ValidationError):
         filter = Filter(
             data={"properties": [{"type": "session", "key": "$session_duration", "value": "hey", "operator": "gt"}]}
         )
-        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+        parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups, hogql_values={})
 
     # Valid property values
     filter = Filter(
         data={"properties": [{"type": "session", "key": "$session_duration", "value": "100", "operator": "gt"}]}
     )
-    parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups)
+    parse_prop_grouped_clauses(team_id=1, property_group=filter.property_groups, hogql_values={})

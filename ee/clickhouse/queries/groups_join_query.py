@@ -19,17 +19,20 @@ class GroupsJoinQuery:
     _filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter]
     _team_id: int
     _column_optimizer: EnterpriseColumnOptimizer
+    _hogql_values: Dict
 
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
+        hogql_values: Dict,
         column_optimizer: Optional[EnterpriseColumnOptimizer] = None,
         join_key: Optional[str] = None,
         using_person_on_events: bool = False,
     ) -> None:
         self._filter = filter
         self._team_id = team_id
+        self._hogql_values = hogql_values
         self._column_optimizer = column_optimizer or EnterpriseColumnOptimizer(self._filter, self._team_id)
         self._join_key = join_key
         self._using_person_on_events = using_person_on_events
@@ -77,6 +80,7 @@ class GroupsJoinQuery:
             group_properties_joined=True,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             _top_level=True,
+            hogql_values=self._hogql_values,
         )
 
         params.update(filter_params)

@@ -1,5 +1,5 @@
 import json
-from typing import Optional
+from typing import Dict, Optional
 
 from posthog.client import query_with_columns, sync_execute
 from posthog.constants import FILTER_TEST_ACCOUNTS
@@ -18,10 +18,11 @@ from posthog.test.test_journeys import journeys_for
 
 
 def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
+    hogql_values: Dict = {}
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        property_group=filter.property_groups, team_id=team.pk
+        property_group=filter.property_groups, team_id=team.pk, hogql_values=hogql_values
     )
-    params = {"team_id": team.pk, **prop_filter_params}
+    params = {"team_id": team.pk, **prop_filter_params, **hogql_values}
 
     events = query_with_columns(
         GET_EVENTS_WITH_PROPERTIES.format(
@@ -34,15 +35,17 @@ def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
 
 
 def _filter_persons(filter: Filter, team: Team):
+    hogql_values: Dict = {}
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
         property_group=filter.property_groups,
         team_id=team.pk,
         person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+        hogql_values=hogql_values,
     )
     # Note this query does not handle person rows changing over time
     rows = sync_execute(
         f"SELECT id, properties AS person_props FROM person WHERE team_id = %(team_id)s {prop_filters}",
-        {"team_id": team.pk, **prop_filter_params},
+        {"team_id": team.pk, **prop_filter_params, **hogql_values},
     )
     return [str(uuid) for uuid, _ in rows]
 
@@ -759,8 +762,12 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
 
+        hogql_values: Dict = {}
         prop_clause, prop_clause_params = parse_prop_grouped_clauses(
-            property_group=filter.property_groups, has_person_id_joined=False, team_id=self.team.pk
+            property_group=filter.property_groups,
+            has_person_id_joined=False,
+            team_id=self.team.pk,
+            hogql_values=hogql_values,
         )
         query = """
         SELECT distinct_id FROM person_distinct_id2 WHERE team_id = %(team_id)s {prop_clause}
@@ -768,13 +775,17 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
             prop_clause=prop_clause
         )
         # get distinct_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
+        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params, **hogql_values})[0][0]
         self.assertEqual(result, person1_distinct_id)
 
         # test cohort2 with negation
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}, team=self.team)
+        hogql_values = {}
         prop_clause, prop_clause_params = parse_prop_grouped_clauses(
-            property_group=filter.property_groups, has_person_id_joined=False, team_id=self.team.pk
+            property_group=filter.property_groups,
+            has_person_id_joined=False,
+            team_id=self.team.pk,
+            hogql_values=hogql_values,
         )
         query = """
         SELECT distinct_id FROM person_distinct_id2 WHERE team_id = %(team_id)s {prop_clause}
@@ -782,7 +793,7 @@ class TestFiltering(ClickhouseTestMixin, property_to_Q_test_factory(_filter_pers
             prop_clause=prop_clause
         )
         # get distinct_id column of result
-        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params})[0][0]
+        result = sync_execute(query, {"team_id": self.team.pk, **prop_clause_params, **hogql_values})[0][0]
 
         self.assertEqual(result, person2_distinct_id)
 

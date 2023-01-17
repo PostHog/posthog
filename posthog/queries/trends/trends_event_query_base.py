@@ -137,6 +137,7 @@ class TrendsEventQueryBase(EventQuery):
         return PersonQuery(
             self._filter,
             self._team_id,
+            self._hogql_values,
             self._column_optimizer,
             extra_fields=self._extra_person_fields,
             entity=self._entity,

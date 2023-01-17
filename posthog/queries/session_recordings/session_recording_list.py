@@ -243,6 +243,7 @@ class SessionRecordingList(EventQuery):
             prepend=prepend,
             filter_by_team=False,
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id",
+            hogql_values=self._hogql_values,
         )
 
         filters, filter_params = parse_prop_grouped_clauses(
@@ -252,6 +253,7 @@ class SessionRecordingList(EventQuery):
             allow_denormalized_props=True,
             has_person_id_joined=True,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_values=self._hogql_values,
         )
         filter_sql += f" {filters}"
         params = {**params, **filter_params}

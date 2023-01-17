@@ -54,5 +54,9 @@ class EnterpriseEventQuery(EventQuery):
         if isinstance(self._filter, PropertiesTimelineFilter):
             raise Exception("Properties Timeline never needs groups query")
         return GroupsJoinQuery(
-            self._filter, self._team_id, self._column_optimizer, using_person_on_events=self._using_person_on_events
+            self._filter,
+            self._team_id,
+            self._hogql_values,
+            self._column_optimizer,
+            using_person_on_events=self._using_person_on_events,
         ).get_join_query()

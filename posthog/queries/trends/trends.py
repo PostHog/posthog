@@ -33,19 +33,24 @@ from posthog.utils import generate_cache_key, get_safe_cache
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
     def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, str, Dict, Callable]:
+        hogql_values: Dict = {}
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             query_type = "trends_breakdown"
             sql, params, parse_function = TrendsBreakdown(
-                entity, filter, team, using_person_on_events=team.person_on_events_querying_enabled
+                entity,
+                filter,
+                team,
+                hogql_values=hogql_values,
+                using_person_on_events=team.person_on_events_querying_enabled,
             ).get_query()
         elif filter.shown_as == TRENDS_LIFECYCLE:
             query_type = "trends_lifecycle"
-            sql, params, parse_function = self._format_lifecycle_query(entity, filter, team)
+            sql, params, parse_function = self._format_lifecycle_query(entity, filter, team, hogql_values)
         else:
             query_type = "trends_total_volume"
-            sql, params, parse_function = self._total_volume_query(entity, filter, team)
+            sql, params, parse_function = self._total_volume_query(entity, filter, team, hogql_values)
 
-        return query_type, sql, params, parse_function
+        return query_type, sql, {**params, **hogql_values}, parse_function
 
     # Use cached result even on refresh if team has strict caching enabled
     def get_cached_result(self, filter: Filter, team: Team) -> Optional[List[Dict[str, Any]]]:

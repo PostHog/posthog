@@ -18,8 +18,6 @@ from posthog.models.cohort.sql import (
     CALCULATE_COHORT_PEOPLE_SQL,
     GET_COHORT_SIZE_SQL,
     GET_COHORTS_BY_PERSON_UUID,
-    GET_DISTINCT_ID_BY_ENTITY_SQL,
-    GET_PERSON_ID_BY_ENTITY_COUNT_SQL,
     GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
     GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
     RECALCULATE_COHORT_BY_ID,
@@ -71,43 +69,6 @@ def format_precalculated_cohort_query(cohort_id: int, index: int, prepend: str =
     return (filter_query, {f"{prepend}_cohort_id_{index}": cohort_id})
 
 
-def get_entity_cohort_subquery(
-    cohort: Cohort, cohort_group: Dict, group_idx: int, custom_match_field: str = "person_id"
-):
-    event_id = cohort_group.get("event_id")
-    action_id = cohort_group.get("action_id")
-    days = cohort_group.get("days")
-    start_time = cohort_group.get("start_date")
-    end_time = cohort_group.get("end_date")
-    count = cohort_group.get("count")
-    count_operator = cohort_group.get("count_operator")
-
-    date_query, date_params = get_date_query(days, start_time, end_time)
-    entity_query, entity_params = get_entity_query(event_id, action_id, cohort.team.pk, group_idx)
-
-    if count is not None:
-
-        is_negation = (
-            count_operator == "eq" or count_operator == "lte"
-        ) and count == 0  # = 0 means all people who never performed the event
-
-        count_operator = get_count_operator(count_operator)
-        pdi_query = get_team_distinct_ids_query(cohort.team_id)
-        extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
-            entity_query=entity_query,
-            date_query=date_query,
-            GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
-            count_condition="" if is_negation else f"HAVING count(*) {count_operator} %(count)s",
-        )
-
-        params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
-
-        return f"{'NOT' if is_negation else ''} {custom_match_field} IN ({extract_person})", params
-    else:
-        extract_person = GET_DISTINCT_ID_BY_ENTITY_SQL.format(entity_query=entity_query, date_query=date_query)
-        return f"distinct_id IN ({extract_person})", {**entity_params, **date_params}
-
-
 def get_count_operator(count_operator: Optional[str]) -> str:
     if count_operator == "gte":
         return ">="
@@ -124,14 +85,14 @@ def get_count_operator(count_operator: Optional[str]) -> str:
 
 
 def get_entity_query(
-    event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: Union[int, str]
+    event_id: Optional[str], action_id: Optional[int], team_id: int, group_idx: Union[int, str], hogql_values: Dict
 ) -> Tuple[str, Dict[str, str]]:
     if event_id:
         return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
     elif action_id:
         action = Action.objects.get(pk=action_id, team_id=team_id)
         action_filter_query, action_params = format_action_filter(
-            team_id=team_id, action=action, prepend="_{}_action".format(group_idx)
+            team_id=team_id, action=action, prepend="_{}_action".format(group_idx), hogql_values=hogql_values
         )
         return action_filter_query, action_params
     else:
@@ -214,8 +175,9 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
     from posthog.models.property.util import parse_prop_grouped_clauses
 
     filters = Filter(data={"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]})
+    hogql_values: Dict = {}
     filter_query, filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
+        team_id=team.pk, property_group=filters.property_groups, table_name="pdi", hogql_values=hogql_values
     )
 
     results = sync_execute(
@@ -227,7 +189,7 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
             offset="OFFSET %(offset)s" if offset else "",
             limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
         ),
-        {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
+        {**filter_params, **hogql_values, "team_id": team.pk, "offset": offset, "limit": limit},
     )
 
     return [str(row[0]) for row in results]

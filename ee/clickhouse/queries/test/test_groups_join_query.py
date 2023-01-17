@@ -5,7 +5,7 @@ from posthog.models.filters import Filter
 def test_groups_join_query_blank():
     filter = Filter(data={"properties": []})
 
-    assert GroupsJoinQuery(filter, 2).get_join_query() == ("", {})
+    assert GroupsJoinQuery(filter, 2, {}).get_join_query() == ("", {})
 
 
 def test_groups_join_query_filtering(snapshot):
@@ -13,7 +13,7 @@ def test_groups_join_query_filtering(snapshot):
         data={"properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]}
     )
 
-    assert GroupsJoinQuery(filter, 2).get_join_query() == snapshot
+    assert GroupsJoinQuery(filter, 2, {}).get_join_query() == snapshot
 
 
 def test_groups_join_query_filtering_with_custom_key_names(snapshot):
@@ -26,4 +26,4 @@ def test_groups_join_query_filtering_with_custom_key_names(snapshot):
         }
     )
 
-    assert GroupsJoinQuery(filter, 2, join_key="call_me_industry").get_join_query() == snapshot
+    assert GroupsJoinQuery(filter, 2, {}, join_key="call_me_industry").get_join_query() == snapshot

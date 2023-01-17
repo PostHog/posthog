@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from typing import Dict
 from unittest.mock import patch
 
 from django.utils import timezone
@@ -67,9 +68,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]})
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        hogql_values: Dict = {}
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_values=hogql_values
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
 
     def test_prop_cohort_basic_action(self):
@@ -103,15 +107,17 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 3}], name="cohort1")
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        hogql_values: Dict = {}
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_values=hogql_values,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
 
         self.assertEqual(len(result), 1)
 
@@ -144,29 +150,33 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 1}], name="cohort1")
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        hogql_values: Dict = {}
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_values=hogql_values,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort2")
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}, team=self.team)
+        hogql_values = {}
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_values=hogql_values,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_basic_action_days(self):
@@ -199,29 +209,33 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         cohort1 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 1}], name="cohort1")
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+        hogql_values: Dict = {}
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_values=hogql_values,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
 
         cohort2 = Cohort.objects.create(team=self.team, groups=[{"action_id": action.pk, "days": 7}], name="cohort2")
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort2.pk, "type": "cohort"}]}, team=self.team)
+        hogql_values = {}
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self.team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_SUBQUERY,
+            hogql_values=hogql_values,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_multiple_groups(self):
@@ -243,9 +257,12 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        hogql_values: Dict = {}
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_values=hogql_values
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
         self.assertEqual(len(result), 2)
 
     def test_prop_cohort_with_negation(self):
@@ -267,11 +284,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        hogql_values: Dict = {}
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_values=hogql_values
+        )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
 
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
         self.assertEqual(len(result), 0)
 
     def test_cohort_get_person_ids_by_cohort_id(self):
@@ -742,10 +762,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
 
             filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-            query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+            hogql_values: Dict = {}
+            query, params = parse_prop_grouped_clauses(
+                team_id=self.team.pk, property_group=filter.property_groups, hogql_values=hogql_values
+            )
             final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
 
-            result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+            result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
@@ -806,11 +829,14 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-        query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+        hogql_values: Dict = {}
+        query, params = parse_prop_grouped_clauses(
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_values=hogql_values
+        )
         final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
         self.assertIn("\nFROM person_distinct_id2\n", final_query)
 
-        result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+        result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort
 
@@ -895,10 +921,13 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
 
             filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
-            query, params = parse_prop_grouped_clauses(team_id=self.team.pk, property_group=filter.property_groups)
+            hogql_values: Dict = {}
+            query, params = parse_prop_grouped_clauses(
+                team_id=self.team.pk, property_group=filter.property_groups, hogql_values=hogql_values
+            )
             final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
 
-            result = sync_execute(final_query, {**params, "team_id": self.team.pk})
+            result = sync_execute(final_query, {**params, **hogql_values, "team_id": self.team.pk})
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0][1], "2")  # distinct_id '2' is the one in cohort

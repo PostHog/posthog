@@ -42,7 +42,9 @@ from posthog.utils import encode_get_request_params
 
 
 class TrendsTotalVolume:
-    def _total_volume_query(self, entity: Entity, filter: Filter, team: Team) -> Tuple[str, Dict, Callable]:
+    def _total_volume_query(
+        self, entity: Entity, filter: Filter, team: Team, hogql_values: Dict
+    ) -> Tuple[str, Dict, Callable]:
 
         trunc_func = get_trunc_func_ch(filter.interval)
         interval_func = get_interval_func_ch(filter.interval)
@@ -62,6 +64,7 @@ class TrendsTotalVolume:
             or (entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE] and not team.aggregate_users_by_distinct_id)
             else False,
             using_person_on_events=team.person_on_events_querying_enabled,
+            hogql_values=hogql_values,
         )
         event_query_base, event_query_params = trend_event_query.get_query_base()
 

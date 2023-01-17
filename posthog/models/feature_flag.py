@@ -710,6 +710,7 @@ def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_i
 
     # No rollout % calculations here, since it makes more sense to compute that on the frontend
     properties = feature_flag_condition.get("properties") or []
+    hogql_values: Dict = {}
 
     if group_type_index is not None:
 
@@ -725,7 +726,7 @@ def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_i
                 if property.group_type_index is None or (property.group_type_index != group_type_index):
                     raise ValidationError("Invalid group type index for feature flag condition.")
 
-            groups_query, groups_query_params = GroupsJoinQuery(filter, team.id).get_filter_query(
+            groups_query, groups_query_params = GroupsJoinQuery(filter, team.id, hogql_values).get_filter_query(
                 group_type_index=group_type_index
             )
 
@@ -735,7 +736,7 @@ def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_i
                     {groups_query}
                 )
             """,
-                groups_query_params,
+                {**groups_query_params, **hogql_values},
             )[0][0]
         else:
             total_affected_count = team.groups_seen_so_far(group_type_index)
@@ -760,7 +761,7 @@ def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_i
                 cohort_filters = []
 
         person_query, person_query_params = PersonQuery(
-            filter, team.id, cohort=target_cohort, cohort_filters=cohort_filters
+            filter, team.id, hogql_values, cohort=target_cohort, cohort_filters=cohort_filters
         ).get_query()
 
         total_count = sync_execute(
@@ -769,7 +770,7 @@ def get_user_blast_radius(team: Team, feature_flag_condition: dict, group_type_i
                 {person_query}
             )
         """,
-            person_query_params,
+            {**person_query_params, **hogql_values},
         )[0][0]
 
     else:

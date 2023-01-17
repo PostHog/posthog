@@ -41,11 +41,13 @@ class PersonQuery:
     _extra_fields: Set[ColumnName]
     _inner_person_properties: Optional[PropertyGroup]
     _cohort: Optional[Cohort]
+    _hogql_values: Dict[str, Any]
 
     def __init__(
         self,
         filter: Union[Filter, PathFilter, RetentionFilter, StickinessFilter],
         team_id: int,
+        hogql_values: Dict[str, Any],
         column_optimizer: Optional[ColumnOptimizer] = None,
         cohort: Optional[Cohort] = None,
         *,
@@ -57,6 +59,7 @@ class PersonQuery:
     ) -> None:
         self._filter = filter
         self._team_id = team_id
+        self._hogql_values = hogql_values
         self._entity = entity
         self._cohort = cohort
         self._column_optimizer = column_optimizer or ColumnOptimizer(self._filter, self._team_id)
@@ -181,6 +184,7 @@ class PersonQuery:
             group_properties_joined=False,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             prepend=prepend,
+            hogql_values=self._hogql_values,
         )
 
     def _get_person_filters(self, prepend: str = "") -> Tuple[str, Dict]:
@@ -192,6 +196,7 @@ class PersonQuery:
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_PERSONS,
             prepend=prepend,
             table_name="person",
+            hogql_values=self._hogql_values,
         )
 
     def _get_cohort_query(self) -> Tuple[str, Dict]:
@@ -274,6 +279,7 @@ class PersonQuery:
                 group_properties_joined=False,
                 person_properties_mode=PersonPropertiesMode.DIRECT,
                 _top_level=False,
+                hogql_values=self._hogql_values,
             )
 
             distinct_id_param = f"distinct_id_{prepend}"
