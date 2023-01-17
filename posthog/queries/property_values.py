@@ -20,8 +20,8 @@ def get_property_values_for_key(
     value_filter = ""
     value_params = {}
 
-    if event_names:
-        event_conditions = " OR ".join([f"event = '{event_name}'" for event_name in event_names])
+    if event_names is not None:
+        event_conditions = " OR ".join(f"event = '{event_name}'" for event_name in event_names)
         event_filter = "AND ({})".format(event_conditions)
 
     if value:
