@@ -4,7 +4,7 @@ from typing import cast
 import pytest
 from pytest_mock import MockerFixture
 
-from posthog.helpers.session_recording import (
+from posthog.session_recordings.session_recording_helpers import (
     PaginatedList,
     RecordingSegment,
     SessionRecordingEventSummary,

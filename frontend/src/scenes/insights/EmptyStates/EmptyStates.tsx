@@ -30,7 +30,13 @@ export function InsightEmptyState(): JSX.Element {
     )
 }
 
-export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.Element {
+export function InsightTimeoutState({
+    isLoading,
+    queryId,
+}: {
+    isLoading: boolean
+    queryId?: string | null
+}): JSX.Element {
     const { preflight } = useValues(preflightLogic)
     return (
         <div className="insight-empty-state warning">
@@ -84,6 +90,7 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
                         .
                     </li>
                 </ol>
+                {!!queryId ? <div className="text-muted text-xs">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )
@@ -92,9 +99,10 @@ export function InsightTimeoutState({ isLoading }: { isLoading: boolean }): JSX.
 export interface InsightErrorStateProps {
     excludeDetail?: boolean
     title?: string
+    queryId?: string | null
 }
 
-export function InsightErrorState({ excludeDetail, title }: InsightErrorStateProps): JSX.Element {
+export function InsightErrorState({ excludeDetail, title, queryId }: InsightErrorStateProps): JSX.Element {
     return (
         <div className={clsx(['insight-empty-state', 'error', { 'match-container': excludeDetail }])}>
             <div className="empty-state-inner">
@@ -146,6 +154,7 @@ export function InsightErrorState({ excludeDetail, title }: InsightErrorStatePro
                         </ol>
                     </div>
                 )}
+                {!!queryId ? <div className="text-muted text-xs">Query ID: {queryId}</div> : null}
             </div>
         </div>
     )

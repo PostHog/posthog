@@ -6,7 +6,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Property } from 'lib/components/Property'
 import { urls } from 'scenes/urls'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { DataTableNode, QueryContext } from '~/queries/schema'
+import { DataTableNode, HasPropertiesNode, QueryContext } from '~/queries/schema'
 import { isEventsQuery, isPersonsNode } from '~/queries/utils'
 import { combineUrl, router } from 'kea-router'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
@@ -16,7 +16,7 @@ import ReactJson from 'react-json-view'
 export function renderColumn(
     key: string,
     value: any,
-    record: EventType | PersonType | any[],
+    record: Record<string, any> | any[],
     query: DataTableNode,
     setQuery?: (query: DataTableNode) => void,
     context?: QueryContext
@@ -76,7 +76,7 @@ export function renderColumn(
                             source: {
                                 ...query.source,
                                 properties: newProperties,
-                            },
+                            } as HasPropertiesNode,
                         })
                     }}
                 >
@@ -122,7 +122,7 @@ export function renderColumn(
                             source: {
                                 ...query.source,
                                 properties: newProperties,
-                            },
+                            } as HasPropertiesNode,
                         })
                     }}
                 >
@@ -164,7 +164,7 @@ export function renderColumn(
             </CopyToClipboardInline>
         )
     } else {
-        if (typeof value === 'object') {
+        if (typeof value === 'object' && value !== null) {
             return <ReactJson src={value} name={key} collapsed={1} />
         }
         return String(value)

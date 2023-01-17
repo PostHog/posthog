@@ -17,6 +17,8 @@ import {
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { teamLogic } from '../../../scenes/teamLogic'
+import { captureTimeToSeeData } from '../../internalMetrics'
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -89,6 +91,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         loadRemoteItems: (options: LoaderOptions) => options,
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
         expand: true,
+        abortAnyRunningQuery: true,
     },
 
     reducers: ({ props }) => ({
@@ -111,7 +114,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         isExpanded: [false, { expand: () => true }],
     }),
 
-    loaders: ({ values }) => ({
+    loaders: ({ actions, values, cache }) => ({
         remoteItems: [
             createEmptyListStorage('', true),
             {
@@ -125,7 +128,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         await breakpoint(1)
                     }
 
-                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery, excludedProperties } = values
+                    const {
+                        isExpanded,
+                        remoteEndpoint,
+                        scopedRemoteEndpoint,
+                        searchQuery,
+                        excludedProperties,
+                        listGroupType,
+                    } = values
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
@@ -138,6 +148,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                     }
+
+                    const start = performance.now()
+                    actions.abortAnyRunningQuery()
 
                     const [response, expandedCountResponse] = await Promise.all([
                         // get the list of results
@@ -157,6 +170,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     breakpoint()
 
                     const queryChanged = values.items.searchQuery !== values.searchQuery
+
+                    await captureTimeToSeeData(teamLogic.values.currentTeamId, {
+                        type: 'properties_load',
+                        context: 'filters',
+                        action: listGroupType,
+                        primary_interaction_id: '',
+                        status: 'success',
+                        time_to_see_data_ms: Math.floor(performance.now() - start),
+                        api_response_bytes: 0,
+                    })
+                    cache.abortController = null
 
                     return {
                         results: appendAtIndex(
@@ -186,7 +210,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
     }),
 
-    listeners: ({ values, actions, props }) => ({
+    listeners: ({ values, actions, props, cache }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.isRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -228,6 +252,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         },
         expand: () => {
             actions.loadRemoteItems({ offset: values.index, limit: values.limit })
+        },
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+            }
+            cache.abortController = new AbortController()
         },
     }),
 

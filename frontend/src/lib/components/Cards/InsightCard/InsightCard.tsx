@@ -436,6 +436,7 @@ export function InsightViz({
     return (
         <div
             className="InsightViz"
+            // eslint-disable-next-line react/forbid-dom-props
             style={style}
             onClick={
                 setAreDetailsShown
@@ -497,7 +498,7 @@ function InsightCardInternal(
         doNotLoad: true,
     }
 
-    const { showTimeoutMessage, showErrorMessage, insightLoading } = useValues(insightLogic(insightLogicProps))
+    const { timedOutQueryId, erroredQueryId, insightLoading } = useValues(insightLogic(insightLogicProps))
     const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightLogicProps))
 
     let tooFewFunnelSteps = false
@@ -516,10 +517,10 @@ function InsightCardInternal(
     if (insightLoading) {
         loading = true
     }
-    if (showErrorMessage) {
+    if (!!erroredQueryId) {
         apiErrored = true
     }
-    if (showTimeoutMessage) {
+    if (!!timedOutQueryId) {
         timedOut = true
     }
 

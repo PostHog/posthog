@@ -35,7 +35,8 @@
         border-bottom: none;
     }
     .row-name {
-        display: block;
+        display: flex;
+        align-items: center;
         font-size: 0.875rem;
         font-weight: 600;
         margin-bottom: 0.125rem;
@@ -119,7 +120,7 @@
                 &.LemonTable__ribbon {
                     padding: 0 0.25rem 0 0 !important;
                 }
-                &.LemonTable__boundary:not(:last-child) {
+                &.LemonTable__boundary:not(:last-of-type) {
                     border-right: 1px solid var(--border);
                 }
             }
@@ -154,5 +155,6 @@
 .LemonTable__header-content {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     line-height: 1.5;
 }

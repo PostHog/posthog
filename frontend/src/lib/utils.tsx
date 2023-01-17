@@ -95,13 +95,13 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
 export const humanizeBytes = (fileSizeInBytes: number): string => {
     let i = -1
-    const byteUnits = [' kB', ' MB', ' GB', ' TB', 'PB', 'EB', 'ZB', 'YB']
+    const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
         fileSizeInBytes = fileSizeInBytes / 1024
         i++
     } while (fileSizeInBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + byteUnits[i]
+    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {
@@ -464,6 +464,17 @@ export function humanFriendlyNumber(d: number, precision: number = 2): string {
     return d.toLocaleString('en-US', { maximumFractionDigits: precision })
 }
 
+export const humanFriendlyMilliseconds = (timestamp: number | undefined): string | undefined => {
+    if (typeof timestamp !== 'number') {
+        return undefined
+    }
+
+    if (timestamp < 1000) {
+        return `${Math.ceil(timestamp)}ms`
+    }
+
+    return `${(timestamp / 1000).toFixed(2)}s`
+}
 export function humanFriendlyDuration(d: string | number | null | undefined, maxUnits?: number): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
@@ -616,8 +627,7 @@ export function isURL(input: any): boolean {
     if (!input || typeof input !== 'string') {
         return false
     }
-    // Regex by regextester.com/115236
-    const regexp = /^(?:http(s)?:\/\/)([\w*.-])+(?:[\w*\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    const regexp = /^http(s)?:\/\/[\w*.-]+[\w*\.-]+[\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.]+$/
     return !!input.trim().match(regexp)
 }
 

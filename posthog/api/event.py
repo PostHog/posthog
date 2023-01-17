@@ -114,6 +114,11 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             if is_csv_request:
                 limit = min(limit, self.CSV_EXPORT_MAXIMUM_LIMIT)
 
+            try:
+                offset = int(request.GET["offset"]) if request.GET.get("offset") else 0
+            except ValueError:
+                offset = 0
+
             team = self.team
             filter = Filter(request=request, team=self.team)
 
@@ -131,6 +136,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                 filter=filter,
                 team=team,
                 limit=limit,
+                offset=offset,
                 request_get_query_dict=request.GET.dict(),
                 order_by=order_by,
                 action_id=request.GET.get("action_id"),
@@ -149,6 +155,7 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
                     filter=filter,
                     team=team,
                     limit=limit,
+                    offset=offset,
                     request_get_query_dict=request.GET.dict(),
                     order_by=order_by,
                     action_id=request.GET.get("action_id"),

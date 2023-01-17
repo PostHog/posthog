@@ -16,10 +16,10 @@ const getDefaultQuery = (): DataTableNode => ({
         kind: NodeKind.EventsQuery,
         select: defaultDataTableColumns(NodeKind.EventsQuery),
         orderBy: ['-timestamp'],
+        after: '-24h',
         limit: 100,
     },
     propertiesViaUrl: true,
-    allowSorting: false,
 })
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([

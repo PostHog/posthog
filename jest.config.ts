@@ -189,7 +189,7 @@ const config: Config = {
 
     // A map from regular expressions to paths to transformers
     transform: {
-        '\\.[jt]sx?$': 'esbuild-jest',
+        '\\.[jt]sx?$': '@sucrase/jest-plugin',
     },
 
     // An array of regexp pattern strings that are matched against all source file paths, matched files will skip transformation

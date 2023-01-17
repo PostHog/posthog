@@ -143,12 +143,16 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     error=error,
                     exc_info=True,
                 )
-                raise serializers.ValidationError({"use_template": "Invalid value provided."})
+                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
 
         elif use_dashboard:
             try:
                 existing_dashboard = Dashboard.objects.get(id=use_dashboard, team=team)
-                existing_tiles = DashboardTile.objects.filter(dashboard=existing_dashboard).select_related("insight")
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                    .exclude(deleted=True)
+                    .select_related("insight")
+                )
                 for existing_tile in existing_tiles:
                     if self.initial_data.get("duplicate_tiles", False):
                         self._deep_duplicate_tiles(dashboard, existing_tile)
@@ -229,10 +233,10 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
 
         initial_data = dict(self.initial_data)
 
-        instance = super().update(instance, validated_data)
-
         if validated_data.get("deleted", False):
             self._delete_related_tiles(instance, self.validated_data.get("delete_insights", False))
+
+        instance = super().update(instance, validated_data)
 
         tiles = initial_data.pop("tiles", [])
         for tile_data in tiles:
@@ -281,16 +285,16 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
         if delete_related_insights:
             insights_to_update = []
             for insight in Insight.objects.filter(dashboard_tiles__dashboard=instance.id):
-                if insight.dashboard_tiles.exclude(deleted=True).count() == 1:
+                if insight.dashboard_tiles.count() == 1:
                     insight.deleted = True
                     insights_to_update.append(insight)
 
             Insight.objects.bulk_update(insights_to_update, ["deleted"])
-        DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=True)
+        DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=True)
 
     @staticmethod
     def _undo_delete_related_tiles(instance: Dashboard) -> None:
-        DashboardTile.objects.filter(dashboard__id=instance.id).update(deleted=False)
+        DashboardTile.objects_including_soft_deleted.filter(dashboard__id=instance.id).update(deleted=False)
         insights_to_undelete = []
         for tile in DashboardTile.objects.filter(dashboard__id=instance.id):
             if tile.insight and tile.insight.deleted:
@@ -378,12 +382,18 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
     ]
 
     def get_queryset(self) -> QuerySet:
-        queryset = super().get_queryset()
-        if not self.action.endswith("update"):
-            # Soft-deleted dashboards can be brought back with a PATCH request
-            queryset = queryset.filter(deleted=False)
+        if (
+            self.action == "partial_update"
+            and "deleted" in self.request.data
+            and not self.request.data.get("deleted")
+            and len(self.request.data) == 1
+        ):
+            # a dashboard can be un-deleted by patching {"deleted": False}
+            queryset = Dashboard.objects_including_soft_deleted
+        else:
+            queryset = super().get_queryset()
 
-        queryset = queryset.prefetch_related("sharingconfiguration_set",).select_related(
+        queryset = queryset.prefetch_related("sharingconfiguration_set").select_related(
             "team__organization",
             "created_by",
         )
@@ -394,11 +404,9 @@ class DashboardsViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDe
                     "caching_states",
                     Prefetch(
                         "insight__dashboards",
-                        queryset=Dashboard.objects.exclude(deleted=True)
-                        .filter(
-                            id__in=DashboardTile.objects.exclude(deleted=True).values_list("dashboard_id", flat=True)
-                        )
-                        .select_related("team__organization"),
+                        queryset=Dashboard.objects.filter(
+                            id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)
+                        ).select_related("team__organization"),
                     ),
                 )
             )

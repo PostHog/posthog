@@ -18,7 +18,7 @@ import {
 import { RETENTION_FIRST_TIME, RETENTION_RECURRING } from 'lib/constants'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { Noun } from '~/models/groupsModel'
-import { EventsNode, ActionsNode, NodeKind } from '~/queries/schema'
+import { EventsNode, ActionsNode, NodeKind, LifecycleQuery, StickinessQuery } from '~/queries/schema'
 import { isEventsNode } from '~/queries/utils'
 
 const createFilter = (id?: Entity['id'], name?: string, custom_name?: string): EntityFilter => {
@@ -590,21 +590,52 @@ describe('summarizeInsightFilters()', () => {
 })
 
 describe('summarizeInsightQuery()', () => {
-    describe('lifecycle query', () => {
-        it('summarizes based on used series', () => {
-            const result = summarizeInsightQuery({
-                kind: NodeKind.LifecycleQuery,
-                series: [
-                    {
-                        kind: NodeKind.EventsNode,
-                        event: '$rageclick',
-                        name: '$rageclick',
-                    },
-                ],
-            })
+    const aggregationLabel = (groupTypeIndex: number | null | undefined): Noun =>
+        groupTypeIndex != undefined
+            ? {
+                  singular: 'organization',
+                  plural: 'organizations',
+              }
+            : { singular: 'user', plural: 'users' }
 
-            expect(result).toEqual('User lifecycle based on Rageclick')
-        })
+    it('summarizes a Stickiness insight with a user-based series and an organization-based one', () => {
+        const query: StickinessQuery = {
+            kind: NodeKind.StickinessQuery,
+            series: [
+                {
+                    kind: NodeKind.ActionsNode,
+                    id: 1,
+                    name: 'Random action',
+                    math_group_type_index: 0,
+                },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$pageview',
+                    name: '$pageview',
+                },
+            ],
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel)
+
+        expect(result).toEqual('Organization stickiness based on Random action & user stickiness based on Pageview')
+    })
+
+    it('summarizes a Lifecycle insight', () => {
+        const query: LifecycleQuery = {
+            kind: NodeKind.LifecycleQuery,
+            series: [
+                {
+                    kind: NodeKind.EventsNode,
+                    event: '$rageclick',
+                    name: '$rageclick',
+                },
+            ],
+        }
+
+        const result = summarizeInsightQuery(query, aggregationLabel)
+
+        expect(result).toEqual('User lifecycle based on Rageclick')
     })
 })
 
