@@ -245,14 +245,19 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
                     (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
                 ) {
-                    for (const event of performanceEvents || []) {
+                    const performanceEventsArr = performanceEvents || []
+                    for (let eventIndex = 0; eventIndex < performanceEventsArr.length; eventIndex++) {
+                        const event = performanceEventsArr[eventIndex]
                         const timestamp = dayjs(event.timestamp)
                         const responseStatus = event.response_status || 200
 
                         // NOTE: Navigtion events are missing the first contentful paint info so we find the relevant first contentful paint event and add it to the navigation event
                         if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
-                            const firstContentfulPaint = (performanceEvents || []).find(
-                                (x) => x.entry_type === 'paint' && x.name === 'first-contentful-paint'
+                            const firstContentfulPaint = performanceEventsArr.find(
+                                (x, index) =>
+                                    index >= eventIndex &&
+                                    x.entry_type === 'paint' &&
+                                    x.name === 'first-contentful-paint'
                             )
                             if (firstContentfulPaint) {
                                 event.first_contentful_paint = firstContentfulPaint.start_time
