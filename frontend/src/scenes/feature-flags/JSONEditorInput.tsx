@@ -35,7 +35,7 @@ export function JSONEditorInput({
     }
 
     return (
-        <div className="hog-editor">
+        <div className="JsonEditorInput">
             <MonacoEditor
                 theme="vs-light"
                 className="border"
