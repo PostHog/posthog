@@ -193,7 +193,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
 
         entity = get_target_entity(filter)
 
-        actors, serialized_actors, raw_count = TrendsActors(team, entity, filter).get_actors()
+        actors, serialized_actors, raw_count = TrendsActors(team, entity, filter, {}).get_actors()
 
         current_url = request.get_full_path()
         next_url: Optional[str] = request.get_full_path()

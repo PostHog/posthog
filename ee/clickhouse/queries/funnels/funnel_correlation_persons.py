@@ -1,4 +1,4 @@
-from typing import List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from django.db.models.query import QuerySet
 from rest_framework.exceptions import ValidationError
@@ -20,10 +20,11 @@ class FunnelCorrelationActors(ActorBaseQuery):
     _filter: Filter
     QUERY_TYPE = "funnel_correlation_actors"
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/", **kwargs) -> None:
+    def __init__(self, filter: Filter, team: Team, hogql_values: Dict, base_uri: str = "/", **kwargs) -> None:
         self._base_uri = base_uri
         self._filter = filter
         self._team = team
+        self.hogql_values = hogql_values
 
         if not self._filter.correlation_person_limit:
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
@@ -34,30 +35,34 @@ class FunnelCorrelationActors(ActorBaseQuery):
 
     def actor_query(self, limit_actors: Optional[bool] = True):
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).actor_query(
-                limit_actors=limit_actors
-            )
+            return _FunnelPropertyCorrelationActors(
+                self._filter, self._team, self.hogql_values, self._base_uri
+            ).actor_query(limit_actors=limit_actors)
         else:
-            return _FunnelEventsCorrelationActors(self._filter, self._team, self._base_uri).actor_query(
-                limit_actors=limit_actors
-            )
+            return _FunnelEventsCorrelationActors(
+                self._filter, self._team, self.hogql_values, self._base_uri
+            ).actor_query(limit_actors=limit_actors)
 
     def get_actors(
         self,
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
-            return _FunnelPropertyCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
+            return _FunnelPropertyCorrelationActors(
+                self._filter, self._team, self.hogql_values, self._base_uri
+            ).get_actors()
         else:
-            return _FunnelEventsCorrelationActors(self._filter, self._team, self._base_uri).get_actors()
+            return _FunnelEventsCorrelationActors(
+                self._filter, self._team, self.hogql_values, self._base_uri
+            ).get_actors()
 
 
 class _FunnelEventsCorrelationActors(ActorBaseQuery):
     _filter: Filter
     QUERY_TYPE = "funnel_events_correlation_actors"
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
-        self._funnel_correlation = FunnelCorrelation(filter, team, base_uri=base_uri)
-        super().__init__(team, filter)
+    def __init__(self, filter: Filter, team: Team, hogql_values: Dict, base_uri: str = "/") -> None:
+        self._funnel_correlation = FunnelCorrelation(filter, team, hogql_values, base_uri=base_uri)
+        super().__init__(team, filter, hogql_values)
 
     @cached_property
     def aggregation_group_type_index(self):
@@ -139,7 +144,7 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
     _filter: Filter
     QUERY_TYPE = "funnel_property_correlation_actors"
 
-    def __init__(self, filter: Filter, team: Team, base_uri: str = "/") -> None:
+    def __init__(self, filter: Filter, team: Team, hogql_values: Dict, base_uri: str = "/") -> None:
         # Filtering on persons / groups properties can be pushed down to funnel_actors CTE
         new_correlation_filter = filter.with_data(
             {
@@ -148,8 +153,8 @@ class _FunnelPropertyCorrelationActors(ActorBaseQuery):
                 ).to_dict()
             }
         )
-        self._funnel_correlation = FunnelCorrelation(new_correlation_filter, team, base_uri=base_uri)
-        super().__init__(team, filter)
+        self._funnel_correlation = FunnelCorrelation(new_correlation_filter, team, hogql_values, base_uri=base_uri)
+        super().__init__(team, filter, hogql_values)
 
     @cached_property
     def aggregation_group_type_index(self):

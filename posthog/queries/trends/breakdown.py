@@ -377,7 +377,7 @@ class TrendsBreakdown:
             extra_params=math_params,
             column_optimizer=self.column_optimizer,
             person_properties_mode=self._person_properties_mode,
-            hogql_values=self._hogql_values,
+            hogql_values=self.hogql_values,
         )
 
         # :TRICKY: We only support string breakdown for event/person properties

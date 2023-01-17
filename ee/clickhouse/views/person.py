@@ -28,7 +28,7 @@ class EnterprisePersonViewSet(PersonViewSet):
             filter = filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
         base_uri = request.build_absolute_uri("/")
         actors, serialized_actors, raw_count = FunnelCorrelationActors(
-            filter=filter, team=self.team, base_uri=base_uri
+            filter=filter, team=self.team, hogql_values={}, base_uri=base_uri
         ).get_actors()
         _should_paginate = raw_count >= filter.correlation_person_limit
 

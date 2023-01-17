@@ -90,7 +90,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
             filter = PathFilter(data={"step_limit": 2})
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
             self.assertEqual(
                 response, [{"source": "1_/1", "target": "2_/2", "value": 1, "average_conversion_time": ONE_MINUTE}]
@@ -100,7 +100,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
             filter = PathFilter(data={"step_limit": 3})
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
             self.assertEqual(
                 response,
@@ -113,7 +113,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         with freeze_time("2012-01-7T03:21:34.000Z"):
             filter = PathFilter(data={"step_limit": 4})
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
             self.assertEqual(
                 response,
@@ -185,7 +185,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ),
 
         filter = PathFilter(data={"step_limit": 4, "date_from": "2012-01-01", "include_event_types": ["$pageview"]})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -240,7 +240,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         filter = PathFilter(
             data={"date_from": "2021-05-01", "date_to": "2021-05-03", "include_event_types": ["custom_event"]}
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -397,7 +397,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             "path_groupings": ["between_step_1_*", "between_step_2_*", "step drop*"],
         }
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter).run()
+        response = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
         self.assertCountEqual(
             response,
             [
@@ -537,7 +537,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             "date_to": "2021-05-07 00:00:00",
         }
         path_filter = PathFilter(data=data)
-        response_no_flag = Paths(team=self.team, filter=path_filter).run()
+        response_no_flag = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
 
         self.assertNotEqual(
             response_no_flag,
@@ -558,7 +558,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         data.update({"path_replacements": "true"})
-        response = Paths(team=self.team, filter=path_filter).run()
+        response = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
 
         self.assertEqual(
             response,
@@ -697,7 +697,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             "path_replacements": True,
         }
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter).run()
+        response = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
         self.assertEqual(response, correct_response)
 
         self.team.path_cleaning_filters = [{"alias": "?<param>", "regex": "\\?(.*)"}]
@@ -705,7 +705,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         data.update({"local_path_cleaning_filters": [{"alias": "/<id>", "regex": "/\\d+(/|\\?)?"}]})
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter).run()
+        response = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
         self.assertEqual(response, correct_response)
 
         # overriding team filters
@@ -719,7 +719,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             }
         )
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter).run()
+        response = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
         self.assertEqual(response, correct_response)
 
     def test_path_by_funnel_after_dropoff(self):
@@ -741,7 +741,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter, hogql_values={}).run()
         self.assertEqual(
             response,
             [
@@ -795,7 +795,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         path_filter = PathFilter(data=data).with_data(
             {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
         )
-        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter, hogql_values={}).run()
         self.assertEqual(
             response,
             [
@@ -953,7 +953,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter, hogql_values={}).run()
         self.assertEqual(
             response,
             [
@@ -1007,7 +1007,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter, hogql_values={}).run()
         self.assertEqual(
             response,
             [
@@ -1096,7 +1096,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter, hogql_values={}).run()
         self.assertEqual(
             response,
             [
@@ -1135,7 +1135,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter, hogql_values={}).run()
         self.assertEqual(
             response,
             [
@@ -1185,7 +1185,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter, hogql_values={}).run()
         self.assertEqual(
             response,
             [
@@ -1241,7 +1241,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         }
         funnel_filter = Filter(data=data)
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter).run()
+        response = Paths(team=self.team, filter=path_filter, funnel_filter=funnel_filter, hogql_values={}).run()
         self.assertEqual(
             response,
             [
@@ -1408,7 +1408,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "date_to": "2021-05-07 00:00:00",
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -1431,7 +1431,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "date_to": "2021-05-07 00:00:00",
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -1510,7 +1510,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         _ = [*p1, *p2, *p3]
 
         filter = PathFilter(data={"step_limit": 4, "date_from": "2012-01-01", "include_event_types": ["$pageview"]})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1521,7 +1521,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = filter.with_data({"include_event_types": ["$screen"]})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1532,7 +1532,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = filter.with_data({"include_event_types": ["custom_event"]})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1543,7 +1543,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom1", "/custom2"]})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1551,14 +1551,14 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = filter.with_data({"include_event_types": [], "include_custom_events": ["/custom3", "blah"]})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(response, [])
 
         filter = filter.with_data(
             {"include_event_types": ["$pageview", "$screen", "custom_event"], "include_custom_events": []}
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1579,7 +1579,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "exclude_events": ["/custom1", "/1", "/2", "/3"],
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -1680,14 +1680,14 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "path_groupings": ["/bar/*/foo"],
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response, [{"source": "1_/1", "target": "2_/3", "value": 3, "average_conversion_time": 3 * ONE_MINUTE}]
         )
 
         filter = filter.with_data({"path_groupings": ["/xxx/invalid/*"]})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(len(response), 6)
 
@@ -1743,7 +1743,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         _create_event(distinct_id="p1", event="/custom3", team=self.team, timestamp="2012-01-01 03:32:34"),
 
         filter = PathFilter(data={"step_limit": 10, "date_from": "2012-01-01"})  # include everything, exclude nothing
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1760,7 +1760,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = filter.with_data({"include_event_types": ["$pageview", "$screen"]})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1776,7 +1776,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         filter = filter.with_data(
             {"include_event_types": ["$pageview", "$screen"], "include_custom_events": ["/custom2"]}
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1797,7 +1797,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "exclude_events": ["/custom1", "/custom3"],
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1855,7 +1855,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ),
 
         filter = PathFilter(data={"date_from": "2012-01-01"})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -1929,7 +1929,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         ),
 
         filter = PathFilter(data={"date_from": "2012-01-01"})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -2051,7 +2051,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             },
             team=self.team,
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
         self.assertEqual(
             response, [{"source": "1_/5", "target": "2_/about", "value": 2, "average_conversion_time": 60000.0}]
         )
@@ -2059,7 +2059,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
         # test aggregation for long paths
         filter = filter.with_data({"start_point": "/2", "step_limit": 4})
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -2192,7 +2192,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "path_groupings": ["/bar/*/foo"],
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -2262,7 +2262,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "path_groupings": ["(a+)+", "[aaa|aaaa]+", "1.*", ".*", "/3?q=1", "/3*"],
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -2525,7 +2525,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "edge_limit": "6",
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
         self.assertEqual(
             response,
             [
@@ -2549,7 +2549,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             "path_groupings": ["between_step_1_*", "between_step_2_*", "step drop*"],
         }
         path_filter = PathFilter(data=data)
-        response = Paths(team=self.team, filter=path_filter).run()
+        response = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
         self.assertCountEqual(
             response,
             [
@@ -2579,7 +2579,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         path_filter = path_filter.with_data({"edge_limit": 2})
-        response = Paths(team=self.team, filter=path_filter).run()
+        response = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
         self.assertCountEqual(
             response,
             [
@@ -2603,7 +2603,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         )
 
         path_filter = path_filter.with_data({"edge_limit": 20, "max_edge_weight": 11, "min_edge_weight": 6})
-        response = Paths(team=self.team, filter=path_filter).run()
+        response = Paths(team=self.team, filter=path_filter, hogql_values={}).run()
         self.assertCountEqual(
             response,
             [
@@ -2714,7 +2714,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}],
             }
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -2727,7 +2727,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         filter = filter.with_data(
             {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -2740,7 +2740,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         filter = filter.with_data(
             {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 1}]}
         )
-        response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+        response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
         self.assertEqual(
             response,
@@ -2848,7 +2848,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             }
         )
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
             self.assertEqual(
                 response,
@@ -2861,7 +2861,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             filter = filter.with_data(
                 {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 0}]}
             )
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
             self.assertEqual(
                 response,
@@ -2879,7 +2879,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             filter = filter.with_data(
                 {"properties": [{"key": "industry", "value": "technology", "type": "group", "group_type_index": 1}]}
             )
-            response = Paths(team=self.team, filter=filter).run(team=self.team, filter=filter)
+            response = Paths(team=self.team, filter=filter, hogql_values={}).run(team=self.team, filter=filter)
 
             self.assertEqual(
                 response,
@@ -2967,7 +2967,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team, {}).get_actors()
         self.assertCountEqual([p1.uuid, p2.uuid], [actor["id"] for actor in serialized_actors])
         matched_recordings = [actor["matched_recordings"] for actor in serialized_actors]
 
@@ -3029,7 +3029,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team, {}).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual([[]], [actor["matched_recordings"] for actor in serialized_actors])
 
@@ -3076,7 +3076,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team, {}).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [
@@ -3138,7 +3138,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team, {}).get_actors()
         self.assertEqual([], [actor["id"] for actor in serialized_actors])
         self.assertEqual([], [actor["matched_recordings"] for actor in serialized_actors])
 
@@ -3152,7 +3152,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 "include_recordings": "true",
             }
         )
-        _, serialized_actors, _ = PathsActors(filter, self.team).get_actors()
+        _, serialized_actors, _ = PathsActors(filter, self.team, {}).get_actors()
         self.assertEqual([p1.uuid], [actor["id"] for actor in serialized_actors])
         self.assertEqual(
             [
@@ -3181,21 +3181,21 @@ class TestClickhousePathsEdgeValidation(TestCase):
     def test_basic_forest(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2
 
-        results = Paths(PathFilter(), MagicMock()).validate_results(edges)
+        results = Paths(PathFilter(), MagicMock(), {}).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
 
     def test_basic_forest_with_dangling_edges(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_xxx", "3_yyy")]
 
-        results = Paths(PathFilter(), MagicMock()).validate_results(edges)
+        results = Paths(PathFilter(), MagicMock(), {}).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2)
 
     def test_basic_forest_with_dangling_and_cross_edges(self):
         edges = self.BASIC_PATH + self.BASIC_PATH_2 + [("2_w", "3_z"), ("3_x", "4_d"), ("2_y", "3_c")]
 
-        results = Paths(PathFilter(), MagicMock()).validate_results(edges)
+        results = Paths(PathFilter(), MagicMock(), {}).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH + self.BASIC_PATH_2 + [("2_y", "3_c")])
 
@@ -3204,6 +3204,6 @@ class TestClickhousePathsEdgeValidation(TestCase):
         edges.remove(("1_a", "2_b"))  # remove first start point
         edges = list(edges)  # type: ignore
 
-        results = Paths(PathFilter(), MagicMock()).validate_results(edges)
+        results = Paths(PathFilter(), MagicMock(), {}).validate_results(edges)
 
         self.assertCountEqual(results, self.BASIC_PATH_2)

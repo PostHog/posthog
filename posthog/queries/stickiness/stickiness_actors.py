@@ -15,8 +15,8 @@ class StickinessActors(ActorBaseQuery):
 
     QUERY_TYPE = "stickiness"
 
-    def __init__(self, team: Team, entity: Entity, filter: StickinessFilter, **kwargs):
-        super().__init__(team, filter, entity, **kwargs)
+    def __init__(self, team: Team, entity: Entity, filter: StickinessFilter, hogql_values: Dict, **kwargs):
+        super().__init__(team, filter, hogql_values, entity, **kwargs)
 
     @cached_property
     def aggregation_group_type_index(self):
@@ -28,6 +28,7 @@ class StickinessActors(ActorBaseQuery):
             filter=self._filter,
             team=self._team,
             using_person_on_events=self._team.person_on_events_querying_enabled,
+            hogql_values=self.hogql_values,
         ).get_query()
 
         return (

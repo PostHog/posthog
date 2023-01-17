@@ -132,7 +132,7 @@ class Retention:
         interval, where the index of the list is the interval it refers to.
         """
 
-        return self.actors_by_period_query(team=team, filter=filter).actors()
+        return self.actors_by_period_query(team=team, filter=filter, hogql_values={}).actors()
 
 
 def build_returning_event_query(

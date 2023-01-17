@@ -107,12 +107,13 @@ class FunnelCorrelation:
         self,
         filter: Filter,  # Used to filter people
         team: Team,  # Used to partition by team
+        hogql_values: Dict,
         base_uri: str = "/",  # Used to generate absolute urls
     ) -> None:
         self._filter = filter
         self._team = team
         self._base_uri = base_uri
-        self._hogql_values: Dict = {}
+        self._hogql_values: Dict = hogql_values
 
         if self._filter.funnel_step is None:
             self._filter = self._filter.with_data({"funnel_step": 1})

@@ -500,7 +500,9 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 funnel_filter_data = json.loads(funnel_filter_data)
             funnel_filter = Filter(data={"insight": INSIGHT_FUNNELS, **funnel_filter_data}, team=self.team)
 
-        actors, serialized_actors, raw_count = PathsActors(filter, self.team, funnel_filter=funnel_filter).get_actors()
+        actors, serialized_actors, raw_count = PathsActors(
+            filter, self.team, {}, funnel_filter=funnel_filter
+        ).get_actors()
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
         initial_url = format_query_params_absolute_url(request, 0)
 
@@ -522,7 +524,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         filter = prepare_actor_query_filter(filter)
         entity = get_target_entity(filter)
 
-        actors, serialized_actors, raw_count = TrendsActors(self.team, entity, filter).get_actors()
+        actors, serialized_actors, raw_count = TrendsActors(self.team, entity, filter, {}).get_actors()
         next_url = paginated_result(request, raw_count, filter.offset, filter.limit)
         initial_url = format_query_params_absolute_url(request, 0)
 

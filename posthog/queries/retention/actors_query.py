@@ -1,5 +1,5 @@
 import dataclasses
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from posthog.client import substitute_params
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -30,8 +30,8 @@ class RetentionActorsByPeriod(ActorBaseQuery):
 
     QUERY_TYPE = "retention_actors_by_period"
 
-    def __init__(self, team: Team, filter: RetentionFilter):
-        super().__init__(team, filter)
+    def __init__(self, team: Team, filter: RetentionFilter, hogql_values: Dict):
+        super().__init__(team, filter, hogql_values)
 
     def actors(self):
         """

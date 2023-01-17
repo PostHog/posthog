@@ -45,7 +45,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             }
         )
 
-        _, serialized_actors, _ = FunnelCorrelationActors(actor_filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(actor_filter, self.team, {}).get_actors()
         return [str(row["id"]) for row in serialized_actors]
 
     def _get_actors_for_property(self, filter: Filter, property_values: list, success=True):
@@ -58,7 +58,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
                 "funnel_correlation_person_converted": "TrUe" if success else "falSE",
             }
         )
-        _, serialized_actors, _ = FunnelCorrelationActors(actor_filter, self.team).get_actors()
+        _, serialized_actors, _ = FunnelCorrelationActors(actor_filter, self.team, {}).get_actors()
         return [str(row["id"]) for row in serialized_actors]
 
     def test_basic_funnel_correlation_with_events(self):
@@ -74,7 +74,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
@@ -138,7 +138,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # Now exclude positively_related
         filter = filter.with_data({"funnel_correlation_exclude_event_names": ["positively_related"]})
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         result = correlation._run()[0]
 
@@ -211,7 +211,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
         result = correlation._run()[0]
 
         #  missing user signed up and paid from result set, as expected
@@ -321,7 +321,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        result = FunnelCorrelation(filter, self.team)._run()[0]
+        result = FunnelCorrelation(filter, self.team, {})._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
         expected_odds_ratios = [12 / 7, 1 / 11]
@@ -358,7 +358,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         filter = filter.with_data(
             {"properties": [{"key": "industry", "value": "finance", "type": "group", "group_type_index": 0}]}
         )
-        result = FunnelCorrelation(filter, self.team)._run()[0]
+        result = FunnelCorrelation(filter, self.team, {})._run()[0]
 
         odds_ratio = result[0].pop("odds_ratio")  # type: ignore
         expected_odds_ratio = 1
@@ -398,7 +398,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
@@ -581,7 +581,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
         result = correlation._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
@@ -633,7 +633,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         # test with `$all` as property
         # _run property correlation with filter on all properties
         filter = filter.with_data({"funnel_correlation_names": ["$all"]})
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         new_result = correlation._run()[0]
 
@@ -743,7 +743,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         with override_instance_config("PERSON_ON_EVENTS_ENABLED", True):
             filter = Filter(data=filters)
-            correlation = FunnelCorrelation(filter, self.team)
+            correlation = FunnelCorrelation(filter, self.team, {})
             result = correlation._run()[0]
 
             odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
@@ -799,7 +799,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
             # test with `$all` as property
             # _run property correlation with filter on all properties
             filter = filter.with_data({"funnel_correlation_names": ["$all"]})
-            correlation = FunnelCorrelation(filter, self.team)
+            correlation = FunnelCorrelation(filter, self.team, {})
 
             new_result = correlation._run()[0]
 
@@ -822,7 +822,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         for i in range(2):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk, properties={"$browser": "Positive"})
@@ -892,7 +892,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         _create_person(distinct_ids=[f"user_1"], team_id=self.team.pk, properties={"$browser": "Positive"})
         _create_event(team=self.team, event="user signed up", distinct_id=f"user_1", timestamp="2020-01-02T14:00:00Z")
@@ -906,7 +906,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         filter = filter.with_data({"funnel_correlation_type": "event_with_properties"})
         # missing "funnel_correlation_event_names": ["rick"],
         with self.assertRaises(ValidationError):
-            FunnelCorrelation(filter, self.team)._run()
+            FunnelCorrelation(filter, self.team, {})._run()
 
     @also_test_with_materialized_columns(
         event_properties=[], person_properties=["$browser"], verify_no_jsonextract=False
@@ -925,7 +925,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         #  5 successful people with both properties
         for i in range(5):
@@ -1038,7 +1038,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         # _run property correlation with filter on all properties
         filter = filter.with_data({"funnel_correlation_names": ["$all"]})
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         new_result = correlation._run()[0]
 
@@ -1057,7 +1057,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
 
         filter = filter.with_data({"funnel_correlation_exclude_names": ["$browser"]})
         # search for $all but exclude $browser
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         new_result = correlation._run()[0]
         odds_ratios = [item.pop("odds_ratio") for item in new_result]  # type: ignore
@@ -1087,7 +1087,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
@@ -1155,7 +1155,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         _create_person(distinct_ids=["user_successful"], team_id=self.team.pk)
         _create_event(
@@ -1213,7 +1213,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         for i in range(10):
             _create_person(distinct_ids=[f"user_{i}"], team_id=self.team.pk)
@@ -1367,7 +1367,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
         result = correlation._run()[0]
 
         odds_ratios = [item.pop("odds_ratio") for item in result]  # type: ignore
@@ -1418,7 +1418,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         # Need more than 2 events to get a correlation
         for i in range(3):
@@ -1478,7 +1478,7 @@ class TestClickhouseFunnelCorrelation(ClickhouseTestMixin, APIBaseTest):
         }
 
         filter = Filter(data=filters)
-        correlation = FunnelCorrelation(filter, self.team)
+        correlation = FunnelCorrelation(filter, self.team, {})
 
         # Need a minimum of 3 hits to get a correlation result
         for i in range(6):

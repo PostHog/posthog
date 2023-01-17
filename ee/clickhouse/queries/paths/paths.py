@@ -15,8 +15,10 @@ from posthog.queries.paths.paths import Paths
 class ClickhousePaths(Paths):
     event_query = ClickhousePathEventQuery
 
-    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None) -> None:
-        super().__init__(filter, team, funnel_filter)
+    def __init__(
+        self, filter: PathFilter, team: Team, hogql_values: Dict, funnel_filter: Optional[Filter] = None
+    ) -> None:
+        super().__init__(filter, team, hogql_values, funnel_filter)
 
         if self._filter.path_groupings:
             regex_groupings = []

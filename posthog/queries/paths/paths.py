@@ -37,9 +37,12 @@ class Paths:
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
 
-    def __init__(self, filter: PathFilter, team: Team, funnel_filter: Optional[Filter] = None) -> None:
+    def __init__(
+        self, filter: PathFilter, team: Team, hogql_values: Dict, funnel_filter: Optional[Filter] = None
+    ) -> None:
         self._filter = filter
         self._team = team
+        self.hogql_values = hogql_values
         self.params = {
             "team_id": self._team.pk,
             "event_in_session_limit": self._filter.step_limit or EVENT_IN_SESSION_LIMIT_DEFAULT,
@@ -86,7 +89,7 @@ class Paths:
         query = self.get_query()
         return insight_sync_execute(
             query,
-            self.params,
+            {**self.params, **self.hogql_values},
             query_type="paths",
             filter=self._filter,
         )

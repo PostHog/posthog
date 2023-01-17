@@ -292,22 +292,23 @@ def insert_cohort_people_into_pg(cohort: Cohort):
 def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     insight_type = filter_data.get("insight")
     query_builder: ActorBaseQuery
+    hogql_values: Dict = {}
 
     if insight_type == INSIGHT_TRENDS:
         filter = Filter(data=filter_data, team=cohort.team)
         entity = get_target_entity(filter)
-        query_builder = TrendsActors(cohort.team, entity, filter)
+        query_builder = TrendsActors(cohort.team, entity, filter, hogql_values)
     elif insight_type == INSIGHT_STICKINESS:
         stickiness_filter = StickinessFilter(data=filter_data, team=cohort.team)
         entity = get_target_entity(stickiness_filter)
-        query_builder = StickinessActors(cohort.team, entity, stickiness_filter)
+        query_builder = StickinessActors(cohort.team, entity, stickiness_filter, hogql_values=hogql_values)
     elif insight_type == INSIGHT_FUNNELS:
         funnel_filter = Filter(data=filter_data, team=cohort.team)
         funnel_actor_class = get_funnel_actor_class(funnel_filter)
-        query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team)
+        query_builder = funnel_actor_class(filter=funnel_filter, team=cohort.team, hogql_values=hogql_values)
     elif insight_type == INSIGHT_PATHS:
         path_filter = PathFilter(data=filter_data, team=cohort.team)
-        query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None)
+        query_builder = PathsActors(path_filter, cohort.team, funnel_filter=None, hogql_values=hogql_values)
     else:
         if settings.DEBUG:
             raise ValueError(f"Insight type: {insight_type} not supported for cohort creation")
@@ -322,7 +323,7 @@ def insert_cohort_actors_into_ch(cohort: Cohort, filter_data: Dict):
     else:
         query, params = query_builder.actor_query(limit_actors=False)
 
-    insert_actors_into_cohort_by_query(cohort, query, params)
+    insert_actors_into_cohort_by_query(cohort, query, {**params, **hogql_values})
 
 
 def insert_actors_into_cohort_by_query(cohort: Cohort, query: str, params: Dict[str, Any]):

@@ -27,7 +27,7 @@ class TrendsActors(ActorBaseQuery):
     entity: Entity
     _filter: Filter
 
-    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, **kwargs):
+    def __init__(self, team: Team, entity: Optional[Entity], filter: Filter, hogql_values: Dict, **kwargs):
         if not entity:
             raise ValueError("Entity is required")
         if filter._date_from is not None and filter._date_to is not None and filter._date_from == filter._date_to:
@@ -44,7 +44,7 @@ class TrendsActors(ActorBaseQuery):
                     )
                 }
             )
-        super().__init__(team, filter, entity, **kwargs)
+        super().__init__(team, filter, hogql_values, entity, **kwargs)
 
     @cached_property
     def aggregation_group_type_index(self):

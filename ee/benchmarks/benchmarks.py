@@ -290,7 +290,7 @@ class QuerySuite:
             data={"events": [{"id": "user signed up"}, {"id": "insight analyzed"}], **SHORT_DATE_RANGE}, team=self.team
         )
 
-        FunnelCorrelation(filter, self.team).run()
+        FunnelCorrelation(filter, self.team, {}).run()
 
     @benchmark_clickhouse
     def track_correlations_by_properties_materialized(self):
@@ -303,7 +303,7 @@ class QuerySuite:
             },
             team=self.team,
         )
-        FunnelCorrelation(filter, self.team).run()
+        FunnelCorrelation(filter, self.team, {}).run()
 
     @benchmark_clickhouse
     def track_correlations_by_properties(self):
@@ -317,7 +317,7 @@ class QuerySuite:
             team=self.team,
         )
         with no_materialized_columns():
-            FunnelCorrelation(filter, self.team).run()
+            FunnelCorrelation(filter, self.team, {}).run()
 
     @benchmark_clickhouse
     def track_correlations_by_event_properties(self):
@@ -331,7 +331,7 @@ class QuerySuite:
             team=self.team,
         )
         with no_materialized_columns():
-            FunnelCorrelation(filter, self.team).run()
+            FunnelCorrelation(filter, self.team, {}).run()
 
     @benchmark_clickhouse
     def track_correlations_by_event_properties_materialized(self):
@@ -344,7 +344,7 @@ class QuerySuite:
             },
             team=self.team,
         )
-        FunnelCorrelation(filter, self.team).run()
+        FunnelCorrelation(filter, self.team, {}).run()
 
     @benchmark_clickhouse
     def track_stickiness(self):

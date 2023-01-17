@@ -69,16 +69,19 @@ class ActorBaseQuery:
     QUERY_TYPE = "actors"
 
     entity: Optional[Entity] = None
+    hogql_values: Dict
 
     def __init__(
         self,
         team: Team,
         filter: Union[Filter, StickinessFilter, RetentionFilter],
+        hogql_values: Dict,
         entity: Optional[Entity] = None,
         **kwargs,
     ):
         self._team = team
         self.entity = entity
+        self.hogql_values = hogql_values
         self._filter = filter
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:
