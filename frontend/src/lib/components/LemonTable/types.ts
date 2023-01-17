@@ -22,7 +22,7 @@ export interface LemonTableColumn<T extends Record<string, any>, D extends keyof
     render?: (dataValue: D extends keyof T ? T[D] : undefined, record: T, recordIndex: number) => TableCellRenderResult
     /** Sorting function. Set to `true` if using manual pagination, in which case you'll also have to provide `sorting` on the table. */
     sorter?: ((a: T, b: T) => number) | true
-    /** Popup overlay in table header */
+    /** Menu containing extra column options, accessible via a "More" button in the title of the column. */
     more?: JSX.Element
     className?: string
     /** Column content alignment. Left by default. Set to right for numerical values (amounts, days ago etc.) */

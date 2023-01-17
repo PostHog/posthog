@@ -274,40 +274,47 @@ export function LemonTable<T extends Record<string, any>>({
                                                 }
                                             >
                                                 <div
-                                                    className="LemonTable__header-content items-center"
+                                                    className="LemonTable__header-content"
+                                                    /* eslint-disable-next-line react/forbid-dom-props */
                                                     style={{ justifyContent: column.align }}
                                                 >
-                                                    {column.title}
-                                                    {column.sorter && (
-                                                        <Tooltip
-                                                            title={() => {
-                                                                const nextSorting = getNextSorting(
-                                                                    currentSorting,
-                                                                    determineColumnKey(column, 'sorting'),
-                                                                    disableSortingCancellation
-                                                                )
-                                                                return `Click to ${
-                                                                    nextSorting
-                                                                        ? nextSorting.order === 1
-                                                                            ? 'sort ascending'
-                                                                            : 'sort descending'
-                                                                        : 'cancel sorting'
-                                                                }`
-                                                            }}
-                                                        >
-                                                            <SortingIndicator
-                                                                order={
-                                                                    currentSorting?.columnKey ===
-                                                                    determineColumnKey(column, 'sorting')
-                                                                        ? currentSorting.order
-                                                                        : null
-                                                                }
-                                                            />
-                                                            {/* this non-breaking space lets antd's tooltip work*/}{' '}
-                                                        </Tooltip>
-                                                    )}
+                                                    <div className="flex items-center">
+                                                        {column.title}
+                                                        {column.sorter && (
+                                                            <Tooltip
+                                                                title={() => {
+                                                                    const nextSorting = getNextSorting(
+                                                                        currentSorting,
+                                                                        determineColumnKey(column, 'sorting'),
+                                                                        disableSortingCancellation
+                                                                    )
+                                                                    return `Click to ${
+                                                                        nextSorting
+                                                                            ? nextSorting.order === 1
+                                                                                ? 'sort ascending'
+                                                                                : 'sort descending'
+                                                                            : 'cancel sorting'
+                                                                    }`
+                                                                }}
+                                                            >
+                                                                <SortingIndicator
+                                                                    order={
+                                                                        currentSorting?.columnKey ===
+                                                                        determineColumnKey(column, 'sorting')
+                                                                            ? currentSorting.order
+                                                                            : null
+                                                                    }
+                                                                />
+                                                                {/* this non-breaking space lets antd's tooltip work*/}{' '}
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
                                                     {column.more && (
-                                                        <More overlay={column.more} data-attr="table-header-more" />
+                                                        <More
+                                                            overlay={column.more}
+                                                            className="ml-1"
+                                                            data-attr="table-header-more"
+                                                        />
                                                     )}
                                                 </div>
                                             </th>

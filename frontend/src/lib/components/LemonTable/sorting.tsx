@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { IconArrowDown, IconArrowUp, IconSort } from '../icons'
 
 /** Sorting state. */
@@ -26,15 +25,9 @@ export function getNextSorting(
     }
 }
 
-export function SortingIndicator({
-    order,
-    className,
-}: {
-    order: Sorting['order'] | null
-    className?: string
-}): JSX.Element {
+export function SortingIndicator({ order }: { order: Sorting['order'] | null }): JSX.Element {
     return (
-        <div className={clsx('flex items-center text-base ml-2 whitespace-nowrap', className)}>
+        <div className="flex items-center text-base ml-2 whitespace-nowrap">
             <IconSort />
             {order === -1 ? <IconArrowDown /> : order === 1 ? <IconArrowUp /> : null}
         </div>

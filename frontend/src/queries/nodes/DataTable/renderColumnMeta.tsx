@@ -45,7 +45,7 @@ export function renderColumnMeta(key: string, query: DataTableNode, context?: Qu
             title = (
                 <>
                     {title}
-                    <SortingIndicator order={sortOrder} className="mx-1" />
+                    <SortingIndicator order={sortOrder} />
                 </>
             )
         }
