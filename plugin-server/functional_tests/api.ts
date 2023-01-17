@@ -120,6 +120,11 @@ export const fetchPersons = async (clickHouseClient: ClickHouse, teamId: number)
     return queryResult.data.map((person) => ({ ...person, properties: JSON.parse(person.properties) }))
 }
 
+export const fetchPostgresPersons = async (pgClient: Pool, teamId: number) => {
+    const { rows } = await pgClient.query(`SELECT * FROM posthog_person WHERE team_id = $1`, [teamId])
+    return rows
+}
+
 export const fetchSessionRecordingsEvents = async (clickHouseClient: ClickHouse, teamId: number) => {
     const queryResult = (await clickHouseClient.querying(
         `SELECT * FROM session_recording_events WHERE team_id = ${teamId} ORDER BY timestamp ASC`
