@@ -14,8 +14,8 @@ import {
     createPlugin,
     createTeam,
     fetchEvents,
-    fetchPersons,
     fetchPluginLogEntries,
+    fetchPostgresPersons,
 } from './api'
 import { waitForExpect } from './expectations'
 
@@ -188,8 +188,8 @@ test.concurrent(`plugin method tests: can drop events via processEvent`, async (
     const [event] = await fetchEvents(clickHouseClient, teamId, dropMeUuid)
     expect(event).toBeUndefined()
 
-    // Further, these events should not produce any person
-    const persons = await fetchPersons(clickHouseClient, teamId)
+    // Further, only the custom events should produce persons
+    const persons = await fetchPostgresPersons(postgres, teamId)
     expect(persons.length).toBe(1)
 })
 
