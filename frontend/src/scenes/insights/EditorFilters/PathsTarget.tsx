@@ -7,7 +7,7 @@ import { combineUrl, encodeParams, router } from 'kea-router'
 import { LemonButton, LemonButtonWithSideAction } from 'lib/components/LemonButton'
 import { IconClose, IconFunnelVertical } from 'lib/components/icons'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
-import { SimpleOption, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function PathsTargetStartDataExploration(props: QueryEditorFilterProps): JSX.Element {
     return <PathsTargetDataExploration position="start" {...props} />
@@ -23,10 +23,10 @@ type PathTargetDataExplorationProps = {
 
 function PathsTargetDataExploration({ position, insightProps }: PathTargetDataExplorationProps): JSX.Element {
     const { taxonomicGroupTypes } = useValues(pathsDataLogic(insightProps))
-    // const { filter, wildcards } = useValues(pathsLogic(insightProps))
+    // const { filter } = useValues(pathsLogic(insightProps))
     // const { setFilter } = useActions(pathsLogic(insightProps))
 
-    // const key = position === 'start' ? 'start_point' : 'end_point'
+    const key = position === 'start' ? 'start_point' : 'end_point'
     // const onChange = (item: string): void => {
     //     setFilter({ [key]: item })
     // }
@@ -67,7 +67,7 @@ type PathsTargetProps = {
 
 function PathsTarget({ position, insightProps }: PathsTargetProps): JSX.Element {
     const { taxonomicGroupTypes } = useValues(pathsLogic(insightProps))
-    const { filter, wildcards } = useValues(pathsLogic(insightProps))
+    const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
 
     const key = position === 'start' ? 'start_point' : 'end_point'
@@ -83,7 +83,7 @@ function PathsTarget({ position, insightProps }: PathsTargetProps): JSX.Element 
         funnel_filter: filter.funnel_filter,
         start_point: filter.start_point,
         end_point: filter.end_point,
-        wildcards,
+        path_groupings: filter.path_groupings,
     }
 
     return (
@@ -103,9 +103,9 @@ type PathsTargetComponentProps = {
     funnel_filter?: Record<string, any>
     start_point?: string
     end_point?: string
+    path_groupings?: string[]
     onChange: (pathItem: string) => void
     onReset: () => void
-    wildcards?: SimpleOption[]
     taxonomicGroupTypes: TaxonomicFilterGroupType[]
 }
 
@@ -115,9 +115,9 @@ function PathsTargetComponent({
     funnel_filter,
     start_point,
     end_point,
+    path_groupings,
     onChange,
     onReset,
-    wildcards,
     taxonomicGroupTypes,
 }: PathsTargetComponentProps): JSX.Element {
     const overrideStartInput = funnel_paths && [FunnelPathType.between, FunnelPathType.after].includes(funnel_paths)
@@ -220,7 +220,7 @@ function PathsTargetComponent({
             onChange={onChange}
             taxonomicGroupTypes={taxonomicGroupTypes}
             disabled={overrideInputs}
-            wildcardOptions={wildcards}
+            wildcardOptions={path_groupings?.map((name) => ({ name }))}
         >
             <LocalButton
                 data-attr={'new-prop-filter-' + positionOptions.index}

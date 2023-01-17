@@ -6,7 +6,7 @@ import { PathItemFilters } from 'lib/components/PropertyFilters/PathItemFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Element {
-    const { filter, wildcards } = useValues(pathsLogic(insightProps))
+    const { filter } = useValues(pathsLogic(insightProps))
     const { updateExclusions } = useActions(pathsLogic(insightProps))
 
     const taxonomicGroupTypes: TaxonomicFilterGroupType[] = filter.include_event_types
@@ -41,7 +41,7 @@ export function PathsExclusions({ insightProps }: EditorFilterProps): JSX.Elemen
                 const exclusion = values.length > 0 ? values.map((v) => v.value) : values
                 updateExclusions(exclusion as string[])
             }}
-            wildcardOptions={wildcards}
+            wildcardOptions={filter.path_groupings?.map((name) => ({ name }))}
         />
     )
 }

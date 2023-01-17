@@ -1,6 +1,9 @@
 import { kea } from 'kea'
 import { router } from 'kea-router'
+
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+
 import type { pathsLogicType } from './pathsLogicType'
 import { InsightLogicProps, FilterType, PathType, PropertyFilter, InsightType, PathsFilterType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
@@ -10,7 +13,6 @@ import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
-import { trendsLogic } from 'scenes/trends/trendsLogic'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -180,12 +182,6 @@ export const pathsLogic = kea<pathsLogicType>({
                     }
                 }
                 return Object.keys(result).length === 0 ? '' : result
-            },
-        ],
-        wildcards: [
-            (s) => [s.filter],
-            (filter: Partial<PathsFilterType>) => {
-                return filter.path_groupings?.map((name) => ({ name }))
             },
         ],
         taxonomicGroupTypes: [
