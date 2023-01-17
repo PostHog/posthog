@@ -195,18 +195,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 },
             }),
             submit: (featureFlag) => {
-                const newPayload = {}
-                featureFlag.filters.multivariate?.variants.forEach(({ key }, index) => {
-                    const payload = featureFlag.filters.payloads[index]
-                    newPayload[key] = payload
-                })
-                actions.saveFeatureFlag({
-                    ...featureFlag,
-                    filters: {
-                        ...featureFlag.filters,
-                        payloads: newPayload,
-                    },
-                })
+                actions.saveFeatureFlag(featureFlag)
             },
         },
     })),
@@ -429,9 +418,27 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             },
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag
+
+                // Add payloads mapped to keys
+                const newPayload = flag.filters.payloads
+                flag.filters.multivariate?.variants.forEach(({ key }, index) => {
+                    const payload = featureFlag.filters.payloads[index]
+                    newPayload[key] = payload
+                })
+                const preparedFlag = {
+                    ...flag,
+                    filters: {
+                        ...flag.filters,
+                        payloads: newPayload,
+                    },
+                }
+
                 try {
                     if (!updatedFlag.id) {
-                        const newFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, flag)
+                        const newFlag = await api.create(
+                            `api/projects/${values.currentTeamId}/feature_flags`,
+                            preparedFlag
+                        )
                         if (values.roleBasedAccessEnabled) {
                             featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(newFlag.id)
                         }
@@ -439,7 +446,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     } else {
                         return await api.update(
                             `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
-                            flag
+                            preparedFlag
                         )
                     }
                 } catch (error: any) {
