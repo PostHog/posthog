@@ -986,6 +986,11 @@ export interface PerformanceEvent {
     navigation_type?: string
     unload_event_end?: number
     unload_event_start?: number
+
+    // Performance summary fields calculated on frontend
+    first_contentful_paint?: number // https://web.dev/fcp/
+    time_to_interactive?: number // https://web.dev/tti/
+    total_blocking_time?: number // https://web.dev/tbt/
 }
 
 export interface CurrentBillCycleType {
@@ -1376,6 +1381,7 @@ export interface FilterType {
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    new_entity?: Record<string, any>[]
 
     filter_test_accounts?: boolean
     from_dashboard?: boolean | number
@@ -1455,7 +1461,6 @@ export interface FunnelsFilterType extends FilterType {
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
-    new_entity?: Record<string, any>[]
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
 }
 export interface PathsFilterType extends FilterType {
@@ -1516,6 +1521,7 @@ export interface EventsListQueryParams {
     after?: string
     before?: string
     limit?: number
+    offset?: number
 }
 
 export interface RecordingEventsFilters {
@@ -1832,6 +1838,7 @@ export interface FeatureFlagType {
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
+    tags: string[]
 }
 
 export interface FeatureFlagRollbackConditions {

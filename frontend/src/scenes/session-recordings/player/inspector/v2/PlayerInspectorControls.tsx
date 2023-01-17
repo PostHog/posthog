@@ -2,6 +2,7 @@ import { LemonButton, LemonInput, LemonSelect, LemonCheckbox } from '@posthog/le
 import { Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
 import { IconInfo, IconSchedule, IconPlayCircle, IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
@@ -24,7 +25,7 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, searchQuery, syncScroll, loading, windowIds } = useValues(
+    const { windowIdFilter, tab, searchQuery, syncScroll, tabsState, windowIds } = useValues(
         playerInspectorLogic(logicProps)
     )
     const { setWindowIdFilter, setTab, setSearchQuery, setSyncScroll } = useActions(playerInspectorLogic(logicProps))
@@ -51,11 +52,11 @@ export function PlayerInspectorControls({
                         <LemonButton
                             key={tabId}
                             size="small"
-                            icon={TabToIcon[tabId]}
+                            // We want to indicate the tab is loading, but not disable it so we just override the icon here
+                            icon={tabsState[tabId] === 'loading' ? <Spinner monocolor /> : TabToIcon[tabId]}
                             status={tab === tabId ? 'primary' : 'primary-alt'}
                             active={tab === tabId}
                             onClick={() => setTab(tabId)}
-                            loading={loading[tabId]}
                         >
                             {capitalizeFirstLetter(tabId)}
                         </LemonButton>

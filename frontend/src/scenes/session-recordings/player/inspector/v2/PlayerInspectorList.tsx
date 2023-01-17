@@ -14,7 +14,7 @@ import { ItemPerformanceEvent } from './components/ItemPerformanceEvent'
 import AutoSizer from 'react-virtualized/dist/es/AutoSizer'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useDebouncedCallback } from 'use-debounce'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import './PlayerInspectorList.scss'
 import { range } from 'd3'
@@ -94,7 +94,7 @@ function PlayerInspectorListItem({
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (
-                <div className="shrink-0 text-lg text-muted-alt h-8 w-6 flex items-center justify-center gap-1">
+                <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
                     {showIcon ? TabToIcon[item.type] : null}
                     {windowNumber ? <IconWindow value={windowNumber} className="shrink-0" /> : null}
                 </div>
@@ -114,6 +114,19 @@ function PlayerInspectorListItem({
                     <ItemConsoleLog item={item} {...itemProps} />
                 ) : item.type === 'events' ? (
                     <ItemEvent item={item} {...itemProps} />
+                ) : null}
+
+                {isExpanded ? (
+                    <div className="text-xs">
+                        <LemonDivider dashed />
+
+                        <div
+                            className="flex gap-2 justify-end cursor-pointer m-2"
+                            onClick={() => setItemExpanded(index, false)}
+                        >
+                            <span className="text-muted-alt">Collapse</span>
+                        </div>
+                    </div>
                 ) : null}
             </span>
             {!isExpanded && (
@@ -152,7 +165,7 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab, loading } = useValues(
+    const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab } = useValues(
         playerInspectorLogic(props)
     )
     const { setSyncScroll } = useActions(playerInspectorLogic(props))
@@ -255,15 +268,18 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                         )}
                     </AutoSizer>
                 </div>
-            ) : loading[tab] ? (
+            ) : tabsState[tab] === 'loading' ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
+            ) : tabsState[tab] === 'ready' ? (
+                // If we are "ready" but with no results this must mean some results are filtered out
+                <div className="p-16 text-center text-muted-alt">No results matching your filters.</div>
             ) : (
-                <div className="flex-1 flex items-center justify-center text-muted-alt">
+                <div className="p-16 text-center text-muted-alt">
                     {tab === SessionRecordingPlayerTab.CONSOLE && !currentTeam?.capture_console_log_opt_in ? (
                         <>
-                            <div className="flex flex-col items-center h-full w-full p-16">
+                            <div className="flex flex-col items-center">
                                 <h4 className="text-xl font-medium">Console logs</h4>
                                 <p className="text-muted text-center">
                                     Capture all console logs during the browser recording to get technical information
@@ -295,7 +311,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                             </div>
                         ) : (
                             <>
-                                <div className="flex flex-col items-center h-full w-full p-16">
+                                <div className="flex flex-col items-center">
                                     <h4 className="text-xl font-medium">Performance events</h4>
                                     <p className="text-muted text-center">
                                         Capture performance events like network requests during the browser recording to
@@ -312,7 +328,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                             </>
                         )
                     ) : (
-                        'No results'
+                        'No results found in this recording.'
                     )}
                 </div>
             )}

@@ -23,7 +23,7 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, loading } = useValues(playerInspectorLogic(logicProps))
+    const { windowIdFilter, tab, tabsState } = useValues(playerInspectorLogic(logicProps))
     const { setWindowIdFilter, setTab } = useActions(playerInspectorLogic(logicProps))
     const { showOnlyMatching } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching } = useActions(playerSettingsLogic)
@@ -47,7 +47,7 @@ export function PlayerInspectorControls({
                             status={tab === tabId ? 'primary' : 'primary-alt'}
                             active={tab === tabId}
                             onClick={() => setTab(tabId)}
-                            loading={loading[tabId]}
+                            loading={tabsState[tabId] === 'loading'}
                         >
                             {capitalizeFirstLetter(tabId)}
                         </LemonButton>

@@ -32,6 +32,9 @@ import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogi
 import { tagsModel } from '~/models/tagsModel'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
+export const DASHBOARD_CANNOT_EDIT_MESSAGE =
+    "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
+
 export function DashboardHeader(): JSX.Element | null {
     const {
         allItems: dashboard, // dashboard but directly on dashboardLogic not via dashboardsModel
@@ -130,8 +133,7 @@ export function DashboardHeader(): JSX.Element | null {
                                 dashboard && !canEditDashboard
                                     ? {
                                           icon: <IconLock />,
-                                          tooltip:
-                                              "You don't have edit permissions in this dashboard. Ask a dashboard collaborator with edit access to add you.",
+                                          tooltip: DASHBOARD_CANNOT_EDIT_MESSAGE,
                                       }
                                     : undefined
                             }
@@ -279,7 +281,7 @@ export function DashboardHeader(): JSX.Element | null {
                                     to={urls.insightNew(undefined, dashboard.id)}
                                     type="primary"
                                     data-attr="dashboard-add-graph-header"
-                                    disabled={!canEditDashboard}
+                                    disabledReason={canEditDashboard ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                                     sideAction={{
                                         popup: {
                                             placement: 'bottom-end',

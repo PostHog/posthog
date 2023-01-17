@@ -11,6 +11,7 @@ import { PaginationAuto, PaginationControl, PaginationManual, usePagination } fr
 import { useScrollable } from 'lib/hooks/useScrollable'
 import { LemonSkeleton } from '../LemonSkeleton'
 import { LemonTableLoader } from './LemonTableLoader'
+import { More } from 'lib/components/LemonButton/More'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -33,13 +34,13 @@ export interface LemonTableProps<T extends Record<string, any>> {
     columns: LemonTableColumns<T>
     dataSource: T[]
     /** Which column to use for the row key, as an alternative to the default row index mechanism. */
-    rowKey?: keyof T | ((record: T) => string | number)
+    rowKey?: keyof T | ((record: T, rowIndex: number) => string | number)
     /** Class to append to each row. */
-    rowClassName?: string | ((record: T) => string | null)
+    rowClassName?: string | ((record: T, rowIndex: number) => string | null)
     /** Color to mark each row with. */
-    rowRibbonColor?: string | ((record: T) => string | null)
+    rowRibbonColor?: string | ((record: T, rowIndex: number) => string | null)
     /** Status of each row. Defaults no status. */
-    rowStatus?: 'highlighted' | ((record: T) => 'highlighted' | null)
+    rowStatus?: 'highlighted' | ((record: T, rowIndex: number) => 'highlighted' | null)
     /** Function that for each row determines what props should its `tr` element have based on the row's record. */
     onRow?: (record: T) => Omit<HTMLProps<HTMLTableRowElement>, 'key'>
     /** How tall should rows be. The default value is `"middle"`. */
@@ -259,7 +260,7 @@ export function LemonTable<T extends Record<string, any>>({
                                                 )}
                                                 style={{ textAlign: column.align }}
                                                 onClick={
-                                                    column.sorter
+                                                    column.sorter && !column.more
                                                         ? () => {
                                                               const nextSorting = getNextSorting(
                                                                   currentSorting,
@@ -273,37 +274,47 @@ export function LemonTable<T extends Record<string, any>>({
                                                 }
                                             >
                                                 <div
-                                                    className="LemonTable__header-content items-center"
+                                                    className="LemonTable__header-content"
+                                                    /* eslint-disable-next-line react/forbid-dom-props */
                                                     style={{ justifyContent: column.align }}
                                                 >
-                                                    {column.title}
-                                                    {column.sorter && (
-                                                        <Tooltip
-                                                            title={() => {
-                                                                const nextSorting = getNextSorting(
-                                                                    currentSorting,
-                                                                    determineColumnKey(column, 'sorting'),
-                                                                    disableSortingCancellation
-                                                                )
-                                                                return `Click to ${
-                                                                    nextSorting
-                                                                        ? nextSorting.order === 1
-                                                                            ? 'sort ascending'
-                                                                            : 'sort descending'
-                                                                        : 'cancel sorting'
-                                                                }`
-                                                            }}
-                                                        >
-                                                            <SortingIndicator
-                                                                order={
-                                                                    currentSorting?.columnKey ===
-                                                                    determineColumnKey(column, 'sorting')
-                                                                        ? currentSorting.order
-                                                                        : null
-                                                                }
-                                                            />
-                                                            {/* this non-breaking space lets antd's tooltip work*/}{' '}
-                                                        </Tooltip>
+                                                    <div className="flex items-center">
+                                                        {column.title}
+                                                        {column.sorter && (
+                                                            <Tooltip
+                                                                title={() => {
+                                                                    const nextSorting = getNextSorting(
+                                                                        currentSorting,
+                                                                        determineColumnKey(column, 'sorting'),
+                                                                        disableSortingCancellation
+                                                                    )
+                                                                    return `Click to ${
+                                                                        nextSorting
+                                                                            ? nextSorting.order === 1
+                                                                                ? 'sort ascending'
+                                                                                : 'sort descending'
+                                                                            : 'cancel sorting'
+                                                                    }`
+                                                                }}
+                                                            >
+                                                                <SortingIndicator
+                                                                    order={
+                                                                        currentSorting?.columnKey ===
+                                                                        determineColumnKey(column, 'sorting')
+                                                                            ? currentSorting.order
+                                                                            : null
+                                                                    }
+                                                                />
+                                                                {/* this non-breaking space lets antd's tooltip work*/}{' '}
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
+                                                    {column.more && (
+                                                        <More
+                                                            overlay={column.more}
+                                                            className="ml-1"
+                                                            data-attr="table-header-more"
+                                                        />
                                                     )}
                                                 </div>
                                             </th>
@@ -318,17 +329,19 @@ export function LemonTable<T extends Record<string, any>>({
                                 paginationState.dataSourcePage.map((record, rowIndex) => {
                                     const rowKeyDetermined = rowKey
                                         ? typeof rowKey === 'function'
-                                            ? rowKey(record)
+                                            ? rowKey(record, rowIndex)
                                             : record[rowKey] ?? rowIndex
                                         : paginationState.currentStartIndex + rowIndex
                                     const rowClassNameDetermined =
-                                        typeof rowClassName === 'function' ? rowClassName(record) : rowClassName
+                                        typeof rowClassName === 'function'
+                                            ? rowClassName(record, rowIndex)
+                                            : rowClassName
                                     const rowRibbonColorDetermined =
                                         typeof rowRibbonColor === 'function'
-                                            ? rowRibbonColor(record) || 'var(--border-light)'
+                                            ? rowRibbonColor(record, rowIndex) || 'var(--border-light)'
                                             : rowRibbonColor
                                     const rowStatusDetermined =
-                                        typeof rowStatus === 'function' ? rowStatus(record) : rowStatus
+                                        typeof rowStatus === 'function' ? rowStatus(record, rowIndex) : rowStatus
                                     return (
                                         <TableRow
                                             key={`LemonTable-tr-${rowKeyDetermined}`}

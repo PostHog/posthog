@@ -48,6 +48,7 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/even
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { dayjs } from 'lib/dayjs'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -416,8 +417,11 @@ class ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('performance_events')
     }
 
-    public recentPageViewPerformanceEvents(teamId?: TeamType['id']): ApiRequest {
-        return this.projectsDetail(teamId).addPathComponent('performance_events').addPathComponent('recent_pageviews')
+    public recentPageViewPerformanceEvents(dateFrom: string, dateTo: string, teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('performance_events')
+            .addPathComponent('recent_pageviews')
+            .withQueryString(toParams({ date_from: dateFrom, date_to: dateTo }))
     }
 
     // Request finalization
@@ -1104,9 +1108,17 @@ const api = {
             return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
         },
         async recentPageViews(
-            teamId: TeamType['id'] = getCurrentTeamId()
+            teamId: TeamType['id'] = getCurrentTeamId(),
+            dateFrom?: string,
+            dateTo?: string
         ): Promise<PaginatedResponse<RecentPerformancePageView>> {
-            return new ApiRequest().recentPageViewPerformanceEvents(teamId).get()
+            return new ApiRequest()
+                .recentPageViewPerformanceEvents(
+                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
+                    dateTo || dayjs().toISOString(),
+                    teamId
+                )
+                .get()
         },
     },
 

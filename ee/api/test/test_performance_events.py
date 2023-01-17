@@ -125,14 +125,32 @@ class TestLicensedPerformanceEvents(APILicensedTest):
             timestamp=datetime.datetime.fromisoformat("2008-04-10 11:47:58"),
         )
 
-        res = self.client.get(f"/api/projects/@current/performance_events/recent_pageviews")
+        seven_days_ago = datetime.datetime.now() - datetime.timedelta(days=7)
+        res = self.client.get(
+            f"/api/projects/@current/performance_events/recent_pageviews?date_from={seven_days_ago.isoformat()}"
+        )
+        self.assertEqual(res.status_code, 200, res.json())
         assert [r["session_id"] for r in res.json()["results"]] == ["matching_session_two", "matching_session_one"]
 
-        res = self.client.get(f"/api/projects/@current/performance_events/recent_pageviews?number_of_days=3")
+        three_days_ago = datetime.datetime.now() - datetime.timedelta(days=3)
+        res = self.client.get(
+            f"/api/projects/@current/performance_events/recent_pageviews?date_from={three_days_ago.isoformat()}"
+        )
+        self.assertEqual(res.status_code, 200, res.json())
         assert [r["session_id"] for r in res.json()["results"]] == ["matching_session_two"]
 
     def test_list_recent_pageviews_cannot_request_more_than_thirty_days(self):
-        res = self.client.get(f"/api/projects/@current/performance_events/recent_pageviews?number_of_days=31")
+        thirty_days_ago = datetime.datetime.now() - datetime.timedelta(days=30)
+        thirty_one_days_ago = datetime.datetime.now() - datetime.timedelta(days=31)
+
+        res = self.client.get(
+            f"/api/projects/@current/performance_events/recent_pageviews?date_from={thirty_days_ago.isoformat()}"
+        )
+        assert res.status_code == 200
+
+        res = self.client.get(
+            f"/api/projects/@current/performance_events/recent_pageviews?date_from={thirty_one_days_ago.isoformat()}"
+        )
         assert res.status_code == 400
 
 

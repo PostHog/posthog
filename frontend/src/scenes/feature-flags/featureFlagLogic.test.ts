@@ -26,6 +26,7 @@ function generateFeatureFlag(
         rollback_conditions: [],
         performed_rollback: false,
         can_edit: true,
+        tags: [],
     }
 }
 
