@@ -89,6 +89,7 @@ class RetentionActorsByPeriod(ActorBaseQuery):
 def build_actor_activity_query(
     filter: RetentionFilter,
     team: Team,
+    hogql_values: Dict,
     filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
     aggregate_users_by_distinct_id: Optional[bool] = None,
@@ -110,6 +111,7 @@ def build_actor_activity_query(
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=team.person_on_events_querying_enabled,
         retention_events_query=retention_events_query,
+        hogql_values=hogql_values,
     )
 
     target_event_query = build_target_event_query(
@@ -118,6 +120,7 @@ def build_actor_activity_query(
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=team.person_on_events_querying_enabled,
         retention_events_query=retention_events_query,
+        hogql_values=hogql_values,
     )
 
     all_params = {
@@ -136,6 +139,7 @@ def build_actor_activity_query(
 def _build_actor_query(
     filter: RetentionFilter,
     team: Team,
+    hogql_values: Dict,
     filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
     retention_events_query=RetentionEventsQuery,
@@ -143,6 +147,7 @@ def _build_actor_query(
     actor_activity_query = build_actor_activity_query(
         filter=filter,
         team=team,
+        hogql_values=hogql_values,
         filter_by_breakdown=filter_by_breakdown,
         selected_interval=selected_interval,
         aggregate_users_by_distinct_id=False,

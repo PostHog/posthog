@@ -82,7 +82,7 @@ class TrendsBreakdown:
         self.filter = filter
         self.team = team
         self.team_id = team.pk
-        self.hogql_values = hogql_values
+        self._hogql_values = hogql_values
         self.params: Dict[str, Any] = {"team_id": team.pk}
         self.column_optimizer = column_optimizer or ColumnOptimizer(self.filter, self.team_id)
         self.using_person_on_events = using_person_on_events
@@ -119,7 +119,7 @@ class TrendsBreakdown:
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
             if not self.using_person_on_events
             else "person_id",
-            hogql_values=self.hogql_values,
+            hogql_values=self._hogql_values,
         )
 
     def get_query(self) -> Tuple[str, Dict, Callable]:
@@ -156,7 +156,7 @@ class TrendsBreakdown:
                 table_name="e",
                 person_properties_mode=self._person_properties_mode,
                 person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else 'e'}.person_id",
-                hogql_values=self.hogql_values,
+                hogql_values=self._hogql_values,
             )
 
         self.params = {
@@ -360,7 +360,7 @@ class TrendsBreakdown:
 
     def _breakdown_cohort_params(self):
         cohort_queries, cohort_ids, cohort_params = format_breakdown_cohort_join_query(
-            self.team, self.filter, self.hogql_values, entity=self.entity
+            self.team, self.filter, self._hogql_values, entity=self.entity
         )
         params = {"values": cohort_ids, **cohort_params}
         breakdown_filter = BREAKDOWN_COHORT_JOIN_SQL
@@ -377,7 +377,7 @@ class TrendsBreakdown:
             extra_params=math_params,
             column_optimizer=self.column_optimizer,
             person_properties_mode=self._person_properties_mode,
-            hogql_values=self.hogql_values,
+            hogql_values=self._hogql_values,
         )
 
         # :TRICKY: We only support string breakdown for event/person properties
@@ -400,7 +400,7 @@ class TrendsBreakdown:
         if self.filter.breakdown_type == "hogql":
             from posthog.hogql.hogql import translate_hogql
 
-            breakdown_value = translate_hogql(breakdown)
+            breakdown_value = translate_hogql(breakdown, hogql_values=self._hogql_values)
         elif self.filter.breakdown_type == "session":
             if breakdown == "$session_duration":
                 # Return the session duration expression right away because it's already an number,
@@ -598,7 +598,7 @@ class TrendsBreakdown:
             return "", {}
 
         person_query = PersonQuery(
-            self.filter, self.team_id, self.hogql_values, self.column_optimizer, entity=self.entity
+            self.filter, self.team_id, self._hogql_values, self.column_optimizer, entity=self.entity
         )
         event_join = EVENT_JOIN_PERSON_SQL.format(
             GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id)
@@ -626,7 +626,7 @@ class TrendsBreakdown:
         return GroupsJoinQuery(
             self.filter,
             self.team_id,
-            self.hogql_values,
+            self._hogql_values,
             self.column_optimizer,
             using_person_on_events=self.using_person_on_events,
         ).get_join_query()

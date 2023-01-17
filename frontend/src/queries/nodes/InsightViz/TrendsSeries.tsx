@@ -41,6 +41,7 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
         ...(isTrendsQuery(querySource) ? [TaxonomicFilterGroupType.Sessions] : []),
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
 
     if (isUnimplementedQuery(querySource)) {

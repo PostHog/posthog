@@ -2,7 +2,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyGroupFilters } from './PropertyGroupFilters/PropertyGroupFilters'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
-import { TrendsQuery, StickinessQuery } from '~/queries/schema'
+import { StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { isTrendsQuery } from '~/queries/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { getAllEventNames } from './utils'
@@ -24,6 +24,7 @@ export function GlobalAndOrFilters({ query, setQuery }: GlobalAndOrFiltersProps)
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
         ...(isTrendsQuery(query) ? [TaxonomicFilterGroupType.Sessions] : []),
+        TaxonomicFilterGroupType.HogQLExpression,
     ]
 
     return (

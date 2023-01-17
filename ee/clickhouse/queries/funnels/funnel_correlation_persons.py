@@ -24,7 +24,7 @@ class FunnelCorrelationActors(ActorBaseQuery):
         self._base_uri = base_uri
         self._filter = filter
         self._team = team
-        self.hogql_values = hogql_values
+        self._hogql_values = hogql_values
 
         if not self._filter.correlation_person_limit:
             self._filter = self._filter.with_data({FUNNEL_CORRELATION_PERSON_LIMIT: 100})
@@ -36,11 +36,11 @@ class FunnelCorrelationActors(ActorBaseQuery):
     def actor_query(self, limit_actors: Optional[bool] = True):
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return _FunnelPropertyCorrelationActors(
-                self._filter, self._team, self.hogql_values, self._base_uri
+                self._filter, self._team, self._hogql_values, self._base_uri
             ).actor_query(limit_actors=limit_actors)
         else:
             return _FunnelEventsCorrelationActors(
-                self._filter, self._team, self.hogql_values, self._base_uri
+                self._filter, self._team, self._hogql_values, self._base_uri
             ).actor_query(limit_actors=limit_actors)
 
     def get_actors(
@@ -48,11 +48,11 @@ class FunnelCorrelationActors(ActorBaseQuery):
     ) -> Tuple[Union[QuerySet[Person], QuerySet[Group]], Union[List[SerializedGroup], List[SerializedPerson]], int]:
         if self._filter.correlation_type == FunnelCorrelationType.PROPERTIES:
             return _FunnelPropertyCorrelationActors(
-                self._filter, self._team, self.hogql_values, self._base_uri
+                self._filter, self._team, self._hogql_values, self._base_uri
             ).get_actors()
         else:
             return _FunnelEventsCorrelationActors(
-                self._filter, self._team, self.hogql_values, self._base_uri
+                self._filter, self._team, self._hogql_values, self._base_uri
             ).get_actors()
 
 

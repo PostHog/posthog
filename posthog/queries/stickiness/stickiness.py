@@ -18,20 +18,24 @@ class Stickiness:
     event_query_class = StickinessEventsQuery
     actor_query_class = StickinessActors
 
-    def run(self, filter: StickinessFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(
+        self, filter: StickinessFilter, team: Team, hogql_values: Dict = {}, *args, **kwargs
+    ) -> List[Dict[str, Any]]:
 
         response = []
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 entity.name = Action.objects.only("name").get(team=team, pk=entity.id).name
 
-            entity_resp = handle_compare(filter=filter, func=self._serialize_entity, team=team, entity=entity)
+            entity_resp = handle_compare(
+                filter=filter, func=self._serialize_entity, team=team, entity=entity, hogql_values=hogql_values
+            )
             response.extend(entity_resp)
         return response
 
-    def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team) -> Dict[str, Any]:
+    def stickiness(self, entity: Entity, filter: StickinessFilter, team: Team, hogql_values: Dict) -> Dict[str, Any]:
         events_query, event_params = self.event_query_class(
-            entity, filter, team, using_person_on_events=team.person_on_events_querying_enabled
+            entity, filter, team, hogql_values, using_person_on_events=team.person_on_events_querying_enabled
         ).get_query()
 
         query = f"""
@@ -43,15 +47,17 @@ class Stickiness:
 
         counts = insight_sync_execute(
             query,
-            {**event_params, "num_intervals": filter.total_intervals},
+            {**event_params, **hogql_values, "num_intervals": filter.total_intervals},
             query_type="stickiness",
             filter=filter,
         )
         return self.process_result(counts, filter, entity)
 
-    def people(self, target_entity: Entity, filter: StickinessFilter, team: Team, request, *args, **kwargs):
+    def people(
+        self, target_entity: Entity, filter: StickinessFilter, team: Team, hogql_values: Dict, request, *args, **kwargs
+    ):
         _, serialized_actors, _ = self.actor_query_class(
-            entity=target_entity, filter=filter, team=team, hogql_values={}
+            entity=target_entity, filter=filter, team=team, hogql_values=hogql_values
         ).get_actors()
         return serialized_actors
 
@@ -77,7 +83,9 @@ class Stickiness:
             "persons_urls": self._get_persons_url(filter, entity),
         }
 
-    def _serialize_entity(self, entity: Entity, filter: StickinessFilter, team: Team) -> List[Dict[str, Any]]:
+    def _serialize_entity(
+        self, entity: Entity, filter: StickinessFilter, team: Team, hogql_values: Dict
+    ) -> List[Dict[str, Any]]:
         serialized: Dict[str, Any] = {
             "action": entity.to_dict(),
             "label": entity.name,
@@ -88,7 +96,7 @@ class Stickiness:
         }
         response = []
         new_dict = copy.deepcopy(serialized)
-        new_dict.update(self.stickiness(entity=entity, filter=filter, team=team))
+        new_dict.update(self.stickiness(entity=entity, filter=filter, team=team, hogql_values=hogql_values))
         response.append(new_dict)
         return response
 

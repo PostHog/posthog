@@ -21,21 +21,25 @@ class Retention:
     def __init__(self, base_uri="/"):
         self._base_uri = base_uri
 
-    def run(self, filter: RetentionFilter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
-        retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team)
+    def run(
+        self, filter: RetentionFilter, team: Team, hogql_values: Dict = {}, *args, **kwargs
+    ) -> List[Dict[str, Any]]:
+        retention_by_breakdown = self._get_retention_by_breakdown_values(filter, team, hogql_values)
         if filter.breakdowns:
             return self.process_breakdown_table_result(retention_by_breakdown, filter)
         else:
             return self.process_table_result(retention_by_breakdown, filter, team)
 
     def _get_retention_by_breakdown_values(
-        self, filter: RetentionFilter, team: Team
+        self, filter: RetentionFilter, team: Team, hogql_values: Dict
     ) -> Dict[CohortKey, Dict[str, Any]]:
 
-        actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
+        actor_query = build_actor_activity_query(
+            filter=filter, team=team, retention_events_query=self.event_query, hogql_values=hogql_values
+        )
         result = insight_sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
-            settings={"timeout_before_checking_execution_speed": 60},
+            settings={"timeout_before_checking_execution_speed": 60, **hogql_values},
             filter=filter,
             query_type="retention_by_breakdown_values",
         )
@@ -138,6 +142,7 @@ class Retention:
 def build_returning_event_query(
     filter: RetentionFilter,
     team: Team,
+    hogql_values: Dict,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
     retention_events_query=RetentionEventsQuery,
@@ -148,9 +153,11 @@ def build_returning_event_query(
         event_query_type=RetentionQueryType.RETURNING,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=using_person_on_events,
+        hogql_values=hogql_values,
     ).get_query()
 
-    query = substitute_params(returning_event_query_templated, returning_event_params)
+    # TODO: evaluate this for f-strings
+    query = substitute_params(returning_event_query_templated, {**returning_event_params, **hogql_values})
 
     return query
 
@@ -158,6 +165,7 @@ def build_returning_event_query(
 def build_target_event_query(
     filter: RetentionFilter,
     team: Team,
+    hogql_values: Dict,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     using_person_on_events: bool = False,
     retention_events_query=RetentionEventsQuery,
@@ -172,8 +180,10 @@ def build_target_event_query(
         ),
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
         using_person_on_events=using_person_on_events,
+        hogql_values=hogql_values,
     ).get_query()
 
-    query = substitute_params(target_event_query_templated, target_event_params)
+    # TODO: evaluate this for f-strings
+    query = substitute_params(target_event_query_templated, {**target_event_params, **hogql_values})
 
     return query

@@ -28,7 +28,7 @@ class StickinessActors(ActorBaseQuery):
             filter=self._filter,
             team=self._team,
             using_person_on_events=self._team.person_on_events_querying_enabled,
-            hogql_values=self.hogql_values,
+            hogql_values=self._hogql_values,
         ).get_query()
 
         return (

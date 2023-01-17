@@ -32,8 +32,9 @@ from posthog.utils import generate_cache_key, get_safe_cache
 
 
 class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
-    def _get_sql_for_entity(self, filter: Filter, team: Team, entity: Entity) -> Tuple[str, str, Dict, Callable]:
-        hogql_values: Dict = {}
+    def _get_sql_for_entity(
+        self, filter: Filter, team: Team, entity: Entity, hogql_values: Dict
+    ) -> Tuple[str, str, Dict, Callable]:
         if filter.breakdown and filter.display not in NON_BREAKDOWN_DISPLAY_TYPES:
             query_type = "trends_breakdown"
             sql, params, parse_function = TrendsBreakdown(
@@ -125,16 +126,18 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         else:
             return result, {}
 
-    def _run_query(self, filter: Filter, team: Team, entity: Entity) -> List[Dict[str, Any]]:
+    def _run_query(self, filter: Filter, team: Team, entity: Entity, hogql_values: Dict) -> List[Dict[str, Any]]:
         adjusted_filter, cached_result = self.adjusted_filter(filter, team)
         with push_scope() as scope:
-            query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
+            query_type, sql, params, parse_function = self._get_sql_for_entity(
+                adjusted_filter, team, entity, hogql_values
+            )
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
             scope.set_context("query", {"sql": sql, "params": params})
             result = insight_sync_execute(
                 sql,
-                params,
+                {**params, **hogql_values},
                 query_type=query_type,
                 filter=adjusted_filter,
             )
@@ -164,13 +167,16 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         jobs = []
 
         for entity in filter.entities:
+            hogql_values: Dict = {}
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
-            query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
+            query_type, sql, params, parse_function = self._get_sql_for_entity(
+                adjusted_filter, team, entity, hogql_values=hogql_values
+            )
             parse_functions[entity.index] = parse_function
-            sql_statements_with_params[entity.index] = (sql, params)
+            sql_statements_with_params[entity.index] = (sql, {**params, **hogql_values})
             thread = threading.Thread(
                 target=self._run_query_for_threading,
-                args=(result, entity.index, query_type, sql, params, get_query_tags()),
+                args=(result, entity.index, query_type, sql, {**params, **hogql_values}, get_query_tags()),
             )
             jobs.append(thread)
 
@@ -209,14 +215,14 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
 
         return flat_results
 
-    def run(self, filter: Filter, team: Team, *args, **kwargs) -> List[Dict[str, Any]]:
+    def run(self, filter: Filter, team: Team, hogql_values={}, *args, **kwargs) -> List[Dict[str, Any]]:
         actions = Action.objects.filter(team_id=team.pk).order_by("-id")
         if len(filter.actions) > 0:
             actions = Action.objects.filter(pk__in=[entity.id for entity in filter.actions], team_id=team.pk)
         actions = actions.prefetch_related(Prefetch("steps", queryset=ActionStep.objects.order_by("id")))
 
         if filter.formula:
-            return handle_compare(filter, self._run_formula_query, team)
+            return handle_compare(filter, self._run_formula_query, team, hogql_values=hogql_values)
 
         for entity in filter.entities:
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
@@ -228,7 +234,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
         if len(filter.entities) == 1 or filter.compare:
             result = []
             for entity in filter.entities:
-                result.extend(handle_compare(filter, self._run_query, team, entity=entity))
+                result.extend(handle_compare(filter, self._run_query, team, entity=entity, hogql_values=hogql_values))
         else:
             result = self._run_parallel(filter, team)
 

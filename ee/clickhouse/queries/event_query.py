@@ -23,6 +23,7 @@ class EnterpriseEventQuery(EventQuery):
             Filter, PathFilter, RetentionFilter, StickinessFilter, SessionRecordingsFilter, PropertiesTimelineFilter
         ],
         team: Team,
+        hogql_values: Dict,
         round_interval=False,
         should_join_distinct_ids=False,
         should_join_persons=False,
@@ -37,6 +38,7 @@ class EnterpriseEventQuery(EventQuery):
         super().__init__(
             filter=filter,
             team=team,
+            hogql_values=hogql_values,
             round_interval=round_interval,
             should_join_distinct_ids=should_join_distinct_ids,
             should_join_persons=should_join_persons,

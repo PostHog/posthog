@@ -81,7 +81,7 @@ class ActorBaseQuery:
     ):
         self._team = team
         self.entity = entity
-        self.hogql_values = hogql_values
+        self._hogql_values = hogql_values
         self._filter = filter
 
     def actor_query(self, limit_actors: Optional[bool] = True) -> Tuple[str, Dict]:

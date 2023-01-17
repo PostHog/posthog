@@ -25,6 +25,7 @@ class RetentionEventsQuery(EventQuery):
     def __init__(
         self,
         filter: RetentionFilter,
+        hogql_values: Dict,
         event_query_type: RetentionQueryType,
         team: Team,
         aggregate_users_by_distinct_id: Optional[bool] = None,
@@ -34,6 +35,7 @@ class RetentionEventsQuery(EventQuery):
         super().__init__(
             filter=filter,
             team=team,
+            hogql_values=hogql_values,
             override_aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
             using_person_on_events=using_person_on_events,
         )
