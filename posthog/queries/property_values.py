@@ -13,12 +13,17 @@ from posthog.utils import relative_date_parse
 def get_property_values_for_key(
     key: str, team: Team, event_names: Optional[List[str]] = None, value: Optional[str] = None
 ):
-    property_field, _ = get_property_string_expr("events", key, "%(key)s", "properties")
+    property_field, mat_column_exists = get_property_string_expr("events", key, "%(key)s", "properties")
     parsed_date_from = "AND timestamp >= '{}'".format(relative_date_parse("-7d").strftime("%Y-%m-%d 00:00:00"))
     parsed_date_to = "AND timestamp <= '{}'".format(timezone.now().strftime("%Y-%m-%d 23:59:59"))
+    property_exists_filter = ""
     event_filter = ""
     value_filter = ""
-    value_params = {}
+    extra_params = {}
+
+    if mat_column_exists:
+        property_exists_filter = "AND JSONHas(properties, %(key)s)"
+        extra_params["key"] = key
 
     if event_names is not None:
         event_conditions = " OR ".join(f"event = '{event_name}'" for event_name in event_names)
@@ -26,7 +31,7 @@ def get_property_values_for_key(
 
     if value:
         value_filter = "AND {} ILIKE %(value)s".format(property_field)
-        value_params["value"] = "%{}%".format(value)
+        extra_params["value"] = "%{}%".format(value)
 
     return insight_sync_execute(
         SELECT_PROP_VALUES_SQL_WITH_FILTER.format(
@@ -35,8 +40,9 @@ def get_property_values_for_key(
             property_field=property_field,
             event_filter=event_filter,
             value_filter=value_filter,
+            property_exists_filter=property_exists_filter,
         ),
-        {"team_id": team.pk, "key": key, **value_params},
+        {"team_id": team.pk, "key": key, **extra_params},
         query_type="get_property_values_with_value",
     )
 

@@ -258,8 +258,8 @@ SELECT
 FROM
     events
 WHERE
-    team_id = %(team_id)s AND
-    JSONHas(properties, %(key)s)
+    team_id = %(team_id)s
+    {property_exists_filter}
     {parsed_date_from}
     {parsed_date_to}
     {event_filter}
