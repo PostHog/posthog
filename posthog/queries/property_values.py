@@ -28,12 +28,12 @@ def get_property_values_for_key(
         extra_params["key"] = key
 
     if event_names is not None and len(event_names) > 0:
-        event_conditions = []
+        event_conditions_list = []
         for index, event_name in enumerate(event_names):
-            event_conditions.append(f"event = %(event_{index})s")
+            event_conditions_list.append(f"event = %(event_{index})s")
             extra_params[f"event_{index}"] = event_name
 
-        event_conditions = " OR ".join(event_conditions)
+        event_conditions = " OR ".join(event_conditions_list)
         event_filter = "AND ({})".format(event_conditions)
 
     if value:
