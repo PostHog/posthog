@@ -1,4 +1,5 @@
 import hashlib
+import json
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
@@ -599,6 +600,37 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
 
+def set_feature_flags_for_team_in_cache(team_id: int, feature_flags: Optional[List[FeatureFlag]] = None) -> None:
+    from posthog.api.feature_flag import MinimalFeatureFlagSerializer
+
+    if feature_flags is not None:
+        all_feature_flags = feature_flags
+    else:
+        all_feature_flags = list(FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False))
+
+    serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
+
+    cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), None)
+
+
+def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFlag]]:
+    try:
+        flag_data = cache.get(f"team_feature_flags_{team_id}")
+    except Exception:
+        # redis is unavailable
+        return None
+
+    if flag_data is not None:
+        try:
+            parsed_data = json.loads(flag_data)
+            return [FeatureFlag(**flag) for flag in parsed_data]
+        except Exception as e:
+            capture_exception(e)
+            return None
+
+    return None
+
+
 def hash_key_overrides(team_id: int, person_id: int) -> Dict[str, str]:
     feature_flag_to_key_overrides = {}
     for feature_flag, override in FeatureFlagHashKeyOverride.objects.filter(
@@ -651,7 +683,6 @@ def get_all_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
 ) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
-    from posthog.api.feature_flag import get_feature_flags_for_team_in_cache, set_feature_flags_for_team_in_cache
 
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     if all_feature_flags is None:

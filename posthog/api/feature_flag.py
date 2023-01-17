@@ -1,14 +1,12 @@
 import json
 from typing import Any, Dict, List, Optional, cast
 
-from django.core.cache import cache
 from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
-from sentry_sdk import capture_exception
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import StructuredViewSetMixin
@@ -25,6 +23,7 @@ from posthog.models.feature_flag import (
     can_user_edit_feature_flag,
     get_all_feature_flags,
     get_user_blast_radius,
+    set_feature_flags_for_team_in_cache,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
@@ -443,35 +442,6 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
             activity="updated",
             detail=Detail(changes=changes, name=serializer.instance.key),
         )
-
-
-def set_feature_flags_for_team_in_cache(team_id: int, feature_flags: Optional[List[FeatureFlag]] = None) -> None:
-    if feature_flags is not None:
-        all_feature_flags = feature_flags
-    else:
-        all_feature_flags = list(FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False))
-
-    serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
-
-    cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), None)
-
-
-def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFlag]]:
-    try:
-        flag_data = cache.get(f"team_feature_flags_{team_id}")
-    except Exception:
-        # redis is unavailable
-        return None
-
-    if flag_data is not None:
-        try:
-            parsed_data = json.loads(flag_data)
-            return [FeatureFlag(**flag) for flag in parsed_data]
-        except Exception as e:
-            capture_exception(e)
-            return None
-
-    return None
 
 
 class LegacyFeatureFlagViewSet(FeatureFlagViewSet):
