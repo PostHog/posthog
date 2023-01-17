@@ -84,6 +84,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
+                'sessionPlayerSnapshotDataLoading',
                 'sessionEventsData',
                 'sessionEventsDataLoading',
                 'windowIds',
@@ -146,18 +147,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     })),
 
     selectors(({}) => ({
-        loading: [
-            (s) => [s.sessionEventsDataLoading, s.performanceEventsLoading, s.sessionPlayerMetaDataLoading],
-            (sessionEventsDataLoading, performanceEventsLoading, sessionPlayerMetaDataLoading) => {
-                return {
-                    [SessionRecordingPlayerTab.ALL]: false,
-                    [SessionRecordingPlayerTab.EVENTS]: sessionEventsDataLoading,
-                    [SessionRecordingPlayerTab.CONSOLE]: sessionPlayerMetaDataLoading,
-                    [SessionRecordingPlayerTab.PERFORMANCE]: performanceEventsLoading,
-                }
-            },
-        ],
-
         recordingTimeInfo: [
             (s) => [s.sessionPlayerMetaData],
             (sessionPlayerMetaData): { start: Dayjs; end: Dayjs; duration: number } => {
@@ -489,6 +478,49 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
 
                 return items
+            },
+        ],
+
+        tabsState: [
+            (s) => [
+                s.sessionEventsDataLoading,
+                s.performanceEventsLoading,
+                s.sessionPlayerMetaDataLoading,
+                s.sessionPlayerSnapshotDataLoading,
+                s.sessionEventsData,
+                s.consoleLogs,
+                s.performanceEvents,
+            ],
+            (
+                sessionEventsDataLoading,
+                performanceEventsLoading,
+                sessionPlayerMetaDataLoading,
+                sessionPlayerSnapshotDataLoading,
+                events,
+                logs,
+                performanceEvents
+            ): Record<SessionRecordingPlayerTab, 'loading' | 'ready' | 'empty'> => {
+                return {
+                    [SessionRecordingPlayerTab.ALL]: 'ready',
+                    [SessionRecordingPlayerTab.EVENTS]:
+                        sessionEventsDataLoading || !events?.events
+                            ? 'loading'
+                            : events?.events.length
+                            ? 'ready'
+                            : 'empty',
+                    [SessionRecordingPlayerTab.CONSOLE]:
+                        sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
+                            ? 'loading'
+                            : logs.length
+                            ? 'ready'
+                            : 'empty',
+                    [SessionRecordingPlayerTab.PERFORMANCE]:
+                        performanceEventsLoading || !performanceEvents
+                            ? 'loading'
+                            : performanceEvents.length
+                            ? 'ready'
+                            : 'empty',
+                }
             },
         ],
 
