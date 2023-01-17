@@ -86,7 +86,11 @@ export function PathsEventTypesComponent({
                         key={option.type}
                         onClick={() => onClickPathtype(option.type)}
                         status="stealth"
-                        disabled={option.selected && includeEventTypes?.length === 1}
+                        disabledReason={
+                            option.selected && includeEventTypes?.length === 1
+                                ? 'At least one event type must be selected'
+                                : undefined
+                        }
                         fullWidth
                         data-attr={option['data-attr']}
                     >
