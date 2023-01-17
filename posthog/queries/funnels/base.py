@@ -34,7 +34,6 @@ from posthog.queries.breakdown_props import (
 from posthog.queries.funnels.funnel_event_query import FunnelEventQuery
 from posthog.queries.funnels.sql import FUNNEL_INNER_EVENT_STEPS_QUERY
 from posthog.queries.insight import insight_sync_execute
-from posthog.utils import relative_date_parse
 
 
 class ClickhouseFunnelBase(ABC):
@@ -125,7 +124,7 @@ class ClickhouseFunnelBase(ABC):
         # format default dates
         data: Dict[str, Any] = {}
         if not self._filter._date_from:
-            data.update({"date_from": relative_date_parse("-7d")})
+            data.update({"date_from": "-7d"})
 
         if self._filter.breakdown and not self._filter.breakdown_type:
             data.update({"breakdown_type": "event"})

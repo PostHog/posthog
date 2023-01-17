@@ -207,11 +207,6 @@ def relative_date_parse_with_delta_mapping(
             delta_mapping["month"] = 12
             delta_mapping["day"] = 31
     date -= relativedelta(**delta_mapping)  # type: ignore
-    # Truncate to the start of the hour for hour-precision datetimes, to the start of the day for larger intervals
-    if "hours" in delta_mapping:
-        date = date.replace(minute=0, second=0, microsecond=0)
-    else:
-        date = date.replace(hour=0, minute=0, second=0, microsecond=0)
     return date, delta_mapping
 
 

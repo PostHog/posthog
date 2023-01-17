@@ -11,7 +11,7 @@ from posthog.models.filters.mixins.common import DateMixin
 from posthog.models.filters.mixins.interval import IntervalMixin
 from posthog.models.team import Team
 from posthog.queries.util import PERIOD_TO_TRUNC_FUNC, TIME_IN_SECONDS, get_earliest_timestamp
-from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse
+from posthog.utils import DEFAULT_DATE_FROM_DAYS, relative_date_parse_with_delta_mapping
 
 F = TypeVar("F", DateMixin, IntervalMixin)
 
@@ -35,13 +35,17 @@ class QueryDateRange(Generic[F]):
             return self._now + relativedelta(minutes=1)
 
         date_to = self._now
+        delta_mapping: Optional[Dict[str, int]] = None
         if isinstance(self._filter._date_to, str):
-            date_to = relative_date_parse(self._filter._date_to, now=self._now)
+            date_to, delta_mapping = relative_date_parse_with_delta_mapping(self._filter._date_to, now=self._now)
         elif isinstance(self._filter._date_to, datetime):
             date_to = self._localize_to_team(self._filter._date_to)
 
-        if not self.is_hourly(self._filter._date_to) and not self._filter.use_explicit_dates:
-            date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
+        if not self._filter.use_explicit_dates:
+            if self.is_hourly(delta_mapping):
+                date_to = date_to.replace(minute=59, second=59, microsecond=999999)
+            else:
+                date_to = date_to.replace(hour=23, minute=59, second=59, microsecond=999999)
 
         return date_to
 
@@ -56,10 +60,11 @@ class QueryDateRange(Generic[F]):
     @cached_property
     def date_from_param(self) -> datetime:
         date_from: datetime
+        delta_mapping: Optional[Dict[str, int]] = None
         if self._filter._date_from == "all":
             date_from = self.get_earliest_timestamp()
         elif isinstance(self._filter._date_from, str):
-            date_from = relative_date_parse(self._filter._date_from, now=self._now)
+            date_from, delta_mapping = relative_date_parse_with_delta_mapping(self._filter._date_from, now=self._now)
         elif isinstance(self._filter._date_from, datetime):
             date_from = self._localize_to_team(self._filter._date_from)
         else:
@@ -67,8 +72,11 @@ class QueryDateRange(Generic[F]):
                 days=DEFAULT_DATE_FROM_DAYS
             )
 
-        if not self.is_hourly(self._filter._date_from) and not self._filter.use_explicit_dates:
-            date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
+        if not self._filter.use_explicit_dates:
+            if self.is_hourly(delta_mapping):
+                date_from = date_from.replace(minute=0, second=0, microsecond=0)
+            else:
+                date_from = date_from.replace(hour=0, minute=0, second=0, microsecond=0)
 
         return date_from
 
@@ -169,7 +177,7 @@ class QueryDateRange(Generic[F]):
 
         return round_interval
 
-    def is_hourly(self, target):
+    def is_hourly(self, delta_mapping: Optional[Dict[str, int]]):
         if not isinstance(self._filter, IntervalMixin):
             return False
-        return self._filter.interval == "hour" or (target and isinstance(target, str) and "h" in target)
+        return self._filter.interval == "hour" or (delta_mapping and "hours" in delta_mapping)
