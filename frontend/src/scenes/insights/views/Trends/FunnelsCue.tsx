@@ -16,13 +16,9 @@ export function FunnelsCue({ tooltipPosition }: { tooltipPosition?: number }): J
 
     return (
         <div className={clsx('funnels-product-cue', shown && 'shown')}>
-            <InlineMessage
-                closable
-                icon={<IconLightBulb style={{ color: 'var(--warning)', fontSize: '1.3em' }} />}
-                onClose={() => optOut(true)}
-            >
+            <InlineMessage closable icon={<IconLightBulb className="text-warning" />} onClose={() => optOut(true)}>
                 <div className="flex items-center">
-                    <div style={{ paddingRight: 16 }}>
+                    <div className="pr-4">
                         Looks like you have multiple events. A funnel can help better visualize your user's progression
                         across each event.
                     </div>
@@ -37,6 +33,7 @@ export function FunnelsCue({ tooltipPosition }: { tooltipPosition?: number }): J
             {tooltipPosition && (
                 <div
                     className="tooltip-arrow"
+                    /* eslint-disable-next-line react/forbid-dom-props */
                     style={{
                         left: tooltipPosition,
                     }}
