@@ -2344,24 +2344,24 @@ class TestResiliency(TestCase, QueryMatchingTest):
 
         with self.assertNumQueries(2):
             # one query to get group type mappings, another to get group properties
-            all_flags, _ = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
             self.assertTrue(all_flags["group-flag"])
             self.assertTrue(all_flags["default-flag"])
-            # self.assertFalse(errors)
+            self.assertFalse(errors)
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            all_flags, _ = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id", groups={"organization": "org:1"})
 
             self.assertTrue("group-flag" not in all_flags)
             # can't be true unless we cache group type mappings as well
             self.assertTrue("default-flag" not in all_flags)
-            # self.assertFalse(errors)
+            self.assertTrue(errors)
 
-            # # now db is down, but decide was sent email parameter with correct email
+            # # now db is down, but decide was sent correct group property overrides
             with self.assertNumQueries(2):
                 # these 2 queries are "None", not executed
-                all_flags, _ = get_all_feature_flags(
+                all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "random",
                     groups={"organization": "org:1"},
@@ -2370,12 +2370,12 @@ class TestResiliency(TestCase, QueryMatchingTest):
                 self.assertTrue("group-flag" not in all_flags)
                 # can't be true unless we cache group type mappings as well
                 self.assertTrue("default-flag" not in all_flags)
-                # self.assertFalse(errors)
+                self.assertTrue(errors)
 
-            # # now db is down, but decide was sent email parameter with different email
+            # # now db is down, but decide was sent different group property overrides
             with self.assertNumQueries(2):
                 # these 2 queries are "None", not executed
-                all_flags, _ = get_all_feature_flags(
+                all_flags, _, _, errors = get_all_feature_flags(
                     team_id,
                     "exam",
                     groups={"organization": "org:1"},
@@ -2384,8 +2384,7 @@ class TestResiliency(TestCase, QueryMatchingTest):
                 self.assertTrue("group-flag" not in all_flags)
                 # can't be true unless we cache group type mappings as well
                 self.assertTrue("default-flag" not in all_flags)
-                # TODO, add check for errors
-                # self.assertFalse(errors)
+                self.assertTrue(errors)
 
     def test_feature_flags_v3_with_person_properties(self):
         self.organization = Organization.objects.create(name="test")
@@ -2433,33 +2432,34 @@ class TestResiliency(TestCase, QueryMatchingTest):
 
         with self.assertNumQueries(1):
             # 1 query to get person properties
-            all_flags, _ = get_all_feature_flags(team_id, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
+
             self.assertTrue(all_flags["property-flag"])
             self.assertTrue(all_flags["default-flag"])
-            # self.assertFalse(errors)
+            self.assertFalse(errors)
 
         # now db is down
         with snapshot_postgres_queries_context(self), connection.execute_wrapper(QueryTimeoutWrapper()):
-            all_flags, _ = get_all_feature_flags(team_id, "example_id")
+            all_flags, _, _, errors = get_all_feature_flags(team_id, "example_id")
 
             self.assertTrue("property-flag" not in all_flags)
             self.assertTrue(all_flags["default-flag"])
-            # self.assertFalse(errors)
+            self.assertTrue(errors)
 
             # # now db is down, but decide was sent email parameter with correct email
             with self.assertNumQueries(0):
-                all_flags, _ = get_all_feature_flags(
+                all_flags, _, _, errors = get_all_feature_flags(
                     team_id, "random", property_value_overrides={"email": "tim@posthog.com"}
                 )
                 self.assertTrue(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
-                # self.assertFalse(errors)
+                self.assertFalse(errors)
 
             # # now db is down, but decide was sent email parameter with different email
             with self.assertNumQueries(0):
-                all_flags, _ = get_all_feature_flags(
+                all_flags, _, _, errors = get_all_feature_flags(
                     team_id, "example_id", property_value_overrides={"email": "tom@posthog.com"}
                 )
                 self.assertFalse(all_flags["property-flag"])
                 self.assertTrue(all_flags["default-flag"])
-                # self.assertFalse(errors)
+                self.assertFalse(errors)

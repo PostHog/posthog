@@ -294,6 +294,7 @@ class FeatureFlagMatch:
     variant: Optional[str] = None
     reason: FeatureFlagMatchReason = FeatureFlagMatchReason.NO_CONDITION_MATCH
     condition_index: Optional[int] = None
+    payload: Optional[object] = None
 
 
 class FlagsMatcherCache:
@@ -371,7 +372,7 @@ class FeatureFlagMatcher:
             payload=payload,
         )
 
-    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object]]:
+    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
         flag_values = {}
         flag_evaluation_reasons = {}
         faced_error_computing_flags = False
@@ -395,12 +396,10 @@ class FeatureFlagMatcher:
                     "condition_index": flag_match.condition_index,
                 }
             except Exception as err:
-                # TODO: just doing this so I can commit
                 faced_error_computing_flags = True
-                if faced_error_computing_flags:
-                    capture_exception(err)
                 capture_exception(err)
-        return flag_values, flag_evaluation_reasons, flag_payloads
+
+        return flag_values, flag_evaluation_reasons, flag_payloads, faced_error_computing_flags
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
         for variant in self.variant_lookup_table(feature_flag):
@@ -620,7 +619,7 @@ def _get_all_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     skip_experience_continuity_flags: bool = False,
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
     cache = FlagsMatcherCache(team_id)
 
     if person_id is not None:
@@ -640,7 +639,7 @@ def _get_all_feature_flags(
             skip_experience_continuity_flags,
         ).get_matches()
 
-    return {}, {}, {}
+    return {}, {}, {}, False
 
 
 # Return feature flags
@@ -651,7 +650,7 @@ def get_all_feature_flags(
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object], bool]:
     from posthog.api.feature_flag import get_feature_flags_for_team_in_cache, set_feature_flags_for_team_in_cache
 
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)

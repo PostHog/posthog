@@ -294,7 +294,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         if not feature_flag_list:
             return Response(flags)
 
-        matches, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
         for feature_flag in feature_flags:
             flags.append(
                 {
@@ -344,7 +344,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons, _ = get_all_feature_flags(self.team_id, distinct_id, groups)
+        flags, reasons, _, _ = get_all_feature_flags(self.team_id, distinct_id, groups)
 
         flags_with_evaluation_reasons = {}
 

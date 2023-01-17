@@ -93,7 +93,7 @@ class TeamManager(models.Manager):
         except Team.DoesNotExist:
             return None
 
-    def get_team_from_token_or_cache(self, token: Optional[str]) -> Optional["Team"]:
+    def get_team_from_cache_or_token(self, token: Optional[str]) -> Optional["Team"]:
         if not token:
             return None
         try:

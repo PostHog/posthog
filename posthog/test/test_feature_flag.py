@@ -868,7 +868,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(4), snapshot_postgres_queries_context(
             self
         ):  # 1 to fill group cache, 2 to match feature flags with group properties (of each type), 1 to match feature flags with person properties
-            matches, reasons, payloads = FeatureFlagMatcher(
+            matches, reasons, payloads, _ = FeatureFlagMatcher(
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -922,7 +922,7 @@ class TestFeatureFlagMatcher(BaseTest, QueryMatchingTest):
         with self.assertNumQueries(3), snapshot_postgres_queries_context(
             self
         ):  # 1 to fill group cache, 1 to match feature flags with group properties (only 1 group provided), 1 to match feature flags with person properties
-            matches, reasons, payloads = FeatureFlagMatcher(
+            matches, reasons, payloads, _ = FeatureFlagMatcher(
                 [
                     feature_flag_one,
                     feature_flag_always_match,
@@ -1685,7 +1685,7 @@ class TestFeatureFlagHashKeyOverrides(BaseTest, QueryMatchingTest):
 
     def test_entire_flow_with_hash_key_override(self):
         # get feature flags for 'other_id', with an override for 'example_id'
-        flags, reasons, payloads = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
+        flags, reasons, payloads, _ = get_all_feature_flags(self.team.pk, "other_id", {}, "example_id")
         self.assertEqual(
             flags,
             {
@@ -1765,7 +1765,7 @@ class TestHashKeyOverridesRaceConditions(TransactionTestCase):
                 for index in range(5)
             }
             for future in concurrent.futures.as_completed(future_to_index):
-                flags, reasons, payloads = future.result()
+                flags, reasons, payloads, _ = future.result()
                 assert flags == {
                     "beta-feature": True,
                     "multivariate-flag": "first-variant",
