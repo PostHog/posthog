@@ -319,7 +319,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertIn("beta-feature", response.json()["featureFlags"])
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
-        with self.assertNumQueries(2):
+        # caching flag definitions in the above mean fewer queries
+        with self.assertNumQueries(0):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
