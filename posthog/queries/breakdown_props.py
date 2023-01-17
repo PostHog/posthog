@@ -190,6 +190,7 @@ def get_breakdown_prop_values(
             **sessions_join_params,
             **extra_params,
             **date_params,
+            **hogql_values,
         },
         query_type="get_breakdown_prop_values",
         filter=filter,
