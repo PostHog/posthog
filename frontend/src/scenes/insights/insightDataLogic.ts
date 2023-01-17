@@ -1,7 +1,7 @@
 import { kea, props, key, path, actions, reducers, selectors, connect, listeners } from 'kea'
 import { FilterType, InsightLogicProps, InsightType } from '~/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { InsightFilter, InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
+import { BreakdownFilter, InsightFilter, InsightQueryNode, InsightVizNode, Node, NodeKind } from '~/queries/schema'
 import { BaseMathType } from '~/types'
 import { ShownAsValue } from 'lib/constants'
 
@@ -9,7 +9,7 @@ import type { insightDataLogicType } from './insightDataLogicType'
 import { insightLogic } from './insightLogic'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { filtersToQueryNode } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
-import { filterPropertyForQuery, isLifecycleQuery, isUnimplementedQuery } from '~/queries/utils'
+import { filterForQuery, filterPropertyForQuery, isLifecycleQuery, isUnimplementedQuery } from '~/queries/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { cleanFilters } from './utils/cleanFilters'
@@ -125,7 +125,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     selectors({
         querySource: [(s) => [s.query], (query) => (query as InsightVizNode).source],
-        insightFilter: [(s) => [s.querySource], (querySource) => querySource[filterPropertyForQuery(querySource)]],
+        insightFilter: [(s) => [s.querySource], (querySource) => filterForQuery(querySource)],
     }),
 
     listeners(({ actions, values }) => ({

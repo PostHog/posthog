@@ -358,9 +358,9 @@ export function summarizeInsightQuery(
                 const mathDefinition = mathDefinitions[mathType] as MathDefinition | undefined
                 let series: string
                 if (mathDefinition?.category === MathCategory.EventCountPerActor) {
-                    series = `${getDisplayNameFromEntityFilter(s)} count per user ${mathDefinition.shortName}`
+                    series = `${getDisplayNameFromEntityNode(s)} count per user ${mathDefinition.shortName}`
                 } else if (mathDefinition?.category === MathCategory.PropertyValue) {
-                    series = `${getDisplayNameFromEntityFilter(s)}'s ${
+                    series = `${getDisplayNameFromEntityNode(s)}'s ${
                         keyMapping.event[s.math_property as string]?.label || s.math_property
                     } ${
                         mathDefinition
@@ -370,7 +370,7 @@ export function summarizeInsightQuery(
                             : mathType
                     }`
                 } else {
-                    series = `${getDisplayNameFromEntityFilter(s)} ${
+                    series = `${getDisplayNameFromEntityNode(s)} ${
                         mathDefinition
                             ? mathDefinition.shortName
                             : s.math === 'unique_group'
