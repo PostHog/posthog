@@ -2,6 +2,7 @@ import { EventsNode, EventsQuery } from '~/queries/schema'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { AnyPropertyFilter } from '~/types'
 import { useState } from 'react'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 interface EventPropertyFiltersProps {
     query: EventsNode | EventsQuery
@@ -17,6 +18,14 @@ export function EventPropertyFilters({ query, setQuery }: EventPropertyFiltersPr
             onChange={(value: AnyPropertyFilter[]) => setQuery?.({ ...query, properties: value })}
             pageKey={`EventPropertyFilters.${id}`}
             style={{ marginBottom: 0, marginTop: 0 }}
+            taxonomicGroupTypes={[
+                TaxonomicFilterGroupType.EventProperties,
+                TaxonomicFilterGroupType.PersonProperties,
+                TaxonomicFilterGroupType.EventFeatureFlags,
+                TaxonomicFilterGroupType.Cohorts,
+                TaxonomicFilterGroupType.Elements,
+                TaxonomicFilterGroupType.HogQLExpression,
+            ]}
             eventNames={query.event ? [query.event] : []}
         />
     ) : (

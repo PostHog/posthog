@@ -58,7 +58,7 @@ export function isValidPropertyFilter(filter: AnyPropertyFilter): filter is Prop
     return (
         !!filter && // is not falsy
         'key' in filter && // has a "key" property
-        Object.values(filter).some((v) => !!v) // contains some properties with values
+        ((filter.type === 'hogql' && !!filter.key) || Object.values(filter).some((v) => !!v)) // contains some properties with values
     )
 }
 
