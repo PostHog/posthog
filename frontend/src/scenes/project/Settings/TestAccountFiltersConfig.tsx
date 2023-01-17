@@ -30,9 +30,9 @@ export function TestAccountFiltersConfig(): JSX.Element {
                             not contain.
                         </p>
                         <p>Positive filters are currently set for the following properties: </p>
-                        <ul className={'list-disc'}>
+                        <ul className="list-disc">
                             {testAccountFilterWarningLabels.map((l, i) => (
-                                <li key={i} className={'ml-4'}>
+                                <li key={i} className="ml-4">
                                     {l}
                                 </li>
                             ))}
