@@ -764,3 +764,46 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
                     "results": [[2, "sign out"], [1, "sign up"]],
                 },
             )
+
+    @also_test_with_materialized_columns(["key"])
+    @snapshot_clickhouse_queries
+    def test_hogql_property_filter(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            select = ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"]
+
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
+            self.assertEqual(len(response["results"]), 4)
+
+            properties = [{"type": "hogql", "key": "1 == 2"}]
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&properties={json.dumps(properties)}"
+            ).json()
+            self.assertEqual(len(response["results"]), 0)
+
+            properties = [{"type": "hogql", "key": "1 == 1"}]
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&properties={json.dumps(properties)}"
+            ).json()
+            self.assertEqual(len(response["results"]), 4)
+
+            properties = [{"type": "hogql", "key": "properties.key == 'test_val2'"}]
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&properties={json.dumps(properties)}"
+            ).json()
+            self.assertEqual(len(response["results"]), 2)
