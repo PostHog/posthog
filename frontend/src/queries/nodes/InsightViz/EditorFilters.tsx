@@ -7,8 +7,10 @@ import {
     QueryInsightEditorFilter,
     QueryEditorFilterProps,
     ChartDisplayType,
+    AvailableFeature,
 } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { userLogic } from 'scenes/userLogic'
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
 import {
     isTrendsQuery,
@@ -31,6 +33,8 @@ import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
 import { getBreakdown, getDisplay } from './utils'
 import { PathsEventsTypesDataExploration } from 'scenes/insights/EditorFilters/PathsEventTypes'
+import { PathsAdvancedPaywall } from 'scenes/insights/EditorFilters/PathsAdvancedPaywall'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -38,6 +42,14 @@ export interface EditorFiltersProps {
 }
 
 export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Element {
+    const { user } = useValues(userLogic)
+    const availableFeatures = user?.organization?.available_features || []
+    const { preflight } = useValues(preflightLogic)
+    const paidFeaturesDisabled = preflight?.instance_preferences?.disable_paid_fs
+    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
+    // const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
+    const advancedOptionsUsedCount = 0
+
     const showFilters = true // TODO: implement with insightVizLogic
 
     const isTrends = isTrendsQuery(query)
@@ -57,8 +69,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     //     (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
     // (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
-
-    const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
+    const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
 
     const editorFilters: QueryInsightEditorFilterGroup[] = [
         {
@@ -141,6 +152,26 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                           component: Breakdown,
                       }
                     : null,
+            ]),
+        },
+        {
+            title: 'Advanced Options',
+            defaultExpanded: !!advancedOptionsUsedCount,
+            count: advancedOptionsUsedCount,
+            editorFilters: filterFalsy([
+                isPaths &&
+                    (hasPathsAdvanced
+                        ? {
+                              key: 'paths-advanced',
+                              //   component: PathsAdvanced,
+                              component: () => <>Advanced</>,
+                          }
+                        : !paidFeaturesDisabled
+                        ? {
+                              key: 'paths-paywall',
+                              component: PathsAdvancedPaywall,
+                          }
+                        : undefined),
             ]),
         },
     ]

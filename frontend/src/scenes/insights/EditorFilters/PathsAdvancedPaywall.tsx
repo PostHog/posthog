@@ -1,8 +1,8 @@
-import { AvailableFeature, EditorFilterProps } from '~/types'
+import { AvailableFeature } from '~/types'
 
 import { PayCard } from 'lib/components/PayCard/PayCard'
 
-export function PathsAdvancedPaywall({}: EditorFilterProps): JSX.Element {
+export function PathsAdvancedPaywall(): JSX.Element {
     return (
         <PayCard
             identifier={AvailableFeature.PATHS_ADVANCED}
