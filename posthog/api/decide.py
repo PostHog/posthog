@@ -147,7 +147,7 @@ def get_decide(request: HttpRequest):
                 **(data.get("person_properties") or {}),
             }
 
-            feature_flags, _ = get_all_feature_flags(
+            feature_flags, _, feature_flag_payloads = get_all_feature_flags(
                 team.pk,
                 data["distinct_id"],
                 data.get("groups") or {},
@@ -163,6 +163,7 @@ def get_decide(request: HttpRequest):
                 # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
                 response["featureFlags"] = feature_flags
                 response["errorsWhileComputingFlags"] = False  # TODO: add code to compute this
+                response["featureFlagPayloads"] = feature_flag_payloads
             else:
                 # default v1
                 response["featureFlags"] = list(active_flags.keys())

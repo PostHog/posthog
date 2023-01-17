@@ -67,6 +67,7 @@ export class TeamManager {
             updateAgeOnGet: true,
         })
         this.tokenToTeamIdCache = new LRU({
+            // TODO: add `maxAge` to ensure we avoid negatively caching teamId as null.
             max: 100_000,
         })
         this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)

@@ -74,6 +74,13 @@ class FeatureFlag(models.Model):
         return self.get_filters().get("groups", []) or []
 
     @property
+    def _payloads(self):
+        return self.get_filters().get("payloads", {}) or {}
+
+    def get_payload(self, match_val: str) -> Optional[object]:
+        return self._payloads.get(match_val, None)
+
+    @property
     def aggregation_group_type_index(self) -> Optional[GroupTypeIndex]:
         "If None, aggregating this feature flag by persons, otherwise by groups of given group_type_index"
         return self.get_filters().get("aggregation_group_type_index", None)
@@ -97,7 +104,7 @@ class FeatureFlag(models.Model):
             return {
                 "groups": [
                     {"properties": self.filters.get("properties", []), "rollout_percentage": self.rollout_percentage}
-                ]
+                ],
             }
 
     def transform_cohort_filters_for_easy_evaluation(self):
@@ -346,25 +353,29 @@ class FeatureFlagMatcher:
                     variant = variant_override
                 else:
                     variant = self.get_matching_variant(feature_flag)
+
+                payload = self.get_matching_payload(is_match, variant, feature_flag)
                 return FeatureFlagMatch(
-                    match=True,
-                    variant=variant,
-                    reason=evaluation_reason,
-                    condition_index=index,
+                    match=True, variant=variant, reason=evaluation_reason, condition_index=index, payload=payload
                 )
 
             highest_priority_evaluation_reason, highest_priority_index = self.get_highest_priority_match_evaluation(
                 highest_priority_evaluation_reason, highest_priority_index, evaluation_reason, index
             )
 
+        payload = None
         return FeatureFlagMatch(
-            match=False, reason=highest_priority_evaluation_reason, condition_index=highest_priority_index
+            match=False,
+            reason=highest_priority_evaluation_reason,
+            condition_index=highest_priority_index,
+            payload=payload,
         )
 
-    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
+    def get_matches(self) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object]]:
         flag_values = {}
         flag_evaluation_reasons = {}
         faced_error_computing_flags = False
+        flag_payloads = {}
         for feature_flag in self.feature_flags:
             if self.skip_experience_continuity_flags and feature_flag.ensure_experience_continuity:
                 faced_error_computing_flags = True
@@ -376,6 +387,9 @@ class FeatureFlagMatcher:
                 else:
                     flag_values[feature_flag.key] = False
 
+                if flag_match.payload:
+                    flag_payloads[feature_flag.key] = flag_match.payload
+
                 flag_evaluation_reasons[feature_flag.key] = {
                     "reason": flag_match.reason,
                     "condition_index": flag_match.condition_index,
@@ -386,7 +400,7 @@ class FeatureFlagMatcher:
                 if faced_error_computing_flags:
                     capture_exception(err)
                 capture_exception(err)
-        return flag_values, flag_evaluation_reasons
+        return flag_values, flag_evaluation_reasons, flag_payloads
 
     def get_matching_variant(self, feature_flag: FeatureFlag) -> Optional[str]:
         for variant in self.variant_lookup_table(feature_flag):
@@ -396,6 +410,17 @@ class FeatureFlagMatcher:
             ):
                 return variant["key"]
         return None
+
+    def get_matching_payload(
+        self, is_match: bool, match_variant: Optional[str], feature_flag: FeatureFlag
+    ) -> Optional[object]:
+        if is_match:
+            if match_variant:
+                return feature_flag.get_payload(match_variant)
+            else:
+                return feature_flag.get_payload("true")
+        else:
+            return None
 
     def is_condition_match(
         self, feature_flag: FeatureFlag, condition: Dict, condition_index: int
@@ -595,7 +620,7 @@ def _get_all_feature_flags(
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
     skip_experience_continuity_flags: bool = False,
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object]]:
     cache = FlagsMatcherCache(team_id)
 
     if person_id is not None:
@@ -615,7 +640,7 @@ def _get_all_feature_flags(
             skip_experience_continuity_flags,
         ).get_matches()
 
-    return {}, {}
+    return {}, {}, {}
 
 
 # Return feature flags
@@ -626,7 +651,7 @@ def get_all_feature_flags(
     hash_key_override: Optional[str] = None,
     property_value_overrides: Dict[str, Union[str, int]] = {},
     group_property_value_overrides: Dict[str, Dict[str, Union[str, int]]] = {},
-) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict]]:
+) -> Tuple[Dict[str, Union[str, bool]], Dict[str, dict], Dict[str, object]]:
     from posthog.api.feature_flag import get_feature_flags_for_team_in_cache, set_feature_flags_for_team_in_cache
 
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)

@@ -27,7 +27,7 @@ from posthog.api.utils import (
 )
 from posthog.exceptions import generate_exception_response
 from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
 from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
@@ -64,16 +64,25 @@ def parse_kafka_event_data(
 
 
 def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
-    logger.debug("logging_event", event_name=event_name, kafka_topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+    # To allow for different quality of service on session recordings and
+    # `$performance_event` and other events, we push to a different topic.
+    # TODO: split `$performance_event` out to it's own topic.
+    kafka_topic = (
+        KAFKA_SESSION_RECORDING_EVENTS
+        if event_name in ("$snapshot", "$performance_event")
+        else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+    )
+
+    logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        future = KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
+        future = KafkaProducer().produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
         return future
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
-        print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+        logger.exception("Failed to produce event to Kafka topic %s with error", kafka_topic)
         raise e
 
 
@@ -175,7 +184,7 @@ def _ensure_web_feature_flags_in_properties(
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
         statsd.incr("active_feature_flags_missing")
-        all_flags, _ = get_all_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
+        all_flags, _, _ = get_all_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
         active_flags = {key: value for key, value in all_flags.items() if value}
         flag_keys = list(active_flags.keys())
         event["properties"]["$active_feature_flags"] = flag_keys
@@ -404,9 +413,13 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
     # overriding this to deal with hot partitions in specific cases.
     # Setting the partition key to None means using random partitioning.
     kafka_partition_key = None
-    candidate_partition_key = f"{team_id}:{distinct_id}"
 
-    if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
-        kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+    if event["event"] in ("$snapshot", "$performance_event"):
+        kafka_partition_key = None
+    else:
+        candidate_partition_key = f"{team_id}:{distinct_id}"
+
+        if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
+            kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)

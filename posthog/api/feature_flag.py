@@ -160,6 +160,19 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                         raise serializers.ValidationError(
                             detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
                         )
+
+        payloads = filters.get("payloads", {})
+
+        if not isinstance(payloads, dict):
+            raise serializers.ValidationError("Payloads must be passed as a dictionary")
+
+        if filters.get("multivariate"):
+            if not all(key in variants for key in payloads):
+                raise serializers.ValidationError("Payload keys must match a variant key for multivariate flags")
+        else:
+            if len(payloads) > 1 or any(key != "true" for key in payloads):  # only expect one key
+                raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
+
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -281,7 +294,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         if not feature_flag_list:
             return Response(flags)
 
-        matches, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
         for feature_flag in feature_flags:
             flags.append(
                 {
@@ -331,7 +344,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons = get_all_feature_flags(self.team_id, distinct_id, groups)
+        flags, reasons, _ = get_all_feature_flags(self.team_id, distinct_id, groups)
 
         flags_with_evaluation_reasons = {}
 

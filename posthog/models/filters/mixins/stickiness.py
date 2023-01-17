@@ -71,7 +71,9 @@ class TotalIntervalsDerivedMixin(IntervalMixin, StickinessDateMixin):
         elif self.interval == "week":
             _num_intervals = (self.date_to - self.date_from).days // 7
         elif self.interval == "month":
-            _num_intervals = (self.date_to.year - self.date_from.year) + (self.date_to.month - self.date_from.month)
+            _num_intervals = (self.date_to.year - self.date_from.year) * 12 + (
+                self.date_to.month - self.date_from.month
+            )
         else:
             raise ValidationError(f"{self.interval} not supported")
         _num_intervals += 2

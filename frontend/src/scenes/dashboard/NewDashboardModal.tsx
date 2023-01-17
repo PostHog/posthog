@@ -12,28 +12,26 @@ import { LemonModal } from 'lib/components/LemonModal'
 import { Form } from 'kea-forms'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { userLogic } from 'scenes/userLogic'
+import { dashboardTemplatesLogic } from 'scenes/dashboard/dashboards/templates/dashboardTemplatesLogic'
 
 export function NewDashboardModal(): JSX.Element {
     const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
-
+    const { hasAvailableFeature } = useValues(userLogic)
+    const { templatesList } = useValues(dashboardTemplatesLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const websiteAnalyticsTemplate = !!featureFlags[FEATURE_FLAGS.WEBSITE_ANALYTICS_TEMPLATE]
+    const dashboardTemplates = !!featureFlags[FEATURE_FLAGS.DASHBOARD_TEMPLATES]
 
-    const templates = [
-        {
-            value: 'DEFAULT_APP',
-            label: 'Product analytics',
-            'data-attr': 'dashboard-select-default-app',
-        },
-    ]
-    if (websiteAnalyticsTemplate) {
-        templates.push({
-            value: 'WEBSITE_TRAFFIC',
-            label: 'Website traffic',
-            'data-attr': 'dashboard-select-wesbite-template',
-        })
-    }
+    const templates = dashboardTemplates
+        ? templatesList
+        : [
+              {
+                  value: 'DEFAULT_APP',
+                  label: 'Product analytics',
+                  'data-attr': 'dashboard-select-default-app',
+              },
+          ]
 
     return (
         <LemonModal
@@ -84,9 +82,11 @@ export function NewDashboardModal(): JSX.Element {
                 <Field name="name" label="Name">
                     <LemonInput autoFocus={true} data-attr="dashboard-name-input" className="ph-ignore-input" />
                 </Field>
-                <Field name="description" label="Description" showOptional>
-                    <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
-                </Field>
+                {hasAvailableFeature(AvailableFeature.DASHBOARD_COLLABORATION) ? (
+                    <Field name="description" label="Description" showOptional>
+                        <LemonTextArea data-attr="dashboard-description-input" className="ph-ignore-input" />
+                    </Field>
+                ) : null}
                 <Field name="useTemplate" label="Template" showOptional>
                     <LemonSelect
                         placeholder="Optionally start from template"

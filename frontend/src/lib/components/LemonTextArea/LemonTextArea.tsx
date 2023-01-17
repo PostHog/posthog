@@ -64,8 +64,8 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
 
 interface LemonTextMarkdownProps {
     'data-attr'?: string
-    value: string
-    onChange: (s: string) => void
+    value?: string
+    onChange?: (s: string) => void
 }
 
 export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTextMarkdownProps): JSX.Element {
@@ -89,7 +89,7 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 const formData = new FormData()
                 formData.append('image', filesToUpload[0])
                 const media = await api.media.upload(formData)
-                onChange(value + `\n\n![${media.name}](${media.image_location})`)
+                onChange?.(value + `\n\n![${media.name}](${media.image_location})`)
                 posthog.capture('markdown image uploaded', { name: media.name })
             } catch (error) {
                 const errorDetail = (error as any).detail || 'unknown error'
@@ -104,9 +104,10 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
     }, [filesToUpload])
 
     return (
-        <Tabs>
+        // Setting overflow: visible so that the LemonFileInput hover outline isn't clipped
+        <Tabs style={{ overflow: 'visible' }}>
             <Tabs.TabPane tab="Write" key="write-card" destroyInactiveTabPane={true}>
-                <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col p-2 space-y-1 rounded')}>
+                <div ref={dropRef} className={clsx('LemonTextMarkdown flex flex-col space-y-1 rounded')}>
                     <LemonTextArea ref={textAreaRef} {...editAreaProps} autoFocus value={value} onChange={onChange} />
                     <div className="text-muted inline-flex items-center space-x-1">
                         <IconMarkdown className={'text-2xl'} />
@@ -139,7 +140,7 @@ export function LemonTextMarkdown({ value, onChange, ...editAreaProps }: LemonTe
                 </div>
             </Tabs.TabPane>
             <Tabs.TabPane tab="Preview" key={'preview-card'}>
-                <TextContent text={value} />
+                {value ? <TextContent text={value} /> : <i>Nothing to preview</i>}
             </Tabs.TabPane>
         </Tabs>
     )
