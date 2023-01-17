@@ -95,13 +95,13 @@ export function areObjectValuesEmpty(obj?: Record<string, any>): boolean {
 // taken from https://stackoverflow.com/questions/10420352/converting-file-size-in-bytes-to-human-readable-string/10420404
 export const humanizeBytes = (fileSizeInBytes: number): string => {
     let i = -1
-    const byteUnits = [' kB', ' MB', ' GB', ' TB', 'PB', 'EB', 'ZB', 'YB']
+    const byteUnits = ['kB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
     do {
         fileSizeInBytes = fileSizeInBytes / 1024
         i++
     } while (fileSizeInBytes > 1024)
 
-    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + byteUnits[i]
+    return Math.max(fileSizeInBytes, 0.1).toFixed(1) + ' ' + byteUnits[i]
 }
 
 export function toParams(obj: Record<string, any>, explodeArrays: boolean = false): string {

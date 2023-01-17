@@ -19,7 +19,7 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/insights': {
+                '/api/projects/:team_id/insights': {
                     ...insightsJson,
                     results: insightsJson.results.map((result, i) => ({
                         ...result,

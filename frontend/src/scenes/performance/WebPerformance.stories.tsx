@@ -14,7 +14,7 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/events': {
+                '/api/projects/:team_id/events': {
                     results: eventsResponse,
                 },
             },

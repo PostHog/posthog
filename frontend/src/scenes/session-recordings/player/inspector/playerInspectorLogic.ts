@@ -22,6 +22,7 @@ import { eventToDescription } from 'lib/utils'
 import { eventWithTime } from 'rrweb/typings/types'
 import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
 import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
+import { IMAGE_WEB_EXTENSIONS } from 'scenes/session-recordings/player/inspector/v2/utils'
 
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
@@ -243,6 +244,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 ) {
                     for (const event of performanceEvents || []) {
                         const timestamp = dayjs(event.timestamp)
+                        const responseStatus = event.response_status || 200
 
                         let include = false
 
@@ -255,7 +257,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             (miniFiltersByKey['performance-document']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'navigation'
+                            ['performance-summary'].includes(event.entry_type || '')
                         ) {
                             include = true
                         }
@@ -269,9 +271,30 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         if (
-                            miniFiltersByKey['performance-assets']?.enabled &&
+                            miniFiltersByKey['performance-assets-js']?.enabled &&
                             event.entry_type === 'resource' &&
-                            ['img', 'script', 'css', 'link'].includes(event.initiator_type || '')
+                            (event.initiator_type === 'script' ||
+                                (['link', 'other'].includes(event.initiator_type || '') && event.name?.includes('.js')))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets-css']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            (event.initiator_type === 'css' ||
+                                (['link', 'other'].includes(event.initiator_type || '') &&
+                                    event.name?.includes('.css')))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets-img']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            (event.initiator_type === 'img' ||
+                                (['link', 'other'].includes(event.initiator_type || '') &&
+                                    !!IMAGE_WEB_EXTENSIONS.some((ext) => event.name?.includes(`.${ext}`))))
                         ) {
                             include = true
                         }
@@ -279,14 +302,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             miniFiltersByKey['performance-other']?.enabled &&
                             event.entry_type === 'resource' &&
-                            ['other'].includes(event.initiator_type || '')
+                            ['other'].includes(event.initiator_type || '') &&
+                            ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => event.name?.includes(`.${ext}`))
                         ) {
                             include = true
                         }
+
                         if (
-                            (miniFiltersByKey['performance-paint']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'paint'
+                            (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
+                            responseStatus >= 400
                         ) {
                             include = true
                         }
@@ -305,6 +329,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
                             data: event,
+                            highlightColor: responseStatus >= 400 ? 'danger' : undefined,
                             windowId: event.window_id,
                         })
                     }

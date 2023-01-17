@@ -87,11 +87,14 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         can_use_materialized_view_for_this_date_range = self.materialized_view_has_enough_data(
             query_date_range.num_intervals, self.team_id
         )
+
         flag_is_enabled = posthoganalytics.feature_enabled(
             "elements_chain_daily_counts_materialized_view", self.team.pk
         )
 
-        if can_use_materialized_view_for_this_date_range and flag_is_enabled:
+        load_from_materialized_view = can_use_materialized_view_for_this_date_range and flag_is_enabled
+
+        if load_from_materialized_view:
             # this API only supports two filters
             # an exact match on current url or a regex match on current url
             current_url_property_filter = current_url_property_filter.property_groups.values[0]
@@ -119,8 +122,8 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                     date_from=date_from,
                     date_to=date_to,
                     query=prop_filters,
-                    limit=limit,
-                    conditional_offset=f" OFFSET {offset}" if paginate_response else "",
+                    limit=limit + 1,
+                    offset=offset,
                 ),
                 {
                     "team_id": self.team.pk,
@@ -135,14 +138,13 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "hash": None,
                 "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
             }
-            for elements in result
+            for elements in result[:limit]
         ]
 
-        if paginate_response:
-            has_next = len(serialized_elements) > 0
+        if paginate_response and not load_from_materialized_view:
+            has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
             previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
-
             return response.Response({"results": serialized_elements, "next": next_url, "previous": previous_url})
         else:
             return response.Response(serialized_elements)

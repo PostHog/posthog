@@ -18,7 +18,6 @@ export const mswDecorator = (mocks: Mocks): DecoratorFunction<JSX.Element> => {
                 ...(mocks?.[restKey] || {}),
             }
         })
-
         useStorybookMocks(mergedMocks)
         return <Story />
     }

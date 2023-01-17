@@ -19,6 +19,9 @@ import {
     TimeToSeeDataSessionsQuery,
     TimeToSeeDataQuery,
     RecentPerformancePageViewNode,
+    SupportedNodeKind,
+    InsightFilter,
+    InsightFilterProperty,
 } from '~/queries/schema'
 
 export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
@@ -81,16 +84,8 @@ export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {
-    return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
-}
-
-export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
-    return node?.kind === NodeKind.TimeToSeeDataQuery
-}
-
-export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerformancePageViewNode {
-    return node?.kind === NodeKind.RecentPerformancePageViewNode
+export function isInsightQueryWithDisplay(node?: Node): boolean {
+    return isTrendsQuery(node) || isStickinessQuery(node)
 }
 
 export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {
@@ -107,4 +102,37 @@ export function isInsightQueryNode(node?: Node): node is InsightQueryNode {
         isLifecycleQuery(node) ||
         isUnimplementedQuery(node)
     )
+}
+
+export function isTimeToSeeDataSessionsQuery(node?: Node): node is TimeToSeeDataSessionsQuery {
+    return node?.kind === NodeKind.TimeToSeeDataSessionsQuery
+}
+
+export function isTimeToSeeDataQuery(node?: Node): node is TimeToSeeDataQuery {
+    return node?.kind === NodeKind.TimeToSeeDataQuery
+}
+
+export function isRecentPerformancePageViewNode(node?: Node): node is RecentPerformancePageViewNode {
+    return node?.kind === NodeKind.RecentPerformancePageViewNode
+}
+
+const nodeKindToFilterProperty: Record<SupportedNodeKind, InsightFilterProperty> = {
+    [NodeKind.TrendsQuery]: 'trendsFilter',
+    [NodeKind.FunnelsQuery]: 'funnelsFilter',
+    [NodeKind.RetentionQuery]: 'retentionFilter',
+    [NodeKind.PathsQuery]: 'pathsFilter',
+    [NodeKind.StickinessQuery]: 'stickinessFilter',
+    [NodeKind.LifecycleQuery]: 'lifecycleFilter',
+}
+
+export function filterPropertyForQuery(node: Exclude<InsightQueryNode, UnimplementedQuery>): InsightFilterProperty {
+    return nodeKindToFilterProperty[node.kind]
+}
+
+export function filterForQuery(node: InsightQueryNode): InsightFilter | undefined {
+    if (node.kind === NodeKind.UnimplementedQuery) {
+        return undefined
+    }
+    const filterProperty = filterPropertyForQuery(node)
+    return node[filterProperty]
 }

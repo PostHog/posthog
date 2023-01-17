@@ -18,7 +18,7 @@ export default {
                 '/api/projects/:team_id/persons/properties': samplePersonProperties,
             },
             post: {
-                '/api/projects/:projectId/cohorts/': { id: 1 },
+                '/api/projects/:team_id/cohorts/': { id: 1 },
             },
         }),
     ],

@@ -111,7 +111,7 @@ WHERE
     {query}
 GROUP BY elements_chain
 ORDER BY count DESC
-LIMIT {limit}{conditional_offset};
+LIMIT {limit} OFFSET {offset};
 """
 
 GET_VALUES = """
