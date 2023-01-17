@@ -319,9 +319,9 @@ def parse_prop_clauses(
             final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
         elif prop.type == "hogql":
-            from posthog.hogql.hogql import HogQLParserContext, translate_hogql
+            from posthog.hogql.hogql import translate_hogql
 
-            filter_query = translate_hogql(prop.key, HogQLParserContext(collect_values=collect_values))
+            filter_query = translate_hogql(prop.key, collect_values)
             final.append(f"{property_operator} {filter_query}")
 
     if final:

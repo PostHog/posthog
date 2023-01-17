@@ -91,22 +91,22 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
 
     def test_hogql_returned_properties(self):
         context = HogQLParserContext()
-        translate_hogql("avg(properties.prop) + avg(uuid) + event", context)
+        translate_hogql("avg(properties.prop) + avg(uuid) + event", context=context)
         self.assertEqual(context.attribute_list, [["properties", "prop"], ["uuid"], ["event"]])
         self.assertEqual(context.is_aggregation, True)
 
         context = HogQLParserContext()
-        translate_hogql("coalesce(event, properties.event)", context)
+        translate_hogql("coalesce(event, properties.event)", context=context)
         self.assertEqual(context.attribute_list, [["event"], ["properties", "event"]])
         self.assertEqual(context.is_aggregation, False)
 
         context = HogQLParserContext()
-        translate_hogql("total() + sum(timestamp)", context)
+        translate_hogql("total() + sum(timestamp)", context=context)
         self.assertEqual(context.attribute_list, [["timestamp"]])
         self.assertEqual(context.is_aggregation, True)
 
         context = HogQLParserContext()
-        translate_hogql("event + avg(event + properties.event) + avg(event + properties.event)", context)
+        translate_hogql("event + avg(event + properties.event) + avg(event + properties.event)", context=context)
         self.assertEqual(
             context.attribute_list, [["event"], ["event"], ["properties", "event"], ["event"], ["properties", "event"]]
         )
@@ -152,10 +152,11 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
     def test_collected_values(self):
         collected_values: Dict[str, Any] = {}
         context = HogQLParserContext(collect_values=collected_values)
-        self.assertEqual(translate_hogql("event == 'E'", context), "equals(event, %(val_0)s)")
+        self.assertEqual(translate_hogql("event == 'E'", context=context), "equals(event, %(val_0)s)")
         self.assertEqual(collected_values, {"val_0": "E"})
         self.assertEqual(
-            translate_hogql("coalesce(4.2, 5, 'lol', 'hoo')", context), "coalesce(4.2, 5, %(val_1)s, %(val_2)s)"
+            translate_hogql("coalesce(4.2, 5, 'lol', 'hoo')", collect_values=collected_values),
+            "coalesce(4.2, 5, %(val_1)s, %(val_2)s)",
         )
         self.assertEqual(collected_values, {"val_0": "E", "val_1": "lol", "val_2": "hoo"})
 

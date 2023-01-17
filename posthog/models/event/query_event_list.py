@@ -151,14 +151,14 @@ def query_events_list(
 
     for expr in select:
         context = HogQLParserContext(collect_values=collect_values)
-        clickhouse_sql = translate_hogql(expr, context)
+        clickhouse_sql = translate_hogql(expr, context=context)
         select_columns.append(clickhouse_sql)
         if not context.is_aggregation:
             group_by_columns.append(clickhouse_sql)
 
     for expr in where or []:
         context = HogQLParserContext(collect_values=collect_values)
-        clickhouse_sql = translate_hogql(expr, context)
+        clickhouse_sql = translate_hogql(expr, context=context)
         if context.is_aggregation:
             having_filters.append(clickhouse_sql)
         else:
@@ -170,8 +170,7 @@ def query_events_list(
             if fragment.startswith("-"):
                 order_direction = "DESC"
                 fragment = fragment[1:]
-            context = HogQLParserContext(collect_values=collect_values)
-            order_by_list.append(translate_hogql(fragment, context) + " " + order_direction)
+            order_by_list.append(translate_hogql(fragment, collect_values) + " " + order_direction)
     else:
         order_by_list.append(select_columns[0] + " ASC")
 
