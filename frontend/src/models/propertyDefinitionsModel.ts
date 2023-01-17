@@ -217,9 +217,8 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             cache.abortController = null
 
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {
-                type: 'property_load',
+                type: 'property_values_load',
                 context: 'filters',
-                action: 'load_property_values',
                 primary_interaction_id: '',
                 status: 'success',
                 time_to_see_data_ms: Math.floor(performance.now() - start),
