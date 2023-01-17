@@ -485,7 +485,7 @@ testIfDelayEnabled(`person properties don't see properties from descendents`, as
 // know which event will be processed first, and hence this test is flaky. We
 // are at any rate looking at alternatives to the implementation to speed up
 // queries which may make this test obsolete.
-testIfDelayEnabled.skip(`person properties can't see properties from merge descendants`, async () => {
+test.skip(`person properties can't see properties from merge descendants`, async () => {
     // This is specifically to test that the merge event doesn't result in
     // properties being picked up on events from it's parents.
     //
