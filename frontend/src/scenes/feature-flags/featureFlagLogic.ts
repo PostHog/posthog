@@ -459,7 +459,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
 
                 try {
                     if (!updatedFlag.id) {
-                        const newFlag: FeatureFlagType = await api.create(
+                        const newFlag = await api.create(
                             `api/projects/${values.currentTeamId}/feature_flags`,
                             preparedFlag
                         )
@@ -468,7 +468,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         }
                         return indexFeatureFlagPayloads(newFlag)
                     } else {
-                        const flagResponse: FeatureFlagType = await api.update(
+                        const flagResponse = await api.update(
                             `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
                             preparedFlag
                         )
@@ -509,7 +509,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
             featureFlagsLogic.findMounted()?.actions.updateFlag(featureFlag)
-            router.actions.replace(urls.featureFlag(featureFlag.id))
+            router.actions.replace(urls.featureFlag(featureFlag.id as number))
             actions.editFeatureFlag(false)
         },
         deleteFeatureFlag: async ({ featureFlag }) => {

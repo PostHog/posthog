@@ -794,7 +794,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                     </LemonButton>
                                 </Col>
                             </Row>
-                            {variants.map((variant, index) => (
+                            {variants.map((_, index) => (
                                 <Group key={index} name="filters">
                                     <Row gutter={8} align="middle">
                                         <Col span={1}>
