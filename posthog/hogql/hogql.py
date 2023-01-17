@@ -122,16 +122,14 @@ class HogQLParserContext:
     """Context given to a HogQL expression parser"""
 
     # If set, will save string constants to this list instead of inlining them
-    collect_values: Optional[Dict[str, Any]] = None
+    hogql_values: Optional[Dict[str, Any]] = None
     # List of field and property accesses found in the expression
     attribute_list: List[List[str]] = field(default_factory=list)
     # Did the expression contain a call from HOGQL_AGGREGATIONS
     is_aggregation: bool = False
 
 
-def translate_hogql(
-    hql: str, collect_values: Optional[Dict] = None, context: Optional[HogQLParserContext] = None
-) -> str:
+def translate_hogql(hql: str, hogql_values: Optional[Dict] = None, context: Optional[HogQLParserContext] = None) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
     if hql == "*":
         return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
@@ -149,8 +147,8 @@ def translate_hogql(
         raise ValueError(f"SyntaxError: {err.msg}")
     if context is None:
         context = HogQLParserContext()
-    if collect_values is not None:
-        context.collect_values = collect_values
+    if hogql_values is not None:
+        context.hogql_values = hogql_values
     return translate_ast(node, [], context)
 
 
@@ -214,12 +212,12 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLParserConte
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
-        key = f"val_{len(context.collect_values or {})}"
+        key = f"val_{len(context.hogql_values or {})}"
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
         elif isinstance(node.value, str):
-            if isinstance(context.collect_values, dict):
-                context.collect_values[key] = node.value
+            if isinstance(context.hogql_values, dict):
+                context.hogql_values[key] = node.value
                 response = f"%({key})s"
             else:
                 response = escape_param(node.value)

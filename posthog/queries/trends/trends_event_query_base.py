@@ -63,6 +63,8 @@ class TrendsEventQueryBase(EventQuery):
             {self._get_not_null_actor_condition()}
         """
 
+        self.params.update(self._hogql_values)
+
         return query, self.params
 
     def _determine_should_join_persons(self) -> None:
@@ -125,6 +127,7 @@ class TrendsEventQueryBase(EventQuery):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_values=self._hogql_values,
         )
 
         return entity_format_params["entity_query"], entity_params

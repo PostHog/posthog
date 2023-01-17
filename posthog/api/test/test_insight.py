@@ -2257,7 +2257,9 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 f"/api/projects/{self.team.id}/insights/trend/",
                 data={
                     "events": json.dumps([{"id": "$pageview"}]),
-                    "properties": json.dumps([{"key": "toInt(properties.int_value) > 10", "type": "hogql"}]),
+                    "properties": json.dumps(
+                        [{"key": "toInt(properties.int_value) > 10 and 'bla' != 'a%sd'", "type": "hogql"}]
+                    ),
                 },
             )
             found_data_points = response.json()["result"][0]["count"]
@@ -2272,7 +2274,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                             {
                                 "id": "$pageview",
                                 "properties": json.dumps(
-                                    [{"key": "toInt(properties.int_value) < 10", "type": "hogql"}]
+                                    [{"key": "toInt(properties.int_value) < 10 and 'bla' != 'a%sd'", "type": "hogql"}]
                                 ),
                             }
                         ]
@@ -2288,11 +2290,11 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 data={
                     "events": json.dumps([{"id": "$pageview"}]),
                     "breakdown_type": "hogql",
-                    "breakdown": "ifElse(toInt(properties.int_value) < 10, 'less', 'more')",
+                    "breakdown": "ifElse(toInt(properties.int_value) < 10, 'le%ss', 'more')",
                 },
             )
             result = response.json()["result"]
             self.assertEqual(result[0]["count"], 15)
             self.assertEqual(result[0]["breakdown_value"], "more")
             self.assertEqual(result[1]["count"], 10)
-            self.assertEqual(result[1]["breakdown_value"], "less")
+            self.assertEqual(result[1]["breakdown_value"], "le%ss")

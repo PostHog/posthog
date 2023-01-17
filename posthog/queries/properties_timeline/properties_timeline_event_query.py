@@ -99,6 +99,7 @@ class PropertiesTimelineEventQuery(EventQuery):
             team_id=self._team_id,
             table_name=self.EVENT_TABLE_ALIAS,
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS,
+            hogql_values=self._hogql_values,
         )
 
         return entity_format_params.get("entity_query", ""), entity_params

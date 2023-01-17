@@ -39,6 +39,7 @@ class EventQuery(metaclass=ABCMeta):
     _extra_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
     _extra_person_fields: List[ColumnName]
+    _hogql_values: Dict[str, Any] = {}
 
     def __init__(
         self,
@@ -56,6 +57,7 @@ class EventQuery(metaclass=ABCMeta):
         extra_person_fields: List[ColumnName] = [],
         override_aggregate_users_by_distinct_id: Optional[bool] = None,
         using_person_on_events: bool = False,
+        hogql_values: Dict[str, Any] = {},
         **kwargs,
     ) -> None:
         self._filter = filter
@@ -71,6 +73,7 @@ class EventQuery(metaclass=ABCMeta):
         self._should_join_sessions = should_join_sessions
         self._extra_fields = extra_fields
         self._using_person_on_events = using_person_on_events
+        self._hogql_values = hogql_values
 
         if override_aggregate_users_by_distinct_id is not None:
             self._aggregate_users_by_distinct_id = override_aggregate_users_by_distinct_id
@@ -231,6 +234,7 @@ class EventQuery(metaclass=ABCMeta):
             allow_denormalized_props=True,
             person_properties_mode=person_properties_mode,
             person_id_joined_alias=person_id_joined_alias,
+            hogql_values=self._hogql_values,
         )
 
     def _get_not_null_actor_condition(self) -> str:

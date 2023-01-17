@@ -151,11 +151,11 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
 
     def test_collected_values(self):
         collected_values: Dict[str, Any] = {}
-        context = HogQLParserContext(collect_values=collected_values)
+        context = HogQLParserContext(hogql_values=collected_values)
         self.assertEqual(translate_hogql("event == 'E'", context=context), "equals(event, %(val_0)s)")
         self.assertEqual(collected_values, {"val_0": "E"})
         self.assertEqual(
-            translate_hogql("coalesce(4.2, 5, 'lol', 'hoo')", collect_values=collected_values),
+            translate_hogql("coalesce(4.2, 5, 'lol', 'hoo')", hogql_values=collected_values),
             "coalesce(4.2, 5, %(val_1)s, %(val_2)s)",
         )
         self.assertEqual(collected_values, {"val_0": "E", "val_1": "lol", "val_2": "hoo"})

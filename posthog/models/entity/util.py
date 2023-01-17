@@ -13,6 +13,7 @@ def get_entity_filtering_params(
     *,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     person_id_joined_alias: str = "person_id",
+    hogql_values: Dict = {},
 ) -> Tuple[Dict, Dict]:
     """Return SQL condition for filtering events by allowed entities (events/actions).
 
@@ -36,6 +37,7 @@ def get_entity_filtering_params(
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,
                 person_id_joined_alias=person_id_joined_alias,
+                hogql_values=hogql_values,
             )
             params.update(action_params)
             entity_clauses.append(action_query)

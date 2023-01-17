@@ -62,7 +62,7 @@ def parse_prop_grouped_clauses(
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
     _top_level: bool = True,
-    collect_values: Dict[str, Any] = {},
+    hogql_values: Dict[str, Any] = {},
 ) -> Tuple[str, Dict]:
 
     if not property_group or len(property_group.values) == 0:
@@ -84,7 +84,7 @@ def parse_prop_grouped_clauses(
                     person_id_joined_alias=person_id_joined_alias,
                     group_properties_joined=group_properties_joined,
                     _top_level=False,
-                    collect_values=collect_values,
+                    hogql_values=hogql_values,
                 )
                 group_clauses.append(clause)
                 final_params.update(params)
@@ -104,7 +104,7 @@ def parse_prop_grouped_clauses(
             group_properties_joined=group_properties_joined,
             property_operator=property_group.type,
             team_id=team_id,
-            collect_values=collect_values,
+            hogql_values=hogql_values,
         )
 
     if not _final:
@@ -135,7 +135,7 @@ def parse_prop_clauses(
     person_id_joined_alias: str = "person_id",
     group_properties_joined: bool = True,
     property_operator: PropertyOperatorType = PropertyOperatorType.AND,
-    collect_values: Dict[str, Any] = {},
+    hogql_values: Dict[str, Any] = {},
 ) -> Tuple[str, Dict]:
     final = []
     params: Dict[str, Any] = {}
@@ -321,7 +321,7 @@ def parse_prop_clauses(
         elif prop.type == "hogql":
             from posthog.hogql.hogql import translate_hogql
 
-            filter_query = translate_hogql(prop.key, collect_values)
+            filter_query = translate_hogql(prop.key, hogql_values)
             final.append(f"{property_operator} {filter_query}")
 
     if final:

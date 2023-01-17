@@ -233,9 +233,10 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
 
     @action(methods=["GET"], detail=True)
     def count(self, request: request.Request, **kwargs) -> Response:
+        hogql_values: Dict[str, Any] = {}
         action = self.get_object()
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        query, params = format_action_filter(team_id=action.team_id, action=action)
+        query, params = format_action_filter(team_id=action.team_id, action=action, hogql_values=hogql_values)
         if query == "":
             return Response({"count": 0})
 
@@ -248,6 +249,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
                 "before": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "after": (now() - relativedelta(months=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
                 **params,
+                **hogql_values,
             },
         )
         return Response({"count": results[0][0]})

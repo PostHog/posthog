@@ -39,6 +39,7 @@ def get_breakdown_prop_values(
     column_optimizer: Optional[ColumnOptimizer] = None,
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
     use_all_funnel_entities: bool = False,
+    hogql_values: Dict = {},
 ):
     """
     Returns the top N breakdown prop values for event/person breakdown
@@ -114,6 +115,7 @@ def get_breakdown_prop_values(
         person_properties_mode=person_properties_mode,
         allow_denormalized_props=True,
         person_id_joined_alias=person_id_joined_alias,
+        hogql_values=hogql_values,
     )
 
     if use_all_funnel_entities:
@@ -130,6 +132,7 @@ def get_breakdown_prop_values(
             table_name="e",
             person_id_joined_alias=person_id_joined_alias,
             person_properties_mode=person_properties_mode,
+            hogql_values=hogql_values,
         )
 
     value_expression = _to_value_expression(
@@ -139,6 +142,7 @@ def get_breakdown_prop_values(
         filter.breakdown_normalize_url,
         direct_on_events=True if person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else False,
         cast_as_float=filter.using_histogram,
+        hogql_values=hogql_values,
     )
 
     if filter.using_histogram:
@@ -155,6 +159,7 @@ def get_breakdown_prop_values(
             sessions_join_clauses=sessions_join_clause,
             null_person_filter=null_person_filter,
             **entity_format_params,
+            **hogql_values,
         )
     else:
         elements_query = TOP_ELEMENTS_ARRAY_OF_KEY_SQL.format(
@@ -168,6 +173,7 @@ def get_breakdown_prop_values(
             sessions_join_clauses=sessions_join_clause,
             null_person_filter=null_person_filter,
             **entity_format_params,
+            **hogql_values,
         )
     return insight_sync_execute(
         elements_query,
@@ -197,6 +203,7 @@ def _to_value_expression(
     breakdown_normalize_url: bool = False,
     direct_on_events: bool = False,
     cast_as_float: bool = False,
+    hogql_values: Dict = {},
 ) -> str:
     if breakdown_type == "session":
         if breakdown == "$session_duration":
@@ -230,10 +237,10 @@ def _to_value_expression(
         from posthog.hogql.hogql import translate_hogql
 
         if isinstance(breakdown, list):
-            expressions = [translate_hogql(exp) for exp in breakdown]
+            expressions = [translate_hogql(exp, hogql_values) for exp in breakdown]
             value_expression = f"array({','.join(expressions)})"
         else:
-            value_expression = translate_hogql(cast(str, breakdown))
+            value_expression = translate_hogql(cast(str, breakdown), hogql_values)
     else:
         value_expression = get_single_or_multi_property_string_expr(
             breakdown, table="events", query_alias=None, column="properties", normalize_url=breakdown_normalize_url

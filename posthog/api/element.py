@@ -1,3 +1,5 @@
+from typing import Any, Dict
+
 from rest_framework import authentication, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -56,6 +58,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         date_to, date_to_params = query_date_range.date_to
         date_params.update(date_from_params)
         date_params.update(date_to_params)
+        hogql_values: Dict[str, Any] = {}
 
         try:
             limit = int(request.query_params.get("limit", 100))
@@ -73,7 +76,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
             statsd.incr("toolbar_element_stats_unpaginated_api_request_tombstone", tags={"team_id": self.team_id})
 
         prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-            team_id=self.team.pk, property_group=filter.property_groups
+            team_id=self.team.pk, property_group=filter.property_groups, hogql_values=hogql_values
         )
         result = sync_execute(
             GET_ELEMENTS.format(
@@ -88,6 +91,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "timezone": self.team.timezone,
                 **prop_filter_params,
                 **date_params,
+                **hogql_values,
             },
         )
         serialized_elements = [

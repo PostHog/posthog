@@ -21,7 +21,7 @@ def format_action_filter(
     table_name: str = "",
     person_properties_mode: PersonPropertiesMode = PersonPropertiesMode.USING_SUBQUERY,
     person_id_joined_alias: str = "person_id",
-    collect_values: Dict = {},
+    hogql_values: Dict = {},
 ) -> Tuple[str, Dict]:
     # get action steps
     params = {"team_id": action.team.pk} if filter_by_team else {}
@@ -57,7 +57,7 @@ def format_action_filter(
                 table_name=table_name,
                 person_properties_mode=person_properties_mode,
                 person_id_joined_alias=person_id_joined_alias,
-                collect_values=collect_values,
+                hogql_values=hogql_values,
             )
             conditions.append(prop_query.replace("AND", "", 1))
             params = {**params, **prop_params}

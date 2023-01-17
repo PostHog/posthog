@@ -87,7 +87,7 @@ def query_events_list(
     if offset > 0:
         limit_sql += " OFFSET %(offset)s"
 
-    collect_values: Dict[str, Any] = {}
+    hogql_values: Dict[str, Any] = {}
 
     conditions, condition_params = determine_event_conditions(
         {
@@ -100,7 +100,7 @@ def query_events_list(
         team_id=team.pk,
         property_group=filter.property_groups,
         has_person_id_joined=False,
-        collect_values=collect_values,
+        hogql_values=hogql_values,
     )
 
     if action_id:
@@ -112,7 +112,7 @@ def query_events_list(
             return []
 
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        action_query, params = format_action_filter(team_id=team.pk, action=action)
+        action_query, params = format_action_filter(team_id=team.pk, action=action, hogql_values=hogql_values)
         prop_filters += " AND {}".format(action_query)
         prop_filter_params = {**prop_filter_params, **params}
 
@@ -126,14 +126,21 @@ def query_events_list(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL.format(
                     conditions=conditions, limit=limit_sql, filters=prop_filters, order=order
                 ),
-                {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params, **prop_filter_params},
+                {
+                    "team_id": team.pk,
+                    "limit": limit,
+                    "offset": offset,
+                    **condition_params,
+                    **prop_filter_params,
+                    **hogql_values,
+                },
                 query_type="events_list",
                 workload=Workload.OFFLINE,
             )
         else:
             return insight_query_with_columns(
                 SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL.format(conditions=conditions, limit=limit_sql, order=order),
-                {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params},
+                {"team_id": team.pk, "limit": limit, "offset": offset, **condition_params, **hogql_values},
                 query_type="events_list",
                 workload=Workload.OFFLINE,
             )
@@ -150,14 +157,14 @@ def query_events_list(
         select = ["*"]
 
     for expr in select:
-        context = HogQLParserContext(collect_values=collect_values)
+        context = HogQLParserContext(hogql_values=hogql_values)
         clickhouse_sql = translate_hogql(expr, context=context)
         select_columns.append(clickhouse_sql)
         if not context.is_aggregation:
             group_by_columns.append(clickhouse_sql)
 
     for expr in where or []:
-        context = HogQLParserContext(collect_values=collect_values)
+        context = HogQLParserContext(hogql_values=hogql_values)
         clickhouse_sql = translate_hogql(expr, context=context)
         if context.is_aggregation:
             having_filters.append(clickhouse_sql)
@@ -170,7 +177,7 @@ def query_events_list(
             if fragment.startswith("-"):
                 order_direction = "DESC"
                 fragment = fragment[1:]
-            order_by_list.append(translate_hogql(fragment, collect_values) + " " + order_direction)
+            order_by_list.append(translate_hogql(fragment, hogql_values) + " " + order_direction)
     else:
         order_by_list.append(select_columns[0] + " ASC")
 
@@ -194,7 +201,7 @@ def query_events_list(
             "offset": offset,
             **condition_params,
             **prop_filter_params,
-            **collect_values,
+            **hogql_values,
         },
         with_column_types=True,
         query_type="events_list",

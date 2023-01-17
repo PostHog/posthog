@@ -47,6 +47,7 @@ class ClickhouseFunnelBase(ABC):
     _extra_event_fields: List[ColumnName]
     _extra_event_properties: List[PropertyName]
     _include_properties: List[str]
+    _hogql_values: Dict
 
     def __init__(
         self,
@@ -56,6 +57,7 @@ class ClickhouseFunnelBase(ABC):
         include_preceding_timestamp: Optional[bool] = None,
         base_uri: str = "/",
         include_properties: Optional[List[str]] = None,
+        hogql_values: Dict = {},
     ) -> None:
         self._filter = filter
         self._team = team
@@ -68,6 +70,7 @@ class ClickhouseFunnelBase(ABC):
         self._include_timestamp = include_timestamp
         self._include_preceding_timestamp = include_preceding_timestamp
         self._include_properties = include_properties or []
+        self._hogql_values = hogql_values
 
         # handle default if window isn't provided
         if not self._filter.funnel_window_days and not self._filter.funnel_window_interval:
@@ -252,7 +255,7 @@ class ClickhouseFunnelBase(ABC):
         query = self.get_query()
         return insight_sync_execute(
             query,
-            self.params,
+            {**self.params, **self._hogql_values},
             query_type=self.QUERY_TYPE,
             filter=self._filter,
         )
@@ -411,6 +414,7 @@ class ClickhouseFunnelBase(ABC):
             extra_fields=[*self._extra_event_fields, *extra_fields],
             extra_event_properties=self._extra_event_properties,
             using_person_on_events=self._team.person_on_events_querying_enabled,
+            hogql_values=self._hogql_values,
         ).get_query(entities_to_use, entity_name, skip_entity_filter=skip_entity_filter)
 
         self.params.update(params)
@@ -533,6 +537,7 @@ class ClickhouseFunnelBase(ABC):
                 if self._team.person_on_events_querying_enabled
                 else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
                 person_id_joined_alias="person_id",
+                hogql_values=self._hogql_values,
             )
             if action_query == "":
                 return ""
@@ -556,6 +561,7 @@ class ClickhouseFunnelBase(ABC):
             if self._team.person_on_events_querying_enabled
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             person_id_joined_alias="person_id",
+            hogql_values=self._hogql_values,
         )
         self.params.update(prop_filter_params)
         return prop_filters

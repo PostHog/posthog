@@ -135,6 +135,7 @@ class LifecycleEventQuery(EventQuery):
             person_properties_mode=PersonPropertiesMode.DIRECT_ON_EVENTS
             if self._using_person_on_events
             else PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
+            hogql_values=self._hogql_values,
         )
         self.params.update(entity_params)
 
