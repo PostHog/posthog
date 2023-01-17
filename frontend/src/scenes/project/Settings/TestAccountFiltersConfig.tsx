@@ -22,7 +22,7 @@ export function TestAccountFiltersConfig(): JSX.Element {
     return (
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4">
-                {!!testAccountFilterWarningLabels && (
+                {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <AlertMessage type="warning" className={'m-2'}>
                         <>
                             <p>
