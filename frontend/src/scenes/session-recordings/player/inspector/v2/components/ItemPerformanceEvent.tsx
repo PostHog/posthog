@@ -141,7 +141,7 @@ export function ItemPerformanceEvent({
                             width: `${Math.max((duration / contextLengthMs) * 100, 0.5)}%`,
                         }}
                     />
-                    {item.entry_type === 'performance-summary' ? (
+                    {item.entry_type === 'navigation' ? (
                         <>
                             <div className="flex gap-2 items-start p-2 text-xs">
                                 <span className={clsx('flex-1 overflow-hidden', !expanded && 'truncate')}>
