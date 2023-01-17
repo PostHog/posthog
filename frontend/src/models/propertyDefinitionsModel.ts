@@ -81,6 +81,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             type: string
             newInput: string | undefined
             propertyKey: string
+            eventNames?: string[]
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[]) => ({ key, values }),
@@ -209,7 +210,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
 
             let eventParams = ''
-            for (const eventName of eventNames) {
+            for (const eventName of eventNames || []) {
                 eventParams += `&event_name=${eventName}`
             }
 

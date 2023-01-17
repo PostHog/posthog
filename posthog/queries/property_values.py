@@ -21,7 +21,9 @@ def get_property_values_for_key(
     value_filter = ""
     extra_params = {}
 
-    if not mat_column_exists:
+    if mat_column_exists:
+        property_exists_filter = "AND notEmpty({})".format(property_field)
+    else:
         property_exists_filter = "AND JSONHas(properties, %(key)s)"
         extra_params["key"] = key
 
