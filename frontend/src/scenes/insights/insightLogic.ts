@@ -753,10 +753,13 @@ export const insightLogic = kea<insightLogicType>([
             (s) => [s.featureFlags, s.filters],
             (featureFlags: FeatureFlagsSet, filters: Partial<FilterType>): boolean => {
                 const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_INSIGHTS]
-                const isTrends = isTrendsFilter(filters)
-                const isStickness = isStickinessFilter(filters)
-                const isLifecycle = isLifecycleFilter(filters)
-                return !!featureDataExploration && (isTrends || isStickness || isLifecycle)
+                return (
+                    !!featureDataExploration &&
+                    (isTrendsFilter(filters) ||
+                        isPathsFilter(filters) ||
+                        isStickinessFilter(filters) ||
+                        isLifecycleFilter(filters))
+                )
             },
         ],
     }),
