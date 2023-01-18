@@ -1,3 +1,39 @@
+# name: TestCohort.test_cohortpeople_basic
+  '
+  
+  INSERT INTO cohortpeople
+  SELECT id,
+         2 as cohort_id,
+         2 as team_id,
+         1 AS sign,
+         0 AS version
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$some_prop'), '^"|"$', ''))))
+                  AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(person.properties, '$another_prop'), '^"|"$', '')))))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND ((((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$some_prop'), '^"|"$', ''))))
+           AND ((has(['something'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), '$another_prop'), '^"|"$', ''))))))) as person
+  UNION ALL
+  SELECT person_id,
+         cohort_id,
+         team_id,
+         -1,
+         version
+  FROM cohortpeople
+  WHERE team_id = 2
+    AND cohort_id = 2
+    AND version < 0
+    AND sign = 1
+  '
+---
 # name: TestCohort.test_static_cohort_precalculated
   '
   
