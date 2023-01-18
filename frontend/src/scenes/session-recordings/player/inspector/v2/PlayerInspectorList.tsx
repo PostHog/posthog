@@ -24,7 +24,7 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from '../../icons'
-import { IconConsoleLine, IconGauge, UnverifiedEvent } from 'lib/components/icons'
+import { IconTerminal, IconGauge, UnverifiedEvent } from 'lib/components/icons'
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
 
@@ -38,7 +38,7 @@ const typeToIconAndDescription = {
         tooltip: 'Recording event',
     },
     [SessionRecordingPlayerTab.CONSOLE]: {
-        Icon: IconConsoleLine,
+        Icon: IconTerminal,
         tooltip: 'Console log',
     },
     [SessionRecordingPlayerTab.NETWORK]: {
@@ -112,7 +112,7 @@ function PlayerInspectorListItem({
                 <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
                     {showIcon && TypeIcon ? (
                         <Tooltip placement="left" title={typeToIconAndDescription[item.type].tooltip}>
-                            <TypeIcon width={20} height={20} />
+                            <TypeIcon className="text-xl" />
                         </Tooltip>
                     ) : null}
                     {windowNumber ? <IconWindow size="small" value={windowNumber} className="shrink-0" /> : null}

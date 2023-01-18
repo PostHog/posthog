@@ -1,7 +1,7 @@
 import { LemonButton, LemonInput, LemonSwitch, LemonSelect } from '@posthog/lemon-ui'
 import { Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
-import { IconConsoleLine, IconInfo, UnverifiedEvent } from 'lib/components/icons'
+import { IconTerminal, IconInfo, UnverifiedEvent } from 'lib/components/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
@@ -14,8 +14,8 @@ import { eventsListLogic } from './eventsListLogic'
 
 const TabToIcon = {
     [SessionRecordingPlayerTab.ALL]: undefined,
-    [SessionRecordingPlayerTab.EVENTS]: UnverifiedEvent,
-    [SessionRecordingPlayerTab.CONSOLE]: IconConsoleLine,
+    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
+    [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
 }
 
 export function PlayerInspectorControls({

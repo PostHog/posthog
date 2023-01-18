@@ -264,13 +264,12 @@ export function IconKey(props: LemonIconProps): JSX.Element {
     )
 }
 
-/** Material Design Console Line icon. */
-export function IconConsoleLine({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function IconTerminal(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase width={width} height={height} {...props}>
+        <LemonIconBase {...props}>
             <path
+                d="M3.5 20C3.1 20 2.75 19.85 2.45 19.55C2.15 19.25 2 18.9 2 18.5V5.5C2 5.1 2.15 4.75 2.45 4.45C2.75 4.15 3.1 4 3.5 4H20.5C20.9 4 21.25 4.15 21.55 4.45C21.85 4.75 22 5.1 22 5.5V18.5C22 18.9 21.85 19.25 21.55 19.55C21.25 19.85 20.9 20 20.5 20H3.5ZM3.5 18.5H20.5V7.6H3.5V18.5ZM7.5 16.7L6.45 15.65L9.025 13.05L6.425 10.45L7.5 9.4L11.15 13.05L7.5 16.7ZM12.25 16.8V15.3H17.75V16.8H12.25Z"
                 fill="currentColor"
-                d="M13,19V16H21V19H13M8.5,13L2.47,7H6.71L11.67,11.95C12.25,12.54 12.25,13.5 11.67,14.07L6.74,19H2.5L8.5,13Z"
             />
         </LemonIconBase>
     )
@@ -656,9 +655,9 @@ export function IconPublic(props: LemonIconProps): JSX.Element {
 }
 
 /** Material Design Bar Speed icon. */
-export function IconGauge({ width = '1em', height = '1em', ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function IconGauge(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase width={width} height={height} {...props}>
+        <LemonIconBase {...props}>
             <path
                 d="m19.5401 9.08537-1.1088 1.66773c.5347 1.0665.7965 2.249.7619 3.4415-.0346 1.1926-.3645 2.3579-.9602 3.3916h-12.49439c-.77421-1.3431-1.09502-2.8999-.91486-4.4397.18015-1.5397.85168-2.9804 1.91502-4.10853 1.06335-1.12809 2.4619-1.88351 3.98833-2.15426 1.5264-.27076 3.0995-.04243 4.486.65113l1.6677-1.10881c-1.698-1.08878-3.712-1.57666-5.72-1.38561-2.00792.19105-3.8938 1.04999-5.35594 2.43944-1.46213 1.38945-2.41605 3.22914-2.70916 5.22474-.2931 1.9956.09153 4.0319 1.09239 5.7831.15731.2725.3832.4991.65521.6572.27201.1582.58068.2424.89531.2443h12.48539c.3177.0012.63-.0815.9055-.2398.2754-.1583.5042-.3866.663-.6617.8306-1.4388 1.2474-3.0792 1.2045-4.74-.043-1.6608-.544-3.2774-1.4479-4.67135zm-8.8254 6.16603c.1675.1676.3663.3006.5852.3914.2189.0907.4535.1374.6904.1374s.4715-.0467.6904-.1374c.2189-.0908.4177-.2238.5852-.3914l5.1023-7.65346-7.6535 5.10236c-.1676.1674-.3006.3662-.3913.5851-.0908.2189-.1375.4535-.1375.6904 0 .237.0467.4716.1375.6905.0907.2188.2237.4177.3913.5851z"
                 fill="currentColor"
@@ -1399,9 +1398,9 @@ export function IconHeatmap(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function UnverifiedEvent({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function UnverifiedEvent(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase width={width} height={height} viewBox="0 0 24 24" fill="none" {...props}>
+        <LemonIconBase {...props}>
             <path
                 d="M4.8 17.4H19.2V15.6H4.8V17.4ZM6.6 21H17.4V19.2H6.6V21ZM19.2 13.8H4.8C3.81 13.8 3 12.99 3 12V4.8C3 3.81 3.81 3 4.8 3H19.2C20.19 3 21 3.81 21 4.8V12C21 12.99 20.19 13.8 19.2 13.8ZM19.2 4.8H4.8V12H19.2V4.8Z"
                 fill="currentColor"
