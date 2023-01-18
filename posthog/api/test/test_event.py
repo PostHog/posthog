@@ -232,6 +232,21 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6").json()
             self.assertEqual(response[0]["name"], "565")
 
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6&event_name=random event"
+            ).json()
+            self.assertEqual(response[0]["name"], "565")
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6&event_name=foo&event_name=random event"
+            ).json()
+            self.assertEqual(response[0]["name"], "565")
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=qw&event_name=404_i_dont_exist"
+            ).json()
+            self.assertEqual(response, [])
+
     def test_before_and_after(self):
         user = self._create_user("tim")
         self.client.force_login(user)
