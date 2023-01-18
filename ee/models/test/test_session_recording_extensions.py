@@ -1,6 +1,6 @@
 from datetime import timedelta
-from unittest.mock import patch
 from secrets import token_urlsafe
+from unittest.mock import patch
 
 from freezegun import freeze_time
 
