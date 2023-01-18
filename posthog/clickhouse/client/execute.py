@@ -165,8 +165,7 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Wo
     else:
         # Else perform the substitution so we can perform operations on the raw
         # non-templated SQL
-        escaped_params = escape_params(args)
-        rendered_sql = query % escaped_params
+        rendered_sql = client.substitute_params(query, args)
         prepared_args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)
