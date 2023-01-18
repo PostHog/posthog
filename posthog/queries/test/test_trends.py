@@ -4375,7 +4375,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-
         filter = Filter(data=data)
         result = Trends().run(filter, self.team)
         self.assertEqual(result[0]["days"], ["2019-12-01", "2020-01-01", "2020-02-01"])
