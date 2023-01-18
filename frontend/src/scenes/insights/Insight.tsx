@@ -166,7 +166,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                 }
                 buttons={
                     <div className="flex justify-between items-center gap-2">
-                        {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
                         {insightMode !== ItemMode.Edit && (
                             <>
                                 <More
