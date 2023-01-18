@@ -22,7 +22,7 @@ export function InlineHogQLEditor({ value, onChange }: InlineHogQLEditorProps): 
                 minRows={6}
                 maxRows={6}
                 placeholder={
-                    'Enter HogQL Expression, such as:\n- properties.$current_url\n- total()\n- sum(toInt(properties.$screen_width)) * 10\n- concat(event, " ", distinct_id)\n- ifElse(1 < 2, "small", "large")'
+                    'Enter HogQL Expression, such as:\n- properties.$current_url\n- count()\n- sum(toInt(properties.$screen_width)) * 10\n- concat(event, " ", distinct_id)\n- ifElse(1 < 2, "small", "large")'
                 }
                 autoFocus
             />
