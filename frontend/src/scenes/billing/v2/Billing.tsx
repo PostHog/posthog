@@ -29,7 +29,7 @@ const DEFAULT_BILLING_LIMIT = 500
 
 export function BillingV2({ redirectPath = '', showCurrentUsage = true }: BillingV2Props): JSX.Element {
     const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingV2Logic)
-    const { setShowLicenseDirectInput, reportBillingV2Shown } = useActions(billingV2Logic)
+    const { reportBillingV2Shown } = useActions(billingV2Logic)
     const { preflight } = useValues(preflightLogic)
 
     useEffect(() => {
@@ -85,18 +85,14 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </AlertMessage>
             ) : null}
-            {!billing?.billing_period && (
+            {!billing?.billing_period && preflight?.cloud && (
                 <>
                     <div className="my-8">
                         <BillingHero />
                     </div>
-                    {preflight?.cloud && (
-                        <>
-                            <div className="mb-18 flex justify-center">
-                                <PlanTable redirectPath={redirectPath} />
-                            </div>
-                        </>
-                    )}
+                    <div className="mb-18 flex justify-center">
+                        <PlanTable redirectPath={redirectPath} />
+                    </div>
                 </>
             )}
             <div
@@ -177,7 +173,6 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                             </Form>
                         </>
                     ) : null}
-
                     {!preflight?.cloud && billing?.license?.plan ? (
                         <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
                             <div className="text-center font-bold">
@@ -191,13 +186,10 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
                     ) : null}
 
                     {!preflight?.cloud && !billing?.has_active_subscription ? (
-                        <LemonButton
-                            fullWidth
-                            center
-                            onClick={() => setShowLicenseDirectInput(!showLicenseDirectInput)}
-                        >
-                            {!showLicenseDirectInput ? 'I already have a license key' : "I don't have a license key"}
-                        </LemonButton>
+                        <p>
+                            Self-hosted licenses are no longer available for purchase. Please contact{' '}
+                            <a href="mailto:sales@posthog.com">sales@posthog.com</a> to discuss options.
+                        </p>
                     ) : null}
                 </div>
             </div>
