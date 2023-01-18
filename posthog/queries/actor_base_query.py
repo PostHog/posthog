@@ -69,7 +69,7 @@ class ActorBaseQuery:
     QUERY_TYPE = "actors"
 
     entity: Optional[Entity] = None
-    hogql_values: Dict
+    _hogql_values: Dict
 
     def __init__(
         self,
