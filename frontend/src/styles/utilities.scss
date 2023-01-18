@@ -12,104 +12,104 @@
 
 // TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
 @each $space in $spaces {
-    .space-y-#{$space} {
+    .space-y-#{escape-number($space)} {
         & > * + * {
             margin-top: #{$space * 0.25}rem;
         }
     }
 
-    .space-x-#{$space} {
+    .space-x-#{escape-number($space)} {
         & > * + * {
             margin-left: #{$space * 0.25}rem;
         }
     }
 
-    .gap-#{$space} {
+    .gap-#{escape-number($space)} {
         gap: #{$space * 0.25}rem;
     }
 
-    .gap-x-#{$space} {
+    .gap-x-#{escape-number($space)} {
         column-gap: #{$space * 0.25}rem;
     }
 
-    .gap-y-#{$space} {
+    .gap-y-#{escape-number($space)} {
         row-gap: #{$space * 0.25}rem;
     }
 
-    .w-#{$space} {
+    .w-#{escape-number($space)} {
         width: #{$space * 0.25}rem;
     }
 
-    .h-#{$space} {
+    .h-#{escape-number($space)} {
         height: #{$space * 0.25}rem;
     }
 
-    .max-w-#{$space} {
+    .max-w-#{escape-number($space)} {
         max-width: #{$space * 0.25}rem;
     }
-    .max-h-#{$space} {
+    .max-h-#{escape-number($space)} {
         max-height: #{$space * 0.25}rem;
     }
 
-    .min-w-#{$space} {
+    .min-w-#{escape-number($space)} {
         min-width: #{$space * 0.25}rem;
     }
-    .min-h-#{$space} {
+    .min-h-#{escape-number($space)} {
         min-height: #{$space * 0.25}rem;
     }
 
-    .m-#{$space} {
+    .m-#{escape-number($space)} {
         margin: #{$space * 0.25}rem;
     }
 
-    .-m-#{$space} {
+    .-m-#{escape-number($space)} {
         margin: #{-$space * 0.25}rem;
     }
 
-    .mx-#{$space} {
+    .mx-#{escape-number($space)} {
         margin-left: #{$space * 0.25}rem;
         margin-right: #{$space * 0.25}rem;
     }
 
-    .-mx-#{$space} {
+    .-mx-#{escape-number($space)} {
         margin-left: #{-$space * 0.25}rem;
         margin-right: #{-$space * 0.25}rem;
     }
 
-    .my-#{$space} {
+    .my-#{escape-number($space)} {
         margin-top: #{$space * 0.25}rem;
         margin-bottom: #{$space * 0.25}rem;
     }
 
-    .-my-#{$space} {
+    .-my-#{escape-number($space)} {
         margin-top: #{-$space * 0.25}rem;
         margin-bottom: #{-$space * 0.25}rem;
     }
 
-    .px-#{$space} {
+    .px-#{escape-number($space)} {
         padding-left: #{$space * 0.25}rem;
         padding-right: #{$space * 0.25}rem;
     }
 
-    .py-#{$space} {
+    .py-#{escape-number($space)} {
         padding-top: #{$space * 0.25}rem;
         padding-bottom: #{$space * 0.25}rem;
     }
 
-    .p-#{$space} {
+    .p-#{escape-number($space)} {
         padding: #{$space * 0.25}rem;
     }
 
     @each $side in $sides {
-        .m#{str-slice($side, 0, 1)}-#{$space} {
+        .m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             margin-#{$side}: #{$space * 0.25}rem;
         }
 
-        .-m#{str-slice($side, 0, 1)}-#{$space} {
+        .-m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             margin-#{$side}: #{-$space * 0.25}rem;
         }
 
-        .p#{str-slice($side, 0, 1)}-#{$space} {
+        .p#{str-slice($side, 0, 1)}-#{escape-number($space)} {
             padding-#{$side}: #{$space * 0.25}rem;
         }
     }
@@ -652,7 +652,7 @@
 }
 
 @each $space in $spaces {
-    .leading-#{$space} {
+    .leading-#{escape-number($space)} {
         line-height: #{$space * 0.25}rem;
     }
 }
