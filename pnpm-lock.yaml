@@ -135,7 +135,7 @@ specifiers:
   pngjs: ^6.0.0
   postcss: ^8.4.14
   postcss-loader: ^4.3.0
-  posthog-js: 1.39.4
+  posthog-js: 1.40.0
   posthog-js-lite: 2.0.0-alpha5
   prettier: ^2.3.1
   prop-types: ^15.7.2
@@ -234,7 +234,7 @@ dependencies:
   kea-window-values: 3.0.0_kea@3.1.0
   md5: 2.3.0
   monaco-editor: 0.23.0
-  posthog-js: 1.39.4
+  posthog-js: 1.40.0
   posthog-js-lite: 2.0.0-alpha5
   prettier: 2.7.1
   prop-types: 15.8.1
@@ -2684,11 +2684,6 @@ packages:
     resolution: {integrity: sha512-QJj8vO4AtxuzQfJIzDnECSmoxwnS+WJsm1Ta2Cwdy+TUCBJyWpW7aIJJGta76zb9gNPGb3UcAbeEjhMJBJeRMQ==}
     engines: {node: '>=8'}
     dev: true
-
-  /@sentry/types/7.22.0:
-    resolution: {integrity: sha512-LhCL+wb1Jch+OesB2CIt6xpfO1Ab6CRvoNYRRzVumWPLns1T3ZJkarYfhbLaOEIb38EIbPgREdxn2AJT560U4Q==}
-    engines: {node: '>=8'}
-    dev: false
 
   /@sentry/types/7.24.2:
     resolution: {integrity: sha512-x2LEnKBPzUVzTGspvB0CjZmt1dWeJsLVHGeDKPUMUm004nIscFCxJsmYefqaJQdaIUMqDit5ApwcmKchuK6VKQ==}
@@ -13660,10 +13655,9 @@ packages:
     resolution: {integrity: sha512-tlkBdypJuvK/s00n4EiQjwYVfuuZv6vt8BF3g1ooIQa2Gz9Vz80p8q3qsPLZ0V5ErGRy6i3Q4fWC9TDzR7GNRQ==}
     dev: false
 
-  /posthog-js/1.39.4:
-    resolution: {integrity: sha512-Elpf1gwyuObueXi89iH+9pP+WhpkiivP8Qwej4RzOLwSTa7Floaa4rgAw7rnCnX1PtRoJ3F0kqb6q9T+aZjRiA==}
+  /posthog-js/1.40.0:
+    resolution: {integrity: sha512-j/W5cfZuFzl+KaoA7PJ6wAMA+/uopj/JDYAI7ZRHa6mpelVavkDm7psJmPc6TG8gwZJ/NLjzHmxyQ5Dr1g0Gfw==}
     dependencies:
-      '@sentry/types': 7.22.0
       fflate: 0.4.8
       rrweb-snapshot: 1.1.14
     dev: false
