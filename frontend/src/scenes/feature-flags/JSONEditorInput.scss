@@ -1,0 +1,11 @@
+.JsonEditorInput {
+    .border {
+        border-radius: var(--radius);
+        .monaco-editor {
+            border-radius: inherit;
+            .overflow-guard {
+                border-radius: inherit;
+            }
+        }
+    }
+}

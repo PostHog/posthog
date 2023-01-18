@@ -1819,6 +1819,7 @@ export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null
+    payloads: Record<string, JsonType>
 }
 
 export interface FeatureFlagType {
@@ -2573,3 +2574,5 @@ export interface RecordingReportLoadTimes {
     performanceEvents: RecordingReportLoadTimeRow
     firstPaint: RecordingReportLoadTimeRow
 }
+
+export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
