@@ -55,8 +55,7 @@ describe('Feature Flags', () => {
         // click the sidebar item to go back to the list
         cy.clickNavMenu('featureflags')
         cy.get('[data-attr=feature-flag-table]').should('contain', name)
-        cy.get('[data-attr=feature-flag-table]').should('not.contain', '%') // By default it's released to everyone, if a % is not specified
-        cy.get('[data-attr=feature-flag-table]').should('contain', 'is_demo')
+        cy.get('[data-attr=feature-flag-table]').should('contain', 'No users') // By default it's released to nobody, if a % is not specified
 
         cy.get(`[data-row-key=${name}]`).contains(name).click()
         cy.get(`[data-attr=edit-feature-flag]`).click()
