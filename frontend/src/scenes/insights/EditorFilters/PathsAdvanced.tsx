@@ -1,28 +1,52 @@
 import { useState } from 'react'
 import { useActions, useValues } from 'kea'
-import { EditorFilterProps, PathEdgeParameters } from '~/types'
+import { InputNumber } from 'antd'
 import { SettingOutlined } from '@ant-design/icons'
 
+import { EditorFilterProps, PathEdgeParameters, PathsFilterType, QueryEditorFilterProps } from '~/types'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { InputNumber } from 'antd'
+import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+
 import { Link } from 'lib/components/Link'
-import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+
+import { PathCleaningFilter } from '../filters/PathCleaningFilter'
+
+export function PathsAdvancedDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
+
+    return <PathsAdvancedComponent setFilter={updateInsightFilter} {...insightFilter} />
+}
 
 export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
+
+    return <PathsAdvancedComponent setFilter={setFilter} {...filter} />
+}
+
+type PathsAdvancedComponentProps = {
+    setFilter: (filter: PathsFilterType) => void
+} & PathsFilterType
+
+export function PathsAdvancedComponent({
+    setFilter,
+    edge_limit,
+    min_edge_weight,
+    max_edge_weight,
+}: PathsAdvancedComponentProps): JSX.Element {
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
-        edge_limit: filter.edge_limit,
-        min_edge_weight: filter.min_edge_weight,
-        max_edge_weight: filter.max_edge_weight,
+        edge_limit: edge_limit,
+        min_edge_weight: min_edge_weight,
+        max_edge_weight: max_edge_weight,
     })
 
     const updateEdgeParameters = (): void => {
         if (
-            localEdgeParameters.edge_limit !== filter.edge_limit ||
-            localEdgeParameters.min_edge_weight !== filter.min_edge_weight ||
-            localEdgeParameters.max_edge_weight !== filter.max_edge_weight
+            localEdgeParameters.edge_limit !== edge_limit ||
+            localEdgeParameters.min_edge_weight !== min_edge_weight ||
+            localEdgeParameters.max_edge_weight !== max_edge_weight
         ) {
             setFilter({ ...localEdgeParameters })
         }

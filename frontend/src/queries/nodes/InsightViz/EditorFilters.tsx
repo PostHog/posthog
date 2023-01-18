@@ -41,6 +41,7 @@ import {
 } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
+import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -207,8 +208,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                     (hasPathsAdvanced
                         ? {
                               key: 'paths-advanced',
-                              //   component: PathsAdvanced,
-                              component: () => <>Advanced</>,
+                              component: PathsAdvancedDataExploration,
                           }
                         : !paidFeaturesDisabled
                         ? {
