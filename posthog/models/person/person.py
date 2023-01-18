@@ -107,7 +107,7 @@ class PersonOverride(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=["old_person_id", "override_person_id"], name="unique override per old_person_id"
+                fields=["team", "old_person_id"], name="unique override per old_person_id"
             )
         ]
 
