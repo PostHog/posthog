@@ -106,11 +106,10 @@ class PersonOverride(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["team", "old_person_id"], name="unique override per old_person_id"
-            )
+            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id")
         ]
 
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
 
     # We don't want to delete rows before we had a chance to propagate updates to the events table.
