@@ -348,7 +348,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         # adding more insights doesn't change the query count
         self.assertEqual(
-            [13, 13, 13, 13, 13],
+            [11, 11, 11, 11, 11],
             query_counts,
             f"received query counts\n\n{query_counts}",
         )
@@ -2102,6 +2102,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
                 "dashboards": [dashboard_restricted.pk],
             }
         )
+        assert [t["dashboard_id"] for t in response_data["dashboard_tiles"]] == [dashboard_restricted.pk]
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",

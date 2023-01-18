@@ -161,15 +161,15 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(16):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(16):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
             self.dashboard_api.create_insight({"filters": filter_dict, "dashboards": [dashboard_id]})
-            with self.assertNumQueries(16):
+            with self.assertNumQueries(20):
                 self.dashboard_api.get_dashboard(dashboard_id)
 
     @snapshot_postgres_queries
@@ -875,9 +875,11 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
         self.dashboard_api.soft_delete(dashboard_id, "dashboards")
 
         insight_one_json = self.dashboard_api.get_insight(insight_id=insight_one_id)
+        assert [t["dashboard_id"] for t in insight_one_json["dashboard_tiles"]] == [other_dashboard_id]
         assert insight_one_json["dashboards"] == [other_dashboard_id]
         assert insight_one_json["deleted"] is False
         insight_two_json = self.dashboard_api.get_insight(insight_id=insight_two_id)
+        assert [t["dashboard_id"] for t in insight_two_json["dashboard_tiles"]] == []
         assert insight_two_json["dashboards"] == []
         assert insight_two_json["deleted"] is False
 

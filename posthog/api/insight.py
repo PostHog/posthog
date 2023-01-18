@@ -152,6 +152,8 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
     def to_representation(self, instance):
         representation = super().to_representation(instance)
 
+        representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
+
         filters = instance.dashboard_filters()
 
         if not filters.get("date_from"):
@@ -406,6 +408,8 @@ class InsightSerializer(InsightBasicSerializer):
             representation["dashboards"] = [
                 described_dashboard["id"] for described_dashboard in self.context["after_dashboard_changes"]
             ]
+        else:
+            representation["dashboards"] = [tile["dashboard_id"] for tile in representation["dashboard_tiles"]]
 
         dashboard: Optional[Dashboard] = self.context.get("dashboard")
         representation["filters"] = instance.dashboard_filters(dashboard=dashboard)
@@ -491,17 +495,13 @@ class InsightViewSet(
 
         queryset = queryset.prefetch_related(
             Prefetch(
+                # TODO deprecate this field entirely
                 "dashboards",
-                queryset=Dashboard.objects.filter(
-                    id__in=DashboardTile.objects.filter(
-                        insight__id__in=queryset.values_list("id", flat=True).all()
-                    ).values_list("dashboard_id", flat=True)
-                ),
+                queryset=Dashboard.objects.all().select_related("team__organization"),
             ),
-            "dashboards__team__organization",
             Prefetch(
                 "dashboard_tiles",
-                queryset=DashboardTile.objects.select_related("dashboard"),
+                queryset=DashboardTile.objects.select_related("dashboard__team__organization"),
             ),
         )
 
