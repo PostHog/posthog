@@ -137,8 +137,9 @@ export function AddToDashboardModal({
                     onChange={(newValue) => setSearchQuery(newValue)}
                 />
                 <div className="text-muted-alt">
-                    This insight is referenced on <strong className="text-default">{insight.dashboards?.length}</strong>{' '}
-                    {pluralize(insight.dashboards?.length || 0, 'dashboard', 'dashboards', false)}
+                    This insight is referenced on{' '}
+                    <strong className="text-default">{insight.dashboard_tiles?.length}</strong>{' '}
+                    {pluralize(insight.dashboard_tiles?.length || 0, 'dashboard', 'dashboards', false)}
                 </div>
                 <div style={{ minHeight: 420 }}>
                     <AutoSizer>

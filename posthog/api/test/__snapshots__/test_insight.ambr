@@ -268,6 +268,27 @@
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.17
   '
+  SELECT "posthog_dashboardtile"."id",
+         "posthog_dashboardtile"."dashboard_id",
+         "posthog_dashboardtile"."insight_id",
+         "posthog_dashboardtile"."text_id",
+         "posthog_dashboardtile"."layouts",
+         "posthog_dashboardtile"."color",
+         "posthog_dashboardtile"."filters_hash",
+         "posthog_dashboardtile"."last_refresh",
+         "posthog_dashboardtile"."refreshing",
+         "posthog_dashboardtile"."refresh_attempt",
+         "posthog_dashboardtile"."deleted"
+  FROM "posthog_dashboardtile"
+  INNER JOIN "posthog_dashboard" ON ("posthog_dashboardtile"."dashboard_id" = "posthog_dashboard"."id")
+  WHERE (NOT ("posthog_dashboardtile"."deleted"
+              AND "posthog_dashboardtile"."deleted" IS NOT NULL)
+         AND NOT ("posthog_dashboard"."deleted")
+         AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  '
+---
+# name: TestInsight.test_listing_insights_does_not_nplus1.18
+  '
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
          "posthog_dashboard"."description",
@@ -290,7 +311,7 @@
          AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.18
+# name: TestInsight.test_listing_insights_does_not_nplus1.19
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -331,27 +352,6 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
-# name: TestInsight.test_listing_insights_does_not_nplus1.19
-  '
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -386,6 +386,27 @@
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.20
   '
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  '
+---
+# name: TestInsight.test_listing_insights_does_not_nplus1.21
+  '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboard"
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
@@ -393,7 +414,7 @@
          AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.21
+# name: TestInsight.test_listing_insights_does_not_nplus1.22
   '
   SELECT "posthog_dashboard"."id",
          "posthog_dashboard"."name",
@@ -417,7 +438,7 @@
          AND "posthog_dashboardtile"."insight_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.22
+# name: TestInsight.test_listing_insights_does_not_nplus1.23
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -461,7 +482,7 @@
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.23
+# name: TestInsight.test_listing_insights_does_not_nplus1.24
   '
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -482,7 +503,7 @@
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.24
+# name: TestInsight.test_listing_insights_does_not_nplus1.25
   '
   SELECT "posthog_tag"."name"
   FROM "posthog_taggeditem"
@@ -490,14 +511,14 @@
   WHERE "posthog_taggeditem"."insight_id" = 2 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.25
+# name: TestInsight.test_listing_insights_does_not_nplus1.26
   '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE NOT ("posthog_dashboarditem"."deleted")
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.26
+# name: TestInsight.test_listing_insights_does_not_nplus1.27
   '
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -523,7 +544,7 @@
   LIMIT 21 /**/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.27
+# name: TestInsight.test_listing_insights_does_not_nplus1.28
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -560,7 +581,7 @@
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.28
+# name: TestInsight.test_listing_insights_does_not_nplus1.29
   '
   SELECT "posthog_organizationmembership"."id",
          "posthog_organizationmembership"."organization_id",
@@ -586,27 +607,6 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
-  '
----
-# name: TestInsight.test_listing_insights_does_not_nplus1.29
-  '
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
@@ -636,13 +636,34 @@
 ---
 # name: TestInsight.test_listing_insights_does_not_nplus1.30
   '
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
+  '
+---
+# name: TestInsight.test_listing_insights_does_not_nplus1.31
+  '
   SELECT COUNT(*) AS "__count"
   FROM "posthog_dashboarditem"
   WHERE (NOT ("posthog_dashboarditem"."deleted")
          AND "posthog_dashboarditem"."team_id" = 2) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.31
+# name: TestInsight.test_listing_insights_does_not_nplus1.32
   '
   SELECT "posthog_dashboarditem"."id",
          "posthog_dashboarditem"."name",
@@ -756,7 +777,7 @@
   LIMIT 100 /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.32
+# name: TestInsight.test_listing_insights_does_not_nplus1.33
   '
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",
@@ -778,7 +799,7 @@
                                               5 /* ... */) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.33
+# name: TestInsight.test_listing_insights_does_not_nplus1.34
   '
   SELECT ("posthog_dashboardtile"."insight_id") AS "_prefetch_related_val_insight_id",
          "posthog_dashboard"."id",
@@ -801,12 +822,17 @@
   INNER JOIN "posthog_dashboardtile" ON ("posthog_dashboard"."id" = "posthog_dashboardtile"."dashboard_id")
   WHERE (NOT ("posthog_dashboard"."deleted")
          AND "posthog_dashboard"."id" IN
-           (SELECT U0."dashboard_id"
-            FROM "posthog_dashboardtile" U0
-            INNER JOIN "posthog_dashboard" U1 ON (U0."dashboard_id" = U1."id")
-            WHERE (NOT (U0."deleted"
-                        AND U0."deleted" IS NOT NULL)
-                   AND NOT (U1."deleted")))
+           (SELECT V0."dashboard_id"
+            FROM "posthog_dashboardtile" V0
+            INNER JOIN "posthog_dashboard" V1 ON (V0."dashboard_id" = V1."id")
+            WHERE (NOT (V0."deleted"
+                        AND V0."deleted" IS NOT NULL)
+                   AND NOT (V1."deleted")
+                   AND V0."insight_id" IN
+                     (SELECT U0."id"
+                      FROM "posthog_dashboarditem" U0
+                      WHERE (NOT (U0."deleted")
+                             AND U0."team_id" = 2))))
          AND "posthog_dashboardtile"."insight_id" IN (1,
                                                       2,
                                                       3,
@@ -814,7 +840,7 @@
                                                       5 /* ... */)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.34
+# name: TestInsight.test_listing_insights_does_not_nplus1.35
   '
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -861,7 +887,7 @@
                                 5 /* ... */) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.35
+# name: TestInsight.test_listing_insights_does_not_nplus1.36
   '
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -881,7 +907,7 @@
   WHERE "posthog_organization"."id" IN ('00000000-0000-0000-0000-000000000000'::uuid) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.36
+# name: TestInsight.test_listing_insights_does_not_nplus1.37
   '
   SELECT "posthog_dashboardtile"."id",
          "posthog_dashboardtile"."dashboard_id",
@@ -922,7 +948,7 @@
                                                       5 /* ... */)) /*controller='project_insights-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/insights/%3F%24'*/
   '
 ---
-# name: TestInsight.test_listing_insights_does_not_nplus1.37
+# name: TestInsight.test_listing_insights_does_not_nplus1.38
   '
   SELECT "posthog_taggeditem"."id",
          "posthog_taggeditem"."tag_id",

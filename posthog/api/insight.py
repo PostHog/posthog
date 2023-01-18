@@ -110,11 +110,18 @@ def log_insight_activity(
         )
 
 
+class DashboardTileBasicSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = DashboardTile
+        fields = ["id", "dashboard_id", "deleted"]
+
+
 class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     """
     Simplified serializer to speed response times when loading large amounts of objects.
     """
 
+    dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
     created_by = UserBasicSerializer(read_only=True)
 
     class Meta:
@@ -125,6 +132,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "name",
             "filters",
             "dashboards",
+            "dashboard_tiles",
             "description",
             "last_refresh",
             "refreshing",
@@ -173,11 +181,15 @@ class InsightSerializer(InsightBasicSerializer):
     effective_privilege_level = serializers.SerializerMethodField()
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
-        help_text="A dashboard ID for each of the dashboards that this insight is displayed on.",
+        help_text="""
+        DEPRECATED. Use dashboard_tiles,
+        A dashboard ID for each of the dashboards that this insight is displayed on.
+        """,
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
     )
+    dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
 
     class Meta:
         model = Insight
@@ -190,6 +202,7 @@ class InsightSerializer(InsightBasicSerializer):
             "order",
             "deleted",
             "dashboards",
+            "dashboard_tiles",
             "last_refresh",
             "result",
             "created_at",
@@ -479,7 +492,11 @@ class InsightViewSet(
         queryset = queryset.prefetch_related(
             Prefetch(
                 "dashboards",
-                queryset=Dashboard.objects.filter(id__in=DashboardTile.objects.values_list("dashboard_id", flat=True)),
+                queryset=Dashboard.objects.filter(
+                    id__in=DashboardTile.objects.filter(
+                        insight__id__in=queryset.values_list("id", flat=True).all()
+                    ).values_list("dashboard_id", flat=True)
+                ),
             ),
             "dashboards__team__organization",
             Prefetch(
