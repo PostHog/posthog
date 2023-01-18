@@ -273,6 +273,11 @@ export function Paths(): JSX.Element {
                         pathItemCards.map((pathItemCard: PathNodeData, idx) => {
                             const continuingValue = getContinuingValue(pathItemCard.sourceLinks)
                             const dropOffValue = getDropOffValue(pathItemCard)
+
+                            if (!pathItemCard.visible) {
+                                return null
+                            }
+
                             return (
                                 <Tooltip key={idx} title={pageUrl(pathItemCard)} placement="right">
                                     <Dropdown
@@ -359,7 +364,7 @@ export function Paths(): JSX.Element {
                                     >
                                         <Button
                                             key={idx}
-                                            className="absolute bg-white p-1 justify-between items-center"
+                                            className="absolute flex justify-between items-center bg-white p-1 "
                                             style={{
                                                 width: 200,
                                                 left:
@@ -375,7 +380,6 @@ export function Paths(): JSX.Element {
                                                         ? 'purple'
                                                         : 'var(--border)'
                                                 }`,
-                                                display: `${pathItemCard.visible ? 'flex' : 'none'}`,
                                             }}
                                         >
                                             <div className="flex items-center font-semibold">
