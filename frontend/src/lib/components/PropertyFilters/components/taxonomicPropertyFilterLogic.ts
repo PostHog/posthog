@@ -1,6 +1,13 @@
 import { kea } from 'kea'
 import { TaxonomicPropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { AnyPropertyFilter, CohortPropertyFilter, PropertyOperator, PropertyType } from '~/types'
+import {
+    AnyPropertyFilter,
+    CohortPropertyFilter,
+    HogQLPropertyFilter,
+    PropertyFilterType,
+    PropertyOperator,
+    PropertyType,
+} from '~/types'
 import type { taxonomicPropertyFilterLogicType } from './taxonomicPropertyFilterLogicType'
 import { cohortsModel } from '~/models/cohortsModel'
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
@@ -82,13 +89,20 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
         selectItem: ({ taxonomicGroup, propertyKey }) => {
             const propertyType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroup.type)
             if (propertyKey && propertyType) {
-                if (propertyType === 'cohort') {
+                if (propertyType === PropertyFilterType.Cohort) {
                     const cohortProperty: CohortPropertyFilter = {
                         key: 'id',
                         value: parseInt(String(propertyKey)),
                         type: propertyType,
                     }
                     props.propertyFilterLogic.actions.setFilter(props.filterIndex, cohortProperty)
+                } else if (propertyType === PropertyFilterType.HogQL) {
+                    const hogQLProperty: HogQLPropertyFilter = {
+                        type: propertyType,
+                        key: String(propertyKey),
+                        value: null, // must specify something to be compatible with existing types
+                    }
+                    props.propertyFilterLogic.actions.setFilter(props.filterIndex, hogQLProperty)
                 } else {
                     const propertyValueType = values.describeProperty(propertyKey)
                     const property_name_to_default_operator_override = {
