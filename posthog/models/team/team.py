@@ -318,6 +318,7 @@ def set_team_in_cache(token: str, team: Optional[Team] = None) -> None:
         try:
             team = Team.objects.get(api_token=token)
         except (Team.DoesNotExist, Team.MultipleObjectsReturned):
+            cache.delete(f"team_token:{token}")
             return
 
     serialized_team = CachingTeamSerializer(team).data

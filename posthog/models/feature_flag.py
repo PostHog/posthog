@@ -600,7 +600,9 @@ class FeatureFlagMatcher:
         return current_match, current_index
 
 
-def set_feature_flags_for_team_in_cache(team_id: int, feature_flags: Optional[List[FeatureFlag]] = None) -> None:
+def set_feature_flags_for_team_in_cache(
+    team_id: int, feature_flags: Optional[List[FeatureFlag]] = None
+) -> List[FeatureFlag]:
     from posthog.api.feature_flag import MinimalFeatureFlagSerializer
 
     if feature_flags is not None:
@@ -611,6 +613,8 @@ def set_feature_flags_for_team_in_cache(team_id: int, feature_flags: Optional[Li
     serialized_flags = MinimalFeatureFlagSerializer(all_feature_flags, many=True).data
 
     cache.set(f"team_feature_flags_{team_id}", json.dumps(serialized_flags), None)
+
+    return all_feature_flags
 
 
 def get_feature_flags_for_team_in_cache(team_id: int) -> Optional[List[FeatureFlag]]:
@@ -686,20 +690,7 @@ def get_all_feature_flags(
 
     all_feature_flags = get_feature_flags_for_team_in_cache(team_id)
     if all_feature_flags is None:
-        all_feature_flags = list(
-            FeatureFlag.objects.filter(team_id=team_id, active=True, deleted=False).only(
-                "id",
-                "name",
-                "team_id",
-                "filters",
-                "key",
-                "rollout_percentage",
-                "ensure_experience_continuity",
-                "active",
-                "deleted",
-            )
-        )
-        set_feature_flags_for_team_in_cache(team_id, all_feature_flags)
+        all_feature_flags = set_feature_flags_for_team_in_cache(team_id)
 
     flags_have_experience_continuity_enabled = any(
         feature_flag.ensure_experience_continuity for feature_flag in all_feature_flags

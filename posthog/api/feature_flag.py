@@ -215,6 +215,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         instance.update_cohorts()
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
+
+        set_feature_flags_for_team_in_cache(self.context["team_id"])
+
         return instance
 
     def _update_filters(self, validated_data):

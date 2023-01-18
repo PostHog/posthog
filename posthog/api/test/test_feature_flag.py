@@ -16,7 +16,7 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import FeatureFlag, GroupTypeMapping, User
 from posthog.models.cohort import Cohort
-from posthog.models.feature_flag import get_all_feature_flags
+from posthog.models.feature_flag import get_all_feature_flags, get_feature_flags_for_team_in_cache
 from posthog.models.group.util import create_group
 from posthog.models.organization import Organization
 from posthog.models.person import Person
@@ -1842,6 +1842,53 @@ class TestFeatureFlag(APIBaseTest):
         res = self.client.get(f"/api/projects/{self.team.id}/feature_flags/")
         self.assertEqual(res.json()["results"][0]["can_edit"], True)
         self.assertEqual(res.json()["results"][1]["can_edit"], True)
+
+    def test_flag_is_cached_on_create_and_update(self):
+        # Ensure empty feature flag list
+        FeatureFlag.objects.all().delete()
+
+        feature_flag = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Beta feature",
+                "key": "beta-feature",
+                "filters": {"aggregation_group_type_index": 0, "groups": [{"rollout_percentage": 65}]},
+            },
+            format="json",
+        ).json()
+
+        flags = get_feature_flags_for_team_in_cache(self.team.id)
+
+        assert flags is not None
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0].id, feature_flag["id"])
+        self.assertEqual(flags[0].key, "beta-feature")
+        self.assertEqual(flags[0].name, "Beta feature")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag['id']}",
+            {"name": "XYZ", "key": "red_button"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flags = get_feature_flags_for_team_in_cache(self.team.id)
+
+        assert flags is not None
+        self.assertEqual(len(flags), 1)
+        self.assertEqual(flags[0].id, feature_flag["id"])
+        self.assertEqual(flags[0].key, "red_button")
+        self.assertEqual(flags[0].name, "XYZ")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{feature_flag['id']}",
+            {"deleted": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        flags = get_feature_flags_for_team_in_cache(self.team.id)
+
+        assert flags is not None
+        self.assertEqual(len(flags), 0)
 
 
 class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):

@@ -308,8 +308,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
+        old_token = team.api_token
         team.api_token = generate_random_token_project()
         team.save()
+        set_team_in_cache(old_token, None)
         set_team_in_cache(team.api_token, team)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
