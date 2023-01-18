@@ -212,7 +212,7 @@ class CHQueries:
 
 
 class QueryTimeCountingMiddleware:
-    ALLOW_LIST_ROUTES = ["dashboard", "insight"]
+    ALLOW_LIST_ROUTES = ["dashboard", "insight", "property_definitions", "properties"]
 
     def __init__(self, get_response):
         self.get_response = get_response
