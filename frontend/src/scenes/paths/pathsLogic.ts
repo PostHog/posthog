@@ -59,20 +59,16 @@ export const pathsLogic = kea<pathsLogicType>({
     actions: {
         setProperties: (properties: PropertyFilter[]) => ({ properties }),
         setFilter: (filter: Partial<PathsFilterType>) => ({ filter }),
-        updateExclusions: (exclusions: string[]) => ({ exclusions }),
         openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
             props,
         viewPathToFunnel: (pathItemCard: any) => ({ pathItemCard }),
     },
-    listeners: ({ actions, values, props }) => ({
+    listeners: ({ values, props }) => ({
         setProperties: ({ properties }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filter, properties }))
         },
         setFilter: ({ filter }) => {
             insightLogic(props).actions.setFilters(cleanFilters({ ...values.filter, ...filter }))
-        },
-        updateExclusions: ({ exclusions }) => {
-            actions.setFilter({ exclude_events: exclusions })
         },
         openPersonsModal: ({ path_start_key, path_end_key, path_dropoff_key }) => {
             const filters: Partial<PathsFilterType> = {

@@ -37,7 +37,7 @@ export function Paths(): JSX.Element {
         useResizeObserver({ ref: canvas })
     const { insight, insightProps } = useValues(insightLogic)
     const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
-    const { openPersonsModal, setFilter, updateExclusions, viewPathToFunnel } = useActions(pathsLogic(insightProps))
+    const { openPersonsModal, setFilter, viewPathToFunnel } = useActions(pathsLogic(insightProps))
     const [pathItemCards, setPathItemCards] = useState<PathNodeData[]>([])
     const { user } = useValues(userLogic)
 
@@ -430,10 +430,12 @@ export function Paths(): JSX.Element {
                                                                     </Menu.Item>
                                                                     <Menu.Item
                                                                         onClick={() => {
-                                                                            updateExclusions([
-                                                                                ...(filter.exclude_events || []),
-                                                                                pageUrl(pathItemCard, false),
-                                                                            ])
+                                                                            setFilter({
+                                                                                exclude_events: [
+                                                                                    ...(filter.exclude_events || []),
+                                                                                    pageUrl(pathItemCard, false),
+                                                                                ],
+                                                                            })
                                                                         }}
                                                                     >
                                                                         Exclude path item
