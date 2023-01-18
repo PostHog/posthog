@@ -56,7 +56,8 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(translate_hql("person.properties['$initial_waffle']"), '"mat_pp_$initial_waffle"')
 
     def test_hogql_methods(self):
-        self.assertEqual(translate_hql("total()"), "count(*)")
+        self.assertEqual(translate_hql("count()"), "count(*)")
+        self.assertEqual(translate_hql("count(event)"), "count(distinct event)")
 
     def test_hogql_functions(self):
         self.assertEqual(translate_hql("abs(1)"), "abs(1)")
@@ -71,10 +72,10 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         self._assert_value_error("())", "SyntaxError: unmatched ')'")
         self._assert_value_error("this makes little sense", "SyntaxError: invalid syntax")
         self._assert_value_error("avg(bla)", "Unknown event field 'bla'")
-        self._assert_value_error("total(2)", "Aggregation 'total' does not accept any arguments.")
+        self._assert_value_error("count(2,4)", "Aggregation 'count' expects one or zero arguments.")
         self._assert_value_error("avg(2,1)", "Aggregation 'avg' expects just one argument.")
         self._assert_value_error(
-            "bla.avg(bla)", "Can only call simple functions like 'avg(properties.bla)' or 'total()'"
+            "bla.avg(bla)", "Can only call simple functions like 'avg(properties.bla)' or 'count()'"
         )
         self._assert_value_error("hamburger(bla)", "Unsupported function call 'hamburger(...)'")
         self._assert_value_error("mad(bla)", "Unsupported function call 'mad(...)'")
@@ -101,7 +102,7 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(context.is_aggregation, False)
 
         context = ExprParserContext()
-        translate_hql("total() + sum(timestamp)", context)
+        translate_hql("count() + sum(timestamp)", context)
         self.assertEqual(context.attribute_list, [["timestamp"]])
         self.assertEqual(context.is_aggregation, True)
 
@@ -122,7 +123,7 @@ class TestExprParser(APIBaseTest, ClickhouseTestMixin):
             "and(replaceRegexpAll(JSONExtractRaw(properties, 'bla'), '^\"|\"$', ''), replaceRegexpAll(JSONExtractRaw(properties, 'bla2'), '^\"|\"$', ''))",
         )
         self.assertEqual(
-            translate_hql("event or timestamp or true or total()"),
+            translate_hql("event or timestamp or true or count()"),
             "or(event, timestamp, true, count(*))",
         )
         self.assertEqual(
