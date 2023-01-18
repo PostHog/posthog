@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { UnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
+import { IconUnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -26,10 +26,23 @@ import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from '../../icons'
 
-const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
-    [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
-    [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
+const typeToIconAndDescription = {
+    [SessionRecordingPlayerTab.ALL]: {
+        Icon: undefined,
+        tooltip: 'All events',
+    },
+    [SessionRecordingPlayerTab.EVENTS]: {
+        Icon: IconUnverifiedEvent,
+        tooltip: 'Recording event',
+    },
+    [SessionRecordingPlayerTab.CONSOLE]: {
+        Icon: IconTerminal,
+        tooltip: 'Console log',
+    },
+    [SessionRecordingPlayerTab.NETWORK]: {
+        Icon: IconGauge,
+        tooltip: 'Network event',
+    },
 }
 
 const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
@@ -80,7 +93,9 @@ function PlayerInspectorListItem({
     }, [totalHeight])
 
     const windowNumber =
-        windowIds.length > 1 && item.windowId ? windowIds.indexOf(item.windowId) + 1 || undefined : undefined
+        windowIds.length > 1 ? (item.windowId ? windowIds.indexOf(item.windowId) + 1 || '?' : '?') : undefined
+
+    const TypeIcon = typeToIconAndDescription[item.type].Icon
 
     return (
         <div
@@ -94,10 +109,37 @@ function PlayerInspectorListItem({
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (
-                <div className="shrink-0 text-lg text-muted-alt h-8 w-6 flex items-center justify-center gap-1">
-                    {showIcon ? TabToIcon[item.type] : null}
-                    {windowNumber ? <IconWindow value={windowNumber} className="shrink-0" /> : null}
-                </div>
+                <Tooltip
+                    placement="left"
+                    title={
+                        <>
+                            <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
+
+                            {windowNumber ? (
+                                <>
+                                    <br />
+                                    {windowNumber !== '?' ? (
+                                        <>
+                                            {' '}
+                                            occurred in Window <b>{windowNumber}</b>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {' '}
+                                            not linked to any specific window. Either an event tracked from the backend
+                                            or otherwise not able to be linked to a given window.
+                                        </>
+                                    )}
+                                </>
+                            ) : null}
+                        </>
+                    }
+                >
+                    <div className="shrink-0 text-2xl h-8 text-muted-alt flex items-center justify-center gap-1">
+                        {showIcon && TypeIcon ? <TypeIcon /> : null}
+                        {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
+                    </div>
+                </Tooltip>
             )}
 
             <span
@@ -108,11 +150,11 @@ function PlayerInspectorListItem({
                     !item.highlightColor && 'bg-light'
                 )}
             >
-                {item.type === 'performance' ? (
+                {item.type === SessionRecordingPlayerTab.NETWORK ? (
                     <ItemPerformanceEvent item={item.data} finalTimestamp={recordingTimeInfo.end} {...itemProps} />
-                ) : item.type === 'console' ? (
+                ) : item.type === SessionRecordingPlayerTab.CONSOLE ? (
                     <ItemConsoleLog item={item} {...itemProps} />
-                ) : item.type === 'events' ? (
+                ) : item.type === SessionRecordingPlayerTab.EVENTS ? (
                     <ItemEvent item={item} {...itemProps} />
                 ) : null}
 
@@ -165,7 +207,7 @@ function PlayerInspectorListItem({
 }
 
 export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { items, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab, loading } = useValues(
+    const { items, tabsState, playbackIndicatorIndex, playbackIndicatorIndexStop, syncScroll, tab } = useValues(
         playerInspectorLogic(props)
     )
     const { setSyncScroll } = useActions(playerInspectorLogic(props))
@@ -268,15 +310,18 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                         )}
                     </AutoSizer>
                 </div>
-            ) : loading[tab] ? (
+            ) : tabsState[tab] === 'loading' ? (
                 <div className="p-2">
                     <LemonSkeleton className="my-1 h-8" repeat={20} fade />
                 </div>
+            ) : tabsState[tab] === 'ready' ? (
+                // If we are "ready" but with no results this must mean some results are filtered out
+                <div className="p-16 text-center text-muted-alt">No results matching your filters.</div>
             ) : (
-                <div className="flex-1 flex items-center justify-center text-muted-alt">
+                <div className="p-16 text-center text-muted-alt">
                     {tab === SessionRecordingPlayerTab.CONSOLE && !currentTeam?.capture_console_log_opt_in ? (
                         <>
-                            <div className="flex flex-col items-center h-full w-full p-16">
+                            <div className="flex flex-col items-center">
                                 <h4 className="text-xl font-medium">Console logs</h4>
                                 <p className="text-muted text-center">
                                     Capture all console logs during the browser recording to get technical information
@@ -291,7 +336,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                                 </LemonButton>
                             </div>
                         </>
-                    ) : tab === SessionRecordingPlayerTab.PERFORMANCE ? (
+                    ) : tab === SessionRecordingPlayerTab.NETWORK ? (
                         !performanceEnabled ? (
                             <div className="p-4">
                                 <PayGatePage
@@ -308,7 +353,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                             </div>
                         ) : (
                             <>
-                                <div className="flex flex-col items-center h-full w-full p-16">
+                                <div className="flex flex-col items-center">
                                     <h4 className="text-xl font-medium">Performance events</h4>
                                     <p className="text-muted text-center">
                                         Capture performance events like network requests during the browser recording to
@@ -325,7 +370,7 @@ export function PlayerInspectorList(props: SessionRecordingPlayerLogicProps): JS
                             </>
                         )
                     ) : (
-                        'No results'
+                        'No results found in this recording.'
                     )}
                 </div>
             )}

@@ -6,7 +6,6 @@ import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
-import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { InsightsNav } from './InsightsNav'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -14,7 +13,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
-import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconLock } from 'lib/components/icons'
 import { summarizeInsightFilters, summarizeInsightQuery } from './utils'
@@ -62,7 +60,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
         insightSaving,
         exporterResourceParams,
         isUsingDataExploration,
-        showErrorMessage,
+        erroredQueryId,
     } = useValues(logic)
     const {
         saveInsight,
@@ -98,7 +96,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
     useEffect(() => {
         // if users navigate away from insights then we may cancel an API call
         // and when they come back they may see an error state, so clear it
-        if (showErrorMessage) {
+        if (!!erroredQueryId) {
             loadResults()
         }
         return () => {
@@ -278,6 +276,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 insightChanged={insightChanged}
                             />
                         )}
+                        {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
                     </div>
                 }
                 caption={
@@ -343,13 +342,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     </div>
                 </>
             )}
-
-            {insightMode !== ItemMode.View ? (
-                <>
-                    <NPSPrompt />
-                    <FeedbackCallCTA />
-                </>
-            ) : null}
         </div>
     )
 

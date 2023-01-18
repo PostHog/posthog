@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { InputNumber } from 'antd'
-import { SettingOutlined } from '@ant-design/icons'
 
 import { EditorFilterProps, PathEdgeParameters, PathsFilterType, QueryEditorFilterProps } from '~/types'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
@@ -9,6 +8,7 @@ import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 import { Link } from 'lib/components/Link'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { IconSettings } from 'lib/components/icons'
 
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 
@@ -116,7 +116,7 @@ export function PathsAdvancedComponent({
                         Path Cleaning Rules
                     </LemonLabel>
                     <Link className="grow-1 text-right" to="/project/settings#path_cleaning_filtering">
-                        <SettingOutlined /> Configure Project Rules
+                        <IconSettings /> Configure Project Rules
                     </Link>
                 </div>
                 <PathCleaningFilter />

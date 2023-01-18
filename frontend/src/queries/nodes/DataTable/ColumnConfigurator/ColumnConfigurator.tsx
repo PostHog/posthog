@@ -19,7 +19,7 @@ import { columnConfiguratorLogic, ColumnConfiguratorLogicProps } from './columnC
 import { defaultDataTableColumns, extractExpressionComment } from '../utils'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { LemonModal } from 'lib/components/LemonModal'
-import { isEventsQuery } from '~/queries/utils'
+import { isEventsQuery, taxonomicFilterToHogQl } from '~/queries/utils'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { PropertyFilterIcon } from 'lib/components/PropertyFilters/components/PropertyFilterIcon'
@@ -34,34 +34,21 @@ interface ColumnConfiguratorProps {
 }
 
 export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps): JSX.Element {
-    const { columns } = useValues(dataTableLogic)
+    const { columnsInQuery } = useValues(dataTableLogic)
 
     const [key] = useState(() => String(uniqueNode++))
     const columnConfiguratorLogicProps: ColumnConfiguratorLogicProps = {
         key,
-        columns,
+        columns: columnsInQuery,
         setColumns: (columns: string[]) => {
             if (isEventsQuery(query.source)) {
-                // We removed the timestamp column, and can't order by it anymore.
-                if (!columns.includes('timestamp') && query.source.orderBy?.includes('-timestamp')) {
-                    setQuery?.({
-                        ...query,
-                        source: {
-                            ...query.source,
-                            orderBy: [],
-                            select: columns,
-                        },
-                        allowSorting: true,
-                    })
-                } else {
-                    setQuery?.({
-                        ...query,
-                        source: {
-                            ...query.source,
-                            select: columns,
-                        },
-                    })
-                }
+                setQuery?.({
+                    ...query,
+                    source: {
+                        ...query.source,
+                        select: columns,
+                    },
+                })
             } else {
                 setQuery?.({ ...query, columns })
             }
@@ -237,17 +224,9 @@ function ColumnConfiguratorModal({ query }: ColumnConfiguratorProps): JSX.Elemen
                                         ]}
                                         value={undefined}
                                         onChange={(group, value) => {
-                                            if (group.type === TaxonomicFilterGroupType.EventProperties) {
-                                                selectColumn(`properties.${value}`)
-                                            }
-                                            if (group.type === TaxonomicFilterGroupType.PersonProperties) {
-                                                selectColumn(`person.properties.${value}`)
-                                            }
-                                            if (group.type === TaxonomicFilterGroupType.EventFeatureFlags) {
-                                                selectColumn(`properties.${value}`)
-                                            }
-                                            if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
-                                                selectColumn(String(value))
+                                            const column = taxonomicFilterToHogQl(group.type, value)
+                                            if (column !== null) {
+                                                selectColumn(column)
                                             }
                                         }}
                                         popoverEnabled={false}

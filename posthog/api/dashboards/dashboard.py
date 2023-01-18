@@ -143,7 +143,7 @@ class DashboardSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer
                     error=error,
                     exc_info=True,
                 )
-                raise serializers.ValidationError({"use_template": "Invalid value provided."})
+                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
 
         elif use_dashboard:
             try:

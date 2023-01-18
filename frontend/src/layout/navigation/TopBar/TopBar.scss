@@ -110,8 +110,12 @@
 }
 
 .Announcement__close {
+    display: flex;
     position: absolute;
     right: 0.5rem;
+    cursor: pointer;
+    font-size: 1.25rem;
+    padding: 0.125rem;
     @include screen($sm) {
         right: 1rem;
     }

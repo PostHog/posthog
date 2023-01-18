@@ -69,7 +69,7 @@ export function BreakdownTag({
                                             </>
                                         }
                                     >
-                                        <IconInfo className="text-xl text-muted-alt ml-1" />
+                                        <IconInfo className="text-xl text-muted-alt ml-1 shrink-0" />
                                     </Tooltip>
                                 </div>
                             }

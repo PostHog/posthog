@@ -1,28 +1,29 @@
 import {
-    EventsNode,
     ActionsNode,
     DataTableNode,
-    LegacyQuery,
-    TrendsQuery,
-    FunnelsQuery,
-    RetentionQuery,
-    PathsQuery,
-    StickinessQuery,
-    LifecycleQuery,
-    UnimplementedQuery,
-    Node,
-    NodeKind,
-    InsightQueryNode,
-    PersonsNode,
-    InsightVizNode,
+    EventsNode,
     EventsQuery,
-    TimeToSeeDataSessionsQuery,
-    TimeToSeeDataQuery,
-    RecentPerformancePageViewNode,
-    SupportedNodeKind,
+    FunnelsQuery,
     InsightFilter,
     InsightFilterProperty,
+    InsightQueryNode,
+    InsightVizNode,
+    LegacyQuery,
+    LifecycleQuery,
+    Node,
+    NodeKind,
+    PathsQuery,
+    PersonsNode,
+    RecentPerformancePageViewNode,
+    RetentionQuery,
+    StickinessQuery,
+    SupportedNodeKind,
+    TimeToSeeDataQuery,
+    TimeToSeeDataSessionsQuery,
+    TrendsQuery,
+    UnimplementedQuery,
 } from '~/queries/schema'
+import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
 
 export function isDataNode(node?: Node): node is EventsQuery | PersonsNode | TimeToSeeDataSessionsQuery {
     return isEventsQuery(node) || isPersonsNode(node) || isTimeToSeeDataSessionsQuery(node)
@@ -139,4 +140,47 @@ export function filterForQuery(node: InsightQueryNode): InsightFilter | undefine
     }
     const filterProperty = filterPropertyForQuery(node)
     return node[filterProperty]
+}
+
+export function taxonomicFilterToHogQl(
+    groupType: TaxonomicFilterGroupType,
+    value: TaxonomicFilterValue
+): string | null {
+    if (groupType === TaxonomicFilterGroupType.EventProperties) {
+        return `properties.${value}`
+    }
+    if (groupType === TaxonomicFilterGroupType.PersonProperties) {
+        return `person.properties.${value}`
+    }
+    if (groupType === TaxonomicFilterGroupType.EventFeatureFlags) {
+        return `properties.${value}`
+    }
+    if (groupType === TaxonomicFilterGroupType.HogQLExpression && value) {
+        return String(value)
+    }
+    return null
+}
+
+export function hogQlToTaxonomicFilter(hogQl: string): [TaxonomicFilterGroupType, TaxonomicFilterValue] {
+    if (hogQl.startsWith('person.properties.')) {
+        return [TaxonomicFilterGroupType.PersonProperties, hogQl.substring(18)]
+    }
+    if (hogQl.startsWith('properties.$feature/')) {
+        return [TaxonomicFilterGroupType.EventFeatureFlags, hogQl.substring(11)]
+    }
+    if (hogQl.startsWith('properties.')) {
+        return [TaxonomicFilterGroupType.EventProperties, hogQl.substring(11)]
+    }
+    return [TaxonomicFilterGroupType.HogQLExpression, hogQl]
+}
+
+export function isHogQlAggregation(hogQl: string): boolean {
+    return (
+        hogQl.includes('count(') ||
+        hogQl.includes('any(') ||
+        hogQl.includes('sum(') ||
+        hogQl.includes('avg(') ||
+        hogQl.includes('min(') ||
+        hogQl.includes('max(')
+    )
 }

@@ -33,8 +33,6 @@ import { TrendsFormula } from './TrendsFormula'
 import { Breakdown } from './Breakdown'
 import { getBreakdown, getDisplay } from './utils'
 import { PathsEventsTypesDataExploration } from 'scenes/insights/EditorFilters/PathsEventTypes'
-import { PathsAdvancedPaywall } from 'scenes/insights/EditorFilters/PathsAdvancedPaywall'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import {
     PathsTargetEndDataExploration,
     PathsTargetStartDataExploration,
@@ -42,6 +40,7 @@ import {
 import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
 import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 import { PathsAdvancedDataExploration } from 'scenes/insights/EditorFilters/PathsAdvanced'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -51,8 +50,6 @@ export interface EditorFiltersProps {
 export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Element {
     const { user } = useValues(userLogic)
     const availableFeatures = user?.organization?.available_features || []
-    const { preflight } = useValues(preflightLogic)
-    const paidFeaturesDisabled = preflight?.instance_preferences?.disable_paid_fs
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
     // const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
     const advancedOptionsUsedCount = 0
@@ -204,18 +201,14 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
             defaultExpanded: !!advancedOptionsUsedCount,
             count: advancedOptionsUsedCount,
             editorFilters: filterFalsy([
-                isPaths &&
-                    (hasPathsAdvanced
-                        ? {
-                              key: 'paths-advanced',
-                              component: PathsAdvancedDataExploration,
-                          }
-                        : !paidFeaturesDisabled
-                        ? {
-                              key: 'paths-paywall',
-                              component: PathsAdvancedPaywall,
-                          }
-                        : undefined),
+                isPaths && {
+                    key: 'paths-advanced',
+                    component: (props) => (
+                        <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
+                            <PathsAdvancedDataExploration {...props} />
+                        </PayGateMini>
+                    ),
+                },
             ]),
         },
     ]

@@ -4,37 +4,6 @@ import type { commandPaletteLogicType } from './commandPaletteLogicType'
 import Fuse from 'fuse.js'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { Parser } from 'expr-eval'
-import {
-    CommentOutlined,
-    FundOutlined,
-    RiseOutlined,
-    ContainerOutlined,
-    AimOutlined,
-    SmileOutlined,
-    ProjectOutlined,
-    CheckOutlined,
-    TagOutlined,
-    UserOutlined,
-    UsergroupAddOutlined,
-    FlagOutlined,
-    MessageOutlined,
-    TeamOutlined,
-    LinkOutlined,
-    CalculatorOutlined,
-    FunnelPlotOutlined,
-    GatewayOutlined,
-    InteractionOutlined,
-    ExclamationCircleOutlined,
-    KeyOutlined,
-    VideoCameraOutlined,
-    SendOutlined,
-    LogoutOutlined,
-    PlusOutlined,
-    LineChartOutlined,
-    ApiOutlined,
-    DatabaseOutlined,
-    HomeOutlined,
-} from '@ant-design/icons'
 import { DashboardType, InsightType } from '~/types'
 import api from 'lib/api'
 import { copyToClipboard, isMobile, isURL, sample, uniqueBy } from 'lib/utils'
@@ -46,6 +15,37 @@ import { debugCHQueries } from './DebugCHQueries'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
+import {
+    IconAction,
+    IconApps,
+    IconBarChart,
+    IconCalculate,
+    IconCheckmark,
+    IconCohort,
+    IconComment,
+    IconCorporate,
+    IconCottage,
+    IconEmojiPeople,
+    IconFlag,
+    IconFunnelHorizontal,
+    IconGauge,
+    IconGithub,
+    IconKeyboard,
+    IconLive,
+    IconLockOpen,
+    IconLogout,
+    IconOpenInNew,
+    IconPerson,
+    IconPersonFilled,
+    IconRecording,
+    IconServer,
+    IconSettings,
+    IconTableChart,
+    IconTools,
+    IconTrendingFlat,
+    IconTrendingUp,
+} from '../icons'
+import { ProfilePicture } from 'lib/components/ProfilePicture'
 
 // If CommandExecutor returns CommandFlow, flow will be entered
 export type CommandExecutor = () => CommandFlow | void
@@ -115,7 +115,7 @@ function resolveCommand(source: Command | CommandFlow, argument?: string, prefix
 export const commandPaletteLogic = kea<commandPaletteLogicType>({
     path: ['lib', 'components', 'CommandPalette', 'commandPaletteLogic'],
     connect: {
-        actions: [personalAPIKeysLogic, ['createKey']],
+        actions: [personalAPIKeysLogic, ['createKey'], router, ['push']],
         values: [teamLogic, ['currentTeam'], userLogic, ['user']],
         logic: [preflightLogic, dashboardsModel],
     },
@@ -242,7 +242,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         key: `person-${person.distinct_ids[0]}`,
                         resolver: [
                             {
-                                icon: UserOutlined,
+                                icon: IconPersonFilled,
                                 display: `View person ${input}`,
                                 executor: () => {
                                     const { push } = router.actions
@@ -281,8 +281,8 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                     key: 'custom_dashboards',
                     resolver: dashboards.map((dashboard: DashboardType) => ({
                         key: `dashboard_${dashboard.id}`,
-                        icon: LineChartOutlined,
-                        display: `Go to Dashboard: ${dashboard.name}`,
+                        icon: IconTableChart,
+                        display: `Go to dashboard: ${dashboard.name}`,
                         executor: () => {
                             const { push } = router.actions
                             push(urls.dashboard(dashboard.id))
@@ -392,9 +392,9 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
         ],
     },
 
-    events: ({ actions }) => ({
+    events: ({ actions, values }) => ({
         afterMount: () => {
-            const { push } = router.actions
+            const { push } = actions
 
             const goTo: Command = {
                 key: 'go-to',
@@ -402,21 +402,21 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 prefixes: ['open', 'visit'],
                 resolver: [
                     {
-                        icon: FundOutlined,
+                        icon: IconGauge,
                         display: 'Go to Dashboards',
                         executor: () => {
                             push(urls.dashboards())
                         },
                     },
                     {
-                        icon: RiseOutlined,
+                        icon: IconBarChart,
                         display: 'Go to Insights',
                         executor: () => {
                             push(urls.savedInsights())
                         },
                     },
                     {
-                        icon: RiseOutlined,
+                        icon: IconTrendingUp,
                         display: 'Go to Trends',
                         executor: () => {
                             // TODO: Don't reset insight on change
@@ -424,7 +424,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: FunnelPlotOutlined,
+                        icon: IconFunnelHorizontal,
                         display: 'Go to Funnels',
                         executor: () => {
                             // TODO: Don't reset insight on change
@@ -432,7 +432,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: GatewayOutlined,
+                        icon: IconTrendingFlat,
                         display: 'Go to Retention',
                         executor: () => {
                             // TODO: Don't reset insight on change
@@ -440,7 +440,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: InteractionOutlined,
+                        icon: IconEmojiPeople,
                         display: 'Go to Paths',
                         executor: () => {
                             // TODO: Don't reset insight on change
@@ -448,21 +448,21 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: ContainerOutlined,
+                        icon: IconLive,
                         display: 'Go to Events',
                         executor: () => {
                             push(urls.events())
                         },
                     },
                     {
-                        icon: AimOutlined,
+                        icon: IconAction,
                         display: 'Go to Actions',
                         executor: () => {
                             push(urls.actions())
                         },
                     },
                     {
-                        icon: UserOutlined,
+                        icon: IconPerson,
                         display: 'Go to Persons',
                         synonyms: ['people'],
                         executor: () => {
@@ -470,14 +470,14 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: UsergroupAddOutlined,
+                        icon: IconCohort,
                         display: 'Go to Cohorts',
                         executor: () => {
                             push(urls.cohorts())
                         },
                     },
                     {
-                        icon: FlagOutlined,
+                        icon: IconFlag,
                         display: 'Go to Feature Flags',
                         synonyms: ['feature flags', 'a/b tests'],
                         executor: () => {
@@ -485,14 +485,14 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: MessageOutlined,
+                        icon: IconComment,
                         display: 'Go to Annotations',
                         executor: () => {
                             push(urls.annotations())
                         },
                     },
                     {
-                        icon: TeamOutlined,
+                        icon: IconCorporate,
                         display: 'Go to Team members',
                         synonyms: ['organization', 'members', 'invites', 'teammates'],
                         executor: () => {
@@ -500,21 +500,23 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: HomeOutlined,
+                        icon: IconCottage,
                         display: 'Go to project homepage',
                         executor: () => {
                             push(urls.projectHomepage())
                         },
                     },
                     {
-                        icon: ProjectOutlined,
+                        icon: IconSettings,
                         display: 'Go to Project settings',
                         executor: () => {
                             push(urls.projectSettings())
                         },
                     },
                     {
-                        icon: SmileOutlined,
+                        icon: () => (
+                            <ProfilePicture name={values.user?.first_name} email={values.user?.email} size="xs" />
+                        ),
                         display: 'Go to My settings',
                         synonyms: ['account'],
                         executor: () => {
@@ -522,15 +524,15 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: ApiOutlined,
-                        display: 'Go to Plugins',
+                        icon: IconApps,
+                        display: 'Go to Apps',
                         synonyms: ['integrations'],
                         executor: () => {
                             push(urls.projectApps())
                         },
                     },
                     {
-                        icon: DatabaseOutlined,
+                        icon: IconServer,
                         display: 'Go to Instance status & settings',
                         synonyms: ['redis', 'celery', 'django', 'postgres', 'backend', 'service', 'online'],
                         executor: () => {
@@ -538,14 +540,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         },
                     },
                     {
-                        icon: PlusOutlined,
-                        display: 'Create action',
-                        executor: () => {
-                            push(urls.createAction())
-                        },
-                    },
-                    {
-                        icon: LogoutOutlined,
+                        icon: IconLogout,
                         display: 'Log out',
                         executor: () => {
                             userLogic.actions.logout()
@@ -563,7 +558,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                     preflightLogic.values.preflight?.is_debug ||
                     preflightLogic.values.preflight?.instance_preferences?.debug_queries
                         ? {
-                              icon: PlusOutlined,
+                              icon: IconTools,
                               display: 'Debug queries (ClickHouse)',
                               executor: () => {
                                   debugCHQueries()
@@ -585,7 +580,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         return isNaN(result)
                             ? null
                             : {
-                                  icon: CalculatorOutlined,
+                                  icon: IconCalculate,
                                   display: `= ${result}`,
                                   guarantee: true,
                                   executor: () => {
@@ -605,7 +600,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 resolver: (argument) => {
                     const results: CommandResultTemplate[] = (teamLogic.values.currentTeam?.app_urls ?? []).map(
                         (url: string) => ({
-                            icon: LinkOutlined,
+                            icon: IconOpenInNew,
                             display: `Open ${url}`,
                             synonyms: [`Visit ${url}`],
                             executor: () => {
@@ -615,7 +610,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                     )
                     if (argument && isURL(argument)) {
                         results.push({
-                            icon: LinkOutlined,
+                            icon: IconOpenInNew,
                             display: `Open ${argument}`,
                             synonyms: [`Visit ${argument}`],
                             executor: () => {
@@ -624,7 +619,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         })
                     }
                     results.push({
-                        icon: LinkOutlined,
+                        icon: IconOpenInNew,
                         display: 'Open PostHog Docs',
                         synonyms: ['technical documentation'],
                         executor: () => {
@@ -639,16 +634,16 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 key: 'create-personal-api-key',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: KeyOutlined,
+                    icon: IconLockOpen,
                     display: 'Create Personal API Key',
                     executor: () => ({
                         instruction: 'Give your key a label',
-                        icon: TagOutlined,
+                        icon: IconKeyboard,
                         scope: 'Creating Personal API Key',
                         resolver: (argument) => {
                             if (argument?.length) {
                                 return {
-                                    icon: KeyOutlined,
+                                    icon: IconLockOpen,
                                     display: `Create Key "${argument}"`,
                                     executor: () => {
                                         personalAPIKeysLogic.actions.createKey(argument)
@@ -666,16 +661,16 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 key: 'create-dashboard',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: FundOutlined,
+                    icon: IconGauge,
                     display: 'Create Dashboard',
                     executor: () => ({
                         instruction: 'Name your new dashboard',
-                        icon: TagOutlined,
+                        icon: IconKeyboard,
                         scope: 'Creating Dashboard',
                         resolver: (argument) => {
                             if (argument?.length) {
                                 return {
-                                    icon: FundOutlined,
+                                    icon: IconGauge,
                                     display: `Create Dashboard "${argument}"`,
                                     executor: () => {
                                         newDashboardLogic.actions.addDashboard({ name: argument })
@@ -692,7 +687,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                 key: 'share-feedback',
                 scope: GLOBAL_COMMAND_SCOPE,
                 resolver: {
-                    icon: CommentOutlined,
+                    icon: IconComment,
                     display: 'Share Feedback',
                     synonyms: ['send opinion', 'ask question', 'message posthog', 'github issue'],
                     executor: () => ({
@@ -700,12 +695,12 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                         resolver: [
                             {
                                 display: 'Send Message Directly to PostHog',
-                                icon: CommentOutlined,
+                                icon: IconComment,
                                 executor: () => ({
                                     instruction: "What's on your mind?",
-                                    icon: CommentOutlined,
+                                    icon: IconComment,
                                     resolver: (argument) => ({
-                                        icon: SendOutlined,
+                                        icon: IconComment,
                                         display: 'Send',
                                         executor: !argument?.length
                                             ? undefined
@@ -713,7 +708,7 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                                   posthog.capture('palette feedback', { message: argument })
                                                   return {
                                                       resolver: {
-                                                          icon: CheckOutlined,
+                                                          icon: IconCheckmark,
                                                           display: 'Message Sent!',
                                                           executor: true,
                                                       },
@@ -723,14 +718,14 @@ export const commandPaletteLogic = kea<commandPaletteLogicType>({
                                 }),
                             },
                             {
-                                icon: VideoCameraOutlined,
+                                icon: IconRecording,
                                 display: 'Schedule Quick Call',
                                 executor: () => {
                                     open('https://calendly.com/posthog-feedback')
                                 },
                             },
                             {
-                                icon: ExclamationCircleOutlined,
+                                icon: IconGithub,
                                 display: 'Create GitHub Issue',
                                 executor: () => {
                                     open('https://github.com/PostHog/posthog/issues/new/choose')

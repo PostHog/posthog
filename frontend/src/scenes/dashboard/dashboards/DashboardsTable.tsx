@@ -9,20 +9,20 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/
 import { AvailableFeature, DashboardMode, DashboardType } from '~/types'
 import { LemonButton } from 'lib/components/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { PushpinFilled, PushpinOutlined, ShareAltOutlined } from '@ant-design/icons'
 import { DashboardPrivilegeLevel } from 'lib/constants'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/components/Tooltip'
-import { IconCottage, IconLock } from 'lib/components/icons'
+import { IconCottage, IconLock, IconPinOutline, IconPinFilled, IconShare } from 'lib/components/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { More } from 'lib/components/LemonButton/More'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { LemonRow } from 'lib/components/LemonRow'
+import { DASHBOARD_CANNOT_EDIT_MESSAGE } from '../DashboardHeader'
 
-export const DashboardsTable = (): JSX.Element => {
+export function DashboardsTable(): JSX.Element {
     const { dashboardsLoading } = useValues(dashboardsModel)
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
     const { setCurrentTab } = useActions(dashboardsLogic)
@@ -40,15 +40,15 @@ export const DashboardsTable = (): JSX.Element => {
                 return (
                     <LemonButton
                         size="small"
-                        status="primary-alt"
+                        status="stealth"
                         onClick={
                             pinned
                                 ? () => unpinDashboard(id, DashboardEventSource.DashboardsList)
                                 : () => pinDashboard(id, DashboardEventSource.DashboardsList)
                         }
-                    >
-                        {pinned ? <PushpinFilled /> : <PushpinOutlined />}
-                    </LemonButton>
+                        tooltip={pinned ? 'Unpin dashboard' : 'Pin dashboard'}
+                        icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
+                    />
                 )
             },
         },
@@ -56,42 +56,28 @@ export const DashboardsTable = (): JSX.Element => {
             title: 'Name',
             dataIndex: 'name',
             width: '40%',
-            render: function Render(name, { id, description, _highlight, is_shared, effective_privilege_level }) {
+            render: function Render(name, { id, description, is_shared, effective_privilege_level }) {
                 const isPrimary = id === currentTeam?.primary_dashboard
                 const canEditDashboard = effective_privilege_level >= DashboardPrivilegeLevel.CanEdit
                 return (
-                    <div className={_highlight ? 'highlighted' : undefined} style={{ display: 'inline-block' }}>
+                    <div>
                         <div className="row-name">
                             <Link data-attr="dashboard-name" to={urls.dashboard(id)}>
                                 {name || 'Untitled'}
                             </Link>
-                            {!canEditDashboard && (
-                                <Tooltip title="You don't have edit permissions for this dashboard.">
-                                    <IconLock
-                                        style={{
-                                            marginLeft: 6,
-                                            verticalAlign: '-0.125em',
-                                            display: 'inline',
-                                        }}
-                                    />
-                                </Tooltip>
-                            )}
                             {is_shared && (
                                 <Tooltip title="This dashboard is shared publicly.">
-                                    <ShareAltOutlined style={{ marginLeft: 6 }} />
+                                    <IconShare className="ml-1 text-base text-primary" />
+                                </Tooltip>
+                            )}
+                            {!canEditDashboard && (
+                                <Tooltip title={DASHBOARD_CANNOT_EDIT_MESSAGE}>
+                                    <IconLock className="ml-1 text-base text-muted" />
                                 </Tooltip>
                             )}
                             {isPrimary && (
-                                <Tooltip title="Primary dashboards are shown on the project home page">
-                                    <IconCottage
-                                        style={{
-                                            marginLeft: 6,
-                                            color: 'var(--warning)',
-                                            fontSize: '1rem',
-                                            verticalAlign: '-0.125em',
-                                            display: 'inline',
-                                        }}
-                                    />
+                                <Tooltip title="The primary dashboard is shown on the project home page.">
+                                    <IconCottage className="ml-1 text-base text-warning" />
                                 </Tooltip>
                             )}
                         </div>
@@ -122,7 +108,7 @@ export const DashboardsTable = (): JSX.Element => {
                 return (
                     <More
                         overlay={
-                            <div style={{ maxWidth: 250 }}>
+                            <>
                                 <LemonButton
                                     status="stealth"
                                     to={urls.dashboard(id)}
@@ -163,8 +149,9 @@ export const DashboardsTable = (): JSX.Element => {
                                 <LemonDivider />
                                 <LemonRow icon={<IconCottage className="text-warning" />} fullWidth status="warning">
                                     <span className="text-muted">
-                                        Change the default dashboard on the{' '}
-                                        <Link to={urls.projectHomepage()}>project home page</Link>.
+                                        Change the default dashboard
+                                        <br />
+                                        from the <Link to={urls.projectHomepage()}>project home page</Link>.
                                     </span>
                                 </LemonRow>
 
@@ -178,7 +165,7 @@ export const DashboardsTable = (): JSX.Element => {
                                 >
                                     Delete dashboard
                                 </LemonButton>
-                            </div>
+                            </>
                         }
                     />
                 )
@@ -192,6 +179,7 @@ export const DashboardsTable = (): JSX.Element => {
             pagination={{ pageSize: 100 }}
             dataSource={dashboards as DashboardType[]}
             rowKey="id"
+            rowClassName={(record) => (record._highlight ? 'highlighted' : null)}
             columns={columns}
             loading={dashboardsLoading}
             defaultSorting={{ columnKey: 'name', order: 1 }}

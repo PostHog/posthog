@@ -5,6 +5,8 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { PathsFilter } from '~/queries/schema'
 
+import type { pathsDataLogicType } from './pathsDataLogicType'
+
 export const DEFAULT_STEP_LIMIT = 5
 
 export const pathOptionsToLabels = {
@@ -32,7 +34,7 @@ export interface PathNode {
     value: number
 }
 
-export const pathsDataLogic = kea({
+export const pathsDataLogic = kea<pathsDataLogicType>({
     path: (key) => ['scenes', 'paths', 'pathsDataLogic', key],
     props: {} as InsightLogicProps,
     key: keyForInsightLogicProps(DEFAULT_PATH_LOGIC_KEY),
