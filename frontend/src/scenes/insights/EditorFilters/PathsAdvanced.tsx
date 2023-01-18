@@ -11,6 +11,7 @@ import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { IconSettings } from 'lib/components/icons'
 
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 export function PathsAdvancedDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
@@ -54,6 +55,7 @@ export function PathsAdvancedComponent({
 
     return (
         <div className="flex flex-col gap-2">
+            <LemonDivider />
             <LemonLabel info="Determines the maximum number of path nodes that can be generated. If necessary certain items will be grouped.">
                 Maximum number of paths
             </LemonLabel>
@@ -70,11 +72,14 @@ export function PathsAdvancedComponent({
                 onBlur={updateEdgeParameters}
                 onPressEnter={updateEdgeParameters}
             />
-            <LemonLabel info="Determines the minimum and maximum number of persons in each path. Helps adjust the density of the visualization.">
+            <LemonLabel
+                info="Determines the minimum and maximum number of persons in each path. Helps adjust the density of the visualization."
+                className="mt-2"
+            >
                 Number of people on each path
             </LemonLabel>
             <div>
-                between{' '}
+                <span className="mr-2">Between</span>
                 <InputNumber
                     min={0}
                     max={100000}
@@ -86,8 +91,8 @@ export function PathsAdvancedComponent({
                     }
                     onBlur={updateEdgeParameters}
                     onPressEnter={updateEdgeParameters}
-                />{' '}
-                and{' '}
+                />
+                <span className="mx-2">and</span>
                 <InputNumber
                     onChange={(value): void =>
                         setLocalEdgeParameters((state) => ({
@@ -100,9 +105,10 @@ export function PathsAdvancedComponent({
                     onBlur={updateEdgeParameters}
                     onPressEnter={updateEdgeParameters}
                 />
+                <span className="ml-2">persons.</span>
             </div>
             <div>
-                <div className="flex items-center mb-2">
+                <div className="flex items-center justify-between my-2">
                     <LemonLabel
                         showOptional
                         info={
@@ -115,9 +121,9 @@ export function PathsAdvancedComponent({
                     >
                         Path Cleaning Rules
                     </LemonLabel>
-                    <Link className="flex items-center ml-1" to="/project/settings#path_cleaning_filtering">
-                        <IconSettings fontSize="16" className="mr-0.5" />
+                    <Link className="flex items-center" to="/project/settings#path_cleaning_filtering">
                         Configure Project Rules
+                        <IconSettings fontSize="16" className="ml-0.5" />
                     </Link>
                 </div>
                 <PathCleaningFilter />
