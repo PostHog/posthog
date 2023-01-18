@@ -8,7 +8,7 @@ export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX
         case 'event':
             iconElement = (
                 <Tooltip title={'Event property'}>
-                    <UnverifiedEvent width={14} height={14} />
+                    <UnverifiedEvent />
                 </Tooltip>
             )
             break
