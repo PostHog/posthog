@@ -7,7 +7,6 @@ import { ONE_HOUR } from '../../config/constants'
 import { PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
-import { posthog } from '../../utils/posthog'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
 import { detectPropertyDefinitionTypes } from './property-definitions-auto-discovery'
@@ -34,9 +33,7 @@ export class PropertyDefinitionsManager {
     eventDefinitionsCache: LRU<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
-    tokenToTeamIdCache: LRU<string, TeamId | null>
     propertyDefinitionsCache: PropertyDefinitionsCache
-    instanceSiteUrl: string
     statsd?: StatsD
     private readonly lruCacheSize: number
 
@@ -62,7 +59,6 @@ export class PropertyDefinitionsManager {
             updateAgeOnGet: true,
         })
         this.propertyDefinitionsCache = new PropertyDefinitionsCache(serverConfig, statsd)
-        this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
     }
 
     public async updateEventNamesAndProperties(teamId: number, event: string, properties: Properties): Promise<void> {
@@ -86,7 +82,7 @@ export class PropertyDefinitionsManager {
                 this.syncEventDefinitions(team, event),
                 this.syncEventProperties(team, event, properties),
                 this.syncPropertyDefinitions(properties, team),
-                this.setTeamIngestedEvent(team, properties),
+                this.teamManager.setTeamIngestedEvent(team, properties),
             ])
         } finally {
             clearTimeout(timeout)
@@ -167,41 +163,6 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             toInsert,
             'insertPropertyDefinition'
         )
-    }
-
-    public async setTeamIngestedEvent(team: Team, properties: Properties) {
-        if (team && !team.ingested_event) {
-            await this.db.postgresQuery(
-                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
-                [true, team.id],
-                'setTeamIngestedEvent'
-            )
-
-            // First event for the team captured
-            const organizationMembers = await this.db.postgresQuery(
-                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id],
-                'posthog_organizationmembership'
-            )
-            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-            for (const { distinct_id } of distinctIds) {
-                posthog.capture({
-                    distinctId: distinct_id,
-                    event: 'first team event ingested',
-                    properties: {
-                        team: team.uuid,
-                        sdk: properties.$lib,
-                        realm: properties.realm,
-                        host: properties.$host,
-                    },
-                    groups: {
-                        project: team.uuid,
-                        organization: team.organization_id,
-                        instance: this.instanceSiteUrl,
-                    },
-                })
-            }
-        }
     }
 
     public async cacheEventNamesAndProperties(teamId: number, event: string): Promise<void> {

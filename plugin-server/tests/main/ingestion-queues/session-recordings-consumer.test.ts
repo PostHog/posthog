@@ -24,7 +24,7 @@ describe('session-recordings-consumer', () => {
         db = {
             postgres: new Pool(),
         } as DB
-        teamManager = new TeamManager(db)
+        teamManager = new TeamManager(db, {} as any)
         eachBachWithDependencies = eachBatch({ producer: producerWrapper, teamManager })
     })
 

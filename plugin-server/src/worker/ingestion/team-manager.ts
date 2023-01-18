@@ -1,18 +1,21 @@
+import { Properties } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import LRU from 'lru-cache'
 
 import { ONE_MINUTE } from '../../config/constants'
-import { Team, TeamId } from '../../types'
+import { PluginsServerConfig, Team, TeamId } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
+import { posthog } from '../../utils/posthog'
 
 export class TeamManager {
     db: DB
     teamCache: LRU<TeamId, Team | null>
     tokenToTeamIdCache: LRU<string, TeamId | null>
     statsd?: StatsD
+    instanceSiteUrl: string
 
-    constructor(db: DB, statsd?: StatsD) {
+    constructor(db: DB, serverConfig: PluginsServerConfig, statsd?: StatsD) {
         this.db = db
         this.statsd = statsd
 
@@ -27,6 +30,7 @@ export class TeamManager {
             // TODO: add `maxAge` to ensure we avoid negatively caching teamId as null.
             max: 100_000,
         })
+        this.instanceSiteUrl = serverConfig.SITE_URL || 'unknown'
     }
 
     public async fetchTeam(teamId: number): Promise<Team | null> {
@@ -75,6 +79,41 @@ export class TeamManager {
             return team
         } finally {
             clearTimeout(timeout)
+        }
+    }
+
+    public async setTeamIngestedEvent(team: Team, properties: Properties) {
+        if (team && !team.ingested_event) {
+            await this.db.postgresQuery(
+                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
+                [true, team.id],
+                'setTeamIngestedEvent'
+            )
+
+            // First event for the team captured
+            const organizationMembers = await this.db.postgresQuery(
+                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+                [team.organization_id],
+                'posthog_organizationmembership'
+            )
+            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+            for (const { distinct_id } of distinctIds) {
+                posthog.capture({
+                    distinctId: distinct_id,
+                    event: 'first team event ingested',
+                    properties: {
+                        team: team.uuid,
+                        sdk: properties.$lib,
+                        realm: properties.realm,
+                        host: properties.$host,
+                    },
+                    groups: {
+                        project: team.uuid,
+                        organization: team.organization_id,
+                        instance: this.instanceSiteUrl,
+                    },
+                })
+            }
         }
     }
 }
