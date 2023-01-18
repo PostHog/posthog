@@ -406,7 +406,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         activity_page = load_activity(scope="Person", team_id=self.team_id, item_id=item_id, limit=limit, page=page)
         return activity_page_response(activity_page, limit, page, request)
 
-    @extend_schema(exclude=True)
     def update(self, request, *args, **kwargs):
         """
         Only for setting properties on the person. "properties" from the request data will be updated via a "$set" event.
@@ -415,10 +414,6 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         """
         self._set_properties(request.data["properties"], request.user)
         return Response(status=204)
-
-    @extend_schema(exclude=True)
-    def partial_update(self, *args, **kwargs):
-        return Response(status=404)
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):
