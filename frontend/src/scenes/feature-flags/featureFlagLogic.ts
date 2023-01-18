@@ -123,6 +123,10 @@ export interface FeatureFlagLogicProps {
 }
 
 const indexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFlagType => {
+    if (!flag.filters.multivariate) {
+        return flag
+    }
+
     const newPayload = {}
     flag.filters.multivariate?.variants.forEach((variant, index) => {
         newPayload[index] = flag.filters.payloads[variant.key]
