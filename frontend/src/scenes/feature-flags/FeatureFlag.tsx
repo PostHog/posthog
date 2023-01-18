@@ -1021,7 +1021,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             {readOnly ? (
                                 <div>
                                     Rolled out to{' '}
-                                    <b>{group.rollout_percentage != null ? group.rollout_percentage : 0}%</b> of{' '}
+                                    <b>{group.rollout_percentage != null ? group.rollout_percentage : 100}%</b> of{' '}
                                     <b>{aggregationTargetName}</b> in this set.{' '}
                                 </div>
                             ) : (
@@ -1033,7 +1033,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                                             onChange={(value): void => {
                                                 updateConditionSet(index, value as number)
                                             }}
-                                            value={group.rollout_percentage != null ? group.rollout_percentage : 0}
+                                            value={group.rollout_percentage != null ? group.rollout_percentage : 100}
                                             min={0}
                                             max={100}
                                             addonAfter="%"

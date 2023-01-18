@@ -54,7 +54,7 @@ const NEW_FLAG: FeatureFlagType = {
     created_at: null,
     key: '',
     name: '',
-    filters: { groups: [{ properties: [], rollout_percentage: null, variant: null }], multivariate: null },
+    filters: { groups: [{ properties: [], rollout_percentage: 0, variant: null }], multivariate: null },
     deleted: false,
     active: true,
     created_by: null,
@@ -360,7 +360,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ...state.filters,
                             aggregation_group_type_index: value,
                             // :TRICKY: We reset property filters after changing what you're aggregating by.
-                            groups: [{ properties: [], rollout_percentage: null, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
                     }
                 },
