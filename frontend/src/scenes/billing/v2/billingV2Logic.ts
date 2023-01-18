@@ -1,7 +1,6 @@
 import { kea, path, actions, connect, reducers, afterMount, selectors, listeners } from 'kea'
 import { loaders } from 'kea-loaders'
 import api from 'lib/api'
-import type { billingLogicType } from './billingLogicType'
 import { BillingProductV2Type, BillingV2Type, BillingVersion } from '~/types'
 import { router } from 'kea-router'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -16,6 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { pluralize } from 'lib/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
+import type { billingV2LogicType } from './billingV2LogicType'
 
 export const ALLOCATION_THRESHOLD_ALERT = 0.85 // Threshold to show warning of event usage near limit
 export const ALLOCATION_THRESHOLD_BLOCK = 1.2 // Threshold to block usage
@@ -44,7 +44,7 @@ const parseBillingResponse = (data: Partial<BillingV2Type>): BillingV2Type => {
     return data as BillingV2Type
 }
 
-export const billingLogic = kea<billingLogicType>([
+export const billingV2Logic = kea<billingV2LogicType>([
     path(['scenes', 'billing', 'v2', 'billingLogic']),
     actions({
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
@@ -165,7 +165,6 @@ export const billingLogic = kea<billingLogicType>([
                     return false
                 }
                 // lock cloud users without a subscription out if they are above the usage limit on any product
-
                 return Boolean(
                     ((billingVersion === 'v2' &&
                         !billing.has_active_subscription &&

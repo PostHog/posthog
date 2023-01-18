@@ -1,14 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { billingLogic } from './billingLogic'
-import {
-    LemonButton,
-    LemonDivider,
-    LemonInput,
-    LemonSelect,
-    LemonSelectOptions,
-    LemonSwitch,
-    Link,
-} from '@posthog/lemon-ui'
+import { billingV2Logic } from './billingV2Logic'
+import { LemonButton, LemonDivider, LemonInput, LemonSelect, LemonSelectOptions, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { Form } from 'kea-forms'
@@ -24,21 +16,21 @@ import { convertAmountToUsage, convertUsageToAmount, summarizeUsage } from './bi
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { BillingHero } from './BillingHero'
 import { IconDelete, IconEdit } from 'lib/components/icons'
+import { PlanTable } from './PlanTable'
+import { BillingHero } from './BillingHero'
 
 export type BillingV2Props = {
     redirectPath?: string
-    compact?: boolean
+    showCurrentUsage?: boolean
 }
 
 const DEFAULT_BILLING_LIMIT = 500
 
-export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
-    const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingLogic)
-    const { setShowLicenseDirectInput, reportBillingV2Shown } = useActions(billingLogic)
+export function BillingV2({ redirectPath = '', showCurrentUsage = true }: BillingV2Props): JSX.Element {
+    const { billing, billingLoading, isActivateLicenseSubmitting, showLicenseDirectInput } = useValues(billingV2Logic)
+    const { setShowLicenseDirectInput, reportBillingV2Shown } = useActions(billingV2Logic)
     const { preflight } = useValues(preflightLogic)
-    const [enterprisePackage, setEnterprisePackage] = useState(false)
 
     useEffect(() => {
         if (billing) {
@@ -46,30 +38,40 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
         }
     }, [!!billing])
 
-    useEffect(() => {
-        if (!preflight?.cloud) {
-            setEnterprisePackage(true)
-        }
-    })
-
     if (!billing && billingLoading) {
         return <SpinnerOverlay />
     }
 
-    const plan = !preflight?.cloud ? 'enterprise-self-hosted' : enterprisePackage ? 'enterprise' : 'standard'
+    if (!billing && !billingLoading) {
+        const supportLink = (
+            <Link
+                target="blank"
+                to="https://posthog.com/support?utm_medium=in-product&utm_campaign=billing-service-unreachable"
+            >
+                {' '}
+                contact support{' '}
+            </Link>
+        )
+        return (
+            <div className="space-y-4">
+                <AlertMessage type="error">
+                    There was an issue retrieving your current billing information. If this message persists please
+                    {supportLink}.
+                </AlertMessage>
 
-    const supportLink = (
-        <Link
-            target="blank"
-            to="https://posthog.com/support?utm_medium=in-product&utm_campaign=billing-service-unreachable"
-        >
-            {' '}
-            contact support{' '}
-        </Link>
-    )
+                {!preflight?.cloud ? (
+                    <AlertMessage type="info">
+                        Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
+                        <br />
+                        If this is not possible, please {supportLink} about licensing options for "air-gapped"
+                        instances.
+                    </AlertMessage>
+                ) : null}
+            </div>
+        )
+    }
 
-    const products =
-        enterprisePackage && billing?.products_enterprise ? billing?.products_enterprise : billing?.products
+    const products = billing?.products
 
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
@@ -83,168 +85,137 @@ export function BillingV2({ redirectPath = '' }: BillingV2Props): JSX.Element {
                     You are currently on a free trial until <b>{billing.free_trial_until.format('LL')}</b>
                 </AlertMessage>
             ) : null}
-            {!billing && !billingLoading ? (
-                <div className="space-y-4">
-                    <AlertMessage type="error">
-                        There was an issue retrieving your current billing information. If this message persists please
-                        {supportLink}.
-                    </AlertMessage>
-
-                    {!preflight?.cloud ? (
-                        <AlertMessage type="info">
-                            Please ensure your instance is able to reach <b>https://billing.posthog.com</b>
-                            <br />
-                            If this is not possible, please {supportLink} about licensing options for "air-gapped"
-                            instances.
-                        </AlertMessage>
-                    ) : null}
-                </div>
-            ) : (
-                <div
-                    className={clsx('flex flex-wrap gap-4', {
-                        'flex-col pb-4 items-stretch': size === 'small',
-                        'items-center': size !== 'small',
-                    })}
-                >
-                    <div className="flex-1">
-                        {billing?.billing_period ? (
-                            <div className="space-y-2">
-                                <p>
-                                    Your current billing period is from{' '}
-                                    <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
-                                    <b>{billing.billing_period.current_period_end.format('LL')}</b>
-                                </p>
-
-                                <LemonLabel
-                                    info={'This is the current amount you have been billed for this month so far.'}
-                                >
-                                    Current bill total
-                                </LemonLabel>
-                                <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
-
-                                <p>
-                                    <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b>{' '}
-                                    remaining in your billing period.
-                                </p>
-                            </div>
-                        ) : (
-                            <BillingHero />
-                        )}
+            {!billing?.billing_period && (
+                <>
+                    <div className="my-8">
+                        <BillingHero />
                     </div>
+                    {preflight?.cloud && (
+                        <>
+                            <div className="mb-18 flex justify-center">
+                                <PlanTable redirectPath={redirectPath} />
+                            </div>
+                        </>
+                    )}
+                </>
+            )}
+            <div
+                className={clsx('flex flex-wrap gap-4', {
+                    'flex-col pb-4 items-stretch': size === 'small',
+                    'items-center': size !== 'small',
+                })}
+            >
+                <div className="flex-1">
+                    {billing?.billing_period ? (
+                        <div className="space-y-2">
+                            <p>
+                                Your current billing period is from{' '}
+                                <b>{billing.billing_period.current_period_start.format('LL')}</b> to{' '}
+                                <b>{billing.billing_period.current_period_end.format('LL')}</b>
+                            </p>
 
-                    <div
-                        className={clsx('space-y-2', {
-                            'p-4': size === 'medium',
-                        })}
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ width: size === 'medium' ? '20rem' : undefined }}
-                    >
-                        {billing?.has_active_subscription ? (
-                            <LemonButton
-                                type="primary"
-                                htmlType="submit"
-                                to={billing.stripe_portal_url}
-                                disableClientSideRouting
-                                fullWidth
-                                center
+                            <LemonLabel info={'This is the current amount you have been billed for this month so far.'}>
+                                Current bill total
+                            </LemonLabel>
+                            <div className="font-bold text-6xl">${billing.current_total_amount_usd}</div>
+
+                            <p>
+                                <b>{billing.billing_period.current_period_end.diff(dayjs(), 'days')} days</b> remaining
+                                in your billing period.
+                            </p>
+                        </div>
+                    ) : (
+                        <>
+                            {showCurrentUsage && (
+                                <div>
+                                    <h1 className="font-bold">Current usage</h1>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
+
+                <div
+                    className={clsx('space-y-2', {
+                        'p-4': size === 'medium',
+                    })}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: size === 'medium' ? '20rem' : undefined }}
+                >
+                    {billing?.has_active_subscription ? (
+                        <LemonButton
+                            type="primary"
+                            htmlType="submit"
+                            to={billing.stripe_portal_url}
+                            disableClientSideRouting
+                            fullWidth
+                            center
+                        >
+                            Manage subscription
+                        </LemonButton>
+                    ) : showLicenseDirectInput ? (
+                        <>
+                            <Form
+                                logic={billingV2Logic}
+                                formKey="activateLicense"
+                                enableFormOnSubmit
+                                className="space-y-4"
                             >
-                                Manage subscription
-                            </LemonButton>
-                        ) : showLicenseDirectInput ? (
-                            <>
-                                <Form
-                                    logic={billingLogic}
-                                    formKey="activateLicense"
-                                    enableFormOnSubmit
-                                    className="space-y-4"
-                                >
-                                    <Field name="license" label={'Activate license key'}>
-                                        <LemonInput fullWidth autoFocus />
-                                    </Field>
+                                <Field name="license" label={'Activate license key'}>
+                                    <LemonInput fullWidth autoFocus />
+                                </Field>
 
-                                    <LemonButton
-                                        type="primary"
-                                        htmlType="submit"
-                                        loading={isActivateLicenseSubmitting}
-                                        fullWidth
-                                        center
-                                    >
-                                        Activate license key
-                                    </LemonButton>
-                                </Form>
-                            </>
-                        ) : (
-                            <div className="space-y-4">
                                 <LemonButton
-                                    to={`/api/billing-v2/activation?plan=${plan}&redirect_path=${redirectPath}`}
                                     type="primary"
-                                    size="large"
+                                    htmlType="submit"
+                                    loading={isActivateLicenseSubmitting}
                                     fullWidth
                                     center
-                                    disableClientSideRouting
                                 >
-                                    Setup payment
+                                    Activate license key
                                 </LemonButton>
+                            </Form>
+                        </>
+                    ) : null}
 
-                                {preflight?.cloud && (
-                                    <div className="space-y-2">
-                                        <div className="flex items-center justify-between">
-                                            <LemonLabel>Enterprise package</LemonLabel>
-                                            <LemonSwitch
-                                                className="flex items-center justify-between"
-                                                checked={enterprisePackage}
-                                                onChange={setEnterprisePackage}
-                                            />
-                                        </div>
-                                        <p>
-                                            Starts at <b>$450/mo</b> and comes with SSO, advanced permissions, and a
-                                            dedicated Slack channel for support
-                                        </p>
-                                    </div>
-                                )}
+                    {!preflight?.cloud && billing?.license?.plan ? (
+                        <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
+                            <div className="text-center font-bold">
+                                {capitalizeFirstLetter(billing.license.plan)} license
                             </div>
-                        )}
+                            <span>
+                                Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you would
+                                like to make any changes to your license.
+                            </span>
+                        </div>
+                    ) : null}
 
-                        {!preflight?.cloud && billing?.license?.plan ? (
-                            <div className="bg-primary-alt-highlight text-primary-alt rounded p-2 px-4">
-                                <div className="text-center font-bold">
-                                    {capitalizeFirstLetter(billing.license.plan)} license
-                                </div>
-                                <span>
-                                    Please contact <a href="mailto:sales@posthog.com">sales@posthog.com</a> if you would
-                                    like to make any changes to your license.
-                                </span>
-                            </div>
-                        ) : null}
+                    {!preflight?.cloud && !billing?.has_active_subscription ? (
+                        <LemonButton
+                            fullWidth
+                            center
+                            onClick={() => setShowLicenseDirectInput(!showLicenseDirectInput)}
+                        >
+                            {!showLicenseDirectInput ? 'I already have a license key' : "I don't have a license key"}
+                        </LemonButton>
+                    ) : null}
+                </div>
+            </div>
 
-                        {!preflight?.cloud && !billing?.has_active_subscription && !billing?.license?.plan ? (
-                            <LemonButton
-                                fullWidth
-                                center
-                                onClick={() => setShowLicenseDirectInput(!showLicenseDirectInput)}
-                            >
-                                {!showLicenseDirectInput
-                                    ? 'I already have a license key'
-                                    : "I don't have a license key"}
-                            </LemonButton>
-                        ) : null}
+            {showCurrentUsage &&
+                products?.map((x) => (
+                    <div key={x.type}>
+                        <LemonDivider dashed className="my-2" />
+                        <BillingProduct product={x} />
                     </div>
-                </div>
-            )}
-
-            {products?.map((x) => (
-                <div key={x.type}>
-                    <LemonDivider dashed className="my-2" />
-                    <BillingProduct product={x} />
-                </div>
-            ))}
+                ))}
         </div>
     )
 }
 
 const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Element => {
-    const { billing, billingLoading } = useValues(billingLogic)
-    const { updateBillingLimits } = useActions(billingLogic)
+    const { billing, billingLoading } = useValues(billingV2Logic)
+    const { updateBillingLimits } = useActions(billingV2Logic)
     const [tierAmountType, setTierAmountType] = useState<'individual' | 'total'>('individual')
 
     // The actual stored billing limit
@@ -522,77 +493,81 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
 
             {size == 'medium' && <LemonDivider vertical dashed />}
 
-            <div
-                className={clsx('space-y-2 text-xs', {
-                    'p-4': size === 'medium',
-                })}
-                // eslint-disable-next-line react/forbid-dom-props
-                style={{ width: size === 'medium' ? '20rem' : undefined }}
-            >
-                {product.price_description ? (
-                    <AlertMessage type="info">
-                        <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
-                    </AlertMessage>
-                ) : null}
+            {billing?.has_active_subscription && (
+                <div
+                    className={clsx('space-y-2 text-xs', {
+                        'p-4': size === 'medium',
+                    })}
+                    // eslint-disable-next-line react/forbid-dom-props
+                    style={{ width: size === 'medium' ? '20rem' : undefined }}
+                >
+                    {product.price_description ? (
+                        <AlertMessage type="info">
+                            <span dangerouslySetInnerHTML={{ __html: product.price_description }} />
+                        </AlertMessage>
+                    ) : null}
 
-                {product.tiered ? (
-                    <>
-                        <div className="flex justify-between items-center">
-                            <b>Pricing breakdown</b>
+                    {product.tiered ? (
+                        <>
+                            <div className="flex justify-between items-center">
+                                <b>Pricing breakdown</b>
 
-                            {billing?.has_active_subscription ? (
-                                <LemonSelect
-                                    size="small"
-                                    value={tierAmountType}
-                                    options={tierDisplayOptions}
-                                    dropdownMatchSelectWidth={false}
-                                    onChange={(val: any) => setTierAmountType(val)}
-                                />
-                            ) : (
-                                <span className="font-semibold">Per {productType.singular}</span>
-                            )}
+                                {billing?.has_active_subscription ? (
+                                    <LemonSelect
+                                        size="small"
+                                        value={tierAmountType}
+                                        options={tierDisplayOptions}
+                                        dropdownMatchSelectWidth={false}
+                                        onChange={(val: any) => setTierAmountType(val)}
+                                    />
+                                ) : (
+                                    <span className="font-semibold">Per {productType.singular}</span>
+                                )}
+                            </div>
+
+                            <ul>
+                                {product.tiers.map((tier, i) => (
+                                    <li
+                                        key={i}
+                                        className={clsx('flex justify-between py-2', {
+                                            'border-t border-dashed': i > 0,
+                                            'font-bold': tier.current_amount_usd !== null,
+                                        })}
+                                    >
+                                        <span>
+                                            {i === 0
+                                                ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / mo`
+                                                : tier.up_to
+                                                ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(
+                                                      tier.up_to
+                                                  )}`
+                                                : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
+                                        </span>
+                                        <b>
+                                            {tierAmountType === 'individual' ? (
+                                                <>
+                                                    {tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free'}
+                                                </>
+                                            ) : (
+                                                <>${tier.current_amount_usd || '0.00'}</>
+                                            )}
+                                        </b>
+                                    </li>
+                                ))}
+                            </ul>
+                        </>
+                    ) : (
+                        <div className="space-y-2">
+                            <div className="font-bold">Pricing breakdown</div>
+
+                            <div className="flex justify-between py-2">
+                                <span>Per month</span>
+                                <span className="font-bold">${product.unit_amount_usd}</span>
+                            </div>
                         </div>
-
-                        <ul>
-                            {product.tiers.map((tier, i) => (
-                                <li
-                                    key={i}
-                                    className={clsx('flex justify-between py-2', {
-                                        'border-t border-dashed': i > 0,
-                                        'font-bold': tier.current_amount_usd !== null,
-                                    })}
-                                >
-                                    <span>
-                                        {i === 0
-                                            ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / mo`
-                                            : tier.up_to
-                                            ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(
-                                                  tier.up_to
-                                              )}`
-                                            : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
-                                    </span>
-                                    <b>
-                                        {tierAmountType === 'individual' ? (
-                                            <>{tier.unit_amount_usd !== '0' ? `$${tier.unit_amount_usd}` : 'Free'}</>
-                                        ) : (
-                                            <>${tier.current_amount_usd || '0.00'}</>
-                                        )}
-                                    </b>
-                                </li>
-                            ))}
-                        </ul>
-                    </>
-                ) : (
-                    <div className="space-y-2">
-                        <div className="font-bold">Pricing breakdown</div>
-
-                        <div className="flex justify-between py-2">
-                            <span>Per month</span>
-                            <span className="font-bold">${product.unit_amount_usd}</span>
-                        </div>
-                    </div>
-                )}
-            </div>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
