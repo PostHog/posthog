@@ -122,7 +122,10 @@ export interface FeatureFlagLogicProps {
     id: number | 'new'
 }
 
-const indexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFlagType => {
+// KLUDGE: Payloads are returned in a <variant-key>: <payload> mapping.
+// This doesn't work for forms because variant-keys can be updated too which would invalidate the dictionary entry.
+// If a multivariant flag is returned, the payload dictionary will be transformed to be <variant-key-index>: <payload>
+const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFlagType => {
     if (!flag.filters.multivariate) {
         return flag
     }
@@ -138,6 +141,27 @@ const indexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFlagType => {
             payloads: newPayload,
         },
     }
+}
+
+const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
+    if (flag.filters?.multivariate) {
+        const newPayload = {}
+        flag.filters?.multivariate?.variants.forEach(({ key }, index) => {
+            const payload = flag.filters?.payloads[index]
+            if (payload) {
+                newPayload[key] = payload
+            }
+        })
+        return {
+            ...flag,
+            filters: {
+                ...flag.filters,
+                payloads: newPayload,
+            },
+        }
+    }
+
+    return flag
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([
@@ -431,7 +455,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                         const retrievedFlag: FeatureFlagType = await api.get(
                             `api/projects/${values.currentTeamId}/feature_flags/${props.id}`
                         )
-                        return indexFeatureFlagPayloads(retrievedFlag)
+                        return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
                     } catch (e) {
                         actions.setFeatureFlagMissing()
                         throw e
@@ -442,42 +466,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             saveFeatureFlag: async (updatedFlag: Partial<FeatureFlagType>) => {
                 const { created_at, id, ...flag } = updatedFlag
 
-                let preparedFlag = flag
-                // Add payloads mapped to keys in multivariate
-                if (preparedFlag.filters?.multivariate) {
-                    const newPayload = {}
-                    preparedFlag.filters?.multivariate?.variants.forEach(({ key }, index) => {
-                        const payload = preparedFlag.filters?.payloads[index]
-                        if (payload) {
-                            newPayload[key] = payload
-                        }
-                    })
-                    preparedFlag = {
-                        ...preparedFlag,
-                        filters: {
-                            ...preparedFlag.filters,
-                            payloads: newPayload,
-                        },
-                    }
-                }
+                const preparedFlag = indexToVariantKeyFeatureFlagPayloads(flag)
 
                 try {
+                    let savedFlag: FeatureFlagType
                     if (!updatedFlag.id) {
-                        const newFlag = await api.create(
-                            `api/projects/${values.currentTeamId}/feature_flags`,
-                            preparedFlag
-                        )
-                        if (values.roleBasedAccessEnabled) {
-                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(newFlag.id)
+                        savedFlag = await api.create(`api/projects/${values.currentTeamId}/feature_flags`, preparedFlag)
+                        if (values.roleBasedAccessEnabled && savedFlag.id) {
+                            featureFlagPermissionsLogic({ flagId: null })?.actions.addAssociatedRoles(savedFlag.id)
                         }
-                        return indexFeatureFlagPayloads(newFlag)
                     } else {
-                        const flagResponse = await api.update(
+                        savedFlag = await api.update(
                             `api/projects/${values.currentTeamId}/feature_flags/${updatedFlag.id}`,
                             preparedFlag
                         )
-                        return indexFeatureFlagPayloads(flagResponse)
                     }
+
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
                         eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
