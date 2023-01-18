@@ -33,6 +33,10 @@ export class StorybookStoryPage {
         await this.page.goto(storyUrl)
     }
 
+    async resizeToMobile(): Promise<void> {
+        await this.page.setViewportSize({ width: 375, height: 667 }) // iPhone 6/7/8
+    }
+
     async expectFullPageScreenshot(): Promise<void> {
         await expect(this.page).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
     }
