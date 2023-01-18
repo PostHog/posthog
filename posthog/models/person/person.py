@@ -117,5 +117,5 @@ class PersonOverride(models.Model):
     old_person_id = models.UUIDField(db_index=True)
     override_person_id = models.UUIDField(db_index=True)
 
-    created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
+    old_person_created_at: models.DateTimeField = models.DateTimeField(auto_now_add=True, blank=True)
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
