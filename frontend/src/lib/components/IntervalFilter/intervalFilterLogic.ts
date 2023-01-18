@@ -67,8 +67,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             if (activeUsersMath) {
                 // Disallow grouping by hour for WAUs/MAUs as it's an expensive query that produces a view that's not useful for users
                 enabledIntervals.hour = {
-                    label: 'Hour',
-                    newDateFrom: 'dStart',
+                    ...enabledIntervals.hour,
                     disabledReason:
                         'Grouping by hour is not supported on insights with weekly or monthly active users series.',
                 }
@@ -76,8 +75,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                 // Disallow grouping by month for WAUs as the resulting view is misleading to users
                 if (activeUsersMath === BaseMathType.WeeklyActiveUsers) {
                     enabledIntervals.month = {
-                        label: 'Month',
-                        newDateFrom: '-90d',
+                        ...enabledIntervals.month,
                         disabledReason:
                             'Grouping by month is not supported on insights with weekly active users series.',
                     }
