@@ -1132,44 +1132,38 @@ export function InsightsLifecycleIcon({ color = 'white', ...props }: InsightIcon
     )
 }
 
+/** Material Design Preview icon. */
 export function IconPageview(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase viewBox="0 0 18 18" {...props}>
+        <LemonIconBase {...props}>
+            <path
+                d="M19,3H5C3.89,3,3,3.9,3,5v14c0,1.1,0.89,2,2,2h14c1.1,0,2-0.9,2-2V5C21,3.9,20.11,3,19,3z M19,19H5V7h14V19z M12,10.5 c1.84,0,3.48,0.96,4.34,2.5c-0.86,1.54-2.5,2.5-4.34,2.5S8.52,14.54,7.66,13C8.52,11.46,10.16,10.5,12,10.5 M12,9 c-2.73,0-5.06,1.66-6,4c0.94,2.34,3.27,4,6,4s5.06-1.66,6-4C17.06,10.66,14.73,9,12,9L12,9z M12,14.5c-0.83,0-1.5-0.67-1.5-1.5 s0.67-1.5,1.5-1.5s1.5,0.67,1.5,1.5S12.83,14.5,12,14.5z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Ads Click and Auto Fix High icons combined. */
+export function IconAutocapture(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
-                d="M2 0H16C17.1 0 18 0.9 18 2V16C18 17.1 17.1 18 16 18H2C0.9 18 0 17.1 0 16V2C0 0.9 0.9 0 2 0ZM2 2V16H16V2H2ZM13.34 9C12.48 7.46 10.84 6.5 9 6.5C7.16 6.5 5.52 7.46 4.66 9C5.52 10.54 7.16 11.5 9 11.5C10.84 11.5 12.48 10.54 13.34 9ZM3 9C3.94 6.66 6.27 5 9 5C11.73 5 14.06 6.66 15 9C14.06 11.34 11.73 13 9 13C6.27 13 3.94 11.34 3 9ZM7.5 9C7.5 9.83 8.17 10.5 9 10.5C9.83 10.5 10.5 9.83 10.5 9C10.5 8.17 9.83 7.5 9 7.5C8.17 7.5 7.5 8.17 7.5 9Z"
+                d="M3.0575 5.94L3.9975 8L4.9375 5.94L6.9975 5L4.9375 4.06L3.9975 2L3.0575 4.06L0.997498 5L3.0575 5.94ZM14.5575 5.94L15.4975 8L16.4375 5.94L18.4975 5L16.4375 4.06L15.4975 2L14.5575 4.06L12.4975 5L14.5575 5.94ZM3.9975 13.5L4.9375 15.56L6.9975 16.5L4.9375 17.44L3.9975 19.5L3.0575 17.44L0.997498 16.5L3.0575 15.56L3.9975 13.5ZM21.3206 13L16.2988 14.68L22 20.36L19.3625 23L13.6746 17.3067L11.9962 22.3333L8 9L21.3206 13Z"
                 fill="currentColor"
             />
         </LemonIconBase>
     )
 }
 
-export function IconAutocapture(props: LemonIconProps): JSX.Element {
-    return (
-        <LemonIconBase viewBox="0 0 18 18" {...props}>
-            <path
-                d="M14.5 6L13.56 3.94L11.5 3L13.56 2.06L14.5 0L15.44 2.06L17.5 3L15.44 3.94L14.5 6Z"
-                fill="currentColor"
-            />
-            <path
-                d="M3 9.5L3.94 11.56L6 12.5L3.94 13.44L3 15.5L2.06 13.44L0 12.5L2.06 11.56L3 9.5Z"
-                fill="currentColor"
-            />
-            <path d="M3 6L2.06 3.94L0 3L2.06 2.06L3 0L3.94 2.06L6 3L3.94 3.94L3 6Z" fill="currentColor" />
-            <path
-                d="M13.23 11.26L17 10L7 7L10 17L11.26 13.23L15.53 17.5L17.51 15.52L13.23 11.26Z"
-                fill="currentColor"
-            />
-        </LemonIconBase>
-    )
-}
-
+/** Material Design Exit To App icon. */
 export function IconPageleave(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase viewBox="0 0 18 18" {...props}>
+        <LemonIconBase {...props}>
             <path
-                d="M7.09 12.59L8.5 14L13.5 9L8.5 4L7.09 5.41L9.67 8H0V10H9.67L7.09 12.59ZM16 0H2C0.89 0 0 0.9 0 2V6H2V2H16V16H2V12H0V16C0 17.1 0.89 18 2 18H16C17.1 18 18 17.1 18 16V2C18 0.9 17.1 0 16 0Z"
+                d="M10.09 15.59L11.5 17l5-5-5-5-1.41 1.41L12.67 11H3v2h9.67l-2.58 2.59zM19 3H5c-1.11 0-2 .9-2 2v4h2V5h14v14H5v-4H3v4c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2z"
                 fill="currentColor"
             />
         </LemonIconBase>
@@ -1399,9 +1393,9 @@ export function IconHeatmap(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function UnverifiedEvent({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function UnverifiedEvent(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase width={width} height={height} viewBox="0 0 24 24" fill="none" {...props}>
+        <LemonIconBase {...props}>
             <path
                 d="M4.8 17.4H19.2V15.6H4.8V17.4ZM6.6 21H17.4V19.2H6.6V21ZM19.2 13.8H4.8C3.81 13.8 3 12.99 3 12V4.8C3 3.81 3.81 3 4.8 3H19.2C20.19 3 21 3.81 21 4.8V12C21 12.99 20.19 13.8 19.2 13.8ZM19.2 4.8H4.8V12H19.2V4.8Z"
                 fill="currentColor"
@@ -1410,9 +1404,9 @@ export function UnverifiedEvent({ width = 24, height = 24, ...props }: React.SVG
     )
 }
 
-export function VerifiedEvent({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function VerifiedEvent(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase width={width} height={height} viewBox="0 0 24 24" fill="none" {...props}>
+        <LemonIconBase {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
@@ -1427,9 +1421,9 @@ export function VerifiedEvent({ width = 24, height = 24, ...props }: React.SVGPr
     )
 }
 
-export function ActionEvent({ width = 24, height = 24, ...props }: React.SVGProps<SVGSVGElement>): JSX.Element {
+export function ActionEvent(props: LemonIconProps): JSX.Element {
     return (
-        <LemonIconBase width={width} height={height} viewBox="0 0 24 24" fill="none" {...props}>
+        <LemonIconBase {...props}>
             <path
                 fillRule="evenodd"
                 clipRule="evenodd"
