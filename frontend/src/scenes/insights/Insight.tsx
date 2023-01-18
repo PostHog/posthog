@@ -39,6 +39,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema'
+import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     // insightSceneLogic
@@ -139,7 +140,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         value={insight.name || ''}
                         placeholder={
                             isUsingDataExploration
-                                ? summarizeInsightQuery((query as InsightVizNode).source, aggregationLabel)
+                                ? summarizeInsightQuery(
+                                      (query as InsightVizNode).source,
+                                      aggregationLabel,
+                                      cohortsById,
+                                      mathDefinitions
+                                  )
                                 : summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
                         }
                         onSave={(value) => setInsightMetadata({ name: value })}
@@ -269,6 +275,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 insightChanged={insightChanged}
                             />
                         )}
+                        {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
                     </div>
                 }
                 caption={
