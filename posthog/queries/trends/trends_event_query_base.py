@@ -50,9 +50,12 @@ class TrendsEventQueryBase(EventQuery):
         session_query, session_params = self._get_sessions_query()
         self.params.update(session_params)
 
+        distinct_id_query, distinct_id_query_params = self._get_distinct_id_query()
+        self.params.update(distinct_id_query_params)
+        
         query = f"""
             FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
+            {distinct_id_query}
             {person_query}
             {groups_query}
             {session_query}

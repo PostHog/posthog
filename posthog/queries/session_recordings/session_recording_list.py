@@ -222,17 +222,18 @@ class SessionRecordingList(EventQuery):
 
     def _get_recording_person_query(self) -> Tuple[str, Dict]:
         person_query, person_query_params = self._get_person_query()
-        person_distinct_id_query = get_team_distinct_ids_query(self._team_id)
+        pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
+
         if person_query:
             return (
                 f"""
                     JOIN (
-                    {person_distinct_id_query}
+                    {pdi_query}
                     ) as pdi
                     ON pdi.distinct_id = session_recordings.distinct_id
                     {person_query}
                 """,
-                person_query_params,
+                { **person_query_params, **pdi_query_params },
             )
         return person_query, person_query_params
 

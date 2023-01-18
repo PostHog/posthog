@@ -44,13 +44,15 @@ class StickinessEventsQuery(EventQuery):
         self.params.update(groups_params)
 
         null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
-
+        distinct_id_query, distinct_id_query_params = self._get_distinct_id_query()
+        self.params.update(distinct_id_query_params)
+        
         query = f"""
             SELECT
                 {self.aggregation_target()} AS aggregation_target,
                 countDistinct({get_trunc_func_ch(self._filter.interval)}(toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s))) as num_intervals
             FROM events {self.EVENT_TABLE_ALIAS}
-            {self._get_distinct_id_query()}
+            {distinct_id_query}
             {person_query}
             {groups_query}
             WHERE team_id = %(team_id)s

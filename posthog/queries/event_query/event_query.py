@@ -96,14 +96,16 @@ class EventQuery(metaclass=ABCMeta):
     def _determine_should_join_distinct_ids(self) -> None:
         pass
 
-    def _get_distinct_id_query(self) -> str:
+    def _get_distinct_id_query(self) -> Tuple[str, Dict[str, Any]]:
         if self._should_join_distinct_ids:
+            pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
+
             return f"""
-            INNER JOIN ({get_team_distinct_ids_query(self._team_id)}) AS {self.DISTINCT_ID_TABLE_ALIAS}
+            INNER JOIN ({pdi_query}) AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
-            """
+            """, pdi_query_params
         else:
-            return ""
+            return "", {}
 
     def _determine_should_join_persons(self) -> None:
         if self._person_query.is_used:

@@ -127,25 +127,6 @@ def query_with_columns(
     return rows
 
 
-def substitute_params(query, params):
-    """
-    Helper method to ease rendering of sql clickhouse queries progressively.
-    For example, there are many places where we construct queries to be used
-    as subqueries of others. Each time we generate a subquery we also pass
-    up the "bound" parameters to be used to render the query, which
-    otherwise only happens at the point of calling clickhouse via the
-    clickhouse_driver `Client`.
-
-    This results in sometimes large lists of parameters with no relevance to
-    the containing query being passed up. Rather than do this, we can
-    instead "render" the subqueries prior to using as a subquery, so our
-    containing code is only responsible for it's parameters, and we can
-    avoid any potential param collisions.
-    """
-    escaped = escape_params(params)
-    return query % escaped
-
-
 @patchable
 def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Workload = Workload.ONLINE):
     """
@@ -184,7 +165,8 @@ def _prepare_query(client: SyncClient, query: str, args: QueryArgs, workload: Wo
     else:
         # Else perform the substitution so we can perform operations on the raw
         # non-templated SQL
-        rendered_sql = client.substitute_params(query, args)
+        escaped_params = escape_params(args)
+        rendered_sql = query % escaped_params
         prepared_args = None
 
     formatted_sql = sqlparse.format(rendered_sql, strip_comments=True)

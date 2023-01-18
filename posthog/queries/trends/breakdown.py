@@ -213,6 +213,8 @@ class TrendsBreakdown:
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
                     **breakdown_filter_params, **active_user_format_params
                 )
+                pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
+
                 content_sql = BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
@@ -223,9 +225,10 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
-                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
                     **active_user_format_params,
                     **breakdown_filter_params,
+                    **pdi_query_params,
                 )
             elif self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
@@ -278,6 +281,8 @@ class TrendsBreakdown:
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
                     **breakdown_filter_params, **active_user_format_params
                 )
+                pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
+
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
@@ -288,9 +293,10 @@ class TrendsBreakdown:
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
                     conditions=conditions,
-                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
                     **active_user_format_params,
                     **breakdown_filter_params,
+                    **pdi_query_params,
                 )
             elif self.filter.display == TRENDS_CUMULATIVE and self.entity.math == "dau":
                 inner_sql = BREAKDOWN_CUMULATIVE_INNER_SQL.format(
@@ -586,27 +592,32 @@ class TrendsBreakdown:
     def _person_join_condition(self) -> Tuple[str, Dict]:
         if self.using_person_on_events:
             return "", {}
+        
+        params = {}
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
+        pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
+
         event_join = EVENT_JOIN_PERSON_SQL.format(
-            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id)
+            GET_TEAM_PERSON_DISTINCT_IDS=pdi_query
         )
+        params.update(pdi_query_params)
         if person_query.is_used:
-            query, params = person_query.get_query()
+            query, person_query_params = person_query.get_query()
             return (
                 f"""
             {event_join}
             INNER JOIN ({query}) person
             ON person.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """,
-                params,
+                { **params, **pdi_query_params },
             )
         elif (
             self.entity.math in [UNIQUE_USERS, WEEKLY_ACTIVE, MONTHLY_ACTIVE]
             and not self.team.aggregate_users_by_distinct_id
         ) or self.column_optimizer.is_using_cohort_propertes:
             # Only join distinct_ids
-            return event_join, {}
+            return event_join, params
         else:
             return "", {}
 

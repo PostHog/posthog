@@ -92,7 +92,7 @@ def get_entity_cohort_subquery(
         ) and count == 0  # = 0 means all people who never performed the event
 
         count_operator = get_count_operator(count_operator)
-        pdi_query = get_team_distinct_ids_query(cohort.team_id)
+        pdi_query, pdi_query_params = get_team_distinct_ids_query(cohort.team_id)
         extract_person = GET_PERSON_ID_BY_ENTITY_COUNT_SQL.format(
             entity_query=entity_query,
             date_query=date_query,
@@ -100,7 +100,7 @@ def get_entity_cohort_subquery(
             count_condition="" if is_negation else f"HAVING count(*) {count_operator} %(count)s",
         )
 
-        params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params}
+        params: Dict[str, Union[str, int]] = {"count": int(count), **entity_params, **date_params, **pdi_query_params}
 
         return f"{'NOT' if is_negation else ''} {custom_match_field} IN ({extract_person})", params
     else:

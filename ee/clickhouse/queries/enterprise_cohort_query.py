@@ -295,9 +295,10 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
                 person_id_joined_alias=f"{self.EVENT_TABLE_ALIAS}.person_id",
             )
 
+        distinct_id_query, distinct_id_query_params = self._get_distinct_id_query()
         new_query = f"""
         SELECT {", ".join(_inner_fields)} FROM events AS {self.EVENT_TABLE_ALIAS}
-        {self._get_distinct_id_query()}
+        {distinct_id_query}
         WHERE team_id = %(team_id)s
         AND event IN %({event_param_name})s
         {date_condition}
@@ -316,7 +317,7 @@ class EnterpriseCohortQuery(FOSSCohortQuery):
         """
         return (
             outer_query,
-            {"team_id": self._team_id, event_param_name: self._events, **params, **person_prop_params},
+            {"team_id": self._team_id, event_param_name: self._events, **params, **person_prop_params, **distinct_id_query_params},
             self.FUNNEL_QUERY_ALIAS,
         )
 
