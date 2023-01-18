@@ -162,7 +162,7 @@ def parse_prop_clauses(
                     final.append(f"{property_operator} {person_id_query}")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                        cohort, idx, custom_match_field=f"pdi.{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
