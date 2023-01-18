@@ -41,7 +41,7 @@ export function PathCleaningFilterComponent({
     const hasFilters = (currentTeam?.path_cleaning_filters || []).length > 0
 
     return (
-        <div className="space-y-2">
+        <div>
             <PathCleanFilters
                 pageKey="pathcleanfilters-local"
                 pathCleaningFilters={local_path_cleaning_filters || []}
@@ -57,7 +57,7 @@ export function PathCleaningFilterComponent({
             />
             <Popup
                 visible={open}
-                placement={'top-end'}
+                placement="top-end"
                 fallbackPlacements={['top-start']}
                 onClickOutside={() => setOpen(false)}
                 overlay={
@@ -75,7 +75,7 @@ export function PathCleaningFilterComponent({
             >
                 <LemonButton
                     onClick={() => setOpen(!open)}
-                    className="new-prop-filter"
+                    className={`mb-4 ${(local_path_cleaning_filters || []).length > 0 && 'mt-2'}`}
                     data-attr={'new-prop-filter-' + 'pathcleanfilters-local'}
                     type="secondary"
                     icon={<IconPlus />}
