@@ -130,33 +130,33 @@ const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFla
         return flag
     }
 
-    const newPayload = {}
+    const newPayloads = {}
     flag.filters.multivariate?.variants.forEach((variant, index) => {
-        newPayload[index] = flag.filters.payloads[variant.key]
+        newPayloads[index] = flag.filters.payloads[variant.key]
     })
     return {
         ...flag,
         filters: {
             ...flag.filters,
-            payloads: newPayload,
+            payloads: newPayloads,
         },
     }
 }
 
 const indexToVariantKeyFeatureFlagPayloads = (flag: Partial<FeatureFlagType>): Partial<FeatureFlagType> => {
     if (flag.filters?.multivariate) {
-        const newPayload = {}
+        const newPayloads = {}
         flag.filters?.multivariate?.variants.forEach(({ key }, index) => {
             const payload = flag.filters?.payloads[index]
             if (payload) {
-                newPayload[key] = payload
+                newPayloads[key] = payload
             }
         })
         return {
             ...flag,
             filters: {
                 ...flag.filters,
-                payloads: newPayload,
+                payloads: newPayloads,
             },
         }
     }
