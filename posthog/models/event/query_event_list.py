@@ -80,6 +80,7 @@ def query_events_list(
 ) -> Union[List, EventsQueryResponse]:
     # Note: This code is inefficient and problematic, see https://github.com/PostHog/posthog/issues/13485 for details.
     # To isolate its impact from rest of the queries its queries are run on different nodes as part of "offline" workloads.
+    hogql_context = HogQLContext()
 
     limit += 1
     limit_sql = "LIMIT %(limit)s"
@@ -95,7 +96,7 @@ def query_events_list(
         }
     )
     prop_filters, prop_filter_params = parse_prop_grouped_clauses(
-        team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False
+        team_id=team.pk, property_group=filter.property_groups, has_person_id_joined=False, hogql_context=hogql_context
     )
 
     if action_id:
@@ -135,7 +136,6 @@ def query_events_list(
 
     # events list v2 - hogql
 
-    hogql_context = HogQLContext()
     select_columns: List[str] = []
     group_by_columns: List[str] = []
     where_filters: List[str] = []

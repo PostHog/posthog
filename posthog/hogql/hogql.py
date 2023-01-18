@@ -6,8 +6,6 @@ from typing import Any, Dict, List, Optional, cast
 
 from clickhouse_driver.util.escape import escape_param
 
-from posthog.models.property.util import get_property_string_expr
-
 # fields you can select from in the events query
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 # "person.*" fields you can select from in the events query
@@ -308,6 +306,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
 
 
 def property_access_to_clickhouse(chain: List[str]):
+    # Circular import otherwise
+    from posthog.models.property.util import get_property_string_expr
+
     """Given a list like ['properties', '$browser'] or ['uuid'], translate to the correct ClickHouse expr."""
     if len(chain) == 2:
         if chain[0] == "properties":
