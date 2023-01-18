@@ -39,7 +39,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/${{ github.repository }}/codespaces
+                  images: ghcr.io/${{ github.event.pull_request.head.repo.full_name || github.repository }}/codespaces
                   tags: |
                       type=ref,event=branch
                       type=raw,value=master
@@ -51,7 +51,7 @@ jobs:
               id: meta-for-cache
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/${{ github.repository }}/codespaces
+                  images: ghcr.io/${{ github.event.pull_request.head.repo.full_name || github.repository }}/codespaces
                   tags: |
                       type=raw,value=master
 

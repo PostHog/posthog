@@ -210,7 +210,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
     # NOTE: This is not ideal as some rows _could_ have different keys
     # Ideally we would extend the csvrenderer to supported keeping the order in place
     if len(all_csv_rows):
-        if not [x for x in all_csv_rows[0].values() if isinstance(x, dict) or isinstance(x, list)]:
+        if not [x for x in all_csv_rows[0].values() if isinstance(x, (dict, list))]:
             # If values are serialised then keep the order of the keys, else allow it to be unordered
             renderer.header = all_csv_rows[0].keys()
 

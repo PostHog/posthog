@@ -122,7 +122,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/posthog/posthog/posthog
+                  images: ghcr.io/${{ github.event.pull_request.head.repo.full_name || github.repository }}/posthog # keep this in sync with the 'Container Images CI / Build PostHog' job
 
             - name: Start PostHog
               run: |

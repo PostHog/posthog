@@ -263,9 +263,8 @@ jobs:
     cloud:
         needs: changes
         timeout-minutes: 30
-        if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' }}
-
-        name: Django tests – Cloud
+        if: ${{ needs.changes.outputs.backend == 'true' && ! github.event.pull_request.head.repo.fork }} # we can't run this test on forks
+        name: Django tests - Cloud
         runs-on: ubuntu-latest
         steps:
             - name: Fetch posthog-cloud

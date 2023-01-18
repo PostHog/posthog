@@ -46,7 +46,7 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
 
         # postgres didn't change
         pg_distinct_ids = PersonDistinctId.objects.all()
-        self.assertEqual(len(pg_distinct_ids), 1)
+        self.assertEqual(pg_distinct_ids.count(), 1)
         self.assertEqual(pg_distinct_ids[0].version, 0)
         self.assertEqual(pg_distinct_ids[0].distinct_id, "distinct_id")
         self.assertEqual(pg_distinct_ids[0].person.uuid, person_linked_to_after.uuid)
@@ -106,7 +106,7 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
 
         # postgres
         pg_distinct_ids = PersonDistinctId.objects.all()
-        self.assertEqual(len(pg_distinct_ids), 2)
+        self.assertEqual(pg_distinct_ids.count(), 2)
         self.assertEqual(pg_distinct_ids[0].version, 2500)
         self.assertEqual(pg_distinct_ids[1].version, 2500)
         self.assertEqual(
@@ -162,7 +162,7 @@ class TestFixPersonDistinctIdsAfterDelete(BaseTest, ClickhouseTestMixin):
 
         # postgres
         pg_distinct_ids = PersonDistinctId.objects.all()
-        self.assertEqual(len(pg_distinct_ids), 1)
+        self.assertEqual(pg_distinct_ids.count(), 1)
         self.assertEqual(pg_distinct_ids[0].version, 0)
         self.assertEqual(pg_distinct_ids[0].distinct_id, "distinct_id-1")
         self.assertEqual(pg_distinct_ids[0].person.uuid, person_not_changed_1.uuid)

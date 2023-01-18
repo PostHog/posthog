@@ -38,7 +38,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/posthog/posthog/posthog
+                  images: ghcr.io/${{ github.event.pull_request.head.repo.full_name || github.repository }}/posthog # keep this in sync with the 'E2E CI / Cypress' job
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
@@ -53,7 +53,7 @@ jobs:
               uses: docker/login-action@v2
               with:
                   registry: ghcr.io
-                  username: ${{ github.repository_owner }}
+                  username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Build container images
@@ -70,6 +70,7 @@ jobs:
 
     posthog_cloud_build:
         name: Build PostHog Cloud
+        if: ${{ ! github.event.pull_request.head.repo.fork }} # we can't run this test on forks
         runs-on: ubuntu-latest
         permissions:
             id-token: write # allow issuing OIDC tokens for this workflow run
@@ -100,7 +101,7 @@ jobs:
               uses: docker/login-action@v2
               with:
                   registry: ghcr.io
-                  username: ${{ github.repository_owner }}
+                  username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Build container images

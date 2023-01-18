@@ -32,7 +32,7 @@ class TestFeatureFlagRoleAccessAPI(APILicensedTest):
         self.assertEqual(flag_role_access_create_res.status_code, status.HTTP_201_CREATED)
         flag_role = FeatureFlagRoleAccess.objects.get(id=flag_role_access_create_res.json()["id"])
         self.assertEqual(flag_role.role.name, self.eng_role.name)
-        self.assertEqual(flag_role.feature_flag.id, self.feature_flag.id)
+        self.assertEqual(flag_role.feature_flag_id, self.feature_flag.id)
 
     def test_cannot_add_role_access_if_feature_flags_access_level_too_low_and_not_creator(self):
         OrganizationResourceAccess.objects.create(

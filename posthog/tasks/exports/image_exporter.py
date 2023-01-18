@@ -89,7 +89,7 @@ def _export_to_png(exported_asset: ExportedAsset) -> None:
             wait_for_css_selector = ".InsightCard"
             screenshot_width = 1920
         else:
-            raise Exception(f"Export is missing required dashboard or insight ID")
+            raise Exception("Export is missing required dashboard or insight ID")
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 

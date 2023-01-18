@@ -267,29 +267,21 @@ class TestSessionRecordingPlaylist(APILicensedTest):
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording1_session_id}",
         ).json()
         assert result["success"]
-        assert (
-            SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist1.id, session_id=recording1_session_id
-            ).count()
-            == 0
-        )
+        assert not SessionRecordingPlaylistItem.objects.filter(
+            playlist_id=playlist1.id, session_id=recording1_session_id
+        ).exists()
+
         result = self.client.delete(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist1.short_id}/recordings/{recording2_session_id}",
         ).json()
         assert result["success"]
-        assert (
-            SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist1.id, session_id=recording2_session_id
-            ).count()
-            == 0
-        )
+        assert not SessionRecordingPlaylistItem.objects.filter(
+            playlist_id=playlist1.id, session_id=recording2_session_id
+        ).exists()
         result = self.client.delete(
             f"/api/projects/{self.team.id}/session_recording_playlists/{playlist2.short_id}/recordings/{recording2_session_id}",
         ).json()
         assert result["success"]
-        assert (
-            SessionRecordingPlaylistItem.objects.filter(
-                playlist_id=playlist2.id, session_id=recording1_session_id
-            ).count()
-            == 0
-        )
+        assert not SessionRecordingPlaylistItem.objects.filter(
+            playlist_id=playlist2.id, session_id=recording1_session_id
+        ).exists()

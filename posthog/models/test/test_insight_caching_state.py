@@ -107,5 +107,5 @@ class TestInsightCachingState(BaseTest):
 
     def get_caching_state(self) -> Optional[InsightCachingState]:
         query_set = InsightCachingState.objects.filter(team_id=self.team.pk)
-        assert len(query_set) in (0, 1)
+        assert query_set.count() in (0, 1)
         return query_set.first()

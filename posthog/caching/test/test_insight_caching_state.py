@@ -284,7 +284,7 @@ def test_upsert_text_tile_does_not_create_record(mock_active_teams, team: Team, 
     tile = create_tile(team=team, user=user, mock_active_teams=mock_active_teams, text_tile=True)
     upsert(team, tile)
 
-    assert InsightCachingState.objects.filter(team=team).count() == 0
+    assert not InsightCachingState.objects.filter(team=team).exists()
 
 
 @pytest.mark.django_db
