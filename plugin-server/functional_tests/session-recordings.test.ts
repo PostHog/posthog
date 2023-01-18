@@ -16,7 +16,14 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { defaultConfig } from '../src/config/config'
 import { UUIDT } from '../src/utils/utils'
-import { capture, createOrganization, createTeam, fetchPerformanceEvents, fetchSessionRecordingsEvents } from './api'
+import {
+    capture,
+    createOrganization,
+    createTeam,
+    fetchPerformanceEvents,
+    fetchSessionRecordingsEvents,
+    getMetric,
+} from './api'
 import { waitForExpect } from './expectations'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -291,6 +298,35 @@ test.concurrent(
     },
     20000
 )
+
+test.concurrent('consumer updates timestamp exported to prometheus', async () => {
+    // NOTE: it may be another event other than the one we emit here that causes
+    // the gauge to increase, but pushing this event through should at least
+    // ensure that the gauge is updated.
+    const metricBefore = await getMetric({
+        name: 'latest_processed_timestamp_ms',
+        type: 'GAUGE',
+        labels: { topic: 'session_recording_events', partition: '0', groupId: 'session-recordings' },
+    })
+
+    await producer.send({
+        topic: 'session_recording_events',
+        // NOTE: we don't actually care too much about the contents of the
+        // message, just that it triggeres the consumer to try to process it.
+        messages: [{ key: '', value: '' }],
+    })
+
+    await waitForExpect(async () => {
+        const metricAfter = await getMetric({
+            name: 'latest_processed_timestamp_ms',
+            type: 'GAUGE',
+            labels: { topic: 'session_recording_events', partition: '0', groupId: 'session-recordings' },
+        })
+        expect(metricAfter).toBeGreaterThan(metricBefore)
+        expect(metricAfter).toBeLessThan(Date.now()) // Make sure, e.g. we're not setting micro seconds
+        expect(metricAfter).toBeGreaterThan(Date.now() - 60_000) // Make sure, e.g. we're not setting seconds
+    }, 10_000)
+})
 
 test.concurrent(`handles invalid JSON`, async () => {
     const key = uuidv4()
