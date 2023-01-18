@@ -213,7 +213,7 @@ class TrendsBreakdown:
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
                     **breakdown_filter_params, **active_user_format_params
                 )
-                pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
+                pdi_query, pdi_query_params = get_team_distinct_ids_query(self.team_id)
 
                 content_sql = BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL.format(
                     breakdown_filter=breakdown_filter,
@@ -592,15 +592,13 @@ class TrendsBreakdown:
     def _person_join_condition(self) -> Tuple[str, Dict]:
         if self.using_person_on_events:
             return "", {}
-        
+
         params = {}
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
         pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
 
-        event_join = EVENT_JOIN_PERSON_SQL.format(
-            GET_TEAM_PERSON_DISTINCT_IDS=pdi_query
-        )
+        event_join = EVENT_JOIN_PERSON_SQL.format(GET_TEAM_PERSON_DISTINCT_IDS=pdi_query)
         params.update(pdi_query_params)
         if person_query.is_used:
             query, person_query_params = person_query.get_query()
@@ -610,7 +608,7 @@ class TrendsBreakdown:
             INNER JOIN ({query}) person
             ON person.id = {self.DISTINCT_ID_TABLE_ALIAS}.person_id
             """,
-                { **params, **pdi_query_params },
+                {**params, **pdi_query_params},
             )
         elif (
             self.entity.math in [UNIQUE_USERS, WEEKLY_ACTIVE, MONTHLY_ACTIVE]
