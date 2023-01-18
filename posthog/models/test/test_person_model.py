@@ -1,7 +1,10 @@
+import datetime as dt
 from uuid import uuid4
 
+from freezegun.api import freeze_time
+
 from posthog.client import sync_execute
-from posthog.models import Person, PersonDistinctId
+from posthog.models import Person, PersonDistinctId, PersonOverride
 from posthog.models.event.util import create_event
 from posthog.models.person.util import delete_person
 from posthog.test.base import BaseTest
@@ -47,3 +50,39 @@ class TestPerson(BaseTest):
             {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
         )
         self.assertEqual(ch_distinct_ids, [(str(person.uuid), 115, 1)])
+
+
+class TestPersonOverride(BaseTest):
+    @freeze_time("2021-01-21 00:00:00")
+    def test_person_override_is_short_term(self):
+        """Assert PersonOverride created less than 45 days ago is not long term."""
+        old_person_created_at = dt.datetime.utcnow() - dt.timedelta(days=44, hours=23, minutes=59, seconds=59)
+        old_person_id = uuid4()
+        override_person_id = uuid4()
+
+        person_override = PersonOverride.objects.create_override(
+            team=self.team,
+            old_person_id=old_person_id,
+            override_person_id=override_person_id,
+            old_person_created_at=old_person_created_at,
+        )
+
+        self.assertFalse(person_override.is_long_term)
+        self.assertEqual(person_override.old_person_created_at, old_person_created_at)
+
+    @freeze_time("2021-01-21 00:00:00")
+    def test_person_override_is_long_term(self):
+        """Assert PersonOverride created more than 45 days ago is long term."""
+        old_person_created_at = dt.datetime.utcnow() - dt.timedelta(days=45, seconds=1)
+        old_person_id = uuid4()
+        override_person_id = uuid4()
+
+        person_override = PersonOverride.objects.create_override(
+            team=self.team,
+            old_person_id=old_person_id,
+            override_person_id=override_person_id,
+            old_person_created_at=old_person_created_at,
+        )
+
+        self.assertTrue(person_override.is_long_term)
+        self.assertEqual(person_override.old_person_created_at, old_person_created_at)
