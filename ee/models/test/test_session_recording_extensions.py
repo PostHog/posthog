@@ -1,5 +1,6 @@
 from datetime import timedelta
 from unittest.mock import patch
+from secrets import token_urlsafe
 
 from freezegun import freeze_time
 
@@ -10,6 +11,8 @@ from posthog.models.session_recording_playlist_item.session_recording_playlist_i
 from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+long_url = f"https://app.posthog.com/my-url?token={token_urlsafe(600)}"
+
 
 class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
     def create_snapshot(self, session_id, timestamp):
@@ -19,7 +22,7 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
             "timestamp": timestamp.timestamp() * 1000,
             "has_full_snapshot": 1,
             "type": 2,
-            "data": {"source": 0},
+            "data": {"source": 0, "href": long_url},
         }
 
         create_session_recording_events(
@@ -56,15 +59,25 @@ class TestSessionRecordingExtensions(ClickhouseTestMixin, APIBaseTest):
         assert recording.duration == 7200
         assert recording.click_count == 0
         assert recording.keypress_count == 0
-        assert not recording.start_url
+        assert recording.start_url == "https://app.posthog.com/my-url"
 
         assert load_persisted_recording(recording) == {
             "version": "2022-12-22",
             "distinct_id": "distinct_id_1",
             "snapshot_data_by_window_id": {
                 "window_1": [
-                    {"timestamp": 1640865600000.0, "has_full_snapshot": 1, "type": 2, "data": {"source": 0}},
-                    {"timestamp": 1640872800000.0, "has_full_snapshot": 1, "type": 2, "data": {"source": 0}},
+                    {
+                        "timestamp": 1640865600000.0,
+                        "has_full_snapshot": 1,
+                        "type": 2,
+                        "data": {"source": 0, "href": long_url},
+                    },
+                    {
+                        "timestamp": 1640872800000.0,
+                        "has_full_snapshot": 1,
+                        "type": 2,
+                        "data": {"source": 0, "href": long_url},
+                    },
                 ]
             },
             "start_and_end_times_by_window_id": {
