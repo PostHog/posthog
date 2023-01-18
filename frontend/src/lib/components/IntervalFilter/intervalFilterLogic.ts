@@ -9,6 +9,7 @@ import { dayjs } from 'lib/dayjs'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { FunnelsQuery, InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema'
 import { lemonToast } from '../lemonToast'
+import { BASE_MATH_DEFINITIONS } from 'scenes/trends/mathsLogic'
 
 export const intervalFilterLogic = kea<intervalFilterLogicType>({
     props: {} as InsightLogicProps,
@@ -69,7 +70,7 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                     label: 'Hour',
                     newDateFrom: 'dStart',
                     disabledReason:
-                        'Grouping by hour is not supported on insights with weekly and monthly active users.',
+                        'Grouping by hour is not supported on insights with weekly or monthly active users series.',
                 }
 
                 // Disallow grouping by month for WAUs as the resulting view is misleading to users
@@ -77,7 +78,8 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
                     enabledIntervals.month = {
                         label: 'Month',
                         newDateFrom: '-90d',
-                        disabledReason: 'Grouping by month is not supported on insights with weekly active users.',
+                        disabledReason:
+                            'Grouping by month is not supported on insights with weekly active users series.',
                     }
                 }
             }
@@ -87,18 +89,15 @@ export const intervalFilterLogic = kea<intervalFilterLogicType>({
             // If the user just flipped an event action to use WAUs/MAUs math and their
             // current interval is unsupported by the math type, switch their interval
             // to an appropriate allowed interval and inform them of the change via a toast
-            if (values.interval && !!enabledIntervals[values.interval].disabledReason) {
-                const humanReadableMathType =
-                    activeUsersMath === BaseMathType.MonthlyActiveUsers ? 'Monthly active users' : 'Weekly active users'
-
+            if (activeUsersMath && values.interval && enabledIntervals[values.interval].disabledReason) {
                 if (values.interval === 'hour') {
                     lemonToast.info(
-                        `${humanReadableMathType} does not support grouping by hour. Grouping by day instead.`
+                        `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
                     )
                     actions.setInterval('day')
                 } else {
                     lemonToast.info(
-                        `${humanReadableMathType} does not support grouping by month. Grouping by week instead.`
+                        `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[activeUsersMath].name}" does not support grouping by ${values.interval}.`
                     )
                     actions.setInterval('week')
                 }
