@@ -1,13 +1,16 @@
 import { useRef, useEffect, useState } from 'react'
 import { useValues } from 'kea'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
-import './Paths.scss'
-import { PathNodeData } from './pathUtils'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { insightLogic } from 'scenes/insights/insightLogic'
+
+import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PathItemCard } from './PathItemCard'
 import { renderPaths } from './renderPaths'
+import type { PathNodeData } from './pathUtils'
+
+import './Paths.scss'
 
 const DEFAULT_PATHS_ID = 'default_paths'
 export const HIDE_PATH_CARD_HEIGHT = 30
@@ -28,15 +31,15 @@ export function Paths(): JSX.Element {
     useEffect(() => {
         setPathItemCards([])
 
-        const elements = document?.getElementById(id)?.querySelectorAll(`.paths svg`)
+        const elements = document?.getElementById(id)?.querySelectorAll(`.Paths svg`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
         renderPaths(canvasRef, canvasWidth, canvasHeight, paths, filter, setPathItemCards)
     }, [paths, !pathsLoading, canvasWidth, canvasHeight])
 
     return (
-        <div className="paths-container" id={id}>
-            <div ref={canvasRef} className="paths" data-attr="paths-viz">
+        <div className="h-full w-full overflow-auto" id={id}>
+            <div ref={canvasRef} className="Paths" data-attr="paths-viz">
                 {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
                 {!pathsError &&
                     pathItemCards &&

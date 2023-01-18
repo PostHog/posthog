@@ -12,6 +12,8 @@ import { humanFriendlyDuration, copyToClipboard } from 'lib/utils'
 import { pageUrl, getContinuingValue, getDropOffValue, isSelectedPathStartOrEnd, PathNodeData } from './pathUtils'
 import { pathsLogic } from './pathsLogic'
 
+import './PathItemCard.scss'
+
 type PathItemCardProps = {
     node: PathNodeData
     insightProps: InsightLogicProps
@@ -32,7 +34,7 @@ export function PathItemCard({ node, insightProps }: PathItemCardProps): JSX.Ele
     }
 
     return (
-        <Tooltip title={pageUrl(node)} placement="right">
+        <Tooltip title={pageUrl(node)} placement="right" className="PathItemCard">
             <Dropdown
                 overlay={
                     <Menu
