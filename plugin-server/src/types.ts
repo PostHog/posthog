@@ -983,6 +983,8 @@ export interface EventDefinitionType {
     team_id: number
     last_seen_at: string // DateTime
     created_at: string // DateTime
+    type: number
+    group_type_index: number | null
 }
 
 export enum UnixTimestampPropertyTypeFormat {
