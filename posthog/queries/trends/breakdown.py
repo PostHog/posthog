@@ -281,7 +281,7 @@ class TrendsBreakdown:
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
                     **breakdown_filter_params, **active_user_format_params
                 )
-                pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
+                pdi_query, pdi_query_params = get_team_distinct_ids_query(self.team_id)
 
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
@@ -596,7 +596,7 @@ class TrendsBreakdown:
         params = {}
 
         person_query = PersonQuery(self.filter, self.team_id, self.column_optimizer, entity=self.entity)
-        pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
+        pdi_query, pdi_query_params = get_team_distinct_ids_query(self.team_id)
 
         event_join = EVENT_JOIN_PERSON_SQL.format(GET_TEAM_PERSON_DISTINCT_IDS=pdi_query)
         params.update(pdi_query_params)

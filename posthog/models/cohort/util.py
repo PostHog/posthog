@@ -190,12 +190,13 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 
 def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
     person_query, params = format_cohort_subquery(cohort, index, custom_match_field="person_id")
-
+    pdi_query, pdi_query_params = get_team_distinct_ids_query(cohort.team_id)
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
         id_column=id_column,
-        GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(cohort.team_id),
+        GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
     )
+    params.update(pdi_query_params)
     return person_id_query, params
 
 
@@ -218,16 +219,18 @@ def get_person_ids_by_cohort_id(team: Team, cohort_id: int, limit: Optional[int]
         team_id=team.pk, property_group=filters.property_groups, table_name="pdi"
     )
 
+    pdi_query, pdi_query_params = get_team_distinct_ids_query(team.pk)
+
     results = sync_execute(
         GET_PERSON_IDS_BY_FILTER.format(
             person_query=GET_LATEST_PERSON_SQL,
             distinct_query=filter_query,
             query="",
-            GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
+            GET_TEAM_PERSON_DISTINCT_IDS=pdi_query,
             offset="OFFSET %(offset)s" if offset else "",
             limit="ORDER BY _timestamp ASC LIMIT %(limit)s" if limit else "",
         ),
-        {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit},
+        {**filter_params, "team_id": team.pk, "offset": offset, "limit": limit, **pdi_query_params},
     )
 
     return [str(row[0]) for row in results]

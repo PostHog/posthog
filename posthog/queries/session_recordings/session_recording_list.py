@@ -226,14 +226,16 @@ class SessionRecordingList(EventQuery):
 
         if person_query:
             return (
-                f"""
+                """
                     JOIN (
                     {pdi_query}
                     ) as pdi
                     ON pdi.distinct_id = session_recordings.distinct_id
                     {person_query}
-                """,
-                { **person_query_params, **pdi_query_params },
+                """.format(
+                    pdi_query=pdi_query, person_query=person_query
+                ),
+                {**person_query_params, **pdi_query_params},
             )
         return person_query, person_query_params
 

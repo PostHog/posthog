@@ -279,11 +279,13 @@ class PersonQuery:
             distinct_id_param = f"distinct_id_{prepend}"
             pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
 
-            distinct_id_clause = f"""
+            distinct_id_clause = """
             id IN (
                 SELECT person_id FROM ({pdi_query}) where distinct_id = %({distinct_id_param})s
             )
-            """
+            """.format(
+                pdi_query=pdi_query, distinct_id_param=distinct_id_param
+            )
 
             params.update({distinct_id_param: self._filter.search, **pdi_query_params})
 
@@ -298,11 +300,13 @@ class PersonQuery:
         if self._filter.distinct_id:
             pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
 
-            distinct_id_clause = f"""
+            distinct_id_clause = """
             AND id IN (
                 SELECT person_id FROM ({pdi_query}) where distinct_id = %(distinct_id_filter)s
             )
-            """
+            """.format(
+                pdi_query=pdi_query
+            )
             return distinct_id_clause, {"distinct_id_filter": self._filter.distinct_id, **pdi_query_params}
         return "", {}
 

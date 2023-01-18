@@ -56,7 +56,7 @@ class RelatedActorsQuery:
               AND {self._filter_clause}
             """,
                 self._params,
-                **distinct_ids_join_params
+                **distinct_ids_join_params,
             )
         )
 
@@ -67,7 +67,6 @@ class RelatedActorsQuery:
         if group_type_index == self.group_type_index:
             return []
 
-        
         distinct_ids_join, distinct_ids_join_params = self._distinct_ids_join()
         group_ids = self._take_first(
             sync_execute(
@@ -88,7 +87,11 @@ class RelatedActorsQuery:
               AND {self._filter_clause}
             ORDER BY group_key
             """,
-                {**self._params, "group_type_index": group_type_index, **({} if  self.is_aggregating_by_groups else distinct_ids_join_params)},
+                {
+                    **self._params,
+                    "group_type_index": group_type_index,
+                    **({} if self.is_aggregating_by_groups else distinct_ids_join_params),
+                },
             )
         )
 
@@ -98,10 +101,13 @@ class RelatedActorsQuery:
     def _take_first(self, rows: List) -> List:
         return [row[0] for row in rows]
 
-
     def _distinct_ids_join(self):
         pdi_query, pdi_query_params = get_team_distinct_ids_query(self.team.pk)
-        return f"JOIN ({pdi_query}) {self.DISTINCT_ID_TABLE_ALIAS} on e.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id", pdi_query_params
+        return (
+            "JOIN ({})".format(pdi_query)
+            + "{self.DISTINCT_ID_TABLE_ALIAS} on e.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id",
+            pdi_query_params,
+        )
 
     @property
     def _filter_clause(self):

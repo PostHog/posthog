@@ -219,8 +219,8 @@ def parse_prop_clauses(
                         property_operator=property_operator,
                     )
                 )
-                params = { **params, **filter_params, **pdi_query_params}
-                
+                params = {**params, **filter_params, **pdi_query_params}
+
         elif prop.type == "person" and person_properties_mode == PersonPropertiesMode.DIRECT:
             # this setting is used to generate the PersonQuery SQL.
             # When using direct mode, there should only be person properties in the entire
@@ -302,14 +302,14 @@ def parse_prop_clauses(
             method = format_static_cohort_query if prop.type == "static-cohort" else format_precalculated_cohort_query
             filter_query, filter_params = method(cohort_id, idx, prepend=prepend)  # type: ignore
             filter_query = f"""{person_id_joined_alias if not person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'person_id'} IN ({filter_query})"""
-            
+
             if has_person_id_joined or person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
                 final.append(f"{property_operator} {filter_query}")
             else:
                 pdi_query, pdi_query_params = get_team_distinct_ids_query(team_id)
                 # :TODO: (performance) Avoid subqueries whenever possible, use joins instead
                 subquery = GET_DISTINCT_IDS_BY_PERSON_ID_FILTER.format(
-                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team_id)
+                    filters=filter_query, GET_TEAM_PERSON_DISTINCT_IDS=pdi_query
                 )
                 final.append(f"{property_operator} {table_formatted}distinct_id IN ({subquery})")
                 params.update(pdi_query_params)

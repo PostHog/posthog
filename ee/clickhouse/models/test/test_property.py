@@ -425,11 +425,18 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             person_query = PersonQuery(filter, self.team.pk)
             person_subquery, person_join_params = person_query.get_query()
             pdi_query, pdi_query_params = get_team_distinct_ids_query(self.team.pk)
-            joins = f"""
-                INNER JOIN ({pdi_query}) AS pdi ON events.distinct_id = pdi.distinct_id
+
+            joins = (
+                """
+                INNER JOIN ({}) AS pdi ON events.distinct_id = pdi.distinct_id
+            """.format(
+                    pdi_query
+                )
+                + f"""
                 INNER JOIN ({person_subquery}) person ON pdi.person_id = person.id
             """
-            params = { **params, **person_join_params, **pdi_query_params}
+            )
+            params = {**params, **person_join_params, **pdi_query_params}
 
         final_query = f"SELECT uuid FROM events {joins} WHERE team_id = %(team_id)s {query}"
         # Make sure we don't accidentally use json on the properties field

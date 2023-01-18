@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional, Sequence, Union
 
 import sqlparse
 from clickhouse_driver import Client as SyncClient
-from clickhouse_driver.util.escape import escape_params
 from django.conf import settings as app_settings
 from statshog.defaults.django import statsd
 
@@ -73,6 +72,7 @@ def sync_execute(
         start_time = perf_counter()
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
+
         settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
         try:
             result = client.execute(

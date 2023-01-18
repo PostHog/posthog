@@ -100,10 +100,13 @@ class EventQuery(metaclass=ABCMeta):
         if self._should_join_distinct_ids:
             pdi_query, pdi_query_params = get_team_distinct_ids_query(self._team_id)
 
-            return f"""
-            INNER JOIN ({pdi_query}) AS {self.DISTINCT_ID_TABLE_ALIAS}
+            return (
+                "INNER JOIN ({})".format(pdi_query)
+                + f""" AS {self.DISTINCT_ID_TABLE_ALIAS}
             ON {self.EVENT_TABLE_ALIAS}.distinct_id = {self.DISTINCT_ID_TABLE_ALIAS}.distinct_id
-            """, pdi_query_params
+            """,
+                pdi_query_params,
+            )
         else:
             return "", {}
 
