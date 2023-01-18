@@ -102,7 +102,7 @@ export function PathsAdvancedComponent({
                 />
             </div>
             <div>
-                <div className="flex mb-2">
+                <div className="flex items-center mb-2">
                     <LemonLabel
                         showOptional
                         info={
@@ -115,8 +115,9 @@ export function PathsAdvancedComponent({
                     >
                         Path Cleaning Rules
                     </LemonLabel>
-                    <Link className="grow-1 text-right" to="/project/settings#path_cleaning_filtering">
-                        <IconSettings /> Configure Project Rules
+                    <Link className="flex items-center ml-1" to="/project/settings#path_cleaning_filtering">
+                        <IconSettings fontSize="16" className="mr-0.5" />
+                        Configure Project Rules
                     </Link>
                 </div>
                 <PathCleaningFilter />
