@@ -40,6 +40,7 @@ import {
     PathsTargetStartDataExploration,
 } from 'scenes/insights/EditorFilters/PathsTarget'
 import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
+import { PathsWildcardGroupsDataExploration } from 'scenes/insights/EditorFilters/PathsWildcardGroups'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -87,20 +88,20 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                               label: 'Event Types',
                               component: PathsEventsTypesDataExploration,
                           },
-                          // hasPathsAdvanced && {
-                          //     key: 'wildcard-groups',
-                          //     label: 'Wildcard Groups',
-                          //     showOptional: true,
-                          //     component: PathsWildcardGroups,
-                          //     tooltip: (
-                          //         <>
-                          //             Use wildcard matching to group events by unique values in path item names. Use an
-                          //             asterisk (*) in place of unique values. For example, instead of
-                          //             /merchant/1234/payment, replace the unique value with an asterisk
-                          //             /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
-                          //         </>
-                          //     ),
-                          // },
+                          hasPathsAdvanced && {
+                              key: 'wildcard-groups',
+                              label: 'Wildcard Groups',
+                              showOptional: true,
+                              component: PathsWildcardGroupsDataExploration,
+                              tooltip: (
+                                  <>
+                                      Use wildcard matching to group events by unique values in path item names. Use an
+                                      asterisk (*) in place of unique values. For example, instead of
+                                      /merchant/1234/payment, replace the unique value with an asterisk
+                                      /merchant/*/payment. <b>Use a comma to separate multiple wildcards.</b>
+                                  </>
+                              ),
+                          },
                           {
                               key: 'start-target',
                               label: 'Starts at',
