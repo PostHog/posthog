@@ -104,7 +104,6 @@ export const WEBHOOK_SERVICES: Record<string, string> = {
 export const FEATURE_FLAGS = {
     // Cloud-only
     CLOUD_ANNOUNCEMENT: 'cloud-announcement',
-    NPS_PROMPT: '4562-nps', // owner: @marcushyett-ph
     // Experiments / beta features
     BREAKDOWN_BY_MULTIPLE_PROPERTIES: '938-breakdown-by-multiple-properties', // owner: @pauldambra
     FUNNELS_CUE_OPT_OUT: 'funnels-cue-opt-out-7301', // owner: @neilkakkar
@@ -202,8 +201,7 @@ export const SSO_PROVIDER_NAMES: Record<SSOProviders, string> = {
     saml: 'single sign-on (SAML)',
 }
 
-// TODO: Support checking minimum plan required for specific feature and highlight the relevant plan in the
-// pricing page (or billing page). Requires updating the pricing page to support this highlighting first.
+// TODO: Remove UPGRADE_LINK, as the billing page is now universal
 export const UPGRADE_LINK = (cloud?: boolean): { url: string; target?: '_blank' } =>
     cloud ? { url: urls.organizationBilling() } : { url: 'https://posthog.com/pricing', target: '_blank' }
 

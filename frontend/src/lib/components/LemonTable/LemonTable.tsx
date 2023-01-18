@@ -12,6 +12,7 @@ import { useScrollable } from 'lib/hooks/useScrollable'
 import { LemonSkeleton } from '../LemonSkeleton'
 import { LemonTableLoader } from './LemonTableLoader'
 import { More } from 'lib/components/LemonButton/More'
+import { IconInfo } from '../icons'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -253,11 +254,13 @@ export function LemonTable<T extends Record<string, any>>({
                                                     determineColumnKey(column) ?? columnIndex
                                                 }`}
                                                 className={clsx(
+                                                    'LemonTable__header',
                                                     column.sorter && 'LemonTable__header--actionable',
                                                     columnIndex === columnGroup.children.length - 1 &&
                                                         'LemonTable__boundary',
                                                     column.className
                                                 )}
+                                                /* eslint-disable-next-line react/forbid-dom-props */
                                                 style={{ textAlign: column.align }}
                                                 onClick={
                                                     column.sorter && !column.more
@@ -279,7 +282,16 @@ export function LemonTable<T extends Record<string, any>>({
                                                     style={{ justifyContent: column.align }}
                                                 >
                                                     <div className="flex items-center">
-                                                        {column.title}
+                                                        {column.tooltip ? (
+                                                            <Tooltip title={column.tooltip}>
+                                                                <div className="flex items-center">
+                                                                    {column.title}
+                                                                    <IconInfo className="ml-1 text-base" />
+                                                                </div>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            column.title
+                                                        )}
                                                         {column.sorter && (
                                                             <Tooltip
                                                                 title={() => {

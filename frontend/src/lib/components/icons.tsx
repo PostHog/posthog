@@ -412,6 +412,17 @@ export function IconUpdate(props: LemonIconProps): JSX.Element {
     )
 }
 
+export function IconCloudDownload(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM19 18H6c-2.21 0-4-1.79-4-4 0-2.05 1.53-3.76 3.56-3.97l1.07-.11.5-.95C8.08 7.14 9.94 6 12 6c2.62 0 4.88 1.86 5.39 4.43l.3 1.5 1.53.11c1.56.1 2.78 1.41 2.78 2.96 0 1.65-1.35 3-3 3zm-5.55-8h-2.9v3H8l4 4 4-4h-2.55z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
 /** Material Design Offline Bolt icon. */
 export function IconOffline(props: LemonIconProps): JSX.Element {
     return (
@@ -715,7 +726,7 @@ export function IconExclamation(props: LemonIconProps): JSX.Element {
 }
 
 /** Material Design Push Pin icon, outlined. */
-export function IconPin(props: LemonIconProps): JSX.Element {
+export function IconPinOutline(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
             <path
@@ -733,6 +744,30 @@ export function IconPinFilled(props: LemonIconProps): JSX.Element {
             <path
                 d="M16,9V4l1,0c0.55,0,1-0.45,1-1v0c0-0.55-0.45-1-1-1H7C6.45,2,6,2.45,6,3v0 c0,0.55,0.45,1,1,1l1,0v5c0,1.66-1.34,3-3,3h0v2h5.97v7l1,1l1-1v-7H19v-2h0C17.34,12,16,10.66,16,9z"
                 fillRule="evenodd"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Star icon. */
+export function IconStarFilled(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27z"
+                fill="currentColor"
+            />
+        </LemonIconBase>
+    )
+}
+
+/** Material Design Grade icon. */
+export function IconStarOutline(props: LemonIconProps): JSX.Element {
+    return (
+        <LemonIconBase {...props}>
+            <path
+                d="M12 7.13l.97 2.29.47 1.11 1.2.1 2.47.21-1.88 1.63-.91.79.27 1.18.56 2.41-2.12-1.28-1.03-.64-1.03.62-2.12 1.28.56-2.41.27-1.18-.91-.79-1.88-1.63 2.47-.21 1.2-.1.47-1.11.97-2.27M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"
                 fill="currentColor"
             />
         </LemonIconBase>

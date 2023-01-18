@@ -5,13 +5,14 @@ import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { deleteWithUndo } from 'lib/utils'
 import { InsightModel, InsightType, LayoutView, SavedInsightsTabs } from '~/types'
 import { INSIGHTS_PER_PAGE, savedInsightsLogic } from './savedInsightsLogic'
-import { AppstoreFilled, StarFilled, StarOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import './SavedInsights.scss'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PageHeader } from 'lib/components/PageHeader'
 import { SavedInsightsEmptyState } from 'scenes/insights/EmptyStates'
 import { teamLogic } from '../teamLogic'
 import {
+    IconStarFilled,
+    IconStarOutline,
     InsightsFunnelsIcon,
     InsightsLifecycleIcon,
     InsightsPathsIcon,
@@ -39,6 +40,7 @@ import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { SavedInsightsFilters } from 'scenes/saved-insights/SavedInsightsFilters'
+import { AppstoreFilled, UnorderedListOutlined } from '@ant-design/icons'
 
 const { TabPane } = Tabs
 
@@ -228,8 +230,8 @@ export function SavedInsights(): JSX.Element {
             render: function renderName(name: string, insight) {
                 return (
                     <>
-                        <div className={'flex items-center'}>
-                            <Link to={urls.insightView(insight.short_id)} className="row-name">
+                        <span className="row-name">
+                            <Link to={urls.insightView(insight.short_id)}>
                                 {name || (
                                     <i>
                                         {summarizeInsightFilters(
@@ -241,17 +243,20 @@ export function SavedInsights(): JSX.Element {
                                     </i>
                                 )}
                             </Link>
-                            <div
-                                className={'ml-1 w-fit cursor-pointer'}
+                            <LemonButton
+                                className="ml-1"
+                                size="small"
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
-                            >
-                                {insight.favorited ? (
-                                    <StarFilled className="text-warning" />
-                                ) : (
-                                    <StarOutlined className="star-outlined" />
-                                )}
-                            </div>
-                        </div>
+                                icon={
+                                    insight.favorited ? (
+                                        <IconStarFilled className="text-warning" />
+                                    ) : (
+                                        <IconStarOutline className="text-muted" />
+                                    )
+                                }
+                                tooltip={`${insight.favorited ? 'Add to' : 'Remove from'} favorite insights`}
+                            />
+                        </span>
                         {hasDashboardCollaboration && insight.description && (
                             <span className="row-description">{insight.description}</span>
                         )}
