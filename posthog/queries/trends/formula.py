@@ -15,12 +15,12 @@ from posthog.queries.trends.util import ensure_value_is_json_serializable, parse
 
 
 class TrendsFormula:
-    def _run_formula_query(self, filter: Filter, team: Team):
+    def _run_formula_query(self, filter: Filter, team: Team, hogql_values: Dict):
         letters = [ascii_uppercase[i] for i in range(0, len(filter.entities))]
         queries = []
         params: Dict[str, Any] = {}
         for idx, entity in enumerate(filter.entities):
-            query_type, sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity)  # type: ignore
+            query_type, sql, entity_params, _ = self._get_sql_for_entity(filter, team, entity, hogql_values)  # type: ignore
             sql = sql.replace("%(", f"%({idx}_")
             entity_params = {f"{idx}_{key}": value for key, value in entity_params.items()}
             queries.append(sql)
@@ -72,10 +72,10 @@ class TrendsFormula:
         with push_scope() as scope:
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
-            scope.set_context("query", {"sql": sql, "params": params})
+            scope.set_context("query", {"sql": sql, "params": {**params, **hogql_values}})
             result = insight_sync_execute(
                 sql,
-                params,
+                {**params, **hogql_values},
                 query_type="trends_formula",
                 filter=filter,
             )

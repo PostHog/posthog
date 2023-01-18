@@ -170,7 +170,7 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             hogql_values: Dict = {}
             adjusted_filter, cached_result = self.adjusted_filter(filter, team)
             query_type, sql, params, parse_function = self._get_sql_for_entity(
-                adjusted_filter, team, entity, hogql_values=hogql_values
+                adjusted_filter, team, entity, hogql_values
             )
             parse_functions[entity.index] = parse_function
             sql_statements_with_params[entity.index] = (sql, {**params, **hogql_values})

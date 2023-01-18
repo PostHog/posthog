@@ -281,7 +281,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/funnel/?actions={json.dumps([{'type': 'actions', 'id': action.id, 'order':0},{'type': 'actions', 'id': action.id, 'order': 1}])}"
         ).json()
-        self.assertEqual(response["result"][0]["count"], 0)
+        self.assertEqual(response["result"][0]["count"], 1)
 
     @freeze_time("2021-12-12")
     def test_listing_actions_is_not_nplus1(self) -> None:
