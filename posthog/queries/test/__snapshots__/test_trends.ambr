@@ -413,7 +413,7 @@
      WHERE team_id = 2
        AND ((event = '$pageview'
              AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
-                  AND pdi.person_id IN
+                  AND pdi.pdi.person_id IN
                     (SELECT id
                      FROM person
                      WHERE team_id = 2
@@ -498,7 +498,7 @@
                    AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
                    AND ((event = '$pageview'
                          AND (has(['p1', 'p2', 'p3'], replaceRegexpAll(JSONExtractRaw(person_props, 'name'), '^"|"$', ''))
-                              AND pdi.person_id IN
+                              AND pdi.pdi.person_id IN
                                 (SELECT id
                                  FROM person
                                  WHERE team_id = 2

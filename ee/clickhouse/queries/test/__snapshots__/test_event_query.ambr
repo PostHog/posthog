@@ -92,7 +92,7 @@
     AND event = 'viewed'
     AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-    AND (pdi.person_id IN
+    AND (pdi.pdi.person_id IN
            (SELECT id
             FROM person
             WHERE team_id = 2
@@ -163,7 +163,7 @@
     AND event = '$pageview'
     AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2021-05-01 00:00:00', 'UTC')), 'UTC')
     AND toDateTime(timestamp, 'UTC') <= toDateTime('2021-05-07 23:59:59', 'UTC')
-    AND (pdi.person_id IN
+    AND (pdi.pdi.person_id IN
            (SELECT id
             FROM person
             WHERE team_id = 2
