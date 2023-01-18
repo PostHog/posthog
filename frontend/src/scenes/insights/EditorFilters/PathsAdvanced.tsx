@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { InputNumber } from 'antd'
 
 import { EditorFilterProps, PathEdgeParameters, PathsFilterType, QueryEditorFilterProps } from '~/types'
+import { LemonDivider } from '@posthog/lemon-ui'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
@@ -10,25 +11,37 @@ import { Link } from 'lib/components/Link'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { IconSettings } from 'lib/components/icons'
 
-import { PathCleaningFilter } from '../filters/PathCleaningFilter'
-import { LemonDivider } from '@posthog/lemon-ui'
+import { PathCleaningFilter, PathCleaningFilterDataExploration } from '../filters/PathCleaningFilter'
 
-export function PathsAdvancedDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+export function PathsAdvancedDataExploration({ insightProps, ...rest }: QueryEditorFilterProps): JSX.Element {
     const { insightFilter } = useValues(pathsDataLogic(insightProps))
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
-    return <PathsAdvancedComponent setFilter={updateInsightFilter} {...insightFilter} />
+    return (
+        <PathsAdvancedComponent
+            setFilter={updateInsightFilter}
+            cleaningFilterComponent={<PathCleaningFilterDataExploration insightProps={insightProps} {...rest} />}
+            {...insightFilter}
+        />
+    )
 }
 
-export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
+export function PathsAdvanced({ insightProps, ...rest }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
 
-    return <PathsAdvancedComponent setFilter={setFilter} {...filter} />
+    return (
+        <PathsAdvancedComponent
+            setFilter={setFilter}
+            cleaningFilterComponent={<PathCleaningFilter insightProps={insightProps} {...rest} />}
+            {...filter}
+        />
+    )
 }
 
 type PathsAdvancedComponentProps = {
     setFilter: (filter: PathsFilterType) => void
+    cleaningFilterComponent: JSX.Element
 } & PathsFilterType
 
 export function PathsAdvancedComponent({
@@ -36,6 +49,7 @@ export function PathsAdvancedComponent({
     edge_limit,
     min_edge_weight,
     max_edge_weight,
+    cleaningFilterComponent,
 }: PathsAdvancedComponentProps): JSX.Element {
     const [localEdgeParameters, setLocalEdgeParameters] = useState<PathEdgeParameters>({
         edge_limit: edge_limit,
@@ -126,7 +140,7 @@ export function PathsAdvancedComponent({
                         <IconSettings fontSize="16" className="ml-0.5" />
                     </Link>
                 </div>
-                <PathCleaningFilter />
+                {cleaningFilterComponent}
             </div>
         </div>
     )

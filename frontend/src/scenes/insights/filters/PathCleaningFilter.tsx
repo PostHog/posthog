@@ -1,20 +1,42 @@
 import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+
+import { pathsLogic } from 'scenes/paths/pathsLogic'
+import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
+import { teamLogic } from 'scenes/teamLogic'
+
+import { EditorFilterProps, PathsFilterType, QueryEditorFilterProps } from '~/types'
+import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
 import { Popup } from 'lib/components/Popup/Popup'
 import { PathRegexPopup } from 'lib/components/PathCleanFilters/PathCleanFilter'
-import { useActions, useValues } from 'kea'
-import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { LemonButton, LemonSwitch } from '@posthog/lemon-ui'
-import { teamLogic } from 'scenes/teamLogic'
 import { IconPlus } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 
-export function PathCleaningFilter(): JSX.Element {
-    const [open, setOpen] = useState(false)
-    const { insightProps } = useValues(insightLogic)
+export function PathCleaningFilterDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
+    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
+
+    return <PathCleaningFilterComponent setFilter={updateInsightFilter} {...insightFilter} />
+}
+
+export function PathCleaningFilter({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
     const { setFilter } = useActions(pathsLogic(insightProps))
+
+    return <PathCleaningFilterComponent setFilter={setFilter} {...filter} />
+}
+
+type PathCleaningFilterComponentProps = {
+    setFilter: (filter: PathsFilterType) => void
+} & PathsFilterType
+
+export function PathCleaningFilterComponent({
+    setFilter,
+    local_path_cleaning_filters,
+    path_replacements,
+}: PathCleaningFilterComponentProps): JSX.Element {
+    const [open, setOpen] = useState(false)
     const { currentTeam } = useValues(teamLogic)
     const hasFilters = (currentTeam?.path_cleaning_filters || []).length > 0
 
@@ -22,14 +44,14 @@ export function PathCleaningFilter(): JSX.Element {
         <div className="space-y-2">
             <PathCleanFilters
                 pageKey="pathcleanfilters-local"
-                pathCleaningFilters={filter.local_path_cleaning_filters || []}
+                pathCleaningFilters={local_path_cleaning_filters || []}
                 onChange={(newItem) => {
                     setFilter({
-                        local_path_cleaning_filters: [...(filter.local_path_cleaning_filters || []), newItem],
+                        local_path_cleaning_filters: [...(local_path_cleaning_filters || []), newItem],
                     })
                 }}
                 onRemove={(index) => {
-                    const newState = (filter.local_path_cleaning_filters || []).filter((_, i) => i !== index)
+                    const newState = (local_path_cleaning_filters || []).filter((_, i) => i !== index)
                     setFilter({ local_path_cleaning_filters: newState })
                 }}
             />
@@ -44,7 +66,7 @@ export function PathCleaningFilter(): JSX.Element {
                         onClose={() => setOpen(false)}
                         onComplete={(newItem) => {
                             setFilter({
-                                local_path_cleaning_filters: [...(filter.local_path_cleaning_filters || []), newItem],
+                                local_path_cleaning_filters: [...(local_path_cleaning_filters || []), newItem],
                             })
                             setOpen(false)
                         }}
@@ -72,7 +94,7 @@ export function PathCleaningFilter(): JSX.Element {
             >
                 <LemonSwitch
                     disabled={!hasFilters}
-                    checked={hasFilters ? filter.path_replacements || false : false}
+                    checked={hasFilters ? path_replacements || false : false}
                     onChange={(checked: boolean) => {
                         localStorage.setItem('default_path_clean_filters', checked.toString())
                         setFilter({ path_replacements: checked })
