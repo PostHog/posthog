@@ -33,6 +33,10 @@ export class StorybookStoryPage {
         await this.page.goto(storyUrl)
     }
 
+    async expectFullPageScreenshot(): Promise<void> {
+        await expect(this.page).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
+    }
+
     async expectSceneScreenshot(): Promise<void> {
         await expect(this.mainAppContent).toHaveScreenshot({ maxDiffPixelRatio: 0.01 })
     }

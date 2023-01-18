@@ -1,20 +1,89 @@
 import { Meta } from '@storybook/react'
 import { TopBar } from './TopBar/TopBar'
 import { SideBar } from './SideBar/SideBar'
-import React from 'react'
+import { PageHeader } from 'lib/components/PageHeader'
+import { LemonButton, LemonTable } from '@posthog/lemon-ui'
+import { useActions } from 'kea'
+import { navigationLogic } from './navigationLogic'
+import { useEffect } from 'react'
 
 export default {
     title: 'Layout/Navigation',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
 } as Meta
 
-export function Navigation_(): JSX.Element {
+function BaseAppPage(): JSX.Element {
     return (
-        <div>
+        <>
             <TopBar />
             <SideBar>
-                <React.Fragment />
+                <div className="main-app-content">
+                    <PageHeader
+                        title="Your gizmos"
+                        caption="View your household devices."
+                        buttons={<LemonButton type="primary">New gizmo</LemonButton>}
+                    />
+                    <div className="space-y-2">
+                        <LemonTable
+                            columns={[
+                                { title: 'Name', dataIndex: 'name' },
+                                { title: 'Function', dataIndex: 'function' },
+                                { title: 'Color', dataIndex: 'color' },
+                                { title: 'Ionization level', dataIndex: 'ionizationLevel' },
+                            ]}
+                            dataSource={[
+                                // Nonsensical data for demo purposes
+                                {
+                                    name: 'Blarg',
+                                    function: 'Radicalizes blue whales',
+                                    color: 'Azure',
+                                    ionizationLevel: 423,
+                                },
+                                {
+                                    name: 'Frink',
+                                    function: 'Makes the world go round',
+                                    color: 'Crimson',
+                                    ionizationLevel: 0,
+                                },
+                                {
+                                    name: 'Torpurator',
+                                    function: 'Spontaneously combusts',
+                                    color: 'Chartreuse',
+                                    ionizationLevel: 100,
+                                },
+                                {
+                                    name: 'De-Blargifier',
+                                    function: 'De-radicalizes blue whales',
+                                    color: 'Beige',
+                                    ionizationLevel: -423,
+                                },
+                            ]}
+                        />
+                    </div>
+                </div>
             </SideBar>
-        </div>
+        </>
     )
+}
+
+export function AppPageWithSideBarHidden(): JSX.Element {
+    const { toggleSideBarBase, toggleSideBarMobile } = useActions(navigationLogic)
+
+    useEffect(() => {
+        toggleSideBarBase(false)
+        toggleSideBarMobile(false)
+    }, [])
+
+    return <BaseAppPage />
+}
+
+export function AppPageWithSideBarShown(): JSX.Element {
+    const { toggleSideBarBase, toggleSideBarMobile } = useActions(navigationLogic)
+
+    useEffect(() => {
+        toggleSideBarBase(true)
+        toggleSideBarMobile(true)
+    }, [])
+
+    return <BaseAppPage />
 }
