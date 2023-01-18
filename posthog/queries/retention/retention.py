@@ -3,7 +3,6 @@ from urllib.parse import urlencode
 
 import pytz
 
-from posthog.client import substitute_params
 from posthog.constants import RETENTION_FIRST_TIME, RetentionQueryType
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
@@ -175,6 +174,4 @@ def build_target_event_query(
         using_person_on_events=using_person_on_events,
     ).get_query()
 
-    query = substitute_params(target_event_query_templated, target_event_params)
-
-    return query
+    return target_event_query_templated, target_event_params

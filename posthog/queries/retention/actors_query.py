@@ -1,7 +1,6 @@
 import dataclasses
 from typing import Any, Dict, List, Optional, Tuple
 
-from posthog.client import substitute_params
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
@@ -51,7 +50,7 @@ class RetentionActorsByPeriod(ActorBaseQuery):
         where appearances values represent if the person was active in an
         interval, where the index of the list is the interval it refers to.
         """
-        actor_query = _build_actor_query(
+        actor_query, actor_query_params = _build_actor_query(
             filter=self._filter,
             team=self._team,
             filter_by_breakdown=(
@@ -62,7 +61,9 @@ class RetentionActorsByPeriod(ActorBaseQuery):
             retention_events_query=self._retention_events_query,
         )
 
-        results = insight_sync_execute(actor_query, query_type="retention_actors", filter=self._filter)
+        results = insight_sync_execute(
+            actor_query, query_type="retention_actors", filter=self._filter, **actor_query_params
+        )
         actor_appearances = [
             AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1]) for row in results
         ]
@@ -112,7 +113,7 @@ def build_actor_activity_query(
         retention_events_query=retention_events_query,
     )
 
-    target_event_query = build_target_event_query(
+    target_event_query, target_event_query_params = build_target_event_query(
         filter=filter,
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
@@ -125,6 +126,7 @@ def build_actor_activity_query(
         "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
         "selected_interval": selected_interval,
         **returning_event_query_params,
+        **target_event_query_params,
     }
 
     query = RETENTION_BREAKDOWN_ACTOR_SQL.format(
@@ -167,8 +169,6 @@ def _build_actor_query(
         OFFSET %(offset)s
     """
 
-    actor_query = substitute_params(
-        actor_query_template, {"offset": filter.offset, "limit": filter.limit or 100}
-    ).format(actor_activity_query=actor_activity_query)
+    actor_query = actor_query_template.format(actor_activity_query=actor_activity_query)
 
-    return actor_query
+    return actor_query, {"offset": filter.offset, "limit": filter.limit or 100}
