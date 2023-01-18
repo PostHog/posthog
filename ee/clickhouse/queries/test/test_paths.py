@@ -2073,7 +2073,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
 
     def test_properties_queried_using_path_filter(self):
         def should_query_list(filter) -> Tuple[bool, bool]:
-            path_query = PathEventQuery(filter, self.team)
+            path_query = PathEventQuery(filter, self.team, {})
             return (path_query._should_query_url(), path_query._should_query_screen())
 
         filter = PathFilter()

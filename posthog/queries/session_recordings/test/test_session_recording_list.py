@@ -64,7 +64,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
         filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
         self.assertEqual(len(session_recordings), 2)
@@ -86,7 +86,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         create_snapshot(distinct_id="user", session_id="2", timestamp=self.base_time, team_id=self.team.id)
 
         filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
 
         self.assertEqual(len(session_recordings), 1)
@@ -104,7 +104,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
         filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -130,7 +130,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -143,7 +143,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -176,7 +176,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -199,7 +199,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -228,7 +228,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
 
         self.assertEqual(len(session_recordings), 1)
@@ -251,7 +251,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -291,7 +291,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"actions": [{"id": action1.id, "type": "actions", "order": 1, "name": "custom-event"}]},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -300,7 +300,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event"}]},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -324,7 +324,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                 ]
             },
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -343,7 +343,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -378,7 +378,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"gt"}'},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -387,7 +387,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"session_recording_duration": '{"type":"recording","key":"duration","value":60,"operator":"lt"}'},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -409,14 +409,14 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = SessionRecordingsFilter(team=self.team, data={"date_from": self.base_time.strftime("%Y-%m-%d")})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
         filter = SessionRecordingsFilter(
             team=self.team, data={"date_from": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -440,12 +440,12 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         filter = SessionRecordingsFilter(
             team=self.team, data={"date_to": (self.base_time - relativedelta(days=4)).strftime("%Y-%m-%d")}
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
         filter = SessionRecordingsFilter(team=self.team, data={"date_to": (self.base_time).strftime("%Y-%m-%d")})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -468,7 +468,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                 "date_from": (day_line - relativedelta(days=10)).strftime("%Y-%m-%d"),
             },
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -492,7 +492,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = SessionRecordingsFilter(team=self.team, data={"person_uuid": str(p.uuid)})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 2)
         self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -534,7 +534,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                 "actions": [{"id": action2.id, "type": "actions", "order": 1, "name": "custom-event"}],
             },
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -557,7 +557,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = SessionRecordingsFilter(team=self.team, data={"limit": 2})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 2)
         self.assertEqual(session_recordings[0]["session_id"], "3")
@@ -565,7 +565,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(more_recordings_available, True)
 
         filter = SessionRecordingsFilter(team=self.team, data={"limit": 2, "offset": 0})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 2)
         self.assertEqual(session_recordings[0]["session_id"], "3")
@@ -573,7 +573,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(more_recordings_available, True)
 
         filter = SessionRecordingsFilter(team=self.team, data={"limit": 2, "offset": 1})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 2)
         self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -581,7 +581,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(more_recordings_available, False)
 
         filter = SessionRecordingsFilter(team=self.team, data={"limit": 2, "offset": 2})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -598,7 +598,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
         )
         filter = SessionRecordingsFilter(team=self.team, data={"no-filter": True})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -621,7 +621,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]},
         )
 
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -651,7 +651,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"properties": [{"key": "email", "value": ["bla"], "operator": "exact", "type": "person"}]},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -692,7 +692,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
                     team=self.team,
                     data={"properties": [{"key": "id", "value": cohort.pk, "operator": None, "type": "cohort"}]},
                 )
-                session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+                session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
                 (session_recordings, _) = session_recording_list_instance.run()
                 self.assertEqual(len(session_recordings), 1)
                 self.assertEqual(session_recordings[0]["session_id"], "2")
@@ -717,7 +717,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -726,7 +726,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -752,7 +752,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         filter = SessionRecordingsFilter(
             team=self.team, data={"events": [{"id": "$pageview", "type": "events", "order": 0, "name": "$pageview"}]}
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 1)
         self.assertEqual(session_recordings[0]["session_id"], "1")
@@ -762,7 +762,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             data={"events": [{"id": "$autocapture", "type": "events", "order": 0, "name": "$autocapture"}]},
         )
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, _) = session_recording_list_instance.run()
         self.assertEqual(len(session_recordings), 0)
 
@@ -808,7 +808,7 @@ class TestClickhouseSessionRecordingsList(ClickhouseTestMixin, APIBaseTest):
         )
 
         filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
-        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team)
+        session_recording_list_instance = SessionRecordingList(filter=filter, team=self.team, hogql_values={})
         (session_recordings, more_recordings_available) = session_recording_list_instance.run()
 
         assert len(session_recordings) == 1

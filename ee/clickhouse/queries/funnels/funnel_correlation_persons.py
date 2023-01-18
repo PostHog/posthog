@@ -80,7 +80,7 @@ class _FunnelEventsCorrelationActors(ActorBaseQuery):
         prop_filters = self._filter.correlation_person_entity.property_groups
 
         # TRICKY: We use "events" as an alias here while the eventquery uses "e" by default
-        event_query = FunnelEventQuery(self._filter, self._team)
+        event_query = FunnelEventQuery(self._filter, self._team, self._hogql_values)
         event_query.EVENT_TABLE_ALIAS = "events"
 
         prop_query, prop_params = event_query._get_prop_groups(

@@ -54,6 +54,7 @@ class RetentionActorsByPeriod(ActorBaseQuery):
         actor_query = _build_actor_query(
             filter=self._filter,
             team=self._team,
+            hogql_values=self._hogql_values,
             filter_by_breakdown=(
                 self._filter.breakdown_values or (self._filter.selected_interval,)
                 if self._filter.selected_interval is not None

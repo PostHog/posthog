@@ -174,7 +174,7 @@ class SessionRecordingViewSet(StructuredViewSetMixin, viewsets.ViewSet):
             recording_id for recording_id in json.loads(self.request.GET.get("session_ids", "[]")) if recording_id
         ]
         session_recordings_properties = SessionRecordingProperties(
-            team=self.team, filter=filter, session_ids=session_ids
+            team=self.team, filter=filter, session_ids=session_ids, hogql_values={}
         ).run()
 
         if not request.user.is_authenticated:  # for mypy
@@ -221,7 +221,9 @@ def list_recordings(filter: SessionRecordingsFilter, request: request.Request, t
 
     if (all_session_ids and filter.session_ids) or not all_session_ids:
         # Only go to clickhouse if we still have remaining specified IDs or we are not specifying IDs
-        (ch_session_recordings, more_recordings_available) = SessionRecordingList(filter=filter, team=team).run()
+        (ch_session_recordings, more_recordings_available) = SessionRecordingList(
+            filter=filter, team=team, hogql_values={}
+        ).run()
         recordings_from_clickhouse = SessionRecording.get_or_build_from_clickhouse(team, ch_session_recordings)
         recordings = recordings + recordings_from_clickhouse
 

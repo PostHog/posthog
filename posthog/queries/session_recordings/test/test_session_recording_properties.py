@@ -58,7 +58,7 @@ class TestSessionRecordingProperties(BaseTest, ClickhouseTestMixin):
 
         filter = SessionRecordingsFilter(team=self.team, data={"no_filter": None})
         session_recording_properties_instance = SessionRecordingProperties(
-            filter=filter, team=self.team, session_ids=["1"]
+            filter=filter, team=self.team, session_ids=["1"], hogql_values={}
         )
         session_recordings_properties = session_recording_properties_instance.run()
         self.assertEqual(len(session_recordings_properties), 1)

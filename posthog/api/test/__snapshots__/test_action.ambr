@@ -264,28 +264,6 @@
   ORDER BY "posthog_actionstep"."id" ASC /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
   '
 ---
-# name: TestActionApi.test_listing_actions_is_not_nplus1.17
-  '
-  SELECT "posthog_actionstep"."id",
-         "posthog_actionstep"."action_id",
-         "posthog_actionstep"."tag_name",
-         "posthog_actionstep"."text",
-         "posthog_actionstep"."href",
-         "posthog_actionstep"."selector",
-         "posthog_actionstep"."url",
-         "posthog_actionstep"."url_matching",
-         "posthog_actionstep"."event",
-         "posthog_actionstep"."properties",
-         "posthog_actionstep"."name"
-  FROM "posthog_actionstep"
-  WHERE "posthog_actionstep"."action_id" IN (1,
-                                             2,
-                                             3,
-                                             4,
-                                             5 /* ... */)
-  ORDER BY "posthog_actionstep"."id" ASC /*controller='project_actions-list',route='api/projects/%28%3FP%3Cparent_lookup_team_id%3E%5B%5E/.%5D%2B%29/actions/%3F%24'*/
-  '
----
 # name: TestActionApi.test_listing_actions_is_not_nplus1.2
   '
   SELECT "posthog_organizationmembership"."id",

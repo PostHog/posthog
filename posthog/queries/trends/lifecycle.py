@@ -63,9 +63,14 @@ class Lifecycle:
 
         return _parse
 
-    def get_people(self, filter: Filter, team: Team, target_date: datetime, lifecycle_type: str):
+    def get_people(
+        self, filter: Filter, team: Team, target_date: datetime, lifecycle_type: str, hogql_values: Dict = {}
+    ):
         event_query, event_params = LifecycleEventQuery(
-            team=team, filter=filter, using_person_on_events=team.person_on_events_querying_enabled
+            team=team,
+            filter=filter,
+            using_person_on_events=team.person_on_events_querying_enabled,
+            hogql_values=hogql_values,
         ).get_query()
 
         result = insight_sync_execute(

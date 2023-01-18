@@ -54,7 +54,7 @@ class Stickiness:
         return self.process_result(counts, filter, entity)
 
     def people(
-        self, target_entity: Entity, filter: StickinessFilter, team: Team, hogql_values: Dict, request, *args, **kwargs
+        self, target_entity: Entity, filter: StickinessFilter, team: Team, hogql_values: Dict = {}, *args, **kwargs
     ):
         _, serialized_actors, _ = self.actor_query_class(
             entity=target_entity, filter=filter, team=team, hogql_values=hogql_values

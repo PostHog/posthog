@@ -49,8 +49,8 @@ class SessionRecordingProperties(EventQuery):
              GROUP BY session_id
     """
 
-    def __init__(self, team, session_ids, filter):
-        super().__init__(team=team, filter=filter)
+    def __init__(self, team, session_ids, filter, hogql_values: Dict):
+        super().__init__(team=team, filter=filter, hogql_values=hogql_values)
         self._session_ids = session_ids
 
     def _determine_should_join_distinct_ids(self) -> None:

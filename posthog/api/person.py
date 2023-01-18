@@ -607,7 +607,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         target_entity = get_target_entity(filter)
 
-        people = self.stickiness_class().people(target_entity, filter, team, request)
+        people = self.stickiness_class().people(target_entity, filter, team)
         next_url = paginated_result(request, len(people), filter.offset, filter.limit)
         return response.Response({"results": [{"people": people, "count": len(people)}], "next": next_url})
 

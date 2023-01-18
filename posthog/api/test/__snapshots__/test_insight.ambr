@@ -45,7 +45,7 @@
           AND event = '$pageview'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (greater(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10))
+          AND (and(greater(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd')))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -72,7 +72,7 @@
           AND event = '$pageview'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10))
+          AND (and(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), notEquals('bla', 'a%sd')))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -83,7 +83,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
-    (SELECT if(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), 'less', 'more') AS value,
+    (SELECT if(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), 'le%ss', 'more') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -119,19 +119,19 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['more', 'less'] as breakdown_value) ARRAY
+                (SELECT ['more', 'le%ss'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), 'less', 'more') as breakdown_value
+                            if(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), 'le%ss', 'more') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), 'less', 'more') in (['more', 'less'])
+             AND if(less(toInt64OrNull(replaceRegexpAll(JSONExtractRaw(properties, 'int_value'), '^"|"$', '')), 10), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
@@ -189,7 +189,7 @@
           AND event = '$pageview'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (greater(toInt64OrNull("mat_int_value"), 10))
+          AND (and(greater(toInt64OrNull("mat_int_value"), 10), notEquals('bla', 'a%sd')))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -216,7 +216,7 @@
           AND event = '$pageview'
           AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
           AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-          AND (less(toInt64OrNull("mat_int_value"), 10))
+          AND (and(less(toInt64OrNull("mat_int_value"), 10), notEquals('bla', 'a%sd')))
         GROUP BY date)
      GROUP BY day_start
      ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
@@ -227,7 +227,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT groupArray(value)
   FROM
-    (SELECT if(less(toInt64OrNull("mat_int_value"), 10), 'less', 'more') AS value,
+    (SELECT if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') AS value,
             count(*) as count
      FROM events e
      WHERE team_id = 2
@@ -263,19 +263,19 @@
            CROSS JOIN
              (SELECT breakdown_value
               FROM
-                (SELECT ['more', 'less'] as breakdown_value) ARRAY
+                (SELECT ['more', 'le%ss'] as breakdown_value) ARRAY
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
                             toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
-                            if(less(toInt64OrNull("mat_int_value"), 10), 'less', 'more') as breakdown_value
+                            if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
              AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-08 00:00:00', 'UTC')), 'UTC')
              AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
-             AND if(less(toInt64OrNull("mat_int_value"), 10), 'less', 'more') in (['more', 'less'])
+             AND if(less(toInt64OrNull("mat_int_value"), 10), 'le%ss', 'more') in (['more', 'le%ss'])
            GROUP BY day_start,
                     breakdown_value))
      GROUP BY day_start,
