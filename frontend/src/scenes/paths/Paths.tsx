@@ -1,30 +1,16 @@
 import { useRef, useEffect, useState } from 'react'
-import { useActions, useValues } from 'kea'
-import { copyToClipboard, stripHTTP } from 'lib/utils'
+import { useValues } from 'kea'
+import { stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'
 import * as Sankey from 'd3-sankey'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
-import { Button, Menu, Dropdown, Tooltip, Row } from 'antd'
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
-import { ClockCircleOutlined } from '@ant-design/icons'
-import { humanFriendlyDuration } from 'lib/utils'
 import './Paths.scss'
-import {
-    roundedRect,
-    pageUrl,
-    isSelectedPathStartOrEnd,
-    getContinuingValue,
-    getDropOffValue,
-    PathNodeData,
-    PathTargetLink,
-} from './pathUtils'
+import { roundedRect, isSelectedPathStartOrEnd, PathNodeData, PathTargetLink } from './pathUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { D3Selector } from 'lib/hooks/useD3'
-import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature } from '~/types'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { LemonButton } from '@posthog/lemon-ui'
+import { PathItemCard } from './PathItemCard'
 
 const DEFAULT_PATHS_ID = 'default_paths'
 const HIDE_PATH_CARD_HEIGHT = 30
@@ -37,11 +23,7 @@ export function Paths(): JSX.Element {
         useResizeObserver({ ref: canvas })
     const { insight, insightProps } = useValues(insightLogic)
     const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
-    const { openPersonsModal, setFilter, viewPathToFunnel } = useActions(pathsLogic(insightProps))
     const [pathItemCards, setPathItemCards] = useState<PathNodeData[]>([])
-    const { user } = useValues(userLogic)
-
-    const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
     useEffect(() => {
         setPathItemCards([])
@@ -264,197 +246,15 @@ export function Paths(): JSX.Element {
     }
 
     return (
-        <>
-            <div className="paths-container" id={`'${insight?.short_id || DEFAULT_PATHS_ID}'`}>
-                <div ref={canvas} className="paths" data-attr="paths-viz">
-                    {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
-                    {!pathsError &&
-                        pathItemCards &&
-                        pathItemCards.map((pathItemCard: PathNodeData, idx) => {
-                            const continuingValue = getContinuingValue(pathItemCard.sourceLinks)
-                            const dropOffValue = getDropOffValue(pathItemCard)
-
-                            if (!pathItemCard.visible) {
-                                return null
-                            }
-
-                            return (
-                                <Tooltip key={idx} title={pageUrl(pathItemCard)} placement="right">
-                                    <Dropdown
-                                        key={idx}
-                                        overlay={
-                                            <Menu
-                                                style={{
-                                                    marginTop: -5,
-                                                    border: '1px solid var(--border)',
-                                                    borderRadius: '0px 0px 4px 4px',
-                                                    width: 200,
-                                                }}
-                                            >
-                                                {pathItemCard.sourceLinks.length > 0 && (
-                                                    <div className="text-xs flex items-center p-2 gap-2">
-                                                        <IconTrendingFlat className="text-xl shrink-0 text-success" />
-                                                        <span>Continuing</span>
-
-                                                        <LemonButton
-                                                            size="small"
-                                                            onClick={() =>
-                                                                openPersonsModal({ path_start_key: pathItemCard.name })
-                                                            }
-                                                        >
-                                                            <span className="text-xs">
-                                                                {continuingValue}
-                                                                <span className="text-muted-alt ml-2">
-                                                                    (
-                                                                    {(
-                                                                        (continuingValue / pathItemCard.value) *
-                                                                        100
-                                                                    ).toFixed(1)}
-                                                                    %)
-                                                                </span>
-                                                            </span>
-                                                        </LemonButton>
-                                                    </div>
-                                                )}
-                                                {dropOffValue > 0 && (
-                                                    <div className="text-xs flex items-center p-2 gap-2 border-t">
-                                                        <IconTrendingFlatDown className="text-xl shrink-0 text-danger" />
-                                                        <span>Dropping off</span>
-                                                        <LemonButton
-                                                            size="small"
-                                                            onClick={() =>
-                                                                openPersonsModal({
-                                                                    path_dropoff_key: pathItemCard.name,
-                                                                })
-                                                            }
-                                                        >
-                                                            <span className="text-xs">
-                                                                {dropOffValue}
-                                                                <span className="text-muted-alt text-xs ml-2">
-                                                                    (
-                                                                    {(
-                                                                        (dropOffValue / pathItemCard.value) *
-                                                                        100
-                                                                    ).toFixed(1)}
-                                                                    %)
-                                                                </span>
-                                                            </span>
-                                                        </LemonButton>
-                                                    </div>
-                                                )}
-                                                {pathItemCard.targetLinks.length > 0 && (
-                                                    <div className="text-xs flex items-center p-2 gap-2 border-t">
-                                                        <ClockCircleOutlined
-                                                            style={{ color: 'var(--muted)', fontSize: 16 }}
-                                                        />
-                                                        <span>
-                                                            Average time from previous step{' '}
-                                                            <b>
-                                                                {humanFriendlyDuration(
-                                                                    pathItemCard.targetLinks[0]
-                                                                        .average_conversion_time / 1000
-                                                                )}
-                                                            </b>
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </Menu>
-                                        }
-                                        placement="bottomCenter"
-                                    >
-                                        <Button
-                                            key={idx}
-                                            className="absolute flex justify-between items-center bg-white p-1 "
-                                            style={{
-                                                width: 200,
-                                                left:
-                                                    pathItemCard.sourceLinks.length === 0
-                                                        ? pathItemCard.x0 - (200 - 7)
-                                                        : pathItemCard.x0 + 7,
-                                                top:
-                                                    pathItemCard.sourceLinks.length > 0
-                                                        ? pathItemCard.y0 + 5
-                                                        : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
-                                                border: `1px solid ${
-                                                    isSelectedPathStartOrEnd(filter, pathItemCard)
-                                                        ? 'purple'
-                                                        : 'var(--border)'
-                                                }`,
-                                            }}
-                                        >
-                                            <div className="flex items-center font-semibold">
-                                                <span className="text-xxs text-muted mr-1">{`0${pathItemCard.name[0]}`}</span>
-                                                <span className="text-xs">{pageUrl(pathItemCard, true)}</span>
-                                            </div>
-                                            <Row>
-                                                <span
-                                                    className="text-primary text-xs self-center pr-1 font-medium"
-                                                    onClick={() =>
-                                                        openPersonsModal({ path_end_key: pathItemCard.name })
-                                                    }
-                                                >
-                                                    {continuingValue + dropOffValue}
-                                                </span>
-                                                <Dropdown
-                                                    trigger={['click']}
-                                                    overlay={
-                                                        <Menu className="paths-options-dropdown">
-                                                            <Menu.Item
-                                                                onClick={() =>
-                                                                    setFilter({ start_point: pageUrl(pathItemCard) })
-                                                                }
-                                                            >
-                                                                Set as path start
-                                                            </Menu.Item>
-                                                            {hasAdvancedPaths && (
-                                                                <>
-                                                                    <Menu.Item
-                                                                        onClick={() =>
-                                                                            setFilter({
-                                                                                end_point: pageUrl(pathItemCard),
-                                                                            })
-                                                                        }
-                                                                    >
-                                                                        Set as path end
-                                                                    </Menu.Item>
-                                                                    <Menu.Item
-                                                                        onClick={() => {
-                                                                            setFilter({
-                                                                                exclude_events: [
-                                                                                    ...(filter.exclude_events || []),
-                                                                                    pageUrl(pathItemCard, false),
-                                                                                ],
-                                                                            })
-                                                                        }}
-                                                                    >
-                                                                        Exclude path item
-                                                                    </Menu.Item>
-
-                                                                    <Menu.Item
-                                                                        onClick={() => viewPathToFunnel(pathItemCard)}
-                                                                    >
-                                                                        View funnel
-                                                                    </Menu.Item>
-                                                                </>
-                                                            )}
-                                                            <Menu.Item
-                                                                onClick={() => copyToClipboard(pageUrl(pathItemCard))}
-                                                            >
-                                                                Copy path item name
-                                                            </Menu.Item>
-                                                        </Menu>
-                                                    }
-                                                >
-                                                    <div className="paths-dropdown-ellipsis">...</div>
-                                                </Dropdown>
-                                            </Row>
-                                        </Button>
-                                    </Dropdown>
-                                </Tooltip>
-                            )
-                        })}
-                </div>
+        <div className="paths-container" id={`'${insight?.short_id || DEFAULT_PATHS_ID}'`}>
+            <div ref={canvas} className="paths" data-attr="paths-viz">
+                {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
+                {!pathsError &&
+                    pathItemCards &&
+                    pathItemCards.map((node, idx) => (
+                        <PathItemCard key={idx} node={node} insightProps={insightProps} />
+                    ))}
             </div>
-        </>
+        </div>
     )
 }
