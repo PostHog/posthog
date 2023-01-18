@@ -12,7 +12,7 @@ import api from 'lib/api'
 import { now } from 'lib/dayjs'
 import wcmatch from 'wildcard-match'
 import {
-    UnverifiedEvent,
+    IconUnverifiedEvent,
     IconApps,
     IconBarChart,
     IconCohort,
@@ -106,7 +106,7 @@ const iconMap = {
     'feature-flags': <IconFlag />,
     experiments: <IconExperiment />,
     'web-performance': <IconCoffee />,
-    'data-management': <UnverifiedEvent />,
+    'data-management': <IconUnverifiedEvent />,
     persons: <IconPerson />,
     cohorts: <IconCohort />,
     annotations: <IconComment />,

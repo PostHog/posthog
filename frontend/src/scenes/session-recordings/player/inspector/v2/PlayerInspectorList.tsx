@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { UnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
+import { IconUnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -27,7 +27,7 @@ import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from '../../icons'
 
 const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
+    [SessionRecordingPlayerTab.EVENTS]: <IconUnverifiedEvent />,
     [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
     [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
 }
@@ -94,7 +94,7 @@ function PlayerInspectorListItem({
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (
-                <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
+                <div className="shrink-0 text-2xl h-8 text-muted-alt flex items-center justify-center gap-1">
                     {showIcon ? TabToIcon[item.type] : null}
                     {windowNumber ? <IconWindow value={windowNumber} className="shrink-0" /> : null}
                 </div>
