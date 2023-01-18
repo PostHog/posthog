@@ -17,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import MethodNotAllowed, NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -417,7 +417,10 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
     @extend_schema(exclude=True)
     def create(self, *args, **kwargs):
-        return Response(status=404)
+        raise MethodNotAllowed(
+            method="POST",
+            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/integrate/identifying-user for details.",
+        )
 
     def _set_properties(self, properties, user):
         instance = self.get_object()
