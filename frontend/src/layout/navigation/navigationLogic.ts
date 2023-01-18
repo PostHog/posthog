@@ -20,8 +20,8 @@ export const navigationLogic = kea<navigationLogicType>({
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     },
     actions: {
-        toggleSideBarBase: true,
-        toggleSideBarMobile: true,
+        toggleSideBarBase: (override?: boolean) => ({ override }), // Only use the override for testing
+        toggleSideBarMobile: (override?: boolean) => ({ override }), // Only use the override for testing
         toggleActivationSideBar: true,
         showActivationSideBar: true,
         hideActivationSideBar: true,
@@ -46,14 +46,14 @@ export const navigationLogic = kea<navigationLogicType>({
             true,
             { persist: true },
             {
-                toggleSideBarBase: (state) => !state,
+                toggleSideBarBase: (state, { override }) => override ?? !state,
             },
         ],
         // Mobile, applied on top of base, so that the sidebar does not show up annoyingly when shrinking the window
         isSideBarShownMobile: [
             false,
             {
-                toggleSideBarMobile: (state) => !state,
+                toggleSideBarMobile: (state, { override }) => override ?? !state,
                 hideSideBarMobile: () => false,
             },
         ],

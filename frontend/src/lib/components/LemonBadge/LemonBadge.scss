@@ -3,13 +3,14 @@
     --lemon-badge-size: 1.5rem;
     --lemon-badge-font-size: 0.75rem;
     --lemon-badge-position-offset: 0.5rem;
+    --lemon-badge-border-width: 0.125rem;
 
     flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--white);
-    border: 0.125rem solid var(--bg-light);
+    border: var(--lemon-badge-border-width) solid var(--bg-light);
     background: var(--lemon-badge-color);
     width: fit-content;
     min-width: var(--lemon-badge-size); // This is a minimum to accomodate multiple digits
@@ -27,9 +28,17 @@
 
     > * {
         // For non-text content, make sure that content fills up the whole badge, and that the badge stays round
-        width: calc(var(--lemon-badge-size) - 0.25rem);
-        height: calc(var(--lemon-badge-size) - 0.25rem);
+        width: calc(var(--lemon-badge-size) - var(--lemon-badge-border-width) * 2);
+        height: calc(var(--lemon-badge-size) - var(--lemon-badge-border-width) * 2);
         margin: calc(-1 * var(--lemon-badge-size) / 8);
+    }
+
+    &.LemonBadge--success {
+        --lemon-badge-color: var(--success);
+    }
+
+    &.LemonBadge--warning {
+        --lemon-badge-color: var(--warning);
     }
 
     &.LemonBadge--danger {
@@ -72,6 +81,12 @@
     &.LemonBadge--large {
         --lemon-badge-size: 1.75rem;
         --lemon-badge-font-size: 0.875rem;
+    }
+
+    &.LemonBadge--dot {
+        min-width: 0;
+        width: calc(var(--lemon-badge-size) * 0.5 + var(--lemon-badge-border-width));
+        height: calc(var(--lemon-badge-size) * 0.5 + var(--lemon-badge-border-width));
     }
 
     &.LemonBadge--active {

@@ -466,13 +466,7 @@ export function ControlledDefinitionPopupContents({
 
     return (
         <>
-            <CSSTransition
-                in={state === DefinitionPopupState.Edit}
-                timeout={150}
-                classNames="definition-popup-overlay-"
-                mountOnEnter
-                unmountOnExit
-            >
+            <CSSTransition timeout={150} classNames="definition-popup-overlay-" mountOnEnter unmountOnExit>
                 <div
                     className="definition-popup-overlay click-outside-block hotkey-block"
                     // zIndex: 1062 ensures definition popup overlay is between infinite list (1061) and definition popup (1063)

@@ -91,7 +91,7 @@ CLICKHOUSE_FUNCTIONS = {
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS = [
-    "total",
+    "count",
     "min",
     "max",
     "sum",
@@ -259,16 +259,17 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
 
     elif isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name):
-            raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'total()'")
+            raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'count()'")
         call_name = node.func.id
         if call_name in HOGQL_AGGREGATIONS:
             context.is_aggregation = True
-            if call_name == "total":
-                if len(node.args) != 0:
-                    raise ValueError(f"Aggregation 'total' does not accept any arguments.")
+
+            if call_name == "count" and len(node.args) == 0:
                 response = "count(*)"
             else:
-                if len(node.args) != 1:
+                if call_name == "count" and len(node.args) != 1:
+                    raise ValueError(f"Aggregation 'count' expects one or zero arguments.")
+                elif len(node.args) != 1:
                     raise ValueError(f"Aggregation '{call_name}' expects just one argument.")
 
                 # check that we're not running inside another aggregate
@@ -285,7 +286,10 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
 
                 # check that we're running an aggregate on a property
                 properties_before = len(context.attribute_list)
-                response = f"{call_name}({translate_ast(node.args[0], stack, context)})"
+                if call_name == "count":
+                    response = f"{call_name}(distinct {translate_ast(node.args[0], stack, context)})"
+                else:
+                    response = f"{call_name}({translate_ast(node.args[0], stack, context)})"
                 properties_after = len(context.attribute_list)
                 if properties_after == properties_before:
                     raise ValueError(f"{call_name}(...) must be called on fields or properties, not literals.")

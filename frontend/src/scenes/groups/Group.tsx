@@ -1,5 +1,4 @@
 import { Tabs } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -21,6 +20,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { NodeKind } from '~/queries/schema'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { IconInfo } from 'lib/components/icons'
 
 const { TabPane } = Tabs
 
@@ -31,7 +31,7 @@ export const scene: SceneExport = {
 
 function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+        <div className="flex items-center flex-wrap">
             <div className="mr-4">
                 <span className="text-muted">Type:</span> {groupTypeName}
             </div>
@@ -103,14 +103,14 @@ export function Group(): JSX.Element {
 
                 <TabPane
                     tab={
-                        <span data-attr="group-related-tab">
+                        <div className="flex items-center" data-attr="group-related-tab">
                             Related people & groups
                             <Tooltip
                                 title={`People and groups that have shared events with this ${groupTypeName} in the last 90 days.`}
                             >
-                                <InfoCircleOutlined style={{ marginLeft: 6, marginRight: 0 }} />
+                                <IconInfo className="ml-1 text-base shrink-0" />
                             </Tooltip>
-                        </span>
+                        </div>
                     }
                     key={PersonsTabType.RELATED}
                 >

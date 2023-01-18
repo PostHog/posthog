@@ -7,14 +7,14 @@ interface LemonBadgePropsBase {
     size?: 'small' | 'medium' | 'large'
     position?: 'none' | 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right'
     className?: string
-    status?: 'primary' | 'danger' | 'muted'
+    status?: 'primary' | 'success' | 'warning' | 'danger' | 'muted'
     active?: boolean
     style?: React.CSSProperties
     title?: string
 }
 
 export interface LemonBadgeProps extends LemonBadgePropsBase {
-    content: string | JSX.Element
+    content?: string | JSX.Element
     visible?: boolean
 }
 
@@ -41,6 +41,7 @@ export function LemonBadge({
             <span
                 className={clsx(
                     'LemonBadge',
+                    !content && 'LemonBadge--dot',
                     `LemonBadge--${size}`,
                     `LemonBadge--${status}`,
                     `LemonBadge--position-${position}`,

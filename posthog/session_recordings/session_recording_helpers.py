@@ -149,6 +149,8 @@ def is_unchunked_snapshot(event: Dict) -> bool:
         is_snapshot = event["event"] == "$snapshot"
     except KeyError:
         raise ValueError('All events must have the event name field "event"!')
+    except TypeError:
+        raise ValueError(f"All events must be dictionaries not '{type(event).__name__}'!")
     try:
         return is_snapshot and "chunk_id" not in event["properties"]["$snapshot_data"]
     except KeyError:

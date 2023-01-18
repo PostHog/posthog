@@ -232,6 +232,21 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6").json()
             self.assertEqual(response[0]["name"], "565")
 
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6&event_name=random event"
+            ).json()
+            self.assertEqual(response[0]["name"], "565")
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6&event_name=foo&event_name=random event"
+            ).json()
+            self.assertEqual(response[0]["name"], "565")
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=qw&event_name=404_i_dont_exist"
+            ).json()
+            self.assertEqual(response, [])
+
     def test_before_and_after(self):
         user = self._create_user("tim")
         self.client.force_login(user)
@@ -737,28 +752,28 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             self.assertIsInstance(response["results"][0][0], dict)
             self.assertIsInstance(response["results"][0][1], str)
 
-            select = ["total()", "event"]
+            select = ["count()", "event"]
             response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
             self.assertEqual(
                 response,
                 {
-                    "columns": ["total()", "event"],
+                    "columns": ["count()", "event"],
                     "hasMore": False,
                     "types": ["UInt64", "String"],
                     "results": [[3, "sign out"], [1, "sign up"]],
                 },
             )
 
-            select = ["total()", "event"]
+            select = ["count()", "event"]
             where = ['event == "sign up" or like(properties.key, "%val2")']
-            orderBy = ["-total()", "event"]
+            orderBy = ["-count()", "event"]
             response = self.client.get(
                 f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&where={json.dumps(where)}&orderBy={json.dumps(orderBy)}"
             ).json()
             self.assertEqual(
                 response,
                 {
-                    "columns": ["total()", "event"],
+                    "columns": ["count()", "event"],
                     "hasMore": False,
                     "types": ["UInt64", "String"],
                     "results": [[2, "sign out"], [1, "sign up"]],

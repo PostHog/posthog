@@ -2,7 +2,6 @@ import { useState } from 'react'
 import './Actions.scss'
 import { Link } from 'lib/components/Link'
 import { Radio } from 'antd'
-import { CheckOutlined } from '@ant-design/icons'
 import { deleteWithUndo, stripHTTP } from 'lib/utils'
 import { useActions, useValues } from 'kea'
 import { actionsModel } from '~/models/actionsModel'
@@ -26,7 +25,7 @@ import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-managemen
 import { PageHeader } from 'lib/components/PageHeader'
 import { LemonInput } from '@posthog/lemon-ui'
 import { actionsLogic } from 'scenes/actions/actionsLogic'
-import { IconPlayCircle } from 'lib/components/icons'
+import { IconCheckmark, IconPlayCircle } from 'lib/components/icons'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -139,7 +138,7 @@ export function ActionsTable(): JSX.Element {
                       dataIndex: 'post_to_slack',
                       sorter: (a: ActionType, b: ActionType) => Number(a.post_to_slack) - Number(b.post_to_slack),
                       render: function RenderActions(post_to_slack): JSX.Element | null {
-                          return post_to_slack ? <CheckOutlined /> : null
+                          return post_to_slack ? <IconCheckmark /> : null
                       },
                   } as LemonTableColumn<ActionType, keyof ActionType | undefined>,
               ]

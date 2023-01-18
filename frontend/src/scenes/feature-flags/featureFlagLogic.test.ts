@@ -15,7 +15,7 @@ function generateFeatureFlag(
         created_at: null,
         key: 'beta-feature',
         name: 'Beta Feature',
-        filters: { groups, multivariate: multivariate ?? null },
+        filters: { groups, multivariate: multivariate ?? null, payloads: {} },
         deleted: false,
         active: true,
         created_by: null,

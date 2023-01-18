@@ -22,6 +22,7 @@ export interface PropertyValueProps {
     operator: PropertyOperator
     autoFocus?: boolean
     allowCustom?: boolean
+    eventNames?: string[]
 }
 
 function matchesLowerCase(needle?: string, haystack?: string): boolean {
@@ -43,6 +44,7 @@ export function PropertyValue({
     operator,
     autoFocus = false,
     allowCustom = true,
+    eventNames = [],
 }: PropertyValueProps): JSX.Element {
     // what the human has typed into the box
     const [input, setInput] = useState(Array.isArray(value) ? '' : toString(value) ?? '')
@@ -72,7 +74,7 @@ export function PropertyValue({
     }, [value])
 
     const load = (newInput: string | undefined): void => {
-        loadPropertyValues({ endpoint, type, newInput, propertyKey })
+        loadPropertyValues({ endpoint, type, newInput, propertyKey, eventNames })
     }
 
     function setValue(newValue: PropertyValueProps['value']): void {
