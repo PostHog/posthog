@@ -359,8 +359,9 @@ export function Paths(): JSX.Element {
                                     >
                                         <Button
                                             key={idx}
+                                            className="absolute bg-white p-1 justify-between items-center"
                                             style={{
-                                                position: 'absolute',
+                                                width: 200,
                                                 left:
                                                     pathItemCard.sourceLinks.length === 0
                                                         ? pathItemCard.x0 - (200 - 7)
@@ -369,40 +370,24 @@ export function Paths(): JSX.Element {
                                                     pathItemCard.sourceLinks.length > 0
                                                         ? pathItemCard.y0 + 5
                                                         : pathItemCard.y0 + (pathItemCard.y1 - pathItemCard.y0) / 2,
-                                                background: 'white',
-                                                width: 200,
                                                 border: `1px solid ${
                                                     isSelectedPathStartOrEnd(filter, pathItemCard)
                                                         ? 'purple'
                                                         : 'var(--border)'
                                                 }`,
-                                                padding: 4,
-                                                justifyContent: 'space-between',
-                                                alignItems: 'center',
                                                 display: `${pathItemCard.visible ? 'flex' : 'none'}`,
                                             }}
                                         >
-                                            <div style={{ display: 'flex', alignItems: 'center' }}>
-                                                <span
-                                                    className="text-muted"
-                                                    style={{
-                                                        fontSize: 10,
-                                                        fontWeight: 600,
-                                                        marginRight: 4,
-                                                        lineHeight: '10px',
-                                                    }}
-                                                >{`0${pathItemCard.name[0]}`}</span>{' '}
-                                                <span style={{ fontSize: 12, fontWeight: 600 }}>
-                                                    {pageUrl(pathItemCard, true)}
-                                                </span>
+                                            <div className="flex items-center font-semibold">
+                                                <span className="text-xxs text-muted mr-1">{`0${pathItemCard.name[0]}`}</span>
+                                                <span className="text-xs">{pageUrl(pathItemCard, true)}</span>
                                             </div>
-                                            <Row style={{ alignSelf: 'center' }}>
+                                            <Row>
                                                 <span
+                                                    className="text-primary text-xs self-center pr-1 font-medium"
                                                     onClick={() =>
                                                         openPersonsModal({ path_end_key: pathItemCard.name })
                                                     }
-                                                    className="text-primary text-xs"
-                                                    style={{ alignSelf: 'center', paddingRight: 4, fontWeight: 500 }}
                                                 >
                                                     {continuingValue + dropOffValue}
                                                 </span>
