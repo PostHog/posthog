@@ -32,12 +32,15 @@ class Retention:
         self, filter: RetentionFilter, team: Team
     ) -> Dict[CohortKey, Dict[str, Any]]:
 
-        actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
+        actor_query, actor_query_params = build_actor_activity_query(
+            filter=filter, team=team, retention_events_query=self.event_query
+        )
         result = insight_sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
             settings={"timeout_before_checking_execution_speed": 60},
             filter=filter,
             query_type="retention_by_breakdown_values",
+            **actor_query_params,
         )
 
         result_dict = {
@@ -150,9 +153,7 @@ def build_returning_event_query(
         using_person_on_events=using_person_on_events,
     ).get_query()
 
-    query = substitute_params(returning_event_query_templated, returning_event_params)
-
-    return query
+    return returning_event_query_templated, returning_event_params
 
 
 def build_target_event_query(

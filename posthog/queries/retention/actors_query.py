@@ -1,5 +1,5 @@
 import dataclasses
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from posthog.client import substitute_params
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -93,7 +93,7 @@ def build_actor_activity_query(
     selected_interval: Optional[int] = None,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     retention_events_query=RetentionEventsQuery,
-) -> str:
+) -> Tuple[str, Dict[str, Any]]:
     from posthog.queries.retention import build_returning_event_query, build_target_event_query
 
     """
@@ -104,7 +104,7 @@ def build_actor_activity_query(
     We use actor here as an abstraction over the different types we can have aside from
     person_ids
     """
-    returning_event_query = build_returning_event_query(
+    returning_event_query, returning_event_query_params = build_returning_event_query(
         filter=filter,
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
@@ -124,13 +124,14 @@ def build_actor_activity_query(
         "period": filter.period.lower(),
         "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
         "selected_interval": selected_interval,
+        **returning_event_query_params,
     }
 
-    query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
+    query = RETENTION_BREAKDOWN_ACTOR_SQL.format(
         returning_event_query=returning_event_query, target_event_query=target_event_query
     )
 
-    return query
+    return query, all_params
 
 
 def _build_actor_query(
