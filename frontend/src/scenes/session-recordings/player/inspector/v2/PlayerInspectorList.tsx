@@ -135,8 +135,8 @@ function PlayerInspectorListItem({
                         </>
                     }
                 >
-                    <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
-                        {showIcon && TypeIcon ? <TypeIcon className="text-xl" /> : null}
+                    <div className="shrink-0 text-2xl h-8 text-muted-alt flex items-center justify-center gap-1">
+                        {showIcon && TypeIcon ? <TypeIcon /> : null}
                         {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
                     </div>
                 </Tooltip>
