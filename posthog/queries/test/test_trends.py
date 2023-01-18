@@ -4375,66 +4375,6 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             "events": [{"id": "$pageview", "type": "events", "order": 0, "math": "weekly_active"}],
         }
 
-        # _create_event(
-        #     team=self.team,
-        #     event="$pageview",
-        #     distinct_id="p0",
-        #     timestamp="2020-01-03T11:00:00Z",
-        #     properties={"key": "val"},
-        # )
-        # _create_event(
-        #     team=self.team,
-        #     event="$pageview",
-        #     distinct_id="p0",
-        #     timestamp="2020-01-03T12:00:00Z",
-        #     properties={"key": "val"},
-        # )
-
-        # _create_event(
-        #     team=self.team,
-        #     event="$pageview",
-        #     distinct_id="p1",
-        #     timestamp="2020-01-09T12:00:00Z",
-        #     properties={"key": "bor"},
-        # )
-        # _create_event(
-        #     team=self.team,
-        #     event="$pageview",
-        #     distinct_id="p2",
-        #     timestamp="2020-01-09T12:00:00Z",
-        #     properties={"key": "val"},
-        # )
-
-        # _create_event(
-        #     team=self.team,
-        #     event="$pageview",
-        #     distinct_id="p1",
-        #     timestamp="2020-01-10T12:00:00Z",
-        #     properties={"key": "bor"},
-        # )
-
-        # _create_event(
-        #     team=self.team,
-        #     event="$pageview",
-        #     distinct_id="p1",
-        #     timestamp="2020-01-11T12:00:00Z",
-        #     properties={"key": "val"},
-        # )
-        # _create_event(
-        #     team=self.team,
-        #     event="$pageview",
-        #     distinct_id="p2",
-        #     timestamp="2020-01-11T12:00:00Z",
-        #     properties={"key": "bor"},
-        # )
-
-        # _create_event(
-        #     team=self.team,
-        #     event="$pageview",
-        #     distinct_id="p0",
-        #     timestamp="2020-01-12T12:00:00Z",
-        #     properties={"key": "val"},
-        # )
 
         filter = Filter(data=data)
         result = Trends().run(filter, self.team)
