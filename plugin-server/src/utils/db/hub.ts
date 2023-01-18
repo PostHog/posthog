@@ -217,7 +217,7 @@ export async function createHub(
         promiseManager,
         serverConfig.PERSON_INFO_CACHE_TTL
     )
-    const teamManager = new TeamManager(db, serverConfig, statsd)
+    const teamManager = new TeamManager(db, statsd)
     const organizationManager = new OrganizationManager(db, teamManager)
     const pluginsApiKeyManager = new PluginsApiKeyManager(db)
     const rootAccessManager = new RootAccessManager(db)
