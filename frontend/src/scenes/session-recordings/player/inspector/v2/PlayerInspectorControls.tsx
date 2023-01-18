@@ -97,12 +97,12 @@ export function PlayerInspectorControls({
                                 {
                                     value: undefined,
                                     label: 'All windows',
-                                    icon: <IconWindow value="A" className="text-muted" />,
+                                    icon: <IconWindow size="small" value="A" className="text-muted" />,
                                 },
                                 ...windowIds.map((windowId, index) => ({
                                     value: windowId,
                                     label: `Window ${index + 1}`,
-                                    icon: <IconWindow value={index + 1} className="text-muted" />,
+                                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
                                 })),
                             ]}
                         />

@@ -6,7 +6,7 @@ interface IconWindowProps {
     className?: string
 }
 
-export function IconWindow({ value, className = '', size = 'medium' }: IconWindowProps): JSX.Element {
+export function IconWindowOld({ value, className = '', size = 'medium' }: IconWindowProps): JSX.Element {
     const shortValue = typeof value === 'number' ? value : String(value).charAt(0)
     return (
         <div className={clsx('flex justify-center items-center relative shrink-0', className)}>
@@ -26,6 +26,25 @@ export function IconWindow({ value, className = '', size = 'medium' }: IconWindo
                     fill="currentColor"
                 />
             </svg>
+        </div>
+    )
+}
+
+export function IconWindow({ value, className = '', size = 'medium' }: IconWindowProps): JSX.Element {
+    const shortValue = typeof value === 'number' ? value : String(value).charAt(0)
+
+    return (
+        <div
+            className={clsx(
+                'flex justify-center items-center shrink-0 bg-muted-alt text-light rounded',
+                size === 'medium' && 'w-5 h-5',
+                size === 'small' && 'w-4 h-4',
+                className
+            )}
+        >
+            <span className={clsx('font-bold', size === 'medium' && 'text-xs', size === 'small' && 'text-xxs')}>
+                {shortValue}
+            </span>
         </div>
     )
 }
