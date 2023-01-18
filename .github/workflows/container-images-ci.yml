@@ -38,7 +38,7 @@ jobs:
               id: meta
               uses: docker/metadata-action@v4
               with:
-                  images: ghcr.io/${{ github.event.pull_request.head.repo.full_name || github.repository }}/posthog # keep this in sync with the 'E2E CI / Cypress' job
+                  images: ghcr.io/posthog/posthog/posthog # keep this in sync with the 'E2E CI / Cypress' job
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@v2
@@ -60,11 +60,15 @@ jobs:
               id: build
               uses: depot/build-push-action@v1
               with:
+                  # Why aren't we pushing the images? Because PRs from external contributors
+                  # will not be able to do so. Instead, we are building the image here, cache
+                  # the layers to the GHA backend so that we can re-use those in the
+                  # 'E2E CI / Cypress' job
                   project: x19jffd9zf # posthog
                   buildx-fallback: true # fallback to using 'docker buildx build' if 'depot build' is unable to acquire a builder connection
                   cache-from: type=gha # always pull the layers from GHA
                   cache-to: type=gha,mode=max # always push the layers to GHA
-                  push: true
+                  push: false
                   tags: ${{ steps.meta.outputs.tags }}
                   platforms: linux/amd64,linux/arm64
 
