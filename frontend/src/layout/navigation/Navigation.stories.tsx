@@ -23,43 +23,41 @@ function BaseAppPage(): JSX.Element {
                         caption="View your household devices."
                         buttons={<LemonButton type="primary">New gizmo</LemonButton>}
                     />
-                    <div className="space-y-2">
-                        <LemonTable
-                            columns={[
-                                { title: 'Name', dataIndex: 'name' },
-                                { title: 'Function', dataIndex: 'function' },
-                                { title: 'Color', dataIndex: 'color' },
-                                { title: 'Ionization level', dataIndex: 'ionizationLevel' },
-                            ]}
-                            dataSource={[
-                                // Nonsensical data for demo purposes
-                                {
-                                    name: 'Blarg',
-                                    function: 'Radicalizes blue whales',
-                                    color: 'Azure',
-                                    ionizationLevel: 423,
-                                },
-                                {
-                                    name: 'Frink',
-                                    function: 'Makes the world go round',
-                                    color: 'Crimson',
-                                    ionizationLevel: 0,
-                                },
-                                {
-                                    name: 'Torpurator',
-                                    function: 'Spontaneously combusts',
-                                    color: 'Chartreuse',
-                                    ionizationLevel: 100,
-                                },
-                                {
-                                    name: 'De-Blargifier',
-                                    function: 'De-radicalizes blue whales',
-                                    color: 'Beige',
-                                    ionizationLevel: -423,
-                                },
-                            ]}
-                        />
-                    </div>
+                    <LemonTable
+                        columns={[
+                            { title: 'Name', dataIndex: 'name' },
+                            { title: 'Function', dataIndex: 'function' },
+                            { title: 'Color', dataIndex: 'color' },
+                            { title: 'Ionization level', dataIndex: 'ionizationLevel' },
+                        ]}
+                        dataSource={[
+                            // Nonsensical data for demo purposes
+                            {
+                                name: 'Blargifier',
+                                function: 'Radicalizes blue whales',
+                                color: 'Azure',
+                                ionizationLevel: 423,
+                            },
+                            {
+                                name: 'Frink',
+                                function: 'Makes the world go round',
+                                color: 'Crimson',
+                                ionizationLevel: 0,
+                            },
+                            {
+                                name: 'Torpurator',
+                                function: 'Spontaneously combusts',
+                                color: 'Chartreuse',
+                                ionizationLevel: 100,
+                            },
+                            {
+                                name: 'De-Blargifier',
+                                function: 'De-radicalizes blue whales',
+                                color: 'Beige',
+                                ionizationLevel: -423,
+                            },
+                        ]}
+                    />
                 </div>
             </SideBar>
         </>
