@@ -21,9 +21,10 @@ import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLo
 import { playerInspectorLogic } from '../playerInspectorLogic'
 
 const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <IconUnverifiedEvent />,
-    [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
-    [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
+    [SessionRecordingPlayerTab.ALL]: undefined,
+    [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
+    [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
+    [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
 export function PlayerInspectorControls({
@@ -47,7 +48,7 @@ export function PlayerInspectorControls({
             SessionRecordingPlayerTab.ALL,
             SessionRecordingPlayerTab.EVENTS,
             SessionRecordingPlayerTab.CONSOLE,
-            inspectorPerformance ? SessionRecordingPlayerTab.PERFORMANCE : undefined,
+            inspectorPerformance ? SessionRecordingPlayerTab.NETWORK : undefined,
         ].filter(Boolean) as SessionRecordingPlayerTab[]
     }, [inspectorPerformance])
 
@@ -55,19 +56,30 @@ export function PlayerInspectorControls({
         <div className="bg-side p-2 space-y-2">
             <div className="flex justify-between gap-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
-                    {tabs.map((tabId) => (
-                        <LemonButton
-                            key={tabId}
-                            size="small"
-                            // We want to indicate the tab is loading, but not disable it so we just override the icon here
-                            icon={tabsState[tabId] === 'loading' ? <Spinner monocolor /> : TabToIcon[tabId]}
-                            status={tab === tabId ? 'primary' : 'primary-alt'}
-                            active={tab === tabId}
-                            onClick={() => setTab(tabId)}
-                        >
-                            {capitalizeFirstLetter(tabId)}
-                        </LemonButton>
-                    ))}
+                    {tabs.map((tabId) => {
+                        const TabIcon = TabToIcon[tabId]
+                        return (
+                            <LemonButton
+                                key={tabId}
+                                size="small"
+                                // We want to indicate the tab is loading, but not disable it so we just override the icon here
+                                icon={
+                                    TabIcon ? (
+                                        tabsState[tabId] === 'loading' ? (
+                                            <Spinner monocolor />
+                                        ) : (
+                                            <TabIcon />
+                                        )
+                                    ) : undefined
+                                }
+                                status={tab === tabId ? 'primary' : 'primary-alt'}
+                                active={tab === tabId}
+                                onClick={() => setTab(tabId)}
+                            >
+                                {capitalizeFirstLetter(tabId)}
+                            </LemonButton>
+                        )
+                    })}
                 </div>
 
                 <div className="flex items-center gap-2 flex-1">
@@ -92,12 +104,12 @@ export function PlayerInspectorControls({
                                 {
                                     value: undefined,
                                     label: 'All windows',
-                                    icon: <IconWindow value="A" className="text-muted" />,
+                                    icon: <IconWindow size="small" value="A" className="text-muted" />,
                                 },
                                 ...windowIds.map((windowId, index) => ({
                                     value: windowId,
                                     label: `Window ${index + 1}`,
-                                    icon: <IconWindow value={index + 1} className="text-muted" />,
+                                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
                                 })),
                             ]}
                         />
