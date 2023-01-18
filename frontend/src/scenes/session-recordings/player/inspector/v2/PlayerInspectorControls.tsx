@@ -1,7 +1,14 @@
 import { LemonButton, LemonInput, LemonSelect, LemonCheckbox } from '@posthog/lemon-ui'
 import { Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
-import { IconInfo, IconSchedule, IconPlayCircle, IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import {
+    IconInfo,
+    IconSchedule,
+    IconPlayCircle,
+    IconGauge,
+    IconTerminal,
+    IconUnverifiedEvent,
+} from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,7 +21,7 @@ import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLo
 import { playerInspectorLogic } from '../playerInspectorLogic'
 
 const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
+    [SessionRecordingPlayerTab.EVENTS]: <IconUnverifiedEvent />,
     [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
     [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
 }

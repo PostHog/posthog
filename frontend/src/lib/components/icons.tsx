@@ -1393,7 +1393,7 @@ export function IconHeatmap(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function UnverifiedEvent(props: LemonIconProps): JSX.Element {
+export function IconUnverifiedEvent(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
             <path
@@ -1404,7 +1404,7 @@ export function UnverifiedEvent(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function VerifiedEvent(props: LemonIconProps): JSX.Element {
+export function IconVerifiedEvent(props: LemonIconProps): JSX.Element {
     return (
         <LemonIconBase {...props}>
             <path
