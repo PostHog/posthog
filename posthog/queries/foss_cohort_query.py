@@ -113,6 +113,7 @@ class FOSSCohortQuery(EventQuery):
         self,
         filter: Filter,
         team: Team,
+        hogql_values: Dict,
         *,
         cohort_pk: Optional[int] = None,
         round_interval=False,
@@ -130,6 +131,7 @@ class FOSSCohortQuery(EventQuery):
         self._earliest_time_for_event_query = None
         self._restrict_event_query_by_time = True
         self._cohort_pk = cohort_pk
+        self._hogql_values = hogql_values
 
         super().__init__(
             filter=FOSSCohortQuery.unwrap_cohort(filter, team.pk),

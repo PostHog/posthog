@@ -122,6 +122,7 @@ class TrendsActors(ActorBaseQuery):
             extra_event_properties=["$window_id", "$session_id"] if self._filter.include_recordings else [],
             extra_fields=extra_fields,
             using_person_on_events=self._team.person_on_events_querying_enabled,
+            hogql_values=self._hogql_values,
         ).get_query()
 
         matching_events_select_statement = (

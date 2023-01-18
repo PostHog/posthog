@@ -38,7 +38,7 @@ TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
 logger = structlog.get_logger(__name__)
 
 
-def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]]:
+def format_person_query(cohort: Cohort, index: int, hogql_values: Dict) -> Tuple[str, Dict[str, Any]]:
     if cohort.is_static:
         return format_static_cohort_query(cohort.pk, index, prepend="")
 
@@ -49,7 +49,10 @@ def format_person_query(cohort: Cohort, index: int) -> Tuple[str, Dict[str, Any]
     from posthog.queries.cohort_query import CohortQuery
 
     query_builder = CohortQuery(
-        Filter(data={"properties": cohort.properties}, team=cohort.team), cohort.team, cohort_pk=cohort.pk
+        Filter(data={"properties": cohort.properties}, team=cohort.team),
+        cohort.team,
+        cohort_pk=cohort.pk,
+        hogql_values=hogql_values,
     )
 
     query, params = query_builder.get_query()
@@ -149,8 +152,10 @@ def is_precalculated_query(cohort: Cohort) -> bool:
         return False
 
 
-def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distinct_id") -> Tuple[str, Dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index, custom_match_field="person_id")
+def format_filter_query(
+    cohort: Cohort, index: int, hogql_values: Dict, id_column: str = "distinct_id"
+) -> Tuple[str, Dict[str, Any]]:
+    person_query, params = format_cohort_subquery(cohort, index, hogql_values, custom_match_field="person_id")
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,
@@ -160,12 +165,14 @@ def format_filter_query(cohort: Cohort, index: int = 0, id_column: str = "distin
     return person_id_query, params
 
 
-def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> Tuple[str, Dict[str, Any]]:
+def format_cohort_subquery(
+    cohort: Cohort, index: int, hogql_values: Dict, custom_match_field="person_id"
+) -> Tuple[str, Dict[str, Any]]:
     is_precalculated = is_precalculated_query(cohort)
     if is_precalculated:
         query, params = format_precalculated_cohort_query(cohort.pk, index)
     else:
-        query, params = format_person_query(cohort, index)
+        query, params = format_person_query(cohort, index, hogql_values)
 
     person_query = f"{custom_match_field} IN ({query})"
     return person_query, params
@@ -210,8 +217,8 @@ def insert_static_cohort(person_uuids: List[Optional[uuid.UUID]], cohort_id: int
 
 
 def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[int]:
-
-    cohort_query, cohort_params = format_person_query(cohort, 0)
+    hogql_values: Dict = {}
+    cohort_query, cohort_params = format_person_query(cohort, 0, hogql_values)
 
     before_count = get_cohort_size(cohort.pk, cohort.team_id)
 
@@ -224,7 +231,13 @@ def recalculate_cohortpeople(cohort: Cohort, pending_version: int) -> Optional[i
 
     sync_execute(
         recalcluate_cohortpeople_sql,
-        {**cohort_params, "cohort_id": cohort.pk, "team_id": cohort.team_id, "new_version": pending_version},
+        {
+            **cohort_params,
+            **hogql_values,
+            "cohort_id": cohort.pk,
+            "team_id": cohort.team_id,
+            "new_version": pending_version,
+        },
         settings={"optimize_on_insert": 0},
     )
 
