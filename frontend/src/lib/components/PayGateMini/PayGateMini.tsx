@@ -2,28 +2,29 @@ import { useValues } from 'kea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { AvailableFeature } from '~/types'
 import { userLogic } from 'scenes/userLogic'
-import { IconEmojiPeople, IconLock, IconPremium } from '../icons'
+import { IconEmojiPeople, IconLightBulb, IconLock, IconPremium } from '../icons'
 import { LemonButton } from '../LemonButton'
 import './PayGateMini.scss'
 import { FEATURE_MINIMUM_PLAN, POSTHOG_CLOUD_STANDARD_PLAN } from 'lib/constants'
 import { capitalizeFirstLetter } from 'lib/utils'
+import clsx from 'clsx'
 
-export interface PayGateMiniProps {
-    feature:
-        | AvailableFeature.DASHBOARD_PERMISSIONING
-        | AvailableFeature.SSO_ENFORCEMENT
-        | AvailableFeature.DASHBOARD_COLLABORATION
-        | AvailableFeature.ROLE_BASED_ACCESS
-    style?: React.CSSProperties
-    children: React.ReactNode
-    overrideShouldShowGate?: boolean
-}
-
-const FEATURE_SUMMARIES: Record<
+type PayGateSupportedFeatures =
     | AvailableFeature.DASHBOARD_PERMISSIONING
     | AvailableFeature.SSO_ENFORCEMENT
     | AvailableFeature.DASHBOARD_COLLABORATION
-    | AvailableFeature.ROLE_BASED_ACCESS,
+    | AvailableFeature.ROLE_BASED_ACCESS
+    | AvailableFeature.CORRELATION_ANALYSIS
+
+export interface PayGateMiniProps {
+    feature: PayGateSupportedFeatures
+    children: React.ReactNode
+    overrideShouldShowGate?: boolean
+    className?: string
+}
+
+const FEATURE_SUMMARIES: Record<
+    PayGateSupportedFeatures,
     {
         icon: React.ReactElement
         description: string
@@ -44,13 +45,19 @@ const FEATURE_SUMMARIES: Record<
     },
     [AvailableFeature.DASHBOARD_COLLABORATION]: {
         icon: <IconPremium />,
-        description: 'Make sense of insights your team has learned, using tags, descriptions, and text cards.',
+        description:
+            'Make sense of insights your team has learned with the help of tags, descriptions, and text cards.',
         umbrella: 'advanced collaboration',
     },
     [AvailableFeature.ROLE_BASED_ACCESS]: {
         icon: <IconPremium />,
         description: 'Create custom roles to give you precise access control for your organization.',
         umbrella: 'advanced permissioning',
+    },
+    [AvailableFeature.CORRELATION_ANALYSIS]: {
+        icon: <IconLightBulb />,
+        description: 'See what events and properties are correlated with conversion or drop-off.',
+        umbrella: 'correlation analysis',
     },
 }
 
@@ -59,7 +66,12 @@ const FEATURE_SUMMARIES: Record<
  * Simply shows its children when the feature is available,
  * otherwise it presents upsell UI with the call to action that's most relevant for the circumstances.
  */
-export function PayGateMini({ feature, style, children, overrideShouldShowGate }: PayGateMiniProps): JSX.Element {
+export function PayGateMini({
+    feature,
+    className,
+    children,
+    overrideShouldShowGate,
+}: PayGateMiniProps): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { hasAvailableFeature } = useValues(userLogic)
 
@@ -78,8 +90,12 @@ export function PayGateMini({ feature, style, children, overrideShouldShowGate }
         }
     }
 
+    if (gateVariant && preflight?.instance_preferences?.disable_paid_fs) {
+        return null // Don't show anything if paid features are explicitly disabled
+    }
+
     return gateVariant ? (
-        <div className="PayGateMini" style={style}>
+        <div className={clsx('PayGateMini', className)}>
             <div className="PayGateMini__icon">{featureSummary.icon}</div>
             <div className="PayGateMini__description">{featureSummary.description}</div>
             <div className="PayGateMini__cta">
@@ -108,6 +124,6 @@ export function PayGateMini({ feature, style, children, overrideShouldShowGate }
             </LemonButton>
         </div>
     ) : (
-        <>{children}</>
+        <div className={className}>{children}</div>
     )
 }

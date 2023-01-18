@@ -80,8 +80,8 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 date_from=date_from,
                 date_to=date_to,
                 query=prop_filters,
-                limit=limit,
-                conditional_offset=f" OFFSET {offset}" if paginate_response else "",
+                limit=limit + 1,
+                offset=offset,
             ),
             {
                 "team_id": self.team.pk,
@@ -96,14 +96,13 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 "hash": None,
                 "elements": [ElementSerializer(element).data for element in chain_to_elements(elements[0])],
             }
-            for elements in result
+            for elements in result[:limit]
         ]
 
         if paginate_response:
-            has_next = len(serialized_elements) > 0
+            has_next = len(result) == limit + 1
             next_url = format_query_params_absolute_url(request, offset + limit) if has_next else None
             previous_url = format_query_params_absolute_url(request, offset - limit) if offset - limit >= 0 else None
-
             return response.Response({"results": serialized_elements, "next": next_url, "previous": previous_url})
         else:
             return response.Response(serialized_elements)

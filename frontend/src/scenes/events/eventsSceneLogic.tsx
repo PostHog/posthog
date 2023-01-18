@@ -20,7 +20,6 @@ const getDefaultQuery = (): DataTableNode => ({
         limit: 100,
     },
     propertiesViaUrl: true,
-    allowSorting: false,
 })
 
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
