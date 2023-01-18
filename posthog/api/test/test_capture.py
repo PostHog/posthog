@@ -599,6 +599,38 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce.call_count, 0)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_batch_with_dumped_json_data(self, kafka_produce):
+        """Test batch rejects payloads that contained JSON dumped data.
+
+        This could happen when request batch data is dumped before creating the data dictionary:
+
+        .. code-block:: python
+
+            batch = json.dumps([{"event": "$groupidentify", "distinct_id": "2", "properties": {}}])
+            requests.post("/batch/", data={"api_key": "123", "batch": batch})
+
+        Notice batch already points to a str as we called json.dumps on it before calling requests.post.
+        This is an error as requests.post would call json.dumps itself on the data dictionary.
+
+        Once we get the request, as json.loads does not recurse on strings, we load the batch as a string,
+        instead of a list of dictionaries (events). We should report to the user that their data is not as
+        expected.
+        """
+        data = json.dumps([{"event": "$groupidentify", "distinct_id": "2", "properties": {}}])
+        response = self.client.post(
+            "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Invalid payload: All events must be dictionaries not 'str'!", code="invalid_payload"
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_header(self, kafka_produce):
         data = {
             "api_key": self.team.api_token,

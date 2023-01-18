@@ -19,13 +19,13 @@
     }
 
     &.ReactModal__Overlay--after-open {
-        background-color: rgba(0, 0, 0, 0.2);
+        background-color: var(--modal-backdrop-color);
         backdrop-filter: blur(var(--modal-backdrop-blur));
         -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
     }
 
     &.ReactModal__Overlay--before-close {
-        background-color: rgba(0, 0, 0, 0);
+        background-color: transparent;
         backdrop-filter: blur(0px);
         -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
     }

@@ -40,7 +40,7 @@ export function TopBar(): JSX.Element {
                     {!bareNav && (
                         <div
                             className="TopBar__hamburger"
-                            onClick={mobileLayout ? toggleSideBarMobile : toggleSideBarBase}
+                            onClick={() => (mobileLayout ? toggleSideBarMobile() : toggleSideBarBase())}
                         >
                             {isSideBarShown ? <IconMenuOpen /> : <IconMenu />}
                         </div>

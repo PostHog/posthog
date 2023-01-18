@@ -81,6 +81,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             type: string
             newInput: string | undefined
             propertyKey: string
+            eventNames?: string[]
         }) => payload,
         setOptionsLoading: (key: string) => ({ key }),
         setOptions: (key: string, values: PropValue[]) => ({ key, values }),
@@ -188,7 +189,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             }
         },
 
-        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey }, breakpoint) => {
+        loadPropertyValues: async ({ endpoint, type, newInput, propertyKey, eventNames }, breakpoint) => {
             if (['cohort', 'session'].includes(type)) {
                 return
             }
@@ -208,8 +209,14 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
                 signal: cache.abortController.signal,
             }
 
+            let eventParams = ''
+            for (const eventName of eventNames || []) {
+                eventParams += `&event_name=${eventName}`
+            }
+
             const propValues: PropValue[] = await api.get(
-                endpoint || 'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : ''),
+                endpoint ||
+                    'api/' + type + '/values/?key=' + key + (newInput ? '&value=' + newInput : '') + eventParams,
                 methodOptions
             )
             breakpoint()
@@ -219,6 +226,7 @@ export const propertyDefinitionsModel = kea<propertyDefinitionsModelType>([
             await captureTimeToSeeData(teamLogic.values.currentTeamId, {
                 type: 'property_values_load',
                 context: 'filters',
+                action: type,
                 primary_interaction_id: '',
                 status: 'success',
                 time_to_see_data_ms: Math.floor(performance.now() - start),

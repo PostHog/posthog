@@ -251,18 +251,6 @@ VALUES
 """
 )
 
-SELECT_PROP_VALUES_SQL = """
-SELECT
-    DISTINCT {property_field}
-FROM
-    events
-WHERE
-    team_id = %(team_id)s AND
-    JSONHas(properties, %(key)s)
-    {parsed_date_from}
-    {parsed_date_to}
-LIMIT 10
-"""
 
 SELECT_PROP_VALUES_SQL_WITH_FILTER = """
 SELECT
@@ -270,10 +258,12 @@ SELECT
 FROM
     events
 WHERE
-    team_id = %(team_id)s AND
-    {property_field} ILIKE %(value)s
+    team_id = %(team_id)s
+    {property_exists_filter}
     {parsed_date_from}
     {parsed_date_to}
+    {event_filter}
+    {value_filter}
 LIMIT 10
 """
 
