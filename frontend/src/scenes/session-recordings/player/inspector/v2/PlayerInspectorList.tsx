@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { IconUnverifiedEvent, IconTerminal, IconGauge } from 'lib/components/icons'
 import { ceilMsToClosestSecond, colonDelimitedDuration } from 'lib/utils'
 import { useEffect, useMemo, useRef } from 'react'
 import { List, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -24,9 +25,6 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from '../../icons'
-import { IconTerminal, IconGauge, UnverifiedEvent } from 'lib/components/icons'
-
-const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {
@@ -34,7 +32,7 @@ const typeToIconAndDescription = {
         tooltip: 'All events',
     },
     [SessionRecordingPlayerTab.EVENTS]: {
-        Icon: UnverifiedEvent,
+        Icon: IconUnverifiedEvent,
         tooltip: 'Recording event',
     },
     [SessionRecordingPlayerTab.CONSOLE]: {
@@ -46,6 +44,8 @@ const typeToIconAndDescription = {
         tooltip: 'Network event',
     },
 }
+
+const PLAYER_INSPECTOR_LIST_ITEM_MARGIN = 4
 
 function PlayerInspectorListItem({
     item,
