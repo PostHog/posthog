@@ -172,7 +172,7 @@ export function hogQlToTaxonomicFilter(hogQl: string): [TaxonomicFilterGroupType
 
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
-        hogQl.includes('total(') ||
+        hogQl.includes('count(') ||
         hogQl.includes('any(') ||
         hogQl.includes('sum(') ||
         hogQl.includes('avg(') ||

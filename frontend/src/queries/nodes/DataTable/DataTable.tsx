@@ -241,14 +241,24 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                             status="danger"
                                             data-attr="datatable-remove-column"
                                             onClick={() => {
+                                                const cleanColumnKey = removeExpressionComment(key)
+                                                const newSource: EventsQuery = {
+                                                    ...(query.source as EventsQuery),
+                                                    select: (query.source as EventsQuery).select.filter(
+                                                        (_, i) => i !== index
+                                                    ),
+                                                    // remove the current column from orderBy if it's there
+                                                    orderBy: (query.source as EventsQuery).orderBy?.find(
+                                                        (orderKey) =>
+                                                            removeExpressionComment(orderKey) === cleanColumnKey ||
+                                                            removeExpressionComment(orderKey) === `-${cleanColumnKey}`
+                                                    )
+                                                        ? undefined
+                                                        : (query.source as EventsQuery).orderBy,
+                                                }
                                                 setQuery?.({
                                                     ...query,
-                                                    source: {
-                                                        ...query.source,
-                                                        select: (query.source as EventsQuery).select.filter(
-                                                            (_, i) => i !== index
-                                                        ),
-                                                    } as EventsQuery,
+                                                    source: newSource,
                                                 })
                                             }}
                                         >
