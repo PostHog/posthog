@@ -139,6 +139,7 @@ class FunnelCorrelation:
         self._funnel_actors_generator = funnel_order_actor_class(
             filter,
             self._team,
+            hogql_values=hogql_values,
             # NOTE: we want to include the latest timestamp of the `target_step`,
             # from this we can deduce if the person reached the end of the funnel,
             # i.e. successful
