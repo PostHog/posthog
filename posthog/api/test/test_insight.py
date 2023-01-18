@@ -533,6 +533,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]
+        assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
         new_dashboard_id, _ = self.dashboard_api.create_dashboard({})
         # accidentally include a deleted dashboard
@@ -544,6 +545,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]
+        assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboard_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
@@ -565,16 +567,19 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == []
+        assert insight_json["dashboard_tiles"] == []
 
         insight_by_short_id = self.client.get(
             f'/api/projects/{self.team.pk}/insights?short_id={insight_json["short_id"]}'
         )
         assert insight_by_short_id.json()["results"][0]["dashboards"] == []
+        assert insight_by_short_id.json()["results"][0]["dashboard_tiles"] == []
 
         self.dashboard_api.add_insight_to_dashboard([dashboard_id], insight_id)
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]
+        assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": False, "dashboard_id": dashboard_id}]
 
     def test_can_update_insight_with_inconsistent_dashboards(self) -> None:
         """
@@ -601,6 +606,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]
+        assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
         # accidentally include a deleted dashboard
         _, update_response = self.dashboard_api.update_insight(
@@ -610,6 +616,7 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         # confirm no updates happened
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_id]
+        assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_id}]
 
     def test_dashboards_relation_is_tile_soft_deletion_aware(self) -> None:
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dash 1"})
@@ -630,13 +637,26 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
             },
         )
         assert on_update_insight_json["dashboards"] == [dashboard_one_id]
+        assert on_update_insight_json["dashboard_tiles"] == [
+            {"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_one_id}
+        ]
 
         insight_json = self.dashboard_api.get_insight(insight_id)
         assert insight_json["dashboards"] == [dashboard_one_id]
+        assert insight_json["dashboard_tiles"] == [{"id": mock.ANY, "deleted": None, "dashboard_id": dashboard_one_id}]
 
         insights_list = self.dashboard_api.list_insights()
         assert insights_list["count"] == 1
         assert [i["dashboards"] for i in insights_list["results"]] == [[dashboard_one_id]]
+        assert [i["dashboard_tiles"] for i in insights_list["results"]] == [
+            [
+                {
+                    "dashboard_id": dashboard_one_id,
+                    "deleted": None,
+                    "id": mock.ANY,
+                }
+            ]
+        ]
 
     def test_adding_insight_to_dashboard_updates_activity_log(self) -> None:
         dashboard_one_id, _ = self.dashboard_api.create_dashboard({"name": "dash 1"})
@@ -781,7 +801,12 @@ class TestInsight(ClickhouseTestMixin, LicensedTestMixin, APIBaseTest, QueryMatc
         assert after_update_tiles[0]["layouts"] is not None  # tile has not been recreated in DB
         assert original_tiles[0]["insight"]["id"] == after_update_tiles[0]["insight"]["id"]
         assert sorted(original_tiles[0]["insight"]["dashboards"]) == sorted([dashboard_one_id, dashboard_two_id])
-        assert after_update_tiles[0]["insight"]["dashboards"] == [dashboard_one_id]  # removed dashboard is removed
+        assert sorted(t["dashboard_id"] for t in original_tiles[0]["insight"]["dashboard_tiles"]) == sorted(
+            [dashboard_one_id, dashboard_two_id]
+        )
+        assert [t["dashboard_id"] for t in after_update_tiles[0]["insight"]["dashboard_tiles"]] == [
+            dashboard_one_id
+        ]  # removed dashboard is removed
 
     @freeze_time("2012-01-14T03:21:34.000Z")
     def test_create_insight_logs_derived_name_if_there_is_no_name(self) -> None:
