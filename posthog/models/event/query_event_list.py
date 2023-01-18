@@ -8,7 +8,7 @@ from django.utils.timezone import now
 
 from posthog.api.utils import get_pk_or_uuid
 from posthog.clickhouse.client.connection import Workload
-from posthog.hogql.expr_parser import SELECT_STAR_FROM_EVENTS_FIELDS, ExprParserContext, translate_hql
+from posthog.hogql.hogql import SELECT_STAR_FROM_EVENTS_FIELDS, HogQLContext, translate_hogql
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
 from posthog.models.element import chain_to_elements
@@ -146,17 +146,17 @@ def query_events_list(
         select = ["*"]
 
     for expr in select:
-        context = ExprParserContext()
+        context = HogQLContext()
         context.collect_values = collected_hogql_values
-        clickhouse_sql = translate_hql(expr, context)
+        clickhouse_sql = translate_hogql(expr, context)
         select_columns.append(clickhouse_sql)
         if not context.is_aggregation:
             group_by_columns.append(clickhouse_sql)
 
     for expr in where or []:
-        context = ExprParserContext()
+        context = HogQLContext()
         context.collect_values = collected_hogql_values
-        clickhouse_sql = translate_hql(expr, context)
+        clickhouse_sql = translate_hogql(expr, context)
         if context.is_aggregation:
             having_filters.append(clickhouse_sql)
         else:
@@ -168,9 +168,9 @@ def query_events_list(
             if fragment.startswith("-"):
                 order_direction = "DESC"
                 fragment = fragment[1:]
-            context = ExprParserContext()
+            context = HogQLContext()
             context.collect_values = collected_hogql_values
-            order_by_list.append(translate_hql(fragment, context) + " " + order_direction)
+            order_by_list.append(translate_hogql(fragment, context) + " " + order_direction)
     else:
         order_by_list.append(select_columns[0] + " ASC")
 
