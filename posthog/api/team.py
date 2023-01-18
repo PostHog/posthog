@@ -13,7 +13,7 @@ from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
-from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
@@ -65,28 +65,6 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
             return True
 
 
-class CachingTeamSerializer(serializers.ModelSerializer):
-    """
-    This serializer is used for caching teams.
-    Currently used only in `/decide` endpoint.
-    Has all parameters needed for a successful decide request.
-    """
-
-    class Meta:
-        model = Team
-        fields = [
-            "id",
-            "uuid",
-            "name",
-            "api_token",
-            "capture_performance_opt_in",
-            "capture_console_log_opt_in",
-            "session_recording_opt_in",
-            "recording_domains",
-            "inject_web_apps",
-        ]
-
-
 class TeamSerializer(serializers.ModelSerializer):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
@@ -126,7 +104,6 @@ class TeamSerializer(serializers.ModelSerializer):
             "recording_domains",
             "person_on_events_querying_enabled",
             "groups_on_events_querying_enabled",
-            "inject_web_apps",
         )
         read_only_fields = (
             "id",
@@ -184,7 +161,6 @@ class TeamSerializer(serializers.ModelSerializer):
             team = Team.objects.create_with_data(**validated_data, organization=organization)
         request.user.current_team = team
         request.user.save()
-        set_team_in_cache(team.api_token, team)
         return team
 
     def _handle_timezone_update(self, team: Team) -> None:
@@ -196,9 +172,7 @@ class TeamSerializer(serializers.ModelSerializer):
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
             self._handle_timezone_update(instance)
 
-        updated_team = super().update(instance, validated_data)
-        set_team_in_cache(updated_team.api_token, updated_team)
-        return updated_team
+        return super().update(instance, validated_data)
 
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
@@ -308,11 +282,8 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        old_token = team.api_token
         team.api_token = generate_random_token_project()
         team.save()
-        set_team_in_cache(old_token, None)
-        set_team_in_cache(team.api_token, team)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(

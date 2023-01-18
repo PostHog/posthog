@@ -9,7 +9,6 @@ from posthog.models.dashboard import Dashboard
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
-from posthog.models.team.team import get_team_in_cache
 from posthog.test.base import APIBaseTest
 
 
@@ -272,53 +271,6 @@ class TestTeamAPI(APIBaseTest):
         response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
         mock_create_data_for_demo_team.assert_called_once()
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-    def test_team_is_cached_on_create_and_update(self):
-        Team.objects.all().delete()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        response = self.client.post("/api/projects/", {"name": "Test", "is_demo": False})
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()["name"], "Test")
-
-        token = response.json()["api_token"]
-        team_id = response.json()["id"]
-
-        cached_team = get_team_in_cache(token)
-
-        assert cached_team is not None
-        self.assertEqual(cached_team.name, "Test")
-        self.assertEqual(cached_team.uuid, response.json()["uuid"])
-        self.assertEqual(cached_team.id, response.json()["id"])
-
-        response = self.client.patch(
-            f"/api/projects/{team_id}/", {"timezone": "Europe/Istanbul", "session_recording_opt_in": True}
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        cached_team = get_team_in_cache(token)
-        assert cached_team is not None
-
-        self.assertEqual(cached_team.name, "Test")
-        self.assertEqual(cached_team.uuid, response.json()["uuid"])
-        self.assertEqual(cached_team.session_recording_opt_in, True)
-
-        # only things in CachedTeamSerializer are cached!
-        self.assertEqual(cached_team.timezone, "UTC")
-
-        # reset token should update cache as well
-        response = self.client.patch(f"/api/projects/{team_id}/reset_token/")
-        response_data = response.json()
-
-        cached_team = get_team_in_cache(token)
-        assert cached_team is None
-
-        cached_team = get_team_in_cache(response_data["api_token"])
-        assert cached_team is not None
-        self.assertEqual(cached_team.name, "Test")
-        self.assertEqual(cached_team.uuid, response.json()["uuid"])
-        self.assertEqual(cached_team.session_recording_opt_in, True)
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

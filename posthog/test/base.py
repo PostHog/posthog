@@ -387,7 +387,7 @@ def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_n
 
     for query_with_time in context.captured_queries:
         query = query_with_time["sql"]
-        if query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+        if "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
             testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
 
 

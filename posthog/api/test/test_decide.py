@@ -1,26 +1,23 @@
 import base64
 import json
 
-from django.core.cache import cache
 from django.db import connection
 from django.test.client import Client
 from rest_framework import status
 
-from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
+from posthog.test.base import BaseTest
 
 
-class TestDecide(BaseTest, QueryMatchingTest):
+class TestDecide(BaseTest):
     """
     Tests the `/decide` endpoint.
     We use Django's base test class instead of DRF's because we need granular control over the Content-Type sent over.
     """
 
     def setUp(self):
-        cache.clear()
         super().setUp()
         # it is really important to know that /decide is CSRF exempt. Enforce checking in the client
         self.client = Client(enforce_csrf_checks=True)
@@ -48,16 +45,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             HTTP_ORIGIN=origin,
             REMOTE_ADDR=ip,
         )
-
-    def _update_team(self, data):
-        # use a non-csrf client to make requests
-        client = Client()
-        client.force_login(self.user)
-
-        response = client.patch("/api/projects/@current/", data, content_type="application/json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        client.logout()
 
     def test_defaults_to_v2_if_conflicting_parameters(self):
         """
@@ -93,8 +80,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"session_recording_opt_in": True})
+        self.team.session_recording_opt_in = True
+        self.team.save()
 
         response = self._post_decide().json()
         self.assertEqual(
@@ -108,8 +95,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"session_recording_opt_in": True, "capture_console_log_opt_in": True})
+        self.team.session_recording_opt_in = True
+        self.team.capture_console_log_opt_in = True
+        self.team.save()
 
         response = self._post_decide().json()
         self.assertEqual(
@@ -122,8 +110,8 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], False)
 
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"capture_performance_opt_in": True})
+        self.team.capture_performance_opt_in = True
+        self.team.save()
 
         response = self._post_decide().json()
         self.assertEqual(response["capturePerformance"], True)
@@ -133,8 +121,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         response = self._post_decide().json()
         self.assertEqual(response["sessionRecording"], False)
 
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://*.example.com"]})
+        self.team.session_recording_opt_in = True
+        self.team.recording_domains = ["https://*.example.com"]
+        self.team.save()
 
         response = self._post_decide(origin="https://random.example.com").json()
         self.assertEqual(
@@ -148,9 +137,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertEqual(response["sessionRecording"], False)
 
     def test_user_session_recording_evil_site(self):
-
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"session_recording_opt_in": True, "recording_domains": ["https://example.com"]})
+        self.team.recording_domains = ["https://example.com"]
+        self.team.session_recording_opt_in = True
+        self.team.save()
 
         response = self._post_decide(origin="evil.site.com").json()
         self.assertEqual(response["sessionRecording"], False)
@@ -162,8 +151,9 @@ class TestDecide(BaseTest, QueryMatchingTest):
         )
 
     def test_user_session_recording_allowed_when_no_permitted_domains_are_set(self):
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"session_recording_opt_in": True, "recording_domains": []})
+        self.team.recording_domains = []
+        self.team.session_recording_opt_in = True
+        self.team.save()
 
         response = self._post_decide(origin="any.site.com").json()
         self.assertEqual(
@@ -171,17 +161,15 @@ class TestDecide(BaseTest, QueryMatchingTest):
             {"endpoint": "/s/", "consoleLogRecordingEnabled": False},
         )
 
-    @snapshot_postgres_queries
     def test_web_app_queries(self):
         with self.assertNumQueries(2):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        # don't access models directly as that doesn't update the cache.
-        self._update_team({"inject_web_apps": True})
+        self.team.inject_web_apps = True
+        self.team.save()
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(3):
             response = self._post_decide()
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -246,8 +234,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         self.assertIn("beta-feature", response.json()["featureFlags"])
         self.assertIn("filer-by-property-2", response.json()["featureFlags"])
 
-        # caching flag definitions in the above query mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(3):
             response = self._post_decide({"token": self.team.api_token, "distinct_id": "another_id"})
             self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["featureFlags"], ["default-flag"])
@@ -319,8 +306,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertIn("beta-feature", response.json()["featureFlags"])
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(0):
+        with self.assertNumQueries(2):
             response = self._post_decide(api_version=3)
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
@@ -364,8 +350,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertIn("beta-feature", response.json()["featureFlags"])
             self.assertIn("default-flag", response.json()["featureFlags"])
 
-        # caching flag definitions in the above query mean fewer queries
-        with self.assertNumQueries(0):
+        with self.assertNumQueries(2):
             response = self._post_decide(api_version=2)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -373,7 +358,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 "first-variant", response.json()["featureFlags"]["multivariate-flag"]
             )  # assigned by distinct_id hash
 
-        with self.assertNumQueries(0):
+        with self.assertNumQueries(2):
             response = self._post_decide(api_version=2, distinct_id="other_id")
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -432,8 +417,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(0):
+        with self.assertNumQueries(2):
             response = self._post_decide(api_version=2, distinct_id="other_id", ip=australia_ip)
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
@@ -490,8 +474,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             self.assertTrue("beta-feature" not in response.json()["featureFlags"])
             self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="other_id")
             self.assertTrue("beta-feature" not in response.json()["featureFlags"])
             self.assertTrue("multivariate-flag" not in response.json()["featureFlags"])
@@ -549,8 +532,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # person2 = Person.objects.create(team=self.team, distinct_ids=["example_id", "other_id"], properties={"email": "tim@posthog.com"})
         person.add_distinct_id("other_id")
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(6):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -612,8 +594,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # identify event is sent, but again, ingestion delays, so no entry in personDistinctID table
         # person.add_distinct_id("other_id")
         # in which case, we're pretty much trashed
-        with self.assertNumQueries(2):
-            # caching flag definitions in the above mean fewer queries
+        with self.assertNumQueries(4):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -679,8 +660,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             team=self.team, distinct_ids=["other_id"], properties={"email": "tim@posthog.com"}
         )
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(6):
             response = self._post_decide(
                 api_version=2,
                 data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
@@ -707,8 +687,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         person2.delete()
         person.add_distinct_id("other_id")
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -766,8 +745,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
 
         # new person with "other_id" is yet to be created
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(5):
+        with self.assertNumQueries(7):
             # one extra query to find person_id for $anon_distinct_id
             response = self._post_decide(
                 api_version=2,
@@ -783,9 +761,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         # In this case, we are over our grace period for ingestion, and there's
         # no quick decent way to find how 'other_id' is to be treated.
         # So, things appear like a completely new person with distinct-id = other_id.
-        with self.assertNumQueries(1):
-            # caching flag definitions in the above mean fewer queries
-
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
             # self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -794,8 +770,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
         person.add_distinct_id("other_id")
         # Finally, 'other_id' is merged. The result goes back to its overridden values
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(2):
+        with self.assertNumQueries(4):
             response = self._post_decide(api_version=2, data={"token": self.team.api_token, "distinct_id": "other_id"})
             self.assertTrue(response.json()["featureFlags"]["beta-feature"])
             self.assertTrue(response.json()["featureFlags"]["default-flag"])
@@ -849,8 +824,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
                 (response.json()["featureFlags"]).get("default-flag")
             )  # User still receives the default flag
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertIsNotNone(
                 response.json()["featureFlags"]["multivariate-flag"]
@@ -865,327 +839,6 @@ class TestDecide(BaseTest, QueryMatchingTest):
             # second-variant: 20 (100 * 80% * 25% = 20 users)
             # third-variant:  20 (100 * 80% * 25% = 20 users)
             # fourth-variant: 20 (100 * 80% * 25% = 20 users)
-
-    def test_feature_flags_v3(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-
-        # use a non-csrf client to make requests to add feature flags
-        client = Client()
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "filters": {"groups": [{"rollout_percentage": 50}]},
-                "name": "Beta feature",
-                "key": "beta-feature",
-            },
-            content_type="application/json",
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response = client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            format="json",
-            content_type="application/json",
-        )  # Should be enabled for everyone
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response = client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "multivariate-flag",
-                "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                        ]
-                    },
-                },
-            },
-            format="json",
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # At this stage, our cache should have all 3 flags
-
-        # also adding team to cache
-        self._post_decide(api_version=3)
-        client.logout()
-
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3, distinct_id="other_id")
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "third-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # different hash, different variant assigned
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-    def test_feature_flags_v3_with_database_errors(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-
-        # use a non-csrf client to make requests to add feature flags
-        client = Client()
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [{"key": "email", "value": "tim", "type": "person", "operator": "icontains"}],
-                            "rollout_percentage": 50,
-                        }
-                    ]
-                },
-                "name": "Beta feature",
-                "key": "beta-feature",
-            },
-            content_type="application/json",
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response = client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            format="json",
-            content_type="application/json",
-        )  # Should be enabled for everyone
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response = client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "multivariate-flag",
-                "filters": {
-                    "groups": [{"properties": [], "rollout_percentage": None}],
-                    "multivariate": {
-                        "variants": [
-                            {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                            {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                            {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                        ]
-                    },
-                },
-            },
-            format="json",
-            content_type="application/json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        # At this stage, our cache should have all 3 flags
-
-        # also adding team to cache
-        self._post_decide(api_version=3)
-
-        client.logout()
-
-        with self.assertNumQueries(1):
-            response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-        # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(api_version=3, distinct_id="example_id")
-            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual("first-variant", response.json()["featureFlags"]["multivariate-flag"])
-            self.assertTrue(response.json()["errorsWhileComputingFlags"])
-
-    def test_feature_flags_v3_with_database_errors_and_no_flags(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"})
-
-        # adding team to cache
-        self._post_decide(api_version=3)
-
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3)
-            self.assertEqual(response.json()["featureFlags"], {})
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-        # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(api_version=3, distinct_id="example_id")
-            self.assertEqual(response.json()["featureFlags"], {})
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-    def test_feature_flags_v3_with_database_errors_and_geoip_properties(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-
-        australia_ip = "13.106.122.3"
-
-        Person.objects.create(team=self.team, distinct_ids=["example_id"], properties={})
-
-        # use a non-csrf client to make requests to add feature flags
-        client = Client()
-        client.force_login(self.user)
-
-        response = client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "filters": {
-                    "groups": [
-                        {
-                            "properties": [
-                                {
-                                    "key": "$geoip_country_name",
-                                    "value": "Australia",
-                                    "type": "person",
-                                    "operator": "icontains",
-                                }
-                            ],
-                            "rollout_percentage": 100,
-                        }
-                    ]
-                },
-                "name": "Beta feature",
-                "key": "beta-feature",
-            },
-            content_type="application/json",
-            format="json",
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        response = client.post(
-            f"/api/projects/{self.team.id}/feature_flags/",
-            {
-                "name": "Alpha feature",
-                "key": "default-flag",
-                "filters": {"groups": [{"properties": [], "rollout_percentage": None}]},
-            },
-            format="json",
-            content_type="application/json",
-        )  # Should be enabled for everyone
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-
-        # At this stage, our cache should have both flags
-
-        # also adding team to cache
-        self._post_decide(api_version=3)
-
-        client.logout()
-
-        with self.assertNumQueries(0):
-            response = self._post_decide(api_version=3, ip=australia_ip)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-        # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(api_version=3, distinct_id="example_id", ip=australia_ip)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertFalse(response.json()["errorsWhileComputingFlags"])
-
-    def test_feature_flags_v3_consistent_flags_with_database_errors(self):
-        self.team.app_urls = ["https://example.com"]
-        self.team.save()
-        self.client.logout()
-        person = Person.objects.create(
-            team=self.team, distinct_ids=["example_id"], properties={"email": "tim@posthog.com"}
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            rollout_percentage=30,
-            name="Beta feature",
-            key="beta-feature",
-            created_by=self.user,
-            ensure_experience_continuity=True,
-        )
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={"groups": [{"properties": [], "rollout_percentage": None}]},
-            name="This is a feature flag with default params, no filters.",
-            key="default-flag",
-            created_by=self.user,
-        )  # Should be enabled for everyone
-        FeatureFlag.objects.create(
-            team=self.team,
-            filters={
-                "groups": [{"properties": [], "rollout_percentage": None}],
-                "multivariate": {
-                    "variants": [
-                        {"key": "first-variant", "name": "First Variant", "rollout_percentage": 50},
-                        {"key": "second-variant", "name": "Second Variant", "rollout_percentage": 25},
-                        {"key": "third-variant", "name": "Third Variant", "rollout_percentage": 25},
-                    ]
-                },
-            },
-            name="This is a feature flag with multiple variants.",
-            key="multivariate-flag",
-            created_by=self.user,
-            ensure_experience_continuity=True,
-        )
-        # make sure caches are populated
-        # TODO: change this to whatever function is used to populate the cache on startup
-        response = self._post_decide(api_version=3)
-
-        with self.assertNumQueries(2):
-            response = self._post_decide(api_version=3)
-            self.assertTrue(response.json()["featureFlags"]["beta-feature"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertEqual(
-                "first-variant", response.json()["featureFlags"]["multivariate-flag"]
-            )  # assigned by distinct_id hash
-
-        # new person, merged from old distinct ID
-        person.add_distinct_id("other_id")
-
-        # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(
-                api_version=3,
-                data={"token": self.team.api_token, "distinct_id": "other_id", "$anon_distinct_id": "example_id"},
-            )
-            self.assertTrue("beta-feature" not in response.json()["featureFlags"])
-            self.assertTrue(response.json()["featureFlags"]["default-flag"])
-            self.assertTrue(response.json()["errorsWhileComputingFlags"])
 
     def test_feature_flags_v2_with_groups(self):
         # More in-depth tests in posthog/api/test/test_feature_flag.py
@@ -1209,8 +862,7 @@ class TestDecide(BaseTest, QueryMatchingTest):
             response = self._post_decide(api_version=2, distinct_id="example_id")
             self.assertEqual(response.json()["featureFlags"], {})
 
-        # caching flag definitions in the above mean fewer queries
-        with self.assertNumQueries(1):
+        with self.assertNumQueries(3):
             response = self._post_decide(api_version=2, distinct_id="example_id", groups={"organization": "foo"})
             self.assertEqual(response.json()["featureFlags"], {"groups-flag": True})
 
@@ -1288,32 +940,3 @@ class TestDecide(BaseTest, QueryMatchingTest):
         detail = response_data.pop("detail")
         self.assertEqual(response.json(), {"type": "validation_error", "code": "malformed_data", "attr": None})
         self.assertIn("Malformed request data:", detail)
-
-    @snapshot_postgres_queries
-    def test_decide_doesnt_error_out_when_database_is_down(self):
-        ALL_TEAM_PARAMS_FOR_DECIDE = {
-            "session_recording_opt_in": True,
-            "capture_console_log_opt_in": True,
-            "inject_web_apps": True,
-            "recording_domains": ["https://*.example.com"],
-            "capture_performance_opt_in": True,
-        }
-        self._update_team(ALL_TEAM_PARAMS_FOR_DECIDE)
-
-        response = self._post_decide(api_version=2, origin="https://random.example.com").json()
-
-        self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": True})
-        self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
-        self.assertEqual(response["siteApps"], [])
-        self.assertEqual(response["capturePerformance"], True)
-        self.assertEqual(response["featureFlags"], {})
-
-        # now database is down
-        with connection.execute_wrapper(QueryTimeoutWrapper()):
-            response = self._post_decide(api_version=2, origin="https://random.example.com").json()
-
-            self.assertEqual(response["sessionRecording"], {"endpoint": "/s/", "consoleLogRecordingEnabled": True})
-            self.assertEqual(response["supportedCompression"], ["gzip", "gzip-js", "lz64"])
-            self.assertEqual(response["siteApps"], [])
-            self.assertEqual(response["capturePerformance"], True)
-            self.assertEqual(response["featureFlags"], {})
