@@ -80,8 +80,8 @@ FROM (
             arrayMap(
                 n -> toDateTime(n, %(timezone)s),
                 range(
-                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), %(timezone)s)))), -- TODO: this could be a max?
-                    toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), %(timezone)s) + INTERVAL {prev_interval}), -- TODO: this could be a min?
+                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), %(timezone)s)))),
+                    toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), %(timezone)s) + INTERVAL {prev_interval}),
                     %(grouping_increment_seconds)s
                 )
             ) AS event_buckets
