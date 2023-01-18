@@ -135,7 +135,7 @@ def query_events_list(
 
     # events list v2 - hogql
 
-    collected_hogql_values: Dict[str, Any] = {}
+    hogql_context = HogQLContext()
     select_columns: List[str] = []
     group_by_columns: List[str] = []
     where_filters: List[str] = []
@@ -146,18 +146,16 @@ def query_events_list(
         select = ["*"]
 
     for expr in select:
-        context = HogQLContext()
-        context.collect_values = collected_hogql_values
-        clickhouse_sql = translate_hogql(expr, context)
+        hogql_context.found_aggregation = False
+        clickhouse_sql = translate_hogql(expr, hogql_context)
         select_columns.append(clickhouse_sql)
-        if not context.is_aggregation:
+        if not hogql_context.found_aggregation:
             group_by_columns.append(clickhouse_sql)
 
     for expr in where or []:
-        context = HogQLContext()
-        context.collect_values = collected_hogql_values
-        clickhouse_sql = translate_hogql(expr, context)
-        if context.is_aggregation:
+        hogql_context.found_aggregation = False
+        clickhouse_sql = translate_hogql(expr, hogql_context)
+        if hogql_context.found_aggregation:
             having_filters.append(clickhouse_sql)
         else:
             where_filters.append(clickhouse_sql)
@@ -168,9 +166,7 @@ def query_events_list(
             if fragment.startswith("-"):
                 order_direction = "DESC"
                 fragment = fragment[1:]
-            context = HogQLContext()
-            context.collect_values = collected_hogql_values
-            order_by_list.append(translate_hogql(fragment, context) + " " + order_direction)
+            order_by_list.append(translate_hogql(fragment, hogql_context) + " " + order_direction)
     else:
         order_by_list.append(select_columns[0] + " ASC")
 
@@ -194,7 +190,7 @@ def query_events_list(
             "offset": offset,
             **condition_params,
             **prop_filter_params,
-            **collected_hogql_values,
+            **hogql_context.values,
         },
         with_column_types=True,
         query_type="events_list",

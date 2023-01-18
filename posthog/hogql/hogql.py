@@ -121,15 +121,15 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 class HogQLContext:
     """Context given to a HogQL expression parser"""
 
-    # If set, will save string constants to this list instead of inlining them
-    collect_values: Optional[Dict[str, Any]] = None
+    # If set, will save string constants to this dict. Inlines strings into the query if None.
+    values: Optional[Dict[str, Any]] = field(default_factory=lambda: {})
     # List of field and property accesses found in the expression
-    attribute_list: List[List[str]] = field(default_factory=list)
-    # Did the expression contain a call from HOGQL_AGGREGATIONS
-    is_aggregation: bool = False
+    attribute_list: List[List[str]] = field(default_factory=lambda: [])
+    # Did the last calls to translate_hogql since setting this to False contain any HOGQL_AGGREGATIONS
+    found_aggregation: bool = False
 
 
-def translate_hogql(hql: str, context: Optional[HogQLContext] = None) -> str:
+def translate_hogql(hql: str, context: HogQLContext) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
     if hql == "*":
         return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
@@ -145,8 +145,6 @@ def translate_hogql(hql: str, context: Optional[HogQLContext] = None) -> str:
         node = ast.parse(hql)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
-    if not context:
-        context = HogQLContext()
     return translate_ast(node, [], context)
 
 
@@ -210,12 +208,12 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
-        key = f"val_{len(context.collect_values or {})}"
+        key = f"val_{len(context.values or {})}"
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
         elif isinstance(node.value, str):
-            if isinstance(context.collect_values, dict):
-                context.collect_values[key] = node.value
+            if isinstance(context.values, dict):
+                context.values[key] = node.value
                 response = f"%({key})s"
             else:
                 response = escape_param(node.value)
@@ -262,7 +260,7 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
             raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'count()'")
         call_name = node.func.id
         if call_name in HOGQL_AGGREGATIONS:
-            context.is_aggregation = True
+            context.found_aggregation = True
 
             if call_name == "count" and len(node.args) == 0:
                 response = "count(*)"
