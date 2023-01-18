@@ -42,7 +42,13 @@ export function IconWindow({ value, className = '', size = 'medium' }: IconWindo
                 className
             )}
         >
-            <span className={clsx('font-bold', size === 'medium' && 'text-xs', size === 'small' && 'text-xxs')}>
+            <span
+                className={clsx(
+                    'font-bold select-none',
+                    size === 'medium' && 'text-xs',
+                    size === 'small' && 'text-xxs'
+                )}
+            >
                 {shortValue}
             </span>
         </div>

@@ -93,7 +93,7 @@ function PlayerInspectorListItem({
     }, [totalHeight])
 
     const windowNumber =
-        windowIds.length > 1 && item.windowId ? windowIds.indexOf(item.windowId) + 1 || undefined : undefined
+        windowIds.length > 1 ? (item.windowId ? windowIds.indexOf(item.windowId) + 1 || '?' : '?') : undefined
 
     const TypeIcon = typeToIconAndDescription[item.type].Icon
 
@@ -109,14 +109,37 @@ function PlayerInspectorListItem({
             }}
         >
             {!isExpanded && (showIcon || windowNumber) && (
-                <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
-                    {showIcon && TypeIcon ? (
-                        <Tooltip placement="left" title={typeToIconAndDescription[item.type].tooltip}>
-                            <TypeIcon className="text-xl" />
-                        </Tooltip>
-                    ) : null}
-                    {windowNumber ? <IconWindow size="small" value={windowNumber} className="shrink-0" /> : null}
-                </div>
+                <Tooltip
+                    placement="left"
+                    title={
+                        <>
+                            <b>{typeToIconAndDescription[item.type]?.tooltip}</b>
+
+                            {windowNumber ? (
+                                <>
+                                    <br />
+                                    {windowNumber !== '?' ? (
+                                        <>
+                                            {' '}
+                                            occurred in Window <b>{windowNumber}</b>
+                                        </>
+                                    ) : (
+                                        <>
+                                            {' '}
+                                            not linked to any specific window. Either an event tracked from the backend
+                                            or otherwise not able to be linked to a given window.
+                                        </>
+                                    )}
+                                </>
+                            ) : null}
+                        </>
+                    }
+                >
+                    <div className="shrink-0 text-lg h-8 text-muted-alt flex items-center justify-center gap-1">
+                        {showIcon && TypeIcon ? <TypeIcon className="text-xl" /> : null}
+                        {windowNumber ? <IconWindow size="small" value={windowNumber} /> : null}
+                    </div>
+                </Tooltip>
             )}
 
             <span
