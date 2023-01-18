@@ -136,6 +136,7 @@ class FOSSCohortQuery(EventQuery):
         super().__init__(
             filter=FOSSCohortQuery.unwrap_cohort(filter, team.pk),
             team=team,
+            hogql_value=hogql_values,
             round_interval=round_interval,
             should_join_distinct_ids=should_join_distinct_ids,
             should_join_persons=should_join_persons,
