@@ -39,6 +39,7 @@ import {
     PathsTargetEndDataExploration,
     PathsTargetStartDataExploration,
 } from 'scenes/insights/EditorFilters/PathsTarget'
+import { PathsExclusionsDataExploration } from 'scenes/insights/EditorFilters/PathsExclusions'
 
 export interface EditorFiltersProps {
     query: InsightQueryNode
@@ -180,6 +181,20 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
                           component: Breakdown,
                       }
                     : null,
+            ]),
+        },
+        {
+            title: 'Exclusions',
+            editorFilters: filterFalsy([
+                isPaths && {
+                    key: 'paths-exclusions',
+                    label: 'Exclusions',
+                    position: 'right',
+                    tooltip: (
+                        <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
+                    ),
+                    component: PathsExclusionsDataExploration,
+                },
             ]),
         },
         {
