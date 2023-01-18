@@ -575,7 +575,12 @@ class InsightViewSet(
                 if dashboards_filter:
                     dashboards_ids = json.loads(dashboards_filter)
                     for dashboard_id in dashboards_ids:
-                        queryset = queryset.filter(dashboard_tiles__dashboard_id=dashboard_id)
+                        # filter by dashboards one at a time so the filter is AND not OR
+                        queryset = queryset.filter(
+                            id__in=DashboardTile.objects.filter(dashboard__id=dashboard_id)
+                            .values_list("insight__id", flat=True)
+                            .all()
+                        )
 
         return queryset
 
