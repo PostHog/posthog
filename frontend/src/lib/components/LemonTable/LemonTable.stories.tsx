@@ -101,6 +101,7 @@ const BasicTemplate: ComponentStory<typeof LemonTable> = (props: LemonTableProps
                 {
                     title: 'Occupation',
                     dataIndex: 'occupation',
+                    tooltip: 'What they are primarily working on.',
                     sorter: (a, b) => a.occupation.localeCompare(b.occupation),
                 },
             ]}
