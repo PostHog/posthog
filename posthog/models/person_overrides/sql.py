@@ -71,6 +71,8 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
         old_person_id,
         override_person_id,
         merged_at,
+        -- created_at is not included in the Kafka message, rather it is set as
+        -- a default in the MergeTree table
         version
     FROM `{CLICKHOUSE_DATABASE}.person_overrides`
 """
@@ -81,11 +83,6 @@ PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_mv`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     TO {CLICKHOUSE_DATABASE}.person_overrides
-    AS SELECT
-        team_id,
-        old_person_id,
-        override_person_id,
-        merged_at,
-        version
+    AS SELECT *
     FROM `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
 """
