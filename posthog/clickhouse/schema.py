@@ -91,4 +91,4 @@ CREATE_TABLE_QUERIES = (
 )
 
 build_query = lambda query: query if isinstance(query, str) else query()
-get_table_name = lambda query: re.findall(r" ([a-z0-9_]+) ON CLUSTER", build_query(query))[0]
+get_table_name = lambda query: re.findall(r" ([a-z0-9_\.`]+)\s+ON CLUSTER", build_query(query))[0]

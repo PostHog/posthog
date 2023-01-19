@@ -11,6 +11,7 @@
 # table to the `sharded_events` table to find all events that were associated
 # and therefore reconcile the events to be associated with the same Person.
 
+from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, KAFKA_HOSTS
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
@@ -68,10 +69,10 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 
     ENGINE = Kafka(
-        '{KAFKA_HOSTS}',
-        'person_overrides',
-        'clickhouse-person-overrides',
-        'JSONEachRow'
+        '{KAFKA_HOSTS}', -- Kafka hosts
+        '{KAFKA_PERSON_OVERRIDE}', -- Kafka topic
+        'clickhouse-person-overrides', -- Kafka consumer group id
+        'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
     )
 
     -- We use the same schema as the `person_overrides` table except for columns
