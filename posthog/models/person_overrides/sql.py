@@ -11,8 +11,11 @@
 # table to the `sharded_events` table to find all events that were associated
 # and therefore reconcile the events to be associated with the same Person.
 
-PERSON_OVERRIDES_TABLE_SQL = """
-    CREATE TABLE IF NOT EXISTS person_overrides (
+from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, KAFKA_HOSTS
+
+PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
+    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
         team_id INT NOT NULL,
 
         -- When we merge two people `old_person_id` and `override_person_id`, we
@@ -24,10 +27,10 @@ PERSON_OVERRIDES_TABLE_SQL = """
         old_person_id UUID NOT NULL,
         override_person_id UUID NOT NULL,
 
-        -- The timestamp rows are created.
-        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
         -- The timestamp the merge of the two people was completed.
         merged_at TIMESTAMP WITH TIME ZONE NOT NULL
+        -- The timestamp rows are created.
+        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
 
         -- the specific version of the `old_person_id` mapping. This is used to
         -- allow us to discard old mappings as new ones are added.
@@ -39,8 +42,16 @@ PERSON_OVERRIDES_TABLE_SQL = """
     --
     -- We also need to ensure that the data is replicated to all replicas in the
     -- cluster, as we do not have any constraints on person_id and which shard
-    -- associated events are on.
-    ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.person_overrides', '{replica}-{shard}', version)
+    -- associated events are on. To do this we use the ReplicatedReplacingMergeTree
+    -- engine specifying a static `zk_path`. This will cause the Engine to
+    -- consider all replicas as the same. See
+    -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
+    -- for details.
+    ENGINE = ReplicatedReplacingMergeTree(
+        '/clickhouse/tables/noshard/posthog.person_overrides',
+        '{{replica}}-{{shard}}',
+        version
+    )
 
     -- We want to collapse down on the `old_person_id` such that we end up with
     -- the newest known mapping for it in the table. Query side we will need to
@@ -48,4 +59,16 @@ PERSON_OVERRIDES_TABLE_SQL = """
     ORDER BY (team_id, old_person_id)
 """
 
-# TODO: add KafkaTables
+PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
+    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    ENGINE = Kafka('{KAFKA_HOSTS}', 'person_overrides', 'clickhouse-person-overrides', 'JSONEachRow')
+    EMPTY AS SELECT * FROM `{CLICKHOUSE_DATABASE}.person_overrides`
+"""
+
+PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
+    CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_mv`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    TO {CLICKHOUSE_DATABASE}.person_overrides
+    AS SELECT * FROM `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
+"""
