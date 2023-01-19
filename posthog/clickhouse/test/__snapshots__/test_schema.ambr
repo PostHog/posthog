@@ -35,11 +35,7 @@
 ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_app_metrics]
   '
-<<<<<<< HEAD
-
-=======
   
->>>>>>> 65a7d2d8f (Update schema snapshots)
   CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -290,10 +286,10 @@
 
   '
 ---
-# name: test_create_kafka_table_with_different_kafka_host[posthog_test.person_overrides_kafka]
+# name: test_create_kafka_table_with_different_kafka_host[person_overrides_kafka]
   '
   
-      CREATE TABLE IF NOT EXISTS `posthog_test.person_overrides_kafka`
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides_kafka`
       ON CLUSTER 'posthog'
   
       ENGINE = Kafka(
@@ -313,17 +309,13 @@
           -- created_at is not included in the Kafka message, rather it is set as
           -- a default in the MergeTree table
           version
-      FROM `posthog_test.person_overrides`
+      FROM `posthog_test`.`person_overrides`
   
   '
 ---
 # name: test_create_table_query[app_metrics]
   '
-<<<<<<< HEAD
-
-=======
   
->>>>>>> 65a7d2d8f (Update schema snapshots)
   CREATE TABLE IF NOT EXISTS app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -349,11 +341,7 @@
 ---
 # name: test_create_table_query[app_metrics_mv]
   '
-<<<<<<< HEAD
-
-=======
   
->>>>>>> 65a7d2d8f (Update schema snapshots)
   CREATE MATERIALIZED VIEW IF NOT EXISTS app_metrics_mv ON CLUSTER 'posthog'
   TO posthog_test.sharded_app_metrics
   AS SELECT
@@ -604,11 +592,7 @@
 ---
 # name: test_create_table_query[kafka_app_metrics]
   '
-<<<<<<< HEAD
-
-=======
   
->>>>>>> 65a7d2d8f (Update schema snapshots)
   CREATE TABLE IF NOT EXISTS kafka_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1055,75 +1039,10 @@
 
   '
 ---
-# name: test_create_table_query[person_static_cohort]
-  '
-
-  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
-  (
-      id UUID,
-      person_id UUID,
-      cohort_id Int64,
-      team_id Int64
-
-  , _timestamp DateTime
-  , _offset UInt64
-
-  ) ENGINE = ReplacingMergeTree(_timestamp)
-  Order By (team_id, cohort_id, person_id, id)
-
-
-  '
----
-# name: test_create_table_query[plugin_log_entries]
-  '
-
-  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
-  (
-      id UUID,
-      team_id Int64,
-      plugin_id Int64,
-      plugin_config_id Int64,
-      timestamp DateTime64(6, 'UTC'),
-      source VARCHAR,
-      type VARCHAR,
-      message VARCHAR,
-      instance_id UUID
-
-  , _timestamp DateTime
-  , _offset UInt64
-
-  ) ENGINE = ReplacingMergeTree(_timestamp)
-  PARTITION BY plugin_id ORDER BY (team_id, id)
-
-  SETTINGS index_granularity=512
-
-  '
----
-# name: test_create_table_query[plugin_log_entries_mv]
-  '
-
-  CREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER 'posthog'
-  TO posthog_test.plugin_log_entries
-  AS SELECT
-  id,
-  team_id,
-  plugin_id,
-  plugin_config_id,
-  timestamp,
-  source,
-  type,
-  message,
-  instance_id,
-  _timestamp,
-  _offset
-  FROM posthog_test.kafka_plugin_log_entries
-
-  '
----
-# name: test_create_table_query[posthog_test.person_overrides]
+# name: test_create_table_query[person_overrides]
   '
   
-      CREATE TABLE IF NOT EXISTS `posthog_test.person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
       ON CLUSTER 'posthog' (
           team_id INT NOT NULL,
   
@@ -1158,7 +1077,7 @@
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
       ENGINE = ReplicatedReplacingMergeTree(
-          '/clickhouse/tables/noshard/posthog.person_overrides',
+          '/clickhouse/tables/noshard/posthog_test.person_overrides',
           '{replica}-{shard}',
           version
       )
@@ -1170,10 +1089,10 @@
   
   '
 ---
-# name: test_create_table_query[posthog_test.person_overrides_kafka]
+# name: test_create_table_query[person_overrides_kafka]
   '
   
-      CREATE TABLE IF NOT EXISTS `posthog_test.person_overrides_kafka`
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides_kafka`
       ON CLUSTER 'posthog'
   
       ENGINE = Kafka(
@@ -1193,18 +1112,83 @@
           -- created_at is not included in the Kafka message, rather it is set as
           -- a default in the MergeTree table
           version
-      FROM `posthog_test.person_overrides`
+      FROM `posthog_test`.`person_overrides`
   
   '
 ---
-# name: test_create_table_query[posthog_test.person_overrides_mv]
+# name: test_create_table_query[person_overrides_mv]
   '
   
-      CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test.person_overrides_mv`
+      CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test`.`person_overrides_mv`
       ON CLUSTER 'posthog'
       TO posthog_test.person_overrides
       AS SELECT *
-      FROM `posthog_test.person_overrides_kafka`
+      FROM `posthog_test`.`person_overrides_kafka`
+  
+  '
+---
+# name: test_create_table_query[person_static_cohort]
+  '
+  
+  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
+  (
+      id UUID,
+      person_id UUID,
+      cohort_id Int64,
+      team_id Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplacingMergeTree(_timestamp)
+  Order By (team_id, cohort_id, person_id, id)
+  
+  
+  '
+---
+# name: test_create_table_query[plugin_log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
+  (
+      id UUID,
+      team_id Int64,
+      plugin_id Int64,
+      plugin_config_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      source VARCHAR,
+      type VARCHAR,
+      message VARCHAR,
+      instance_id UUID
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplacingMergeTree(_timestamp)
+  PARTITION BY plugin_id ORDER BY (team_id, id)
+  
+  SETTINGS index_granularity=512
+  
+  '
+---
+# name: test_create_table_query[plugin_log_entries_mv]
+  '
+  
+  CREATE MATERIALIZED VIEW plugin_log_entries_mv ON CLUSTER 'posthog'
+  TO posthog_test.plugin_log_entries
+  AS SELECT
+  id,
+  team_id,
+  plugin_id,
+  plugin_config_id,
+  timestamp,
+  source,
+  type,
+  message,
+  instance_id,
+  _timestamp,
+  _offset
+  FROM posthog_test.kafka_plugin_log_entries
   
   '
 ---
@@ -1252,11 +1236,7 @@
 ---
 # name: test_create_table_query[sharded_app_metrics]
   '
-<<<<<<< HEAD
-
-=======
   
->>>>>>> 65a7d2d8f (Update schema snapshots)
   CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
@@ -1707,54 +1687,10 @@
 
   '
 ---
-# name: test_create_table_query_replicated_and_storage[person_static_cohort]
-  '
-
-  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
-  (
-      id UUID,
-      person_id UUID,
-      cohort_id Int64,
-      team_id Int64
-
-  , _timestamp DateTime
-  , _offset UInt64
-
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
-  Order By (team_id, cohort_id, person_id, id)
-  SETTINGS storage_policy = 'hot_to_cold'
-
-  '
----
-# name: test_create_table_query_replicated_and_storage[plugin_log_entries]
-  '
-
-  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
-  (
-      id UUID,
-      team_id Int64,
-      plugin_id Int64,
-      plugin_config_id Int64,
-      timestamp DateTime64(6, 'UTC'),
-      source VARCHAR,
-      type VARCHAR,
-      message VARCHAR,
-      instance_id UUID
-
-  , _timestamp DateTime
-  , _offset UInt64
-
-  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
-  PARTITION BY plugin_id ORDER BY (team_id, id)
-
-  SETTINGS index_granularity=512
-
-  '
----
-# name: test_create_table_query_replicated_and_storage[posthog_test.person_overrides]
+# name: test_create_table_query_replicated_and_storage[person_overrides]
   '
   
-      CREATE TABLE IF NOT EXISTS `posthog_test.person_overrides`
+      CREATE TABLE IF NOT EXISTS `posthog_test`.`person_overrides`
       ON CLUSTER 'posthog' (
           team_id INT NOT NULL,
   
@@ -1789,7 +1725,7 @@
       -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
       -- for details.
       ENGINE = ReplicatedReplacingMergeTree(
-          '/clickhouse/tables/noshard/posthog.person_overrides',
+          '/clickhouse/tables/noshard/posthog_test.person_overrides',
           '{replica}-{shard}',
           version
       )
@@ -1801,13 +1737,53 @@
   
   '
 ---
+# name: test_create_table_query_replicated_and_storage[person_static_cohort]
+  '
+  
+  CREATE TABLE IF NOT EXISTS person_static_cohort ON CLUSTER 'posthog'
+  (
+      id UUID,
+      person_id UUID,
+      cohort_id Int64,
+      team_id Int64
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.person_static_cohort', '{replica}-{shard}', _timestamp)
+  Order By (team_id, cohort_id, person_id, id)
+  SETTINGS storage_policy = 'hot_to_cold'
+  
+  '
+---
+# name: test_create_table_query_replicated_and_storage[plugin_log_entries]
+  '
+  
+  CREATE TABLE IF NOT EXISTS plugin_log_entries ON CLUSTER 'posthog'
+  (
+      id UUID,
+      team_id Int64,
+      plugin_id Int64,
+      plugin_config_id Int64,
+      timestamp DateTime64(6, 'UTC'),
+      source VARCHAR,
+      type VARCHAR,
+      message VARCHAR,
+      instance_id UUID
+      
+  , _timestamp DateTime
+  , _offset UInt64
+  
+  ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.plugin_log_entries', '{replica}-{shard}', _timestamp)
+  PARTITION BY plugin_id ORDER BY (team_id, id)
+  
+  SETTINGS index_granularity=512
+  
+  '
+---
 # name: test_create_table_query_replicated_and_storage[sharded_app_metrics]
   '
-<<<<<<< HEAD
-
-=======
   
->>>>>>> 65a7d2d8f (Update schema snapshots)
   CREATE TABLE IF NOT EXISTS sharded_app_metrics ON CLUSTER 'posthog'
   (
       team_id Int64,
