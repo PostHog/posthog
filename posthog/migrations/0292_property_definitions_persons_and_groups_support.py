@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
             field=models.PositiveSmallIntegerField(null=True),
         ),
         migrations.RunSQL(
-            'ALTER TABLE "posthog_propertydefinition" ADD COLUMN "type" smallint DEFAULT 1 NOT NULL CHECK ("type" >= 0)',
+            'ALTER TABLE "posthog_propertydefinition" ADD COLUMN "type" smallint DEFAULT 1 NOT NULL CHECK ("type" >= 0) -- not-null-ignore',
             'ALTER TABLE "posthog_propertydefinition" DROP COLUMN "type"',
             state_operations=[
                 migrations.AddField(
