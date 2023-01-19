@@ -14,6 +14,7 @@ import clsx from 'clsx'
 import { pluralize } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { LemonModal } from '../LemonModal'
+import { CSSProperties } from 'react'
 
 interface SaveToDashboardModalProps {
     isOpen: boolean
@@ -28,7 +29,7 @@ interface DashboardRelationRowProps {
     canEditInsight: boolean
     isHighlighted: boolean
     isAlreadyOnDashboard: boolean
-    style: React.CSSProperties
+    style: CSSProperties
 }
 
 const DashboardRelationRow = ({
