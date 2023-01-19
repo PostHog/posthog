@@ -10,7 +10,6 @@ import {
     ClickHouseTimestamp,
     ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
-    LogLevel,
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
@@ -48,21 +47,6 @@ export function bufferToStream(binary: Buffer): Readable {
     })
 
     return readableInstanceStream
-}
-
-export function setLogLevel(logLevel: LogLevel): void {
-    for (const loopLevel of ['debug', 'info', 'log', 'warn', 'error']) {
-        if (loopLevel === logLevel) {
-            break
-        }
-        const logFunction = (console as any)[loopLevel]
-        if (logFunction) {
-            const originalFunction = logFunction._original || logFunction
-            // eslint-disable-next-line @typescript-eslint/no-empty-function
-            ;(console as any)[loopLevel] = () => {}
-            ;(console as any)[loopLevel]._original = originalFunction
-        }
-    }
 }
 
 export function cloneObject<T>(obj: T): T {
