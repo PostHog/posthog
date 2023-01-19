@@ -1,3 +1,5 @@
+import { MouseEventHandler } from 'react'
+
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconTrendingFlat, IconTrendingFlatDown, IconSchedule } from 'lib/components/icons'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -29,6 +31,9 @@ export function PathNodeCardMenu({
     const continuingPercentage = ((continuingCount / count) * 100).toFixed(1)
     const dropoffPercentage = ((dropOffCount / count) * 100).toFixed(1)
 
+    const openContinuingPersons = (): void => openPersonsModal({ path_start_key: name })
+    const openDroppingPersons = (): void => openPersonsModal({ path_dropoff_key: name })
+
     return (
         <div
             className="bg-white border rounded"
@@ -38,42 +43,75 @@ export function PathNodeCardMenu({
             }}
         >
             {!isPathEnd && (
-                <div className="text-xs flex items-center justify-between p-2 gap-2">
-                    <div className="flex items-center gap-2">
-                        <IconTrendingFlat className="text-xl shrink-0 text-success" />
-                        <span>Continuing</span>
-                    </div>
-                    <LemonButton size="small" onClick={() => openPersonsModal({ path_start_key: name })}>
-                        <span className="text-xs">
-                            {continuingCount}
-                            <span className="text-muted-alt ml-2">({continuingPercentage}%)</span>
-                        </span>
-                    </LemonButton>
-                </div>
+                <CardItem
+                    icon={<IconTrendingFlat className="text-xl shrink-0 text-success" />}
+                    text="Continuing"
+                    count={
+                        <CountButton
+                            onClick={openContinuingPersons}
+                            count={continuingCount}
+                            percentage={continuingPercentage}
+                        />
+                    }
+                    border={false}
+                />
             )}
             {dropOffCount > 0 && (
-                <div className="text-xs flex items-center justify-between p-2 gap-2 border-t border-dashed">
-                    <div className="flex items-center gap-2">
-                        <IconTrendingFlatDown className="text-xl shrink-0 text-danger" />
-                        <span>Dropping off</span>
-                    </div>
-                    <LemonButton size="small" onClick={() => openPersonsModal({ path_dropoff_key: name })}>
-                        <span className="text-xs">
-                            {dropOffCount}
-                            <span className="text-muted-alt text-xs ml-2">({dropoffPercentage}%)</span>
-                        </span>
-                    </LemonButton>
-                </div>
+                <CardItem
+                    icon={<IconTrendingFlatDown className="text-xl shrink-0 text-danger" />}
+                    text="Dropping off"
+                    count={
+                        <CountButton
+                            onClick={openDroppingPersons}
+                            count={dropOffCount}
+                            percentage={dropoffPercentage}
+                        />
+                    }
+                />
             )}
             {!isPathStart && (
-                <div className="text-xs flex items-center justify-between p-2 gap-2 border-t border-dashed">
-                    <div className="flex items-center gap-2">
-                        <IconSchedule className="text-xl shrink-0 text-muted" />
-                        <span>Average time from previous step</span>
-                    </div>
-                    <b className="pr-2">{humanFriendlyDuration(averageConversionTime)}</b>
-                </div>
+                <CardItem
+                    icon={<IconSchedule className="text-xl shrink-0 text-muted" />}
+                    text="Average time from previous step"
+                    count={<b className="pr-2">{humanFriendlyDuration(averageConversionTime)}</b>}
+                />
             )}
+        </div>
+    )
+}
+
+type CountButtonProps = {
+    count: string | number
+    percentage: string | number
+    onClick: MouseEventHandler<HTMLElement>
+}
+
+function CountButton({ count, percentage, onClick }: CountButtonProps): JSX.Element {
+    return (
+        <LemonButton size="small" onClick={onClick}>
+            <span className="text-xs">
+                {count}
+                <span className="text-muted-alt ml-2">({percentage}%)</span>
+            </span>
+        </LemonButton>
+    )
+}
+
+type CardItemProps = {
+    icon: JSX.Element
+    text: string
+    count: JSX.Element
+    border?: boolean
+}
+
+function CardItem({ icon, text, count, border = true }: CardItemProps): JSX.Element {
+    return (
+        <div className={`text-xs flex items-center justify-between p-2 gap-2 ${border && 'border-t border-dashed'}`}>
+            <div className="flex items-center gap-2">
+                {icon}
+                <span>{text}</span>
+            </div>
+            {count}
         </div>
     )
 }
