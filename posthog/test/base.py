@@ -564,14 +564,15 @@ def failhard_threadhook_context():
     test failure.
     """
 
-    def raise_hook(exc_type, exc_value, exc_traceback, thread):
-        raise exc_value
+    def raise_hook(args: threading.ExceptHookArgs):
+        if args.exc_value is not None:
+            raise args.exc_type(args.exc_value)
 
-    old_hook, threading.excepthook = threading.excepthook, raise_hook  # type: ignore
+    old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:
         yield old_hook
     finally:
-        assert threading.excepthook is raise_hook  # type: ignore
+        assert threading.excepthook is raise_hook
         threading.excepthook = old_hook
 
 
