@@ -369,7 +369,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
                         key={
-                            (columnsInResponse ?? columnsInQuery).join(
+                            [...(columnsInResponse ?? []), ...columnsInQuery].join(
                                 '::'
                             ) /* Bust the LemonTable cache when columns change */
                         }
@@ -379,12 +379,12 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                 return `__category_row__${rowIndex}`
                             }
                             if (isEventsQuery(query.source)) {
-                                if ((columnsInResponse ?? columnsInQuery).includes('*')) {
-                                    return record[(columnsInResponse ?? columnsInQuery).indexOf('*')].uuid
-                                } else if ((columnsInResponse ?? columnsInQuery).includes('uuid')) {
-                                    return record[(columnsInResponse ?? columnsInQuery).indexOf('uuid')]
-                                } else if ((columnsInResponse ?? columnsInQuery).includes('id')) {
-                                    return record[(columnsInResponse ?? columnsInQuery).indexOf('id')]
+                                if (columnsInResponse?.includes('*')) {
+                                    return record[columnsInResponse.indexOf('*')].uuid
+                                } else if (columnsInResponse?.includes('uuid')) {
+                                    return record[columnsInResponse.indexOf('uuid')]
+                                } else if (columnsInResponse?.includes('id')) {
+                                    return record[columnsInResponse.indexOf('id')]
                                 }
                                 return JSON.stringify(record)
                             } else {
