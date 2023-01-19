@@ -121,8 +121,8 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
         if not events_to_include:
             event_to_filter += ("$autocapture",)
         else:
-            if "$rageclicks" in events_to_include:
-                events_to_include.remove("$rageclicks")
+            if "$rageclick" in events_to_include:
+                events_to_include.remove("$rageclick")
                 event_to_filter += ("$rageclick",)
 
             if "$autocapture" in events_to_include:
@@ -130,7 +130,7 @@ class ElementViewSet(StructuredViewSetMixin, viewsets.ModelViewSet):
                 event_to_filter += ("$autocapture",)
 
             if events_to_include:
-                raise ValidationError("Only $autocapture and $rageclicks are supported for now.")
+                raise ValidationError("Only $autocapture and $rageclick are supported for now.")
         return event_to_filter
 
     @action(methods=["GET"], detail=False)

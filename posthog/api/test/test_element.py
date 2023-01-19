@@ -220,7 +220,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def test_element_stats_can_load_only_rageclick_data(self) -> None:
         self._setup_events()
 
-        response = self.client.get(f"/api/element/stats/?paginate_response=true&include=$rageclicks")
+        response = self.client.get(f"/api/element/stats/?paginate_response=true&include=$rageclick")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response_json = response.json()
@@ -233,7 +233,7 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self._setup_events()
 
         response = self.client.get(
-            f"/api/element/stats/?paginate_response=true&include=$rageclicks&include=$autocapture"
+            f"/api/element/stats/?paginate_response=true&include=$rageclick&include=$autocapture"
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 

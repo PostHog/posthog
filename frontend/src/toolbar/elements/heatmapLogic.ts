@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { elementToActionStep, toolbarFetch, trimElement } from '~/toolbar/utils'
@@ -12,19 +12,17 @@ import { FilterType, PropertyOperator } from '~/types'
 import { PaginatedResponse } from 'lib/api'
 import { loaders } from 'kea-loaders'
 
-export interface ElementStatsPages extends PaginatedResponse<ElementsEventType> {
-    pagesLoaded: number
-}
-
-const emptyElementsStatsPages: ElementStatsPages = {
+const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
     next: undefined,
     previous: undefined,
     results: [],
-    pagesLoaded: 0,
 }
 
 export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
+    connect({
+        values: [toolbarLogic, ['apiURL']],
+    }),
     actions({
         getElementStats: (url?: string | null) => ({
             url,
@@ -83,7 +81,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     loaders(({ values }) => ({
         elementStats: [
-            null as ElementStatsPages | null,
+            null as PaginatedResponse<ElementsEventType> | null,
             {
                 resetElementStats: () => emptyElementsStatsPages,
                 getElementStats: async ({ url }, breakpoint) => {
@@ -102,10 +100,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
                             ],
                             ...values.heatmapFilter,
                         }
-                        defaultUrl = `/api/element/stats/${encodeParams({ ...params, paginate_response: true }, '?')}`
+                        const includeEventsParams = '&include=$autocapture&include=$rageclick'
+                        defaultUrl = `${values.apiURL}/api/element/stats/${encodeParams(
+                            { ...params, paginate_response: true },
+                            '?'
+                        )}${includeEventsParams}`
                     }
 
-                    const response = await toolbarFetch(url || defaultUrl, 'GET', undefined, !!url)
+                    // toolbar fetch collapses queryparams but this URL has multiple with the same name
+                    const useProvidedURL = true
+                    const response = await toolbarFetch(url || defaultUrl, 'GET', undefined, useProvidedURL)
 
                     if (response.status === 403) {
                         toolbarLogic.actions.authenticate()
@@ -123,8 +127,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         results: [...(values.elementStats?.results || []), ...paginatedResults.results],
                         next: paginatedResults.next,
                         previous: paginatedResults.previous,
-                        pagesLoaded: (values.elementStats?.pagesLoaded || 0) + 1,
-                    } as ElementStatsPages
+                    } as PaginatedResponse<ElementsEventType>
                 },
             },
         ],
@@ -171,6 +174,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                         count: event.count,
                                         selector: selector,
                                         hash: event.hash,
+                                        type: event.type,
                                     } as CountedHTMLElement)
                                     return null
                                 }
@@ -222,10 +226,14 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         const existing = normalisedElements.get(trimmedElement)
                         if (existing) {
                             existing.count += countedElement.count
+                            existing.clickCount += countedElement.type === '$rageclick' ? 0 : countedElement.count
+                            existing.rageclickCount += countedElement.type === '$rageclick' ? countedElement.count : 0
                         }
                     } else {
                         normalisedElements.set(trimmedElement, {
                             ...countedElement,
+                            clickCount: countedElement.type === '$rageclick' ? 0 : countedElement.count,
+                            rageclickCount: countedElement.type === '$rageclick' ? countedElement.count : 0,
                             element: trimmedElement,
                             actionStep: elementToActionStep(trimmedElement, dataAttributes),
                         })
