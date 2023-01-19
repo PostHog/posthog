@@ -65,7 +65,13 @@ const DashboardRelationRow = ({
             <LemonButton
                 type={isAlreadyOnDashboard ? 'primary' : 'secondary'}
                 loading={dashboardWithActiveAPICall === dashboard.id}
-                disabled={!!dashboardWithActiveAPICall || !canEditInsight}
+                disabledReason={
+                    !canEditInsight
+                        ? "You don't have permission to edit this dashboard"
+                        : !!dashboardWithActiveAPICall
+                        ? 'Loading...'
+                        : ''
+                }
                 size="small"
                 onClick={(e) => {
                     e.preventDefault()
@@ -118,7 +124,15 @@ export function AddToDashboardModal({
             footer={
                 <>
                     <div className="flex-1">
-                        <LemonButton type="secondary" onClick={addNewDashboard} disabled={!canEditInsight}>
+                        <LemonButton
+                            type="secondary"
+                            onClick={addNewDashboard}
+                            disabledReason={
+                                !canEditInsight
+                                    ? 'You do not have permission to add this Insight to dashboards'
+                                    : undefined
+                            }
+                        >
                             Add to a new dashboard
                         </LemonButton>
                     </div>
