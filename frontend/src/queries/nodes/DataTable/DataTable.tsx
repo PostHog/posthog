@@ -31,6 +31,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { TaxonomicPopup } from 'lib/components/TaxonomicPopup/TaxonomicPopup'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { extractExpressionComment, removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 interface DataTableProps {
     query: DataTableNode
@@ -40,10 +41,10 @@ interface DataTableProps {
 }
 
 const groupTypes = [
+    TaxonomicFilterGroupType.HogQLExpression,
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.EventFeatureFlags,
-    TaxonomicFilterGroupType.HogQLExpression,
 ]
 
 let uniqueNode = 0
@@ -57,6 +58,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     const {
         response,
         responseLoading,
+        responseError,
         canLoadNextData,
         canLoadNewData,
         nextDataLoading,
@@ -65,9 +67,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key }
-    const { resultsWithLabelRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort } = useValues(
-        dataTableLogic(dataTableLogicProps)
-    )
+    const { resultsWithLabelRows, columns, queryWithDefaults, canSort } = useValues(dataTableLogic(dataTableLogicProps))
 
     const {
         showActions,
@@ -83,7 +83,6 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         expandable,
     } = queryWithDefaults
 
-    const columns: string[] = columnsInResponse ?? columnsInQuery
     const actionsColumnShown = showActions && isEventsQuery(query.source) && columns.includes('*')
     const lemonColumns: LemonTableColumn<Record<string, any> | any[], any>[] = [
         ...columns.map(
@@ -184,7 +183,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                     </>
                                 ) : null}
                                 <TaxonomicPopup
-                                    groupType={TaxonomicFilterGroupType.EventProperties}
+                                    groupType={TaxonomicFilterGroupType.HogQLExpression}
                                     value={''}
                                     placeholder={<span className="not-italic">Add column left</span>}
                                     data-attr="datatable-add-column-left"
@@ -209,7 +208,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                     buttonProps={{ type: undefined }}
                                 />
                                 <TaxonomicPopup
-                                    groupType={TaxonomicFilterGroupType.EventProperties}
+                                    groupType={TaxonomicFilterGroupType.HogQLExpression}
                                     value={''}
                                     placeholder={<span className="not-italic">Add column right</span>}
                                     data-attr="datatable-add-column-right"
@@ -394,6 +393,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         }}
                         sorting={null}
                         useURLForSorting={false}
+                        emptyState={responseError ? <InsightErrorState /> : <InsightEmptyState />}
                         expandable={
                             expandable && isEventsQuery(query.source) && columns.includes('*')
                                 ? {

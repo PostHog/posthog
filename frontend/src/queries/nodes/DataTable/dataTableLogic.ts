@@ -15,6 +15,8 @@ export interface DataTableLogicProps {
 }
 
 export const categoryRowKey = Symbol('__categoryRow__')
+export const loadingColumn = Symbol('...')
+export const errorColumn = Symbol('Error!')
 
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
@@ -37,7 +39,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             dataNodeLogic({ key: props.key, query: props.query.source }),
-            ['response', 'responseLoading'],
+            ['response', 'responseLoading', 'responseError'],
         ],
     })),
     selectors({
@@ -57,18 +59,41 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     ? (response?.columns as string[])
                     : null,
         ],
+        columns: [
+            (s) => [s.columnsInResponse, s.columnsInQuery],
+            // always show columns in the query (what the user entered), and transform results to match below
+            (columnsInResponse, columnsInQuery): string[] => columnsInQuery ?? columnsInResponse ?? [],
+        ],
         resultsWithLabelRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, s.columnsInQuery],
-            (sourceKind, orderBy, response, columnsInResponse, columnsInQuery): any[] | null => {
-                if (sourceKind === NodeKind.EventsQuery) {
-                    const results = (response as EventsQuery['response'] | null)?.results
-                    if (results) {
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columns, s.responseError],
+            (sourceKind, orderBy, response: AnyDataNode['response'], columns, responseError): any[] | null => {
+                if (response && sourceKind === NodeKind.EventsQuery) {
+                    const eventsQueryResponse = response as EventsQuery['response'] | null
+                    if (eventsQueryResponse) {
+                        const { results, columns: columnsInResponse } = eventsQueryResponse
                         const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
-                        const orderKeyIndex = (columnsInResponse ?? columnsInQuery).findIndex(
+                        const orderKeyIndex = columns.findIndex(
                             (column) =>
                                 removeExpressionComment(column) === orderKey ||
                                 removeExpressionComment(column) === `-${orderKey}`
                         )
+
+                        // if we errored by adding a new column, show the new columns with the old results
+                        // if the columns changed in any other way, return no results
+                        if (
+                            responseError &&
+                            columnsInResponse &&
+                            (columns.length <= columnsInResponse.length ||
+                                columnsInResponse.find((c) => !columns.includes(c)))
+                        ) {
+                            return []
+                        }
+
+                        const columnMap = Object.fromEntries(columnsInResponse.map((c, i) => [c, i]))
+                        const convertResultToDisplayedColumns = (result: any[]): any[] =>
+                            columns.map((c) =>
+                                c in columnMap ? result[columnMap[c]] : responseError ? errorColumn : loadingColumn
+                            )
 
                         // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
@@ -84,10 +109,12 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                         [categoryRowKey]: dayjs(result[orderKeyIndex]).format('LL'),
                                     })
                                 }
-                                newResults.push(result)
+                                newResults.push(convertResultToDisplayedColumns(result))
                                 lastResult = result
                             }
                             return newResults
+                        } else {
+                            return results.map((result) => convertResultToDisplayedColumns(result))
                         }
                     }
                 }

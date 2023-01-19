@@ -62,13 +62,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     const methodOptions: ApiMethodOptions = {
                         signal: cache.abortController.signal,
                     }
+                    const now = performance.now()
                     try {
-                        const now = performance.now()
                         const data = (await query<DataNode>(props.query, methodOptions, refresh)) ?? null
                         breakpoint()
                         actions.setElapsedTime(performance.now() - now)
                         return data
                     } catch (e: any) {
+                        actions.setElapsedTime(performance.now() - now)
                         if (e.name === 'AbortError' || e.message?.name === 'AbortError') {
                             return values.response
                         } else {
@@ -161,6 +162,14 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => performance.now(),
             },
         ],
+        responseError: [
+            null as string | null,
+            {
+                loadData: () => null,
+                loadDataFailure: () => 'Error loading data',
+                loadDataSuccess: () => null,
+            },
+        ],
         elapsedTime: [
             null as number | null,
             {
@@ -199,9 +208,9 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         ],
         canLoadNewData: [(s) => [s.newQuery], (newQuery) => !!newQuery],
         nextQuery: [
-            (s, p) => [p.query, s.response],
-            (query, response): DataNode | null => {
-                if (isEventsQuery(query)) {
+            (s, p) => [p.query, s.response, s.responseError],
+            (query, response, responseError): DataNode | null => {
+                if (isEventsQuery(query) && !responseError) {
                     if ((response as EventsQuery['response'])?.hasMore) {
                         const sortKey = query.orderBy?.[0] ?? '-timestamp'
                         const typedResults = (response as EventsQuery['response'])?.results
@@ -225,7 +234,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                     }
                 }
-                if (isPersonsNode(query) && response) {
+                if (isPersonsNode(query) && response && !responseError) {
                     const personsResults = (response as PersonsNode['response'])?.results
                     const nextQuery: PersonsNode = {
                         ...query,
