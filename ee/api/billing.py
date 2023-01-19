@@ -173,6 +173,10 @@ class BillingViewset(viewsets.GenericViewSet):
             response["products"] = products["standard"]
             response["products_enterprise"] = products["enterprise"]
 
+            plan_keys = request.query_params.get("keys", None)
+            plans = self._get_plans(plan_keys, org)
+            response["available_plans"] = plans["plans"]
+
             calculated_usage = get_cached_current_usage(org) if org else None
 
             for product in response["products"] + response["products_enterprise"]:
@@ -301,6 +305,18 @@ class BillingViewset(viewsets.GenericViewSet):
             f"{BILLING_SERVICE_URL}/api/products",
             params=params,
             headers=headers,
+        )
+
+        handle_billing_service_error(res)
+
+        return res.json()
+
+    def _get_plans(self, plan_keys: str, organization: Optional[Organization]):
+        if not plan_keys:
+            raise Exception("Please provide plan keys to fetch.")
+
+        res = requests.get(
+            f"{BILLING_SERVICE_URL}/api/plans?keys={plan_keys}",
         )
 
         handle_billing_service_error(res)
