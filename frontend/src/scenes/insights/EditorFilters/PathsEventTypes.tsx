@@ -8,11 +8,16 @@ import { capitalizeFirstLetter } from 'lib/utils'
 import { pathsDataLogic } from 'scenes/paths/pathsDataLogic'
 
 export function PathsEventsTypesDataExploration({ insightProps }: QueryEditorFilterProps): JSX.Element {
-    const { includeEventTypes } = useValues(pathsDataLogic(insightProps))
-    const { setIncludeEventTypes } = useActions(pathsDataLogic(insightProps))
+    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
     return (
-        <PathsEventTypesComponent includeEventTypes={includeEventTypes} setIncludeEventTypes={setIncludeEventTypes} />
+        <PathsEventTypesComponent
+            includeEventTypes={(insightFilter as PathsFilterType)?.include_event_types}
+            setIncludeEventTypes={(includeEventTypes: PathsFilterType['include_event_types']) => {
+                updateInsightFilter({ include_event_types: includeEventTypes })
+            }}
+        />
     )
 }
 

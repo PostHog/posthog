@@ -44,21 +44,7 @@ export const pathsDataLogic = kea<pathsDataLogicType>({
         actions: [insightDataLogic(props), ['updateInsightFilter']],
     }),
 
-    actions: {
-        setIncludeEventTypes: (includeEventTypes: PathType[]) => ({ includeEventTypes }),
-    },
-    listeners: ({ actions }) => ({
-        setIncludeEventTypes: ({ includeEventTypes }) => {
-            actions.updateInsightFilter({ include_event_types: includeEventTypes })
-        },
-    }),
     selectors: {
-        includeEventTypes: [
-            (s) => [s.insightFilter],
-            (insightFilter: PathsFilter | undefined) => {
-                return insightFilter?.include_event_types
-            },
-        ],
         taxonomicGroupTypes: [
             (s) => [s.insightFilter],
             (insightFilter: PathsFilter | undefined) => {
