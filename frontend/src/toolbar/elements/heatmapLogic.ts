@@ -211,31 +211,28 @@ export const heatmapLogic = kea<heatmapLogicType>([
         countedElements: [
             (selectors) => [selectors.elements, toolbarLogic.selectors.dataAttributes],
             (elements, dataAttributes) => {
-                const elementCounter = new Map<HTMLElement, number>()
-                const elementSelector = new Map<HTMLElement, string>()
+                const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
+                ;(elements || []).forEach((countedElement) => {
+                    const trimmedElement = trimElement(countedElement.element)
+                    if (!trimmedElement) {
+                        return
+                    }
 
-                ;(elements || []).forEach(({ element, selector, count }) => {
-                    const trimmedElement = trimElement(element)
-                    if (trimmedElement) {
-                        const oldCount = elementCounter.get(trimmedElement) || 0
-                        elementCounter.set(trimmedElement, oldCount + count)
-                        if (oldCount === 0) {
-                            elementSelector.set(trimmedElement, selector)
+                    if (normalisedElements.has(trimmedElement)) {
+                        const existing = normalisedElements.get(trimmedElement)
+                        if (existing) {
+                            existing.count += countedElement.count
                         }
+                    } else {
+                        normalisedElements.set(trimmedElement, {
+                            ...countedElement,
+                            element: trimmedElement,
+                            actionStep: elementToActionStep(trimmedElement, dataAttributes),
+                        })
                     }
                 })
 
-                const countedElements = [] as CountedHTMLElement[]
-                elementCounter.forEach((count, element) => {
-                    const selector = elementSelector.get(element)
-                    countedElements.push({
-                        count,
-                        element,
-                        selector,
-                        actionStep: elementToActionStep(element, dataAttributes),
-                    } as CountedHTMLElement)
-                })
-
+                const countedElements = Array.from(normalisedElements.values())
                 countedElements.sort((a, b) => b.count - a.count)
 
                 return countedElements.map((e, i) => ({ ...e, position: i + 1 }))
