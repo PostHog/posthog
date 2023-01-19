@@ -208,6 +208,7 @@ class SessionRecording(UUIDModel):
             recording.keypress_count = ch_recording["keypress_count"]
             recording.duration = ch_recording["duration"]
             recording.distinct_id = ch_recording["distinct_id"]
+            recording.matching_events = ch_recording["matching_events"]
             recording.set_start_url_from_urls(ch_recording["urls"])
             recordings.append(recording)
 
