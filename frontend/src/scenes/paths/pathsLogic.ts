@@ -165,21 +165,6 @@ export const pathsLogic = kea<pathsLogicType>({
             (s) => [s.results, s.filter],
             (results: PathResult, filter: Partial<FilterType>) => results?.filter || filter,
         ],
-        propertiesForUrl: [
-            (s) => [s.filter],
-            (filter: Partial<FilterType>) => {
-                let result: Partial<FilterType> = {
-                    insight: InsightType.PATHS,
-                }
-                if (filter && Object.keys(filter).length > 0) {
-                    result = {
-                        ...result,
-                        ...filter,
-                    }
-                }
-                return Object.keys(result).length === 0 ? '' : result
-            },
-        ],
         taxonomicGroupTypes: [
             (s) => [s.filter],
             (filter: Partial<PathsFilterType>) => {
