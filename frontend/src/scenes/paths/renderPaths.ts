@@ -33,7 +33,7 @@ const appendPathNodes = (
     svg: any,
     nodes: PathNodeData[],
     filter: Partial<PathsFilterType>,
-    setPathItemCards: Dispatch<SetStateAction<PathNodeData[]>>
+    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
     svg.append('g')
         .selectAll('rect')
@@ -71,7 +71,7 @@ const appendPathNodes = (
             if (data.y1 - data.y0 > HIDE_PATH_CARD_HEIGHT) {
                 return
             }
-            setPathItemCards(
+            setNodeCards(
                 nodes.map((node: PathNodeData) =>
                     node.index === data.index
                         ? { ...node, visible: true }
@@ -99,7 +99,7 @@ const appendPathLinks = (
     svg: any,
     links: PathNodeData[],
     nodes: PathNodeData[],
-    setPathItemCards: Dispatch<SetStateAction<PathNodeData[]>>
+    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void => {
     const link = svg
         .append('g')
@@ -140,7 +140,7 @@ const appendPathLinks = (
                     pathCardsToShow.push(l.target.index)
                 })
             }
-            setPathItemCards(
+            setNodeCards(
                 nodes.map((node: PathNodeData) => ({
                     ...node,
                     ...{
@@ -200,7 +200,7 @@ export function renderPaths(
     canvasHeight: number,
     paths: { links: PathNode[]; nodes: any[] },
     filter: Partial<PathsFilterType>,
-    setPathItemCards: Dispatch<SetStateAction<PathNodeData[]>>
+    setNodeCards: Dispatch<SetStateAction<PathNodeData[]>>
 ): void {
     if (!paths || paths.nodes.length === 0) {
         return
@@ -224,12 +224,10 @@ export function renderPaths(
         links: paths.links.map((d) => ({ ...d })),
     })
 
-    setPathItemCards(
-        nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT }))
-    )
+    setNodeCards(nodes.map((node: PathNodeData) => ({ ...node, visible: node.y1 - node.y0 > HIDE_PATH_CARD_HEIGHT })))
 
-    appendPathNodes(svg, nodes, filter, setPathItemCards)
+    appendPathNodes(svg, nodes, filter, setNodeCards)
     appendDropoffs(svg)
-    appendPathLinks(svg, links, nodes, setPathItemCards)
+    appendPathLinks(svg, links, nodes, setNodeCards)
     addChartAxisLines(svg, height, nodes, maxLayer)
 }

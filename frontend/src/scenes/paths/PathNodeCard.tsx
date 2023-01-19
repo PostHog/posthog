@@ -12,14 +12,14 @@ import { humanFriendlyDuration, copyToClipboard } from 'lib/utils'
 import { pageUrl, getContinuingValue, getDropOffValue, isSelectedPathStartOrEnd, PathNodeData } from './pathUtils'
 import { pathsLogic } from './pathsLogic'
 
-import './PathItemCard.scss'
+import './PathNodeCard.scss'
 
-type PathItemCardProps = {
+type PathNodeCardProps = {
     node: PathNodeData
     insightProps: InsightLogicProps
 }
 
-export function PathItemCard({ node, insightProps }: PathItemCardProps): JSX.Element | null {
+export function PathNodeCard({ node, insightProps }: PathNodeCardProps): JSX.Element | null {
     const { filter } = useValues(pathsLogic(insightProps))
     const { openPersonsModal, setFilter, viewPathToFunnel } = useActions(pathsLogic(insightProps))
 
@@ -34,7 +34,7 @@ export function PathItemCard({ node, insightProps }: PathItemCardProps): JSX.Ele
     const dropOffValue = getDropOffValue(node)
 
     return (
-        <Tooltip title={pageUrl(node)} placement="right" className="PathItemCard">
+        <Tooltip title={pageUrl(node)} placement="right" className="PathNodeCard">
             <Dropdown
                 overlay={
                     <Menu

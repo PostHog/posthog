@@ -6,7 +6,7 @@ import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
-import { PathItemCard } from './PathItemCard'
+import { PathNodeCard } from './PathNodeCard'
 import { renderPaths } from './renderPaths'
 import type { PathNodeData } from './pathUtils'
 
@@ -21,7 +21,7 @@ export function Paths(): JSX.Element {
     const canvasRef = useRef<HTMLDivElement>(null)
     const { width: canvasWidth = FALLBACK_CANVAS_WIDTH, height: canvasHeight = FALLBACK_CANVAS_HEIGHT } =
         useResizeObserver({ ref: canvasRef })
-    const [pathItemCards, setPathItemCards] = useState<PathNodeData[]>([])
+    const [nodeCards, setNodeCards] = useState<PathNodeData[]>([])
 
     const { insight, insightProps } = useValues(insightLogic)
     const { paths, resultsLoading: pathsLoading, filter, pathsError } = useValues(pathsLogic(insightProps))
@@ -29,12 +29,12 @@ export function Paths(): JSX.Element {
     const id = `'${insight?.short_id || DEFAULT_PATHS_ID}'`
 
     useEffect(() => {
-        setPathItemCards([])
+        setNodeCards([])
 
         const elements = document?.getElementById(id)?.querySelectorAll(`.Paths svg`)
         elements?.forEach((node) => node?.parentNode?.removeChild(node))
 
-        renderPaths(canvasRef, canvasWidth, canvasHeight, paths, filter, setPathItemCards)
+        renderPaths(canvasRef, canvasWidth, canvasHeight, paths, filter, setNodeCards)
     }, [paths, !pathsLoading, canvasWidth, canvasHeight])
 
     return (
@@ -42,10 +42,8 @@ export function Paths(): JSX.Element {
             <div ref={canvasRef} className="Paths" data-attr="paths-viz">
                 {!pathsLoading && paths && paths.nodes.length === 0 && !pathsError && <InsightEmptyState />}
                 {!pathsError &&
-                    pathItemCards &&
-                    pathItemCards.map((node, idx) => (
-                        <PathItemCard key={idx} node={node} insightProps={insightProps} />
-                    ))}
+                    nodeCards &&
+                    nodeCards.map((node, idx) => <PathNodeCard key={idx} node={node} insightProps={insightProps} />)}
             </div>
         </div>
     )
