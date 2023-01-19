@@ -122,7 +122,7 @@ export function PathsAdvancedComponent({
                 <span className="ml-2">persons.</span>
             </div>
             <div>
-                <div className="flex items-center justify-between my-2">
+                <div className="flex items-center my-2">
                     <LemonLabel
                         showOptional
                         info={
@@ -135,9 +135,9 @@ export function PathsAdvancedComponent({
                     >
                         Path Cleaning Rules
                     </LemonLabel>
-                    <Link className="flex items-center" to="/project/settings#path_cleaning_filtering">
+                    <Link className="flex items-center ml-2" to="/project/settings#path_cleaning_filtering">
+                        <IconSettings fontSize="16" className="mr-0.5" />
                         Configure Project Rules
-                        <IconSettings fontSize="16" className="ml-0.5" />
                     </Link>
                 </div>
                 {cleaningFilterComponent}
