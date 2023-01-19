@@ -1,4 +1,4 @@
-import { kea } from 'kea'
+import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
 import { encodeParams } from 'kea-router'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { elementToActionStep, toolbarFetch, trimElement } from '~/toolbar/utils'
@@ -10,6 +10,7 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 import { elementToSelector, escapeRegex } from 'lib/actionUtils'
 import { FilterType, PropertyOperator } from '~/types'
 import { PaginatedResponse } from 'lib/api'
+import { loaders } from 'kea-loaders'
 
 export interface ElementStatsPages extends PaginatedResponse<ElementsEventType> {
     pagesLoaded: number
@@ -22,9 +23,9 @@ const emptyElementsStatsPages: ElementStatsPages = {
     pagesLoaded: 0,
 }
 
-export const heatmapLogic = kea<heatmapLogicType>({
-    path: ['toolbar', 'elements', 'heatmapLogic'],
-    actions: {
+export const heatmapLogic = kea<heatmapLogicType>([
+    path(['toolbar', 'elements', 'heatmapLogic']),
+    actions({
         getElementStats: (url?: string | null) => ({
             url,
         }),
@@ -34,9 +35,8 @@ export const heatmapLogic = kea<heatmapLogicType>({
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
         loadMoreElementStats: true,
-    },
-
-    reducers: {
+    }),
+    reducers({
         canLoadMoreElementStats: [
             true,
             {
@@ -79,9 +79,9 @@ export const heatmapLogic = kea<heatmapLogicType>({
                 setHeatmapFilter: (_, { filter }) => filter,
             },
         ],
-    },
+    }),
 
-    loaders: ({ values }) => ({
+    loaders(({ values }) => ({
         elementStats: [
             null as ElementStatsPages | null,
             {
@@ -128,9 +128,9 @@ export const heatmapLogic = kea<heatmapLogicType>({
                 },
             },
         ],
-    }),
+    })),
 
-    selectors: {
+    selectors({
         elements: [
             (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes],
             (elementStats, dataAttributes) => {
@@ -251,33 +251,32 @@ export const heatmapLogic = kea<heatmapLogicType>({
             (countedElements) =>
                 countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
-    },
-
-    events: ({ actions, values, cache }) => ({
-        afterMount() {
-            if (values.heatmapEnabled) {
-                actions.getElementStats()
-            }
-            cache.keyDownListener = (event: KeyboardEvent) => {
-                if (event.shiftKey && !values.shiftPressed) {
-                    actions.setShiftPressed(true)
-                }
-            }
-            cache.keyUpListener = (event: KeyboardEvent) => {
-                if (!event.shiftKey && values.shiftPressed) {
-                    actions.setShiftPressed(false)
-                }
-            }
-            window.addEventListener('keydown', cache.keyDownListener)
-            window.addEventListener('keyup', cache.keyUpListener)
-        },
-        beforeUnmount() {
-            window.removeEventListener('keydown', cache.keyDownListener)
-            window.removeEventListener('keyup', cache.keyUpListener)
-        },
     }),
 
-    listeners: ({ actions, values }) => ({
+    afterMount(({ actions, values, cache }) => {
+        if (values.heatmapEnabled) {
+            actions.getElementStats()
+        }
+        cache.keyDownListener = (event: KeyboardEvent) => {
+            if (event.shiftKey && !values.shiftPressed) {
+                actions.setShiftPressed(true)
+            }
+        }
+        cache.keyUpListener = (event: KeyboardEvent) => {
+            if (!event.shiftKey && values.shiftPressed) {
+                actions.setShiftPressed(false)
+            }
+        }
+        window.addEventListener('keydown', cache.keyDownListener)
+        window.addEventListener('keyup', cache.keyUpListener)
+    }),
+
+    beforeUnmount(({ cache }) => {
+        window.removeEventListener('keydown', cache.keyDownListener)
+        window.removeEventListener('keyup', cache.keyUpListener)
+    }),
+
+    listeners(({ actions, values }) => ({
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
@@ -317,5 +316,5 @@ export const heatmapLogic = kea<heatmapLogicType>({
         setHeatmapFilter: () => {
             actions.getElementStats()
         },
-    }),
-})
+    })),
+])
