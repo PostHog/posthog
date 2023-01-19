@@ -33,6 +33,7 @@ const NOT_SYNCED_PROPERTIES = new Set([
     '$group_2',
     '$group_3',
     '$group_4',
+    '$groups',
 ])
 
 type PartialPropertyDefinition = {
