@@ -13,7 +13,11 @@ from posthog.utils import encode_get_request_params
 
 class BaseFilter(BaseParamMixin, HogQLParamMixin):
     def __init__(
-        self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
+        self,
+        data: Optional[Dict[str, Any]] = None,
+        request: Optional[request.Request] = None,
+        hogql_context: Optional[HogQLContext] = None,
+        **kwargs,
     ) -> None:
         if request:
             data = {**request.GET.dict(), **request.data, **(data if data else {})}
@@ -23,7 +27,7 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
         self.kwargs = kwargs
         if kwargs.get("team"):
             self.team = kwargs["team"]
-        self.hogql_context = kwargs.get("hogql_context", HogQLContext())
+        self.hogql_context = hogql_context or HogQLContext()
 
         if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             simplified_filter = self.simplify(kwargs["team"])  # type: ignore
@@ -46,7 +50,7 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
 
     def with_data(self, overrides: Dict[str, Any]):
         "Allow making copy of filter whilst preserving the class"
-        return type(self)(data={**self._data, **overrides}, **self.kwargs, hogql_context=self.hogql_context)
+        return type(self)(data={**self._data, **overrides}, hogql_context=self.hogql_context, **self.kwargs)
 
     def query_tags(self) -> Dict[str, Any]:
         ret = {}
