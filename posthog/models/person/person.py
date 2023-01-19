@@ -1,4 +1,3 @@
-import datetime as dt
 from typing import Any, List, Optional
 
 from django.db import models, transaction
@@ -102,19 +101,6 @@ class PersonDistinctId(models.Model):
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
 
 
-class PersonOverrideManager(models.Manager):
-    """A manager for PersonOverride that sets the is_long_term flag on creation."""
-
-    def create_override(self, *args: Any, long_term_cutoff: int = 45, **kwargs: Any) -> "PersonOverride":
-        """Create a PersonOverride with is_long_term set according to old_person_created_at."""
-        old_person_created_at: dt.datetime = kwargs.get("old_person_created_at", dt.datetime.utcnow())
-        is_long_term = dt.datetime.utcnow() - dt.timedelta(days=long_term_cutoff) > old_person_created_at
-        kwargs["is_long_term"] = is_long_term
-        person_override = self.create(*args, **kwargs)
-
-        return person_override
-
-
 class PersonOverride(models.Model):
     """A model of persons to be overriden in merge or merge-like events."""
 
@@ -122,8 +108,6 @@ class PersonOverride(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id")
         ]
-
-    objects: PersonOverrideManager = PersonOverrideManager()
 
     id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
     team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
@@ -133,6 +117,5 @@ class PersonOverride(models.Model):
     old_person_id = models.UUIDField(db_index=True)
     override_person_id = models.UUIDField(db_index=True)
 
-    old_person_created_at: models.DateTimeField = models.DateTimeField()
-    is_long_term: models.BooleanField = models.BooleanField(default=False, editable=False)
+    oldest_event: models.DateTimeField = models.DateTimeField()
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
