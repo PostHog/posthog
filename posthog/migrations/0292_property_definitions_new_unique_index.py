@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
             constraint=posthog.models.utils.UniqueConstraintByExpression(
                 concurrently=True,
                 expression="(team_id, name, type, coalesce(group_type_index, -1))",
-                name="posthog_eventdefinition_uniq",
+                name="posthog_propertydefinition_uniq",
             ),
         ),
     ]

@@ -77,7 +77,8 @@ class PropertyDefinition(UUIDModel):
                 name="group_type_index_set", check=~models.Q(type=3) | models.Q(group_type_index__isnull=False)
             ),
             UniqueConstraintByExpression(
-                name="posthog_eventdefinition_uniq", expression="(team_id, name, type, coalesce(group_type_index, -1))"
+                name="posthog_propertydefinition_uniq",
+                expression="(team_id, name, type, coalesce(group_type_index, -1))",
             ),
         ]
 

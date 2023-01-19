@@ -197,7 +197,7 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
             `
             INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
             VALUES {VALUES}
-            ON CONFLICT ON CONSTRAINT posthog_eventdefinition_uniq
+            ON CONFLICT ON CONSTRAINT posthog_propertydefinition_uniq
             DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
             `,
             toInsert,
