@@ -1,8 +1,9 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BillingProductV2Type, BillingV2PlanType } from '~/types'
+import { BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 import { billingV2Logic } from './billingV2Logic'
 import './PlanTable.scss'
 
@@ -331,31 +332,23 @@ export const billingPlans: BillingPlan[] = [
     },
 ]
 
-export function PlanIcon({
-    value,
-    note,
-    className,
-}: {
-    value: boolean | string
-    note?: string
-    className?: string
-}): JSX.Element {
+export function PlanIcon({ feature, className }: { feature?: BillingV2FeatureType; className?: string }): JSX.Element {
     return (
         <div className="flex items-center text-xs text-muted">
-            {value === true ? (
-                <>
-                    <IconCheckmark className={`text-success mr-4 ${className}`} />
-                    {note}
-                </>
-            ) : value === false ? (
+            {!feature ? (
                 <>
                     <IconClose className={`text-danger mr-4 ${className}`} />
-                    {note}
+                </>
+            ) : feature.limit ? (
+                <>
+                    <IconWarning className={`text-warning mr-4 ${className}`} />
+                    {feature.limit && `${feature.limit} ${feature.unit && feature.unit}/mo`}
+                    {feature.note}
                 </>
             ) : (
                 <>
-                    <IconWarning className={`text-warning mr-4 ${className}`} />
-                    {note}
+                    <IconCheckmark className={`text-success mr-4 ${className}`} />
+                    {feature.note}
                 </>
             )}
         </div>
@@ -428,14 +421,14 @@ const getProductTiers = (plan: BillingV2PlanType, productType: BillingProductV2T
                         </span>
                     </div>
                 ))
-            ) : (
+            ) : product?.free_allocation ? (
                 <div key={`${plan.name}-${productType}-tiers`} className="flex justify-between items-center">
                     <span className="text-xs">
-                        Up to {convertTierToHumanReadable(product?.usage_limit || null, null)} {product?.type}/mo
+                        Up to {convertTierToHumanReadable(product?.free_allocation, null)} {product?.type}/mo
                     </span>
                     <span className="font-bold">Free</span>
                 </div>
-            )}
+            ) : null}
         </>
     )
 }
@@ -464,7 +457,9 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
         </td>
     ))
 
-    return (
+    return !billing?.available_plans?.length ? (
+        <Spinner />
+    ) : (
         <div className="PlanTable space-x-4">
             <table className="w-full table-fixed">
                 <thead>
@@ -542,58 +537,59 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                             </div>
                         </th>
                     </tr>
-                    {Object.keys(billingPlans[0].featureList).map((feature, i) => (
-                        <>
-                            <tr
-                                key={feature}
-                                className={
-                                    // Show the bottom border if it's not the last feature in the list and it doesn't have subfeatures
-                                    i !== Object.keys(billingPlans[0].featureList).length - 1 &&
-                                    !billingPlans[0].featureList[feature].subfeatures
-                                        ? 'PlanTable__tr__border'
-                                        : ''
-                                }
-                            >
-                                <th>{billingPlans[0].featureList[feature].name}</th>
-                                {billingPlans.map((plan) => (
-                                    <td key={`${plan.name}-${feature}`}>
-                                        <PlanIcon
-                                            value={plan.featureList[feature].value}
-                                            note={plan.featureList[feature].note}
-                                            className={'text-xl'}
-                                        />
-                                    </td>
-                                ))}
-                            </tr>
-                            {billingPlans[0].featureList[feature].subfeatures
-                                ? Object.keys(billingPlans[0].featureList[feature].subfeatures).map((subfeature, j) => (
+
+                    {billing?.available_plans?.length > 0
+                        ? billing.available_plans[billing.available_plans.length - 1].products.map((product) =>
+                              product.feature_groups?.map((feature_group) => (
+                                  <>
                                       <tr
-                                          key={subfeature}
+                                          key={feature_group.name}
                                           className={
-                                              // Show the bottom border on the row if it's the last subfeature in the list
-                                              j ===
-                                              Object.keys(billingPlans[0].featureList[feature].subfeatures).length - 1
-                                                  ? 'PlanTable__tr__border'
-                                                  : ''
+                                              // Show the bottom border if it's not the last feature in the list and it doesn't have subfeatures
+                                              !feature_group.features.length ? 'PlanTable__tr__border' : ''
                                           }
                                       >
-                                          <th className="PlanTable__th__subfeature text-muted text-xs">
-                                              {billingPlans[0].featureList[feature].subfeatures[subfeature].name}
-                                          </th>
-                                          {billingPlans.map((plan) => (
-                                              <td key={`${plan.name}-${subfeature}`}>
-                                                  <PlanIcon
-                                                      value={plan.featureList[feature].subfeatures[subfeature]?.value}
-                                                      note={plan.featureList[feature].subfeatures[subfeature]?.note}
-                                                      className={'text-base'}
-                                                  />
-                                              </td>
-                                          ))}
+                                          <th>{feature_group.name}</th>
                                       </tr>
-                                  ))
-                                : null}
-                        </>
-                    ))}
+                                      {feature_group.features.map((feature: BillingV2FeatureType, j: number) => (
+                                          <tr
+                                              key={feature.name}
+                                              className={
+                                                  // Show the bottom border on the row if it's the last subfeature in the list
+                                                  j === feature_group.features.length - 1 ? 'PlanTable__tr__border' : ''
+                                              }
+                                          >
+                                              <th className="PlanTable__th__subfeature text-muted text-xs">
+                                                  {feature.name}
+                                              </th>
+                                              {billing?.available_plans?.map((plan) => (
+                                                  <td key={`${plan.name}-${feature.name}`}>
+                                                      {console.log(
+                                                          plan?.products
+                                                              ?.find((p) => p.type === product.type)
+                                                              ?.feature_groups?.find(
+                                                                  (fg) => fg.name === feature_group.name
+                                                              )
+                                                              ?.features?.find((f) => f.key === feature.key),
+                                                          'hiiii'
+                                                      )}
+                                                      <PlanIcon
+                                                          feature={plan?.products
+                                                              ?.find((p) => p.type === product.type)
+                                                              ?.feature_groups?.find(
+                                                                  (fg) => fg.name === feature_group.name
+                                                              )
+                                                              ?.features?.find((f) => f.key === feature.key)}
+                                                          className={'text-base'}
+                                                      />
+                                                  </td>
+                                              ))}
+                                          </tr>
+                                      ))}
+                                  </>
+                              ))
+                          )
+                        : null}
                     <tr>
                         <td />
                         {upgradeButtons}

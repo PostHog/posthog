@@ -1017,6 +1017,16 @@ export interface BillingType {
 
 export type BillingVersion = 'v1' | 'v2'
 
+export interface BillingV2FeatureType {
+    key: string
+    name: string
+    description?: string
+    unit?: string
+    limit?: number
+    note?: string
+    group?: AvailableFeature
+}
+
 export interface BillingProductV2Type {
     type: 'EVENTS' | 'RECORDINGS' | 'ENTERPRISE' | 'BASE' | 'events' | 'recordings' | 'enterprise' | 'base'
     name: string
@@ -1036,6 +1046,11 @@ export interface BillingProductV2Type {
     current_amount_usd?: string
     usage_limit?: number
     unit_amount_usd: string | null
+    feature_groups: {
+        group: string
+        name: string
+        features: BillingV2FeatureType[]
+    }[]
 }
 
 export interface BillingV2Type {
