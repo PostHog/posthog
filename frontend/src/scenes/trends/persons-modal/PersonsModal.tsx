@@ -75,7 +75,7 @@ export function PersonsModal({
                 onClose={closeModal}
                 onAfterClose={onAfterClose}
                 simple
-                width={600}
+                width={560}
                 inline={inline}
             >
                 <LemonModal.Header>
