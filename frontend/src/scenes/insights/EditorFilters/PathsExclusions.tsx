@@ -52,7 +52,7 @@ export function PathsExclusionsComponent({
                 }))
             }
             onChange={(values) => {
-                setFilter({ exclude_events: values.length > 0 ? values.map((v) => v.value) : values })
+                setFilter({ exclude_events: values.map((v) => v.value as string) })
             }}
             wildcardOptions={path_groupings?.map((name) => ({ name }))}
         />
