@@ -1121,7 +1121,7 @@
   
       CREATE MATERIALIZED VIEW IF NOT EXISTS `posthog_test`.`person_overrides_mv`
       ON CLUSTER 'posthog'
-      TO posthog_test.person_overrides
+      TO `posthog_test`.`person_overrides`
       AS SELECT *
       FROM `posthog_test`.`person_overrides_kafka`
   
