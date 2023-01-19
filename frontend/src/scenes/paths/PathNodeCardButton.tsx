@@ -1,16 +1,14 @@
 import { useValues } from 'kea'
-import { Menu, Row } from 'antd'
 
-import { LemonButton, LemonButtonWithPopup } from '@posthog/lemon-ui'
-import { IconEllipsis, IconInfo, IconNotification, IconWithCount } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
-import { AvailableFeature, PathsFilterType } from '~/types'
 
+import { AvailableFeature, PathsFilterType } from '~/types'
+import { LemonButton, LemonButtonWithPopup } from '@posthog/lemon-ui'
+import { IconEllipsis } from 'lib/components/icons'
 import { copyToClipboard } from 'lib/utils'
 
 import { pageUrl, PathNodeData } from './pathUtils'
 import { pathsLogicType } from './pathsLogicType'
-import './PathNodeCardButton.scss'
 
 type PathNodeCardButton = {
     name: string
@@ -48,12 +46,12 @@ export function PathNodeCardButton({
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 
     return (
-        <div className="PathNodeCardButton flex justify-between items-center w-full bg-white p-1">
+        <div className="flex justify-between items-center w-full bg-white p-1">
             <div className="flex items-center font-semibold">
                 <span className="text-xxs text-muted mr-1">{`0${name[0]}`}</span>
                 <span className="text-xs">{pageUrl(node, true)}</span>
             </div>
-            <Row>
+            <div className="flex flex-nowrap">
                 <LemonButton size="small" status="stealth">
                     <span className="text-primary text-xs pr-1 font-medium" onClick={openModal}>
                         {count}
@@ -61,26 +59,36 @@ export function PathNodeCardButton({
                 </LemonButton>
                 <LemonButtonWithPopup
                     size="small"
-                    icon={<IconEllipsis className="text-muted" />}
+                    status="muted"
+                    icon={<IconEllipsis />}
                     popup={{
                         overlay: (
-                            <Menu className="paths-options-dropdown">
-                                <Menu.Item onClick={setAsPathStart}>Set as path start</Menu.Item>
+                            <>
+                                <LemonButton size="small" fullWidth status="stealth" onClick={setAsPathStart}>
+                                    Set as path start
+                                </LemonButton>
                                 {hasAdvancedPaths && (
                                     <>
-                                        <Menu.Item onClick={setAsPathEnd}>Set as path end</Menu.Item>
-                                        <Menu.Item onClick={excludePathItem}>Exclude path item</Menu.Item>
-                                        <Menu.Item onClick={viewFunnel}>View funnel</Menu.Item>
+                                        <LemonButton size="small" fullWidth status="stealth" onClick={setAsPathEnd}>
+                                            Set as path end
+                                        </LemonButton>
+                                        <LemonButton size="small" fullWidth status="stealth" onClick={excludePathItem}>
+                                            Exclude path item
+                                        </LemonButton>
+                                        <LemonButton size="small" fullWidth status="stealth" onClick={viewFunnel}>
+                                            View funnel
+                                        </LemonButton>
                                     </>
                                 )}
-                                <Menu.Item onClick={copyName}>Copy path item name</Menu.Item>
-                            </Menu>
+                                <LemonButton size="small" fullWidth status="stealth" onClick={copyName}>
+                                    Copy path item name
+                                </LemonButton>
+                            </>
                         ),
-                        placement: 'bottom',
-                        sameWidth: true,
+                        placement: 'bottom-end',
                     }}
                 />
-            </Row>
+            </div>
         </div>
     )
 }
