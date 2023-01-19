@@ -18,6 +18,7 @@ import {
     LogLevel,
     Person,
     PluginsServerConfig,
+    PropertyDefinitionTypeEnum,
     PropertyType,
     PropertyUpdateOperation,
     RawPerformanceEvent,
@@ -1865,6 +1866,8 @@ test('team event_properties', async () => {
             query_usage_30_day: null,
             team_id: 2,
             volume_30_day: null,
+            type: PropertyDefinitionTypeEnum.Event,
+            group_type_index: null,
         },
         {
             id: expect.any(String),
@@ -1875,6 +1878,8 @@ test('team event_properties', async () => {
             query_usage_30_day: null,
             team_id: 2,
             volume_30_day: null,
+            type: PropertyDefinitionTypeEnum.Event,
+            group_type_index: null,
         },
         {
             id: expect.any(String),
@@ -1885,6 +1890,8 @@ test('team event_properties', async () => {
             query_usage_30_day: null,
             team_id: 2,
             volume_30_day: null,
+            type: PropertyDefinitionTypeEnum.Event,
+            group_type_index: null,
         },
     ])
 
