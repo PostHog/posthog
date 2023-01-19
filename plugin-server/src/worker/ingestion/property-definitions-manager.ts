@@ -4,11 +4,19 @@ import LRU from 'lru-cache'
 import { DateTime } from 'luxon'
 
 import { ONE_HOUR } from '../../config/constants'
-import { PluginsServerConfig, PropertyType, Team, TeamId } from '../../types'
+import {
+    GroupTypeIndex,
+    PluginsServerConfig,
+    PropertyDefinitionTypeEnum,
+    PropertyType,
+    Team,
+    TeamId,
+} from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
+import { GroupTypeManager } from './group-type-manager'
 import { detectPropertyDefinitionTypes } from './property-definitions-auto-discovery'
 import { PropertyDefinitionsCache } from './property-definitions-cache'
 import { TeamManager } from './team-manager'
@@ -27,9 +35,17 @@ const NOT_SYNCED_PROPERTIES = new Set([
     '$group_4',
 ])
 
+type PartialPropertyDefinition = {
+    key: string
+    type: PropertyDefinitionTypeEnum
+    value: any
+    groupTypeIndex: GroupTypeIndex | null
+}
+
 export class PropertyDefinitionsManager {
     db: DB
     teamManager: TeamManager
+    groupTypeManager: GroupTypeManager
     eventDefinitionsCache: LRU<TeamId, Set<string>>
     eventPropertiesCache: LRU<string, Set<string>> // Map<JSON.stringify([TeamId, Event], Set<Property>>
     eventLastSeenCache: LRU<string, number> // key: JSON.stringify([team_id, event]); value: parseInt(YYYYMMDD)
@@ -37,10 +53,17 @@ export class PropertyDefinitionsManager {
     statsd?: StatsD
     private readonly lruCacheSize: number
 
-    constructor(teamManager: TeamManager, db: DB, serverConfig: PluginsServerConfig, statsd?: StatsD) {
+    constructor(
+        teamManager: TeamManager,
+        groupTypeManager: GroupTypeManager,
+        db: DB,
+        serverConfig: PluginsServerConfig,
+        statsd?: StatsD
+    ) {
         this.db = db
         this.statsd = statsd
         this.teamManager = teamManager
+        this.groupTypeManager = groupTypeManager
         this.lruCacheSize = serverConfig.EVENT_PROPERTY_LRU_SIZE
 
         this.eventDefinitionsCache = new LRU({
@@ -81,7 +104,7 @@ export class PropertyDefinitionsManager {
             await Promise.all([
                 this.syncEventDefinitions(team, event),
                 this.syncEventProperties(team, event, properties),
-                this.syncPropertyDefinitions(properties, team),
+                this.syncPropertyDefinitions(team, event, properties),
                 this.teamManager.setTeamIngestedEvent(team, properties),
             ])
         } finally {
@@ -140,22 +163,37 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
         )
     }
 
-    private async syncPropertyDefinitions(properties: Properties, team: Team) {
-        const toInsert: Array<[string, string, boolean, null, null, TeamId, PropertyType | null]> = []
-        for (const key of this.getPropertyKeys(properties)) {
-            const value = properties[key]
-            if (this.propertyDefinitionsCache.shouldUpdate(team.id, key)) {
+    private async syncPropertyDefinitions(team: Team, event: string, properties: Properties) {
+        const toInsert: Array<
+            [string, string, number, number | null, boolean, null, null, TeamId, PropertyType | null]
+        > = []
+        for await (const { key, value, type, groupTypeIndex } of this.getPropertyDefinitions(
+            team.id,
+            event,
+            properties
+        )) {
+            if (this.propertyDefinitionsCache.shouldUpdate(team.id, key, type, groupTypeIndex)) {
                 const propertyType = detectPropertyDefinitionTypes(value, key)
                 const isNumerical = propertyType == PropertyType.Numeric
-                this.propertyDefinitionsCache.set(team.id, key, propertyType)
+                this.propertyDefinitionsCache.set(team.id, key, type, groupTypeIndex, propertyType)
 
-                toInsert.push([new UUIDT().toString(), key, isNumerical, null, null, team.id, propertyType])
+                toInsert.push([
+                    new UUIDT().toString(),
+                    key,
+                    type,
+                    groupTypeIndex,
+                    isNumerical,
+                    null,
+                    null,
+                    team.id,
+                    propertyType,
+                ])
             }
         }
 
         await this.db.postgresBulkInsert(
             `
-            INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
+            INSERT INTO posthog_propertydefinition (id, name, type, group_type_index, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type)
             VALUES {VALUES}
             ON CONFLICT ON CONSTRAINT posthog_propertydefinition_team_id_name_e21599fc_uniq
             DO UPDATE SET property_type=EXCLUDED.property_type WHERE posthog_propertydefinition.property_type IS NULL
@@ -213,5 +251,45 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
 
     private getPropertyKeys(properties: Properties): Array<string> {
         return Object.keys(properties).filter((key) => !NOT_SYNCED_PROPERTIES.has(key))
+    }
+
+    private async *getPropertyDefinitions(
+        teamId: number,
+        event: string,
+        properties: Properties
+    ): AsyncGenerator<PartialPropertyDefinition> {
+        if (event === '$groupidentify') {
+            const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
+            const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
+
+            yield* this.extract(groupPropertiesToSet, PropertyDefinitionTypeEnum.Group, groupTypeIndex)
+        } else {
+            yield* this.extract(properties, PropertyDefinitionTypeEnum.Event)
+
+            if (properties.$set) {
+                yield* this.extract(properties.$set, PropertyDefinitionTypeEnum.Person)
+            }
+            if (properties.$set_once) {
+                yield* this.extract(properties.$set_once, PropertyDefinitionTypeEnum.Person)
+            }
+        }
+    }
+
+    private *extract(
+        properties: Properties,
+        type: PropertyDefinitionTypeEnum,
+        groupTypeIndex: GroupTypeIndex | null = null
+    ): Generator<PartialPropertyDefinition> {
+        for (const [key, value] of Object.entries(properties)) {
+            if (type === PropertyDefinitionTypeEnum.Event && NOT_SYNCED_PROPERTIES.has(key)) {
+                continue
+            }
+            yield {
+                key,
+                type,
+                value,
+                groupTypeIndex,
+            }
+        }
     }
 }

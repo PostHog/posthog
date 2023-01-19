@@ -1,9 +1,10 @@
 import { DateTime, Settings } from 'luxon'
 
-import { DateTimePropertyTypeFormat, Hub, PropertyType } from '../../../src/types'
+import { DateTimePropertyTypeFormat, Hub, PropertyDefinitionTypeEnum, PropertyType } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { posthog } from '../../../src/utils/posthog'
 import { UUIDT } from '../../../src/utils/utils'
+import { GroupTypeManager } from '../../../src/worker/ingestion/group-type-manager'
 import {
     dateTimePropertyTypeFormatPatterns,
     isNumericString,
@@ -28,7 +29,8 @@ describe('TeamManager()', () => {
     beforeEach(async () => {
         ;[hub, closeHub] = await createHub()
         await resetTestDatabase()
-        manager = new PropertyDefinitionsManager(hub.teamManager, hub.db, hub)
+        const groupTypeManager = new GroupTypeManager(hub.db, hub.teamManager, hub.SITE_URL)
+        manager = new PropertyDefinitionsManager(hub.teamManager, groupTypeManager, hub.db, hub)
 
         Settings.defaultZoneName = 'utc'
     })
@@ -58,13 +60,13 @@ describe('TeamManager()', () => {
                     'testTag'
                 )
                 await hub.db.postgresQuery(
-                    `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6)`,
-                    [new UUIDT().toString(), 'property_name', false, null, null, 2],
+                    `INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [new UUIDT().toString(), 'property_name', PropertyDefinitionTypeEnum.Event, false, null, null, 2],
                     'testTag'
                 )
                 await hub.db.postgresQuery(
-                    `INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6)`,
-                    [new UUIDT().toString(), 'numeric_prop', true, null, null, 2],
+                    `INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+                    [new UUIDT().toString(), 'numeric_prop', PropertyDefinitionTypeEnum.Event, true, null, null, 2],
                     'testTag'
                 )
                 await hub.db.postgresQuery(
@@ -156,6 +158,8 @@ describe('TeamManager()', () => {
                         query_usage_30_day: null,
                         team_id: 2,
                         volume_30_day: null,
+                        type: PropertyDefinitionTypeEnum.Event,
+                        group_type_index: null,
                     },
                     {
                         id: expect.any(String),
@@ -166,6 +170,8 @@ describe('TeamManager()', () => {
                         query_usage_30_day: null,
                         team_id: 2,
                         volume_30_day: null,
+                        type: PropertyDefinitionTypeEnum.Event,
+                        group_type_index: null,
                     },
                     {
                         id: expect.any(String),
@@ -176,6 +182,8 @@ describe('TeamManager()', () => {
                         query_usage_30_day: null,
                         team_id: 2,
                         volume_30_day: null,
+                        type: PropertyDefinitionTypeEnum.Event,
+                        group_type_index: null,
                     },
                 ])
             })
@@ -248,6 +256,85 @@ describe('TeamManager()', () => {
             })
         })
 
+        it('saves person property definitions', async () => {
+            await manager.updateEventNamesAndProperties(2, 'new-event', {
+                $set: {
+                    foo: 'bar',
+                },
+                $set_once: {
+                    numeric: 123,
+                },
+            })
+
+            expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                {
+                    id: expect.any(String),
+                    is_numerical: false,
+                    name: 'foo',
+                    property_type: 'String',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                    type: PropertyDefinitionTypeEnum.Person,
+                    group_type_index: null,
+                },
+                {
+                    id: expect.any(String),
+                    is_numerical: true,
+                    name: 'numeric',
+                    property_type: 'Numeric',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                    type: PropertyDefinitionTypeEnum.Person,
+                    group_type_index: null,
+                },
+            ])
+        })
+
+        it('saves group property definitions', async () => {
+            await hub.db.insertGroupType(2, 'project', 0)
+            await hub.db.insertGroupType(2, 'organization', 1)
+
+            await manager.updateEventNamesAndProperties(2, '$groupidentify', {
+                $group_type: 'organization',
+                $group_key: 'org::5',
+                $group_set: {
+                    foo: 'bar',
+                    numeric: 3,
+                },
+            })
+
+            expect(await hub.db.fetchPropertyDefinitions()).toEqual([
+                {
+                    id: expect.any(String),
+                    is_numerical: false,
+                    name: 'foo',
+                    property_type: 'String',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                    type: PropertyDefinitionTypeEnum.Group,
+                    group_type_index: 1,
+                },
+                {
+                    id: expect.any(String),
+                    is_numerical: true,
+                    name: 'numeric',
+                    property_type: 'Numeric',
+                    property_type_format: null,
+                    query_usage_30_day: null,
+                    team_id: 2,
+                    volume_30_day: null,
+                    type: PropertyDefinitionTypeEnum.Group,
+                    group_type_index: 1,
+                },
+            ])
+        })
+
         describe('first event has not yet been ingested', () => {
             beforeEach(async () => {
                 await hub.db.postgresQuery('UPDATE posthog_team SET ingested_event = false', undefined, 'testTag')
@@ -289,7 +376,7 @@ describe('TeamManager()', () => {
                     anObjectProperty: { anything: randomInteger() },
                 })
 
-                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('anObjectProperty')).toEqual(
+                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1anObjectProperty')).toEqual(
                     NULL_AFTER_PROPERTY_TYPE_DETECTION
                 )
 
@@ -323,7 +410,7 @@ describe('TeamManager()', () => {
                         some_bool: testcase,
                     })
 
-                    expect(manager.propertyDefinitionsCache.get(teamId)?.peek('some_bool')).toEqual('Boolean')
+                    expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_bool')).toEqual('Boolean')
 
                     expect(await hub.db.fetchPropertyDefinitions()).toEqual([
                         expect.objectContaining({
@@ -345,7 +432,7 @@ describe('TeamManager()', () => {
                         some_bool: testcase,
                     })
 
-                    expect(manager.propertyDefinitionsCache.get(teamId)?.peek('some_bool')).not.toEqual('Boolean')
+                    expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_bool')).not.toEqual('Boolean')
                 })
             })
 
@@ -354,7 +441,7 @@ describe('TeamManager()', () => {
                     some_number: randomInteger(),
                 })
 
-                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('some_number')).toEqual('Numeric')
+                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('Numeric')
 
                 expect(await hub.db.fetchPropertyDefinitions()).toEqual([
                     expect.objectContaining({
@@ -372,7 +459,7 @@ describe('TeamManager()', () => {
                     some_number: String(randomInteger()),
                 })
 
-                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('some_number')).toEqual('Numeric')
+                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_number')).toEqual('Numeric')
 
                 expect(await hub.db.fetchPropertyDefinitions()).toEqual([
                     expect.objectContaining({
@@ -390,7 +477,7 @@ describe('TeamManager()', () => {
                     some_string: randomString(),
                 })
 
-                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('some_string')).toEqual('String')
+                expect(manager.propertyDefinitionsCache.get(teamId)?.peek('1some_string')).toEqual('String')
 
                 expect(await hub.db.fetchPropertyDefinitions()).toEqual([
                     expect.objectContaining({
@@ -607,8 +694,8 @@ describe('TeamManager()', () => {
 
             it('does identify type if the property was previously saved with no type', async () => {
                 await manager.db.postgresQuery(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, NULL, NULL, $4, $5)',
-                    [new UUIDT().toString(), 'a_timestamp', false, teamId, null],
+                    'INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6)',
+                    [new UUIDT().toString(), 'a_timestamp', PropertyDefinitionTypeEnum.Event, false, teamId, null],
                     'testTag'
                 )
 
@@ -629,8 +716,15 @@ describe('TeamManager()', () => {
 
             it('does not replace property type if the property was previously saved with a different type', async () => {
                 await manager.db.postgresQuery(
-                    'INSERT INTO posthog_propertydefinition (id, name, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, NULL, NULL, $4, $5)',
-                    [new UUIDT().toString(), 'a_prop_with_type', false, teamId, PropertyType.DateTime],
+                    'INSERT INTO posthog_propertydefinition (id, name, type, is_numerical, volume_30_day, query_usage_30_day, team_id, property_type) VALUES ($1, $2, $3, $4, NULL, NULL, $5, $6)',
+                    [
+                        new UUIDT().toString(),
+                        'a_prop_with_type',
+                        PropertyDefinitionTypeEnum.Event,
+                        false,
+                        teamId,
+                        PropertyType.DateTime,
+                    ],
                     'testTag'
                 )
 

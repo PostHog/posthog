@@ -983,8 +983,6 @@ export interface EventDefinitionType {
     team_id: number
     last_seen_at: string // DateTime
     created_at: string // DateTime
-    type: number
-    group_type_index: number | null
 }
 
 export enum UnixTimestampPropertyTypeFormat {
@@ -1009,6 +1007,12 @@ export enum PropertyType {
     Boolean = 'Boolean',
 }
 
+export enum PropertyDefinitionTypeEnum {
+    Event = 1,
+    Person = 2,
+    Group = 3,
+}
+
 export interface PropertyDefinitionType {
     id: string
     name: string
@@ -1017,6 +1021,8 @@ export interface PropertyDefinitionType {
     query_usage_30_day: number | null
     team_id: number
     property_type?: PropertyType
+    type: PropertyDefinitionTypeEnum
+    group_type_index: number | null
 }
 
 export interface EventPropertyType {

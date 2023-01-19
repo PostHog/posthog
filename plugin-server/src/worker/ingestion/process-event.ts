@@ -49,6 +49,7 @@ export class EventsProcessor {
         this.groupTypeManager = new GroupTypeManager(pluginsServer.db, this.teamManager, pluginsServer.SITE_URL)
         this.propertyDefinitionsManager = new PropertyDefinitionsManager(
             this.teamManager,
+            this.groupTypeManager,
             pluginsServer.db,
             pluginsServer,
             pluginsServer.statsd
