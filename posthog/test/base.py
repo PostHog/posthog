@@ -571,8 +571,8 @@ class RaiseOnJoinThread(threading.Thread):
         except BaseException as e:
             self.exc = e
 
-    def join(self):
-        super().join()
+    def join(self, timeout=None):
+        super().join(timeout=timeout)
         if self.exc:
             raise self.exc
 
