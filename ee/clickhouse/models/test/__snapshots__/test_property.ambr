@@ -138,3 +138,15 @@
     },
   )
 ---
+# name: test_parse_prop_clauses_precalculated_cohort
+  <class 'tuple'> (
+    '
+      AND ( pdi.person_id IN (
+      SELECT person_id FROM cohortpeople WHERE team_id = %(team_id)s AND cohort_id = %(global_cohort_id_0)s GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0
+      ))
+    ',
+    <class 'dict'> {
+      'global_cohort_id_0': 977,
+    },
+  )
+---

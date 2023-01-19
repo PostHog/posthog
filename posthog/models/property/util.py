@@ -63,7 +63,6 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
-
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
@@ -149,7 +148,6 @@ def parse_prop_clauses(
                     f"{property_operator} 0 = 13"
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
-
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
                     person_id_query, cohort_filter_params = format_filter_query(
                         cohort, idx, custom_match_field=person_id_joined_alias
