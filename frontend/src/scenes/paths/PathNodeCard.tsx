@@ -46,9 +46,9 @@ export function PathNodeCard({ node, insightProps }: PathNodeCardProps): JSX.Ele
                 placement="bottomCenter"
             >
                 <div
+                    className="absolute rounded bg-white px-1"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
-                        position: 'absolute',
                         width: PATH_NODE_CARD_WIDTH,
                         left: isPathEnd ? node.x0 - PATH_NODE_CARD_WIDTH + 7 : node.x0 + 7,
                         top: isPathEnd ? node.y0 + (node.y1 - node.y0) / 2 : node.y0 + 5,

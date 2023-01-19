@@ -46,7 +46,7 @@ export function PathNodeCardButton({
     const openModal = (): void => openPersonsModal({ path_end_key: name })
 
     return (
-        <div className="flex justify-between items-center w-full bg-white p-1">
+        <div className="flex justify-between items-center w-full">
             <div className="flex items-center font-semibold">
                 <span className="text-xxs text-muted mr-1">{`0${name[0]}`}</span>
                 <span className="text-xs">{pageUrl(node, true)}</span>

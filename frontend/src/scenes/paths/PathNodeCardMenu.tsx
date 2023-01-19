@@ -1,5 +1,3 @@
-import { Menu } from 'antd'
-
 import { LemonButton } from '@posthog/lemon-ui'
 import { IconTrendingFlat, IconTrendingFlatDown, IconSchedule } from 'lib/components/icons'
 import { humanFriendlyDuration } from 'lib/utils'
@@ -32,18 +30,19 @@ export function PathNodeCardMenu({
     const dropoffPercentage = ((dropOffCount / count) * 100).toFixed(1)
 
     return (
-        <Menu
+        <div
+            className="bg-white border rounded"
+            // eslint-disable-next-line react/forbid-dom-props
             style={{
-                marginTop: -5,
-                border: '1px solid var(--border)',
-                borderRadius: '0px 0px 4px 4px',
                 width: PATH_NODE_CARD_WIDTH,
             }}
         >
             {!isPathEnd && (
-                <div className="text-xs flex items-center p-2 gap-2">
-                    <IconTrendingFlat className="text-xl shrink-0 text-success" />
-                    <span>Continuing</span>
+                <div className="text-xs flex items-center justify-between p-2 gap-2">
+                    <div className="flex items-center gap-2">
+                        <IconTrendingFlat className="text-xl shrink-0 text-success" />
+                        <span>Continuing</span>
+                    </div>
                     <LemonButton size="small" onClick={() => openPersonsModal({ path_start_key: name })}>
                         <span className="text-xs">
                             {continuingCount}
@@ -53,9 +52,11 @@ export function PathNodeCardMenu({
                 </div>
             )}
             {dropOffCount > 0 && (
-                <div className="text-xs flex items-center p-2 gap-2 border-t">
-                    <IconTrendingFlatDown className="text-xl shrink-0 text-danger" />
-                    <span>Dropping off</span>
+                <div className="text-xs flex items-center justify-between p-2 gap-2 border-t border-dashed">
+                    <div className="flex items-center gap-2">
+                        <IconTrendingFlatDown className="text-xl shrink-0 text-danger" />
+                        <span>Dropping off</span>
+                    </div>
                     <LemonButton size="small" onClick={() => openPersonsModal({ path_dropoff_key: name })}>
                         <span className="text-xs">
                             {dropOffCount}
@@ -65,13 +66,14 @@ export function PathNodeCardMenu({
                 </div>
             )}
             {!isPathStart && (
-                <div className="text-xs flex items-center p-2 gap-2 border-t">
-                    <IconSchedule className="text-xl shrink-0 text-muted" />
-                    <span>
-                        Average time from previous step <b>{humanFriendlyDuration(averageConversionTime)}</b>
-                    </span>
+                <div className="text-xs flex items-center justify-between p-2 gap-2 border-t border-dashed">
+                    <div className="flex items-center gap-2">
+                        <IconSchedule className="text-xl shrink-0 text-muted" />
+                        <span>Average time from previous step</span>
+                    </div>
+                    <b className="pr-2">{humanFriendlyDuration(averageConversionTime)}</b>
                 </div>
             )}
-        </Menu>
+        </div>
     )
 }
