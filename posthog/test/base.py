@@ -558,10 +558,10 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
 
 @contextmanager
-def threadhook_context():
+def failhard_threadhook_context():
     """
-    Context manager to ensure that exceptions raised by threads are propagated
-    to the main thread.
+    Context manager to ensure that exceptions raised by threads are treated as a
+    test failure.
     """
 
     def raise_hook(exc_type, exc_value, exc_traceback, thread):
@@ -577,7 +577,7 @@ def threadhook_context():
 
 def run_clickhouse_statement_in_parallel(statements: List[str]):
     jobs = []
-    with threadhook_context():
+    with failhard_threadhook_context():
         for item in statements:
             thread = threading.Thread(target=sync_execute, args=(item,))
             jobs.append(thread)
