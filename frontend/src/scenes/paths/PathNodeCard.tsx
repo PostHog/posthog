@@ -1,23 +1,68 @@
 import { useActions, useValues } from 'kea'
 import { Dropdown, Tooltip } from 'antd'
 
-import { InsightLogicProps } from '~/types'
+import { InsightLogicProps, PathsFilterType } from '~/types'
 
 import { pageUrl, isSelectedPathStartOrEnd, PathNodeData } from './pathUtils'
 import { pathsLogic } from './pathsLogic'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { PathNodeCardButton } from './PathNodeCardButton'
 import { PATH_NODE_CARD_LEFT_OFFSET, PATH_NODE_CARD_TOP_OFFSET, PATH_NODE_CARD_WIDTH } from './constants'
+import { pathsLogicType } from './pathsLogicType'
+import { pathsDataLogic } from './pathsDataLogic'
 
-type PathNodeCardProps = {
-    node: PathNodeData
+export type PathNodeCardProps = {
     insightProps: InsightLogicProps
+    node: PathNodeData
 }
 
-export function PathNodeCard({ node, insightProps }: PathNodeCardProps): JSX.Element | null {
+export function PathNodeCardDataExploration({ insightProps, ...props }: PathNodeCardProps): JSX.Element | null {
+    const { insightFilter } = useValues(pathsDataLogic(insightProps))
+    const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
+    // TODO: convert to data exploration
+    const { openPersonsModal, viewPathToFunnel } = useActions(pathsLogic(insightProps))
+
+    return (
+        <PathNodeCardComponent
+            filter={(insightFilter as PathsFilterType) || ({} as PathsFilterType)}
+            setFilter={updateInsightFilter}
+            openPersonsModal={openPersonsModal}
+            viewPathToFunnel={viewPathToFunnel}
+            {...props}
+        />
+    )
+}
+
+export function PathNodeCard({ insightProps, ...props }: PathNodeCardProps): JSX.Element | null {
     const { filter } = useValues(pathsLogic(insightProps))
     const { openPersonsModal, setFilter, viewPathToFunnel } = useActions(pathsLogic(insightProps))
 
+    return (
+        <PathNodeCardComponent
+            filter={filter}
+            setFilter={setFilter}
+            openPersonsModal={openPersonsModal}
+            viewPathToFunnel={viewPathToFunnel}
+            {...props}
+        />
+    )
+}
+
+type PathNodeCardComponentProps = {
+    node: PathNodeData
+    openPersonsModal: pathsLogicType['actions']['openPersonsModal']
+    viewPathToFunnel: pathsLogicType['actions']['viewPathToFunnel']
+    filter: PathsFilterType
+    setFilter: (filter: PathsFilterType) => void
+}
+
+export function PathNodeCardComponent({
+    node,
+    openPersonsModal,
+    viewPathToFunnel,
+    filter,
+    setFilter,
+}: PathNodeCardComponentProps): JSX.Element | null {
     if (!node.visible) {
         return null
     }
