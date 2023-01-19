@@ -120,7 +120,7 @@ class HogQLContext:
     """Context given to a HogQL expression parser"""
 
     # If set, will save string constants to this dict. Inlines strings into the query if None.
-    values: Optional[Dict[str, Any]] = field(default_factory=dict)
+    values: Optional[Dict] = field(default_factory=dict)
     # List of field and property accesses found in the expression
     attribute_list: List[List[str]] = field(default_factory=list)
     # Did the last calls to translate_hogql since setting this to False contain any HOGQL_AGGREGATIONS
