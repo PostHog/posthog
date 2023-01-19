@@ -21,7 +21,7 @@ jest.mock('../../../src/utils/posthog', () => ({
     },
 }))
 
-describe('TeamManager()', () => {
+describe('PropertyDefinitionsManager()', () => {
     let hub: Hub
     let closeHub: () => Promise<void>
     let manager: PropertyDefinitionsManager
