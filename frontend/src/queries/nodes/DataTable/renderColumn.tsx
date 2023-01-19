@@ -14,7 +14,7 @@ import { DeletePersonButton } from '~/queries/nodes/PersonsNode/DeletePersonButt
 import ReactJson from 'react-json-view'
 import { errorColumn, loadingColumn } from '~/queries/nodes/DataTable/dataTableLogic'
 import { Spinner } from 'lib/components/Spinner/Spinner'
-import { Tag } from 'antd'
+import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 
 export function renderColumn(
     key: string,
@@ -27,7 +27,7 @@ export function renderColumn(
     if (value === loadingColumn) {
         return <Spinner />
     } else if (value === errorColumn) {
-        return <Tag color="red">Error</Tag>
+        return <LemonTag color="red">Error</LemonTag>
     } else if (key === 'event' && isEventsQuery(query.source)) {
         const resultRow = record as any[]
         const eventRecord = query.source.select.includes('*') ? resultRow[query.source.select.indexOf('*')] : null

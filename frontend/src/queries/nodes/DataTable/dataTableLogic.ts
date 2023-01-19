@@ -15,7 +15,13 @@ export interface DataTableLogicProps {
     query: DataTableNode
 }
 
-export const categoryRowKey = Symbol('__categoryRow__')
+export interface DataTableRow {
+    /** Display a row with a label. */
+    label?: JSX.Element | string | null
+    /** Display a row with results */
+    result?: Record<string, any> | any[]
+}
+
 export const loadingColumn = Symbol('...')
 export const errorColumn = Symbol('Error!')
 
@@ -40,7 +46,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             dataNodeLogic({ key: props.key, query: props.query.source }),
-            ['response', 'responseLoading', 'responseError', 'highlightedRows'],
+            ['response', 'responseLoading', 'responseError'],
         ],
     })),
     selectors({
@@ -60,9 +66,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     ? (response?.columns as string[])
                     : null,
         ],
-        resultsWithLabelRows: [
+        dataTableRows: [
             (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.responseError],
-            (sourceKind, orderBy, response: AnyDataNode['response'], columnsInQuery, responseError): any[] | null => {
+            (
+                sourceKind,
+                orderBy,
+                response: AnyDataNode['response'],
+                columnsInQuery,
+                responseError
+            ): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const eventsQueryResponse = response as EventsQuery['response'] | null
                     if (eventsQueryResponse) {
@@ -86,9 +98,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
 
                         const columnMap = Object.fromEntries(columnsInResponse.map((c, i) => [c, i]))
-                        const convertResultToDisplayedColumns = equal(columnsInQuery, columnsInResponse)
-                            ? (result: any[]) => result
-                            : (result: any[]): any[] => {
+                        const resultToDataTableRow = equal(columnsInQuery, columnsInResponse)
+                            ? (result: any[]): DataTableRow => ({ result })
+                            : (result: any[]): DataTableRow => {
                                   const newResult = columnsInQuery.map((c) =>
                                       c in columnMap
                                           ? result[columnMap[c]]
@@ -96,14 +108,13 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                           ? errorColumn
                                           : loadingColumn
                                   )
-                                  ;(newResult as any).__originalResultRow = result
-                                  return newResult
+                                  return { result: newResult }
                               }
 
                         // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
                             let lastResult: any | null = null
-                            const newResults: any[] = []
+                            const newResults: DataTableRow[] = []
                             for (const result of results) {
                                 if (
                                     result &&
@@ -111,28 +122,22 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                     !dayjs(result[orderKeyIndex]).isSame(lastResult[orderKeyIndex], 'day')
                                 ) {
                                     newResults.push({
-                                        [categoryRowKey]: dayjs(result[orderKeyIndex]).format('LL'),
+                                        label: dayjs(result[orderKeyIndex]).format('LL'),
                                     })
                                 }
-                                newResults.push(convertResultToDisplayedColumns(result))
+                                newResults.push(resultToDataTableRow(result))
                                 lastResult = result
                             }
                             return newResults
                         } else {
-                            return results.map((result) => convertResultToDisplayedColumns(result))
+                            return results.map((result) => resultToDataTableRow(result))
                         }
                     }
                 }
-                return response && 'results' in response ? (response as any).results ?? null : null
+                return response && 'results' in response && Array.isArray(response.results)
+                    ? response.results.map((result: any) => ({ result })) ?? null
+                    : null
             },
-        ],
-        isRowHighlighted: [
-            (s) => [s.highlightedRows],
-            (highlightedRows) =>
-                (row: any[]): boolean =>
-                    row
-                        ? highlightedRows.has('__originalResultRow' in row ? (row as any).__originalResultRow : row)
-                        : false,
         ],
         queryWithDefaults: [
             (s, p) => [p.query, s.columnsInQuery, s.featureFlags],
