@@ -1,12 +1,14 @@
 import { useValues } from 'kea'
-import { Button, Menu, Dropdown, Row } from 'antd'
+import { Menu, Row } from 'antd'
 
-import { pageUrl, PathNodeData } from './pathUtils'
+import { LemonButton, LemonButtonWithPopup } from '@posthog/lemon-ui'
+import { IconEllipsis, IconInfo, IconNotification, IconWithCount } from 'lib/components/icons'
 import { userLogic } from 'scenes/userLogic'
 import { AvailableFeature, PathsFilterType } from '~/types'
 
 import { copyToClipboard } from 'lib/utils'
 
+import { pageUrl, PathNodeData } from './pathUtils'
 import { pathsLogicType } from './pathsLogicType'
 import './PathNodeCardButton.scss'
 
@@ -52,27 +54,32 @@ export function PathNodeCardButton({
                 <span className="text-xs">{pageUrl(node, true)}</span>
             </div>
             <Row>
-                <span className="text-primary text-xs self-center pr-1 font-medium" onClick={openModal}>
-                    {count}
-                </span>
-                <Dropdown
-                    trigger={['click']}
-                    overlay={
-                        <Menu className="paths-options-dropdown">
-                            <Menu.Item onClick={setAsPathStart}>Set as path start</Menu.Item>
-                            {hasAdvancedPaths && (
-                                <>
-                                    <Menu.Item onClick={setAsPathEnd}>Set as path end</Menu.Item>
-                                    <Menu.Item onClick={excludePathItem}>Exclude path item</Menu.Item>
-                                    <Menu.Item onClick={viewFunnel}>View funnel</Menu.Item>
-                                </>
-                            )}
-                            <Menu.Item onClick={copyName}>Copy path item name</Menu.Item>
-                        </Menu>
-                    }
-                >
-                    <div className="paths-dropdown-ellipsis">...</div>
-                </Dropdown>
+                <LemonButton size="small" status="stealth">
+                    <span className="text-primary text-xs pr-1 font-medium" onClick={openModal}>
+                        {count}
+                    </span>
+                </LemonButton>
+                <LemonButtonWithPopup
+                    size="small"
+                    icon={<IconEllipsis className="text-muted" />}
+                    popup={{
+                        overlay: (
+                            <Menu className="paths-options-dropdown">
+                                <Menu.Item onClick={setAsPathStart}>Set as path start</Menu.Item>
+                                {hasAdvancedPaths && (
+                                    <>
+                                        <Menu.Item onClick={setAsPathEnd}>Set as path end</Menu.Item>
+                                        <Menu.Item onClick={excludePathItem}>Exclude path item</Menu.Item>
+                                        <Menu.Item onClick={viewFunnel}>View funnel</Menu.Item>
+                                    </>
+                                )}
+                                <Menu.Item onClick={copyName}>Copy path item name</Menu.Item>
+                            </Menu>
+                        ),
+                        placement: 'bottom',
+                        sameWidth: true,
+                    }}
+                />
             </Row>
         </div>
     )
