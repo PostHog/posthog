@@ -13,6 +13,7 @@ import { urls } from 'scenes/urls'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { buildPeopleUrl, pathsTitle } from 'scenes/trends/persons-modal/persons-modal-utils'
+import { PathNodeData } from './pathUtils'
 
 export const DEFAULT_STEP_LIMIT = 5
 
@@ -61,7 +62,7 @@ export const pathsLogic = kea<pathsLogicType>({
         setFilter: (filter: Partial<PathsFilterType>) => ({ filter }),
         openPersonsModal: (props: { path_start_key?: string; path_end_key?: string; path_dropoff_key?: string }) =>
             props,
-        viewPathToFunnel: (pathItemCard: any) => ({ pathItemCard }),
+        viewPathToFunnel: (pathItemCard: PathNodeData) => ({ pathItemCard }),
     },
     listeners: ({ values, props }) => ({
         setProperties: ({ properties }) => {
