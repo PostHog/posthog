@@ -51,6 +51,7 @@ const DashboardRelationRow = ({
     return (
         <div
             data-attr="dashboard-list-item"
+            /* eslint-disable-next-line react/forbid-dom-props */
             style={style}
             className={clsx('flex items-center space-x-2', isHighlighted && 'highlighted')}
         >
@@ -141,6 +142,7 @@ export function AddToDashboardModal({
                     <strong className="text-default">{insight.dashboard_tiles?.length}</strong>{' '}
                     {pluralize(insight.dashboard_tiles?.length || 0, 'dashboard', 'dashboards', false)}
                 </div>
+                {/* eslint-disable-next-line react/forbid-dom-props */}
                 <div style={{ minHeight: 420 }}>
                     <AutoSizer>
                         {({ height, width }) => (
