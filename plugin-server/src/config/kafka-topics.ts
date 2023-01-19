@@ -9,6 +9,7 @@ export const KAFKA_EVENTS_JSON = `${prefix}clickhouse_events_json${suffix}`
 export const KAFKA_PERSON = `${prefix}clickhouse_person${suffix}`
 export const KAFKA_PERSON_UNIQUE_ID = `${prefix}clickhouse_person_unique_id${suffix}`
 export const KAFKA_PERSON_DISTINCT_ID = `${prefix}clickhouse_person_distinct_id${suffix}`
+export const KAFKA_PERSON_OVERRIDE = `${prefix}clickhouse_person_override${suffix}`
 export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_session_recording_events${suffix}`
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION = `${prefix}events_plugin_ingestion${suffix}`
