@@ -74,7 +74,7 @@ class PropertyDefinition(UUIDModel):
                 name="property_type_is_valid", check=models.Q(property_type__in=PropertyType.values)
             ),
             models.CheckConstraint(
-                name="group_type_index_set", check=~models.Q(type=2) | models.Q(group_type_index__isnull=False)
+                name="group_type_index_set", check=~models.Q(type=3) | models.Q(group_type_index__isnull=False)
             ),
         ]
 
