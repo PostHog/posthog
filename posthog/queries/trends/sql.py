@@ -51,32 +51,49 @@ SELECT {aggregate_operation} as data FROM (
 # This query performs poorly due to aggregation happening outside of subqueries.
 # :TODO: Fix this!
 # Query intuition:
-# 1. Get all the buckets we care about (subquery `d`) based on the chosen interval (e.g. per hour, per week)
-# 2. Get all events within the insight's range by the actor_id based on the filters (subquery `e`)
-# 3. Cross join the two, making a table with a mapping of every event <> every bucket
-# 4. For each bucket, determine if the event's timestamp falls within the bucket i.e. happened within a week/month of the bucket
-# 5. Count up the unique actor IDs per bucket
+# 1. Derive all the buckets we care about
+# 2. Query all events within the specified range
+# 3. For each event timestamp, calculate all the buckets it would fall in
+#    Note that this can be a bit confusing. For hourly intervals, we round to the
+#    start of the hour and look 7/30 days into the future
 ACTIVE_USERS_SQL = """
-SELECT counts AS total, timestamp AS day_start FROM (
-    SELECT d.timestamp, COUNT(DISTINCT actor_id) AS counts FROM (
-        /* We generate a table of periods to match events against. This has to be synthesized from `numbers`
-           and not `events`, because we cannot rely on there being an event for each period (this assumption previously
-           caused active user counts to be off for sparse events). */
-        SELECT {interval}(toDateTime(%(date_to)s, %(timezone)s) - {interval_func}(number) {start_of_week_fix}) AS timestamp
-        FROM numbers(dateDiff(%(interval)s, {interval}(toDateTime(%(date_from_active_users_adjusted)s, %(timezone)s) {start_of_week_fix}), toDateTime(%(date_to)s, %(timezone)s)))
-    ) d
-    /* In Postgres we'd be able to do a non-cross join with multiple inequalities (in this case, <= along with >),
-       but this is not possible in ClickHouse as of 2022.10 (ASOF JOIN isn't fit for this either). */
-    CROSS JOIN (
+WITH toDateTime(%(date_to)s, %(timezone)s) AS date_to,
+toDateTime(%(date_from)s, %(timezone)s) AS date_from,
+arrayMap(
+    n -> toDateTime(n, %(timezone)s),
+    range(
+        toUInt32(toDateTime({interval}(toDateTime(%(date_from)s, %(timezone)s) {start_of_week_fix}))),
+        toUInt32(date_to),
+        %(bucket_increment_seconds)s
+    )
+) AS buckets
+
+SELECT counts AS total,
+    timestamp AS day_start
+FROM (
+    SELECT
+        count(DISTINCT actor_id) AS counts,
+        arrayJoin(event_buckets) as timestamp
+    FROM (
         SELECT
-            toTimeZone(toDateTime(timestamp, 'UTC'), %(timezone)s) AS timestamp,
-            {aggregator} AS actor_id
+            {aggregator} as actor_id,
+            arrayMap(
+                n -> toDateTime(n, %(timezone)s),
+                range(
+                    toUInt32(toDateTime({rounding_func}(toTimeZone(toDateTime(if(greater(timestamp, date_from), timestamp, date_from), 'UTC'), %(timezone)s)))),
+                    toUInt32(toTimeZone(toDateTime(if(greater(timestamp, date_to), date_to, timestamp), 'UTC'), %(timezone)s) + INTERVAL {prev_interval}),
+                    %(grouping_increment_seconds)s
+                )
+            ) AS event_buckets
         {event_query_base}
-        GROUP BY timestamp, actor_id
-    ) e WHERE e.timestamp <= d.timestamp + INTERVAL 1 DAY AND e.timestamp > d.timestamp - INTERVAL {prev_interval}
-    GROUP BY d.timestamp
-    ORDER BY d.timestamp
-) WHERE 1 = 1 {parsed_date_from} {parsed_date_to}
+        GROUP BY {aggregator}, timestamp
+    )
+    GROUP BY timestamp
+    HAVING
+        has(buckets, timestamp)
+        {parsed_date_from} {parsed_date_to}
+    ORDER BY timestamp
+)
 """
 
 ACTIVE_USERS_AGGREGATE_SQL = """

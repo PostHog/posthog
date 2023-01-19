@@ -13,7 +13,7 @@ import { DashboardPrivilegeLevel } from 'lib/constants'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { Tooltip } from 'lib/components/Tooltip'
-import { IconCottage, IconLock, IconPin, IconPinFilled, IconShare } from 'lib/components/icons'
+import { IconCottage, IconLock, IconPinOutline, IconPinFilled, IconShare } from 'lib/components/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
 import { More } from 'lib/components/LemonButton/More'
@@ -47,7 +47,7 @@ export function DashboardsTable(): JSX.Element {
                                 : () => pinDashboard(id, DashboardEventSource.DashboardsList)
                         }
                         tooltip={pinned ? 'Unpin dashboard' : 'Pin dashboard'}
-                        icon={pinned ? <IconPinFilled /> : <IconPin />}
+                        icon={pinned ? <IconPinFilled /> : <IconPinOutline />}
                     />
                 )
             },

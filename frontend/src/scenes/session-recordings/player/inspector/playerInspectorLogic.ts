@@ -61,7 +61,7 @@ export type InspectorListItemConsole = InspectorListItemBase & {
 }
 
 export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.PERFORMANCE
+    type: SessionRecordingPlayerTab.NETWORK
     data: PerformanceEvent
 }
 
@@ -165,6 +165,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
+        showMatchingEventsFilter: [
+            (s) => [s.matchingEvents, s.tab],
+            (matchingEvents, tab): boolean => {
+                return tab === SessionRecordingPlayerTab.EVENTS && matchingEvents.length > 0
+            },
+        ],
+
         consoleLogs: [
             (s) => [s.sessionPlayerData],
             (sessionPlayerData): RecordingConsoleLogV2[] => {
@@ -221,6 +228,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.miniFiltersByKey,
                 s.matchingEvents,
                 s.showOnlyMatching,
+                s.showMatchingEventsFilter,
                 s.windowIdFilter,
             ],
             (
@@ -233,6 +241,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 miniFiltersByKey,
                 matchingEvents,
                 showOnlyMatching,
+                showMatchingEventsFilter,
                 windowIdFilter
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
@@ -243,7 +252,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // PERFORMANCE EVENTS
                 if (
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
-                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
+                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.NETWORK)
                 ) {
                     const performanceEventsArr = performanceEvents || []
                     for (const event of performanceEventsArr) {
@@ -346,7 +355,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         items.push({
-                            type: SessionRecordingPlayerTab.PERFORMANCE,
+                            type: SessionRecordingPlayerTab.NETWORK,
                             timestamp,
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
@@ -448,7 +457,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                         const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
 
-                        if (showOnlyMatching && tab === SessionRecordingPlayerTab.EVENTS) {
+                        if (showMatchingEventsFilter && showOnlyMatching) {
                             // Special case - overrides the others
                             include = include && isMatchingEvent
                         }
@@ -518,7 +527,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             : logs.length
                             ? 'ready'
                             : 'empty',
-                    [SessionRecordingPlayerTab.PERFORMANCE]:
+                    [SessionRecordingPlayerTab.NETWORK]:
                         performanceEventsLoading || !performanceEvents
                             ? 'loading'
                             : performanceEvents.length

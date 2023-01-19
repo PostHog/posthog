@@ -129,8 +129,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             if len(order_by) == 0:
                 if not select or "*" in select or "timestamp" in select:
                     order_by = ["-timestamp"]
-                elif "total()" in select:
-                    order_by = ["-total()"]
+                elif "count()" in select:
+                    order_by = ["-count()"]
 
             query_result = query_events_list(
                 filter=filter,

@@ -4,10 +4,10 @@ import { dayjs, Dayjs } from 'lib/dayjs'
 import { humanizeBytes, humanFriendlyMilliseconds, isURL } from 'lib/utils'
 import { PerformanceEvent } from '~/types'
 import { SimpleKeyValueList } from './SimpleKeyValueList'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import { Fragment } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { IconInfo } from 'lib/components/icons'
 
 export interface ItemPerformanceEvent {
     item: PerformanceEvent
@@ -162,7 +162,7 @@ export function ItemPerformanceEvent({
                                             <div className="text-sm">
                                                 {label}
                                                 <Tooltip isDefaultTooltip title={description}>
-                                                    <InfoCircleOutlined className="ml-2 text-xs" />
+                                                    <IconInfo className="text-xl text-muted" />
                                                 </Tooltip>
                                             </div>
                                             <div className="text-lg font-semibold">

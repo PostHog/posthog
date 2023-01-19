@@ -84,7 +84,7 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
                 }
             >
                 {/** The negative margin negates the button's effect on label sizing. */}
-                <div style={{ margin: '-0.25rem 0' }}>
+                <div className="-my-1">
                     <LemonButton
                         size="small"
                         onClick={() => setIsFormulaOn(!isFormulaOn)}

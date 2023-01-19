@@ -19,6 +19,7 @@ import { queryNodeToFilter } from '../InsightQuery/utils/queryNodeToFilter'
 import { actionsAndEventsToSeries } from '../InsightQuery/utils/filtersToQueryNode'
 
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
+import { getDisplay } from './utils'
 
 type TrendsSeriesProps = {
     insightProps: InsightLogicProps
@@ -47,13 +48,9 @@ export function TrendsSeries({ insightProps }: TrendsSeriesProps): JSX.Element |
         return null
     }
 
-    const display = isStickinessQuery(querySource)
-        ? querySource.stickinessFilter?.display
-        : isTrendsQuery(querySource)
-        ? querySource.trendsFilter?.display
-        : undefined
-
+    const display = getDisplay(querySource)
     const filters = queryNodeToFilter(querySource)
+
     return (
         <>
             {isLifecycleQuery(querySource) && (

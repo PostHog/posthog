@@ -74,7 +74,6 @@ def sync_execute(
 
         prepared_sql, prepared_args, tags = _prepare_query(client=client, query=query, args=args, workload=workload)
         settings = {**default_settings(), **(settings or {}), "log_comment": json.dumps(tags, separators=(",", ":"))}
-
         try:
             result = client.execute(
                 prepared_sql,

@@ -32,10 +32,15 @@ import { KeyMappingInterface } from 'lib/components/PropertyKeyInfo'
 import { AlignType } from 'rc-trigger/lib/interface'
 import { dayjs } from 'lib/dayjs'
 import { getAppContext } from './utils/getAppContext'
-import { isPropertyFilterWithOperator, isValidPropertyFilter } from './components/PropertyFilters/utils'
+import {
+    isHogQLPropertyFilter,
+    isPropertyFilterWithOperator,
+    isValidPropertyFilter,
+} from './components/PropertyFilters/utils'
 import { IconCopy } from './components/icons'
 import { lemonToast } from './components/lemonToast'
 import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
+import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
 
 export const ANTD_TOOLTIP_PLACEMENTS: Record<any, AlignType> = {
     // `@yiminghe/dom-align` objects
@@ -358,6 +363,9 @@ export function formatPropertyLabel(
     keyMapping: KeyMappingInterface,
     valueFormatter: (value: PropertyFilterValue | undefined) => string | string[] | null = (s) => [String(s)]
 ): string {
+    if (isHogQLPropertyFilter(item)) {
+        return extractExpressionComment(item.key)
+    }
     const { value, key, operator, type } = item
     return type === 'cohort'
         ? cohortsById[value]?.name || `ID ${value}`
@@ -684,6 +692,10 @@ export function autoCaptureEventToDescription(
         }
         if (event.properties.$event_type === 'submit') {
             return 'submitted'
+        }
+
+        if (event.properties.$event_type === 'touch') {
+            return 'pressed'
         }
         return 'interacted with'
     }

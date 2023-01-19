@@ -17,7 +17,7 @@ export function SessionPlayerModal(): JSX.Element | null {
             onClose={closeSessionPlayer}
             simple
             title={''}
-            width={880}
+            width={1600}
             fullScreen={isFullScreen}
             closable={!isFullScreen}
         >

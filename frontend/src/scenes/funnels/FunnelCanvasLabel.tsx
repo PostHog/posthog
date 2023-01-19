@@ -2,7 +2,6 @@
 import { useActions, useValues } from 'kea'
 import { humanFriendlyDuration, percentage } from 'lib/utils'
 import { Button, Row } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { funnelLogic } from './funnelLogic'
 import './FunnelCanvasLabel.scss'
@@ -11,6 +10,7 @@ import { FunnelVizType, InsightType } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsPicker } from 'scenes/insights/views/Funnels/FunnelStepsPicker'
 import React from 'react'
+import { IconInfo } from 'lib/components/icons'
 
 export function FunnelCanvasLabel(): JSX.Element | null {
     const { insightProps, activeView } = useValues(insightLogic)
@@ -25,13 +25,13 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         ...(filters.funnel_viz_type === FunnelVizType.Steps
             ? [
                   <>
-                      <span className="text-muted-alt mr-1">
+                      <span className="flex items-center text-muted-alt mr-1">
                           <Tooltip
                               title={`Overall conversion rate for all ${aggregationTargetLabel.plural} on the entire funnel.`}
                           >
-                              <InfoCircleOutlined className="info-indicator left" />
+                              <IconInfo className="mr-1 text-xl shrink-0" />
                           </Tooltip>
-                          Total conversion rate:
+                          <span>Total conversion rate:</span>
                       </span>
                       <span className="l4">{percentage(conversionMetrics.totalRate, 2, true)}</span>
                   </>,
@@ -40,13 +40,13 @@ export function FunnelCanvasLabel(): JSX.Element | null {
         ...(filters.funnel_viz_type !== FunnelVizType.Trends
             ? [
                   <>
-                      <span className="text-muted-alt">
+                      <span className="flex items-center text-muted-alt">
                           <Tooltip
                               title={`Average (arithmetic mean) of the total time each ${aggregationTargetLabel.singular} spent in the entire funnel.`}
                           >
-                              <InfoCircleOutlined className="info-indicator left" />
+                              <IconInfo className="mr-1 text-xl shrink-0" />
                           </Tooltip>
-                          Average time to convert{' '}
+                          <span>Average time to convert</span>
                       </span>
                       {filters.funnel_viz_type === FunnelVizType.TimeToConvert && <FunnelStepsPicker />}
                       <span className="text-muted-alt mr-1">:</span>
