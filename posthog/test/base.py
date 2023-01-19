@@ -557,10 +557,30 @@ class ClickhouseTestMixin(QueryMatchingTest):
             yield queries
 
 
+class RaiseOnJoinThread(threading.Thread):
+    """
+    By default, the thread will swallow exceptions and not raise them in the
+    main thread. This class will raise them in the main thread such that we do
+    not fail silently e.g. on failures to apply ClickHouse schemas.
+    """
+
+    def run(self):
+        self.exc = None
+        try:
+            super().run()
+        except BaseException as e:
+            self.exc = e
+
+    def join(self):
+        super().join()
+        if self.exc:
+            raise self.exc
+
+
 def run_clickhouse_statement_in_parallel(statements: List[str]):
     jobs = []
     for item in statements:
-        thread = threading.Thread(target=sync_execute, args=(item,))
+        thread = RaiseOnJoinThread(target=sync_execute, args=(item,))
         jobs.append(thread)
 
     # Start the threads (i.e. calculate the random number lists)
