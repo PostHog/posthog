@@ -177,6 +177,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
+        setSyncScroll: (enabled: boolean) => ({ enabled }),
     }),
     reducers(({ values }) => ({
         speed: [
@@ -282,6 +283,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
 
                     return newFilters
                 },
+            },
+        ],
+
+        syncScroll: [
+            true,
+            { persist: true },
+            {
+                setSyncScroll: (_, { enabled }) => enabled,
             },
         ],
     })),
