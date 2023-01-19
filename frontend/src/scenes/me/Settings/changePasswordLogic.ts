@@ -25,7 +25,7 @@ export const changePasswordLogic = kea<changePasswordLogicType>([
                         ? 'Please enter your current password'
                         : undefined,
                 password: !password
-                    ? 'Please enter your password to continue'
+                    ? 'Please enter your new password'
                     : password.length < 8
                     ? 'Password must be at least 8 characters'
                     : undefined,

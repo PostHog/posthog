@@ -16,7 +16,7 @@ export function ChangePassword(): JSX.Element {
             className="space-y-4"
             style={{ maxWidth: '40rem' }}
         >
-            <Field name="current_password" label={'Current Password'}>
+            <Field name="current_password" label={'Current password'}>
                 <LemonInput
                     autoComplete="current-password"
                     type="password"
@@ -29,7 +29,7 @@ export function ChangePassword(): JSX.Element {
                 name="password"
                 label={
                     <div className="flex flex-1 items-center justify-between">
-                        <span>Password</span>
+                        <span>New password</span>
                         <span className="w-20">
                             <PasswordStrength password={changePassword.password} />
                         </span>
