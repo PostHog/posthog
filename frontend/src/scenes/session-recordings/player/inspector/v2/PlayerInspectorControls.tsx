@@ -27,16 +27,11 @@ const TabToIcon = {
     [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
-export function PlayerInspectorControls({
-    sessionRecordingId,
-    playerKey,
-    matching,
-}: SessionRecordingPlayerLogicProps): JSX.Element {
-    const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, searchQuery, syncScroll, tabsState, windowIds } = useValues(
-        playerInspectorLogic(logicProps)
+export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps): JSX.Element {
+    const { windowIdFilter, tab, searchQuery, syncScroll, tabsState, windowIds, showMatchingEventsFilter } = useValues(
+        playerInspectorLogic(props)
     )
-    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScroll } = useActions(playerInspectorLogic(logicProps))
+    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScroll } = useActions(playerInspectorLogic(props))
     const { showOnlyMatching, timestampMode, miniFilters } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter } = useActions(playerSettingsLogic)
 
@@ -175,7 +170,7 @@ export function PlayerInspectorControls({
                     </LemonButton>
                 </div>
             </div>
-            {matching?.length && tab === SessionRecordingPlayerTab.EVENTS ? (
+            {showMatchingEventsFilter ? (
                 <div className="flex items-center">
                     <span className="flex items-center whitespace-nowrap text-xs gap-1">
                         Only events matching filters
