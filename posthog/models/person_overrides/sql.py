@@ -66,7 +66,13 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     ENGINE = Kafka('{KAFKA_HOSTS}', 'person_overrides', 'clickhouse-person-overrides', 'JSONEachRow')
-    EMPTY AS SELECT * FROM `{CLICKHOUSE_DATABASE}.person_overrides`
+    EMPTY AS SELECT
+        team_id,
+        old_person_id,
+        override_person_id,
+        merged_at,
+        version
+    FROM `{CLICKHOUSE_DATABASE}.person_overrides`
 """
 
 # Materialized View that watches the Kafka table for data and inserts into the
@@ -75,5 +81,11 @@ PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_mv`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     TO {CLICKHOUSE_DATABASE}.person_overrides
-    AS SELECT * FROM `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
+    AS SELECT
+        team_id,
+        old_person_id,
+        override_person_id,
+        merged_at,
+        version
+    FROM `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
 """
