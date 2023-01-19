@@ -15,7 +15,7 @@ from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER, CLICKHOUSE_DATABASE, KAFKA_HOSTS
 
 PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
-    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides`
+    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}' (
         team_id INT NOT NULL,
 
@@ -50,7 +50,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     -- https://clickhouse.com/docs/en/engines/table-engines/mergetree-family/replication
     -- for details.
     ENGINE = ReplicatedReplacingMergeTree(
-        '/clickhouse/tables/noshard/posthog.person_overrides',
+        '/clickhouse/tables/noshard/{CLICKHOUSE_DATABASE}.person_overrides',
         '{{replica}}-{{shard}}',
         version
     )
@@ -65,7 +65,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
 # Materialized View from a Kafka topic and insert the messages into the
 # ClickHouse MergeTree table `person_overrides`
 PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
-    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
+    CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_kafka`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
 
     ENGINE = Kafka(
@@ -85,15 +85,15 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
         -- created_at is not included in the Kafka message, rather it is set as
         -- a default in the MergeTree table
         version
-    FROM `{CLICKHOUSE_DATABASE}.person_overrides`
+    FROM `{CLICKHOUSE_DATABASE}`.`person_overrides`
 """
 
 # Materialized View that watches the Kafka table for data and inserts into the
 # `person_overrides` table.
 PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
-    CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_mv`
+    CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     TO {CLICKHOUSE_DATABASE}.person_overrides
     AS SELECT *
-    FROM `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
+    FROM `{CLICKHOUSE_DATABASE}`.`person_overrides_kafka`
 """
