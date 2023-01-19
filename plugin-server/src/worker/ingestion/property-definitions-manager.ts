@@ -14,7 +14,6 @@ import {
 } from '../../types'
 import { DB } from '../../utils/db/db'
 import { timeoutGuard } from '../../utils/db/utils'
-import { isTestEnv } from '../../utils/env-utils'
 import { status } from '../../utils/status'
 import { UUIDT } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
@@ -260,13 +259,6 @@ ON CONSTRAINT posthog_eventdefinition_team_id_name_80fa0b87_uniq DO UPDATE SET l
         event: string,
         properties: Properties
     ): AsyncGenerator<PartialPropertyDefinition> {
-        // :TODO: Remove this conditional once we can remove other unique index. Here due to deployment concerns.
-        if (!isTestEnv()) {
-            yield* this.extract(properties, PropertyDefinitionTypeEnum.Event)
-
-            return
-        }
-
         if (event === '$groupidentify') {
             const { $group_type: groupType, $group_set: groupPropertiesToSet } = properties
             const groupTypeIndex = await this.groupTypeManager.fetchGroupTypeIndex(teamId, groupType)
