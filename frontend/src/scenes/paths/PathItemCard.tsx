@@ -26,12 +26,12 @@ export function PathItemCard({ node, insightProps }: PathItemCardProps): JSX.Ele
     const { user } = useValues(userLogic)
     const hasAdvancedPaths = user?.organization?.available_features?.includes(AvailableFeature.PATHS_ADVANCED)
 
-    const continuingValue = getContinuingValue(node.sourceLinks)
-    const dropOffValue = getDropOffValue(node)
-
     if (!node.visible) {
         return null
     }
+
+    const continuingValue = getContinuingValue(node.sourceLinks)
+    const dropOffValue = getDropOffValue(node)
 
     return (
         <Tooltip title={pageUrl(node)} placement="right" className="PathItemCard">
