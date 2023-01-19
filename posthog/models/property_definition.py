@@ -4,7 +4,7 @@ from django.contrib.postgres.indexes import GinIndex
 from django.db import models
 
 from posthog.models.team import Team
-from posthog.models.utils import UUIDModel
+from posthog.models.utils import UniqueConstraintByExpression, UUIDModel
 
 
 class PropertyType(models.TextChoices):
@@ -75,6 +75,9 @@ class PropertyDefinition(UUIDModel):
             ),
             models.CheckConstraint(
                 name="group_type_index_set", check=~models.Q(type=3) | models.Q(group_type_index__isnull=False)
+            ),
+            UniqueConstraintByExpression(
+                name="posthog_eventdefinition_uniq", expression="(team_id, name, type, coalesce(group_type_index, -1))"
             ),
         ]
 
