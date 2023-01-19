@@ -567,11 +567,11 @@ def failhard_threadhook_context():
     def raise_hook(exc_type, exc_value, exc_traceback, thread):
         raise exc_value
 
-    old_hook, threading.excepthook = threading.excepthook, raise_hook
+    old_hook, threading.excepthook = threading.excepthook, raise_hook  # type: ignore
     try:
         yield old_hook
     finally:
-        assert threading.excepthook is raise_hook
+        assert threading.excepthook is raise_hook  # type: ignore
         threading.excepthook = old_hook
 
 
