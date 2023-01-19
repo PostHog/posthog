@@ -1291,9 +1291,7 @@ function FeatureFlagReleaseConditions({ readOnly }: FeatureFlagReadOnlyProps): J
                             )}
                             {nonEmptyVariants.length > 0 && (
                                 <>
-                                    {(!readOnly || (readOnly && group.properties?.length > 0)) && (
-                                        <LemonDivider className="my-3" />
-                                    )}
+                                    <LemonDivider className="my-3" />
                                     {readOnly ? (
                                         <div>
                                             All <b>{aggregationTargetName}</b> in this set{' '}
