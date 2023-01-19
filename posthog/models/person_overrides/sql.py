@@ -36,6 +36,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
         -- allow us to discard old mappings as new ones are added.
         version INT NOT NULL
     )
+
     -- By specifying Replacing merge tree on version, we allow ClickHouse to
     -- discard old versions of a `old_person_id` mapping. This should help keep
     -- performance in check as new versions are added.
