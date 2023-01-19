@@ -8,6 +8,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dayjs } from 'lib/dayjs'
+import equal from 'fast-deep-equal'
 
 export interface DataTableLogicProps {
     key: string
@@ -39,7 +40,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             dataNodeLogic({ key: props.key, query: props.query.source }),
-            ['response', 'responseLoading', 'responseError'],
+            ['response', 'responseLoading', 'responseError', 'highlightedRows'],
         ],
     })),
     selectors({
@@ -90,10 +91,19 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         }
 
                         const columnMap = Object.fromEntries(columnsInResponse.map((c, i) => [c, i]))
-                        const convertResultToDisplayedColumns = (result: any[]): any[] =>
-                            columns.map((c) =>
-                                c in columnMap ? result[columnMap[c]] : responseError ? errorColumn : loadingColumn
-                            )
+                        const convertResultToDisplayedColumns = equal(columns, columnsInResponse)
+                            ? (result: any[]) => result
+                            : (result: any[]): any[] => {
+                                  const newResult = columns.map((c) =>
+                                      c in columnMap
+                                          ? result[columnMap[c]]
+                                          : responseError
+                                          ? errorColumn
+                                          : loadingColumn
+                                  )
+                                  ;(newResult as any).__originalResultRow = result
+                                  return newResult
+                              }
 
                         // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
@@ -120,6 +130,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 }
                 return response && 'results' in response ? (response as any).results ?? null : null
             },
+        ],
+        isRowHighlighted: [
+            (s) => [s.highlightedRows],
+            (highlightedRows) =>
+                (row: any[]): boolean =>
+                    row
+                        ? highlightedRows.has('__originalResultRow' in row ? (row as any).__originalResultRow : row)
+                        : false,
         ],
         queryWithDefaults: [
             (s, p) => [p.query, s.columnsInQuery, s.featureFlags],

@@ -63,11 +63,11 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         canLoadNewData,
         nextDataLoading,
         newDataLoading,
-        highlightedRows,
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key }
-    const { resultsWithLabelRows, columns, queryWithDefaults, canSort } = useValues(dataTableLogic(dataTableLogicProps))
+    const { resultsWithLabelRows, columns, columnsInResponse, queryWithDefaults, canSort, isRowHighlighted } =
+        useValues(dataTableLogic(dataTableLogicProps))
 
     const {
         showActions,
@@ -278,8 +278,8 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                           if (categoryRowKey in record) {
                               return { props: { colSpan: 0 } }
                           }
-                          if (isEventsQuery(query.source) && columns.includes('*')) {
-                              return <EventRowActions event={record[columns.indexOf('*')]} />
+                          if (isEventsQuery(query.source) && columnsInResponse?.includes('*')) {
+                              return <EventRowActions event={record[columnsInResponse.indexOf('*')]} />
                           }
                           return null
                       },
@@ -415,7 +415,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         }
                         rowClassName={(row) =>
                             clsx('DataTable__row', {
-                                'DataTable__row--highlight_once': row && highlightedRows.has(row),
+                                'DataTable__row--highlight_once': row && isRowHighlighted(row),
                                 'DataTable__row--category_row': row && categoryRowKey in row,
                             })
                         }
