@@ -1,5 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import { PluginEvent, Properties } from '@posthog/plugin-scaffold'
+import * as Sentry from '@sentry/node'
 import { DateTime } from 'luxon'
 
 import { KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS, KAFKA_PERFORMANCE_EVENTS } from '../../config/kafka-topics'
@@ -22,6 +23,7 @@ import { DB, GroupId } from '../../utils/db/db'
 import { elementsToString, extractElements } from '../../utils/db/elements-chain'
 import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { safeClickhouseString, sanitizeEventName, timeoutGuard } from '../../utils/db/utils'
+import { status } from '../../utils/status'
 import { castTimestampOrNow, UUID } from '../../utils/utils'
 import { GroupTypeManager } from './group-type-manager'
 import { addGroupProperties } from './groups'
@@ -165,7 +167,16 @@ export class EventsProcessor {
             properties['$ip'] = ip
         }
 
-        await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+        try {
+            await this.propertyDefinitionsManager.updateEventNamesAndProperties(team.id, event, properties)
+        } catch (err) {
+            Sentry.captureException(err)
+            status.warn('⚠️', 'Failed to update property definitions for an event', {
+                event,
+                properties,
+                err,
+            })
+        }
         properties = await addGroupProperties(team.id, properties, this.groupTypeManager)
 
         if (event === '$groupidentify') {
