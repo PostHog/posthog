@@ -1,11 +1,11 @@
 import { Menu } from 'antd'
-import { ClockCircleOutlined } from '@ant-design/icons'
 
 import { LemonButton } from '@posthog/lemon-ui'
-import { IconTrendingFlat, IconTrendingFlatDown } from 'lib/components/icons'
+import { IconTrendingFlat, IconTrendingFlatDown, IconSchedule } from 'lib/components/icons'
 import { humanFriendlyDuration } from 'lib/utils'
 
 import { pathsLogicType } from './pathsLogicType'
+import { PATH_NODE_CARD_WIDTH } from './constants'
 
 type PathNodeCardMenuProps = {
     name: string
@@ -37,7 +37,7 @@ export function PathNodeCardMenu({
                 marginTop: -5,
                 border: '1px solid var(--border)',
                 borderRadius: '0px 0px 4px 4px',
-                width: 200,
+                width: PATH_NODE_CARD_WIDTH,
             }}
         >
             {!isPathEnd && (
@@ -66,7 +66,7 @@ export function PathNodeCardMenu({
             )}
             {!isPathStart && (
                 <div className="text-xs flex items-center p-2 gap-2 border-t">
-                    <ClockCircleOutlined style={{ color: 'var(--muted)', fontSize: 16 }} />
+                    <IconSchedule className="text-xl shrink-0 text-muted" />
                     <span>
                         Average time from previous step <b>{humanFriendlyDuration(averageConversionTime)}</b>
                     </span>

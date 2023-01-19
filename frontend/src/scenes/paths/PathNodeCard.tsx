@@ -7,6 +7,7 @@ import { pageUrl, isSelectedPathStartOrEnd, PathNodeData } from './pathUtils'
 import { pathsLogic } from './pathsLogic'
 import { PathNodeCardMenu } from './PathNodeCardMenu'
 import { PathNodeCardButton } from './PathNodeCardButton'
+import { PATH_NODE_CARD_WIDTH } from './constants'
 
 type PathNodeCardProps = {
     node: PathNodeData
@@ -48,8 +49,8 @@ export function PathNodeCard({ node, insightProps }: PathNodeCardProps): JSX.Ele
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         position: 'absolute',
-                        width: 200,
-                        left: isPathEnd ? node.x0 - 200 + 7 : node.x0 + 7,
+                        width: PATH_NODE_CARD_WIDTH,
+                        left: isPathEnd ? node.x0 - PATH_NODE_CARD_WIDTH + 7 : node.x0 + 7,
                         top: isPathEnd ? node.y0 + (node.y1 - node.y0) / 2 : node.y0 + 5,
                         border: `1px solid ${isSelectedPathStartOrEnd(filter, node) ? 'purple' : 'var(--border)'}`,
                     }}
