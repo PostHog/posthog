@@ -448,7 +448,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                         const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
 
-                        if (showOnlyMatching && tab === SessionRecordingPlayerTab.EVENTS) {
+                        if (matchingEvents.length && showOnlyMatching && tab === SessionRecordingPlayerTab.EVENTS) {
                             // Special case - overrides the others
                             include = include && isMatchingEvent
                         }
