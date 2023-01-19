@@ -264,7 +264,7 @@ export const redirects: Record<
     '/events/properties/:id': ({ id }) => urls.eventPropertyDefinition(id),
     '/recordings': (_params, _searchParams, hashParams) => {
         if (hashParams.sessionRecordingId) {
-            // Previous URLs for an individual recording where like: /recordings/#sessionRecordingId=foobar
+            // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
             return urls.sessionRecording(hashParams.sessionRecordingId)
         }
         return urls.sessionRecordings()
