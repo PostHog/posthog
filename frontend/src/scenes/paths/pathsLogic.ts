@@ -132,10 +132,6 @@ export const pathsLogic = kea<pathsLogicType>({
             (inflightFilters): Partial<PathsFilterType> =>
                 inflightFilters && isPathsFilter(inflightFilters) ? inflightFilters : {},
         ],
-        loadedFilters: [
-            (s) => [s.insight],
-            ({ filters }): Partial<PathsFilterType> => (filters && isPathsFilter(filters) ? filters : {}),
-        ],
         results: [
             (s) => [s.insight],
             ({ filters, result }): PathNode[] => (filters && isPathsFilter(filters) ? result || [] : []),
@@ -161,10 +157,6 @@ export const pathsLogic = kea<pathsLogicType>({
             },
         ],
         pathsError: [(s) => [s.insight], (insight): PathNode => insight.result?.error],
-        loadedFilter: [
-            (s) => [s.results, s.filter],
-            (results: PathResult, filter: Partial<FilterType>) => results?.filter || filter,
-        ],
         taxonomicGroupTypes: [
             (s) => [s.filter],
             (filter: Partial<PathsFilterType>) => {
