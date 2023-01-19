@@ -131,10 +131,7 @@ function PathsTargetComponent({
             return start_point ? (
                 <span className="label">{start_point}</span>
             ) : (
-                // eslint-disable-next-line react/forbid-dom-props
-                <span className="label" style={{ color: 'var(--muted)' }}>
-                    Add start point
-                </span>
+                <span className="label text-muted">Add start point</span>
             )
         }
     }
@@ -150,10 +147,7 @@ function PathsTargetComponent({
             return end_point ? (
                 <span className="label">{end_point}</span>
             ) : (
-                // eslint-disable-next-line react/forbid-dom-props
-                <span className="label" style={{ color: 'var(--muted)' }}>
-                    Add end point
-                </span>
+                <span className="label text-muted">Add end point</span>
             )
         }
     }
