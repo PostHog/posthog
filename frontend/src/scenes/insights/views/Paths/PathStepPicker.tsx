@@ -21,7 +21,6 @@ export function PathStepPickerDataExploration({
     const { updateInsightFilter } = useActions(pathsDataLogic(insightProps))
 
     return <PathStepPickerComponent setFilter={updateInsightFilter} {...insightFilter} />
-    return <></>
 }
 
 export function PathStepPicker({ insightProps }: Pick<EditorFilterProps, 'insightProps'>): JSX.Element {
