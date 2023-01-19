@@ -391,6 +391,24 @@
     position: absolute;
 }
 
+// Display
+
+.block {
+    display: block;
+}
+
+.inline-block {
+    display: inline-block;
+}
+
+.inline {
+    display: inline;
+}
+
+.hidden {
+    display: none;
+}
+
 // Flex
 .flex {
     display: flex;
@@ -900,10 +918,6 @@
 
 .invisible {
     visibility: hidden;
-}
-
-.hidden {
-    display: none;
 }
 
 .resize-y {

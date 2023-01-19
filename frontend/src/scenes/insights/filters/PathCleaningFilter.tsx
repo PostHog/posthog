@@ -92,16 +92,19 @@ export function PathCleaningFilterComponent({
                         : "You don't have path cleaning filters. Click the gear icon to configure it."
                 }
             >
-                <LemonSwitch
-                    disabled={!hasFilters}
-                    checked={hasFilters ? path_replacements || false : false}
-                    onChange={(checked: boolean) => {
-                        localStorage.setItem('default_path_clean_filters', checked.toString())
-                        setFilter({ path_replacements: checked })
-                    }}
-                    label="Apply global path URL cleaning"
-                    bordered
-                />
+                {/* This div is necessary for the tooltip to work. */}
+                <div className="inline-block">
+                    <LemonSwitch
+                        disabled={!hasFilters}
+                        checked={hasFilters ? path_replacements || false : false}
+                        onChange={(checked: boolean) => {
+                            localStorage.setItem('default_path_clean_filters', checked.toString())
+                            setFilter({ path_replacements: checked })
+                        }}
+                        label="Apply global path URL cleaning"
+                        bordered
+                    />
+                </div>
             </Tooltip>
         </div>
     )
