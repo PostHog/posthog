@@ -362,7 +362,10 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
     return redis
 }
 
-export function pluginDigest(plugin: Plugin, teamId?: number): string {
+export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
+    if (typeof plugin === 'number') {
+        return `plugin ID ${plugin} (unknown)`
+    }
     const extras = []
     if (teamId) {
         extras.push(`team ID ${teamId}`)

@@ -18,7 +18,11 @@ function consoleFormat(...args: unknown[]): string {
 
 export function createConsole(hub: Hub, pluginConfig: PluginConfig): ConsoleExtension {
     async function consolePersist(type: PluginLogEntryType, ...args: unknown[]): Promise<void> {
-        status.debug('👉', `${type} in ${pluginDigest(pluginConfig.plugin!, pluginConfig.team_id)}:`, ...args)
+        status.debug(
+            '👉',
+            `${type} in ${pluginDigest(pluginConfig.plugin || pluginConfig.plugin_id, pluginConfig.team_id)}:`,
+            ...args
+        )
 
         await hub.db.queuePluginLogEntry({
             pluginConfig,
