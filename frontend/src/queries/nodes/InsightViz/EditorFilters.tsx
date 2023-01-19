@@ -55,7 +55,7 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
     //     featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
     //     (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
     // (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
-    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
+    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels || isLifecycle
 
     const { insight, insightProps, filterPropertiesCount } = useValues(insightLogic)
 

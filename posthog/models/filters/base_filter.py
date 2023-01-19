@@ -46,7 +46,7 @@ class BaseFilter(BaseParamMixin, HogQLParamMixin):
 
     def with_data(self, overrides: Dict[str, Any]):
         "Allow making copy of filter whilst preserving the class"
-        return type(self)(data={**self._data, **overrides}, **self.kwargs)
+        return type(self)(data={**self._data, **overrides}, **self.kwargs, hogql_context=self.hogql_context)
 
     def query_tags(self) -> Dict[str, Any]:
         ret = {}

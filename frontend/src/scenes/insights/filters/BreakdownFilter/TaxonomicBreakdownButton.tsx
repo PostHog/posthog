@@ -38,7 +38,9 @@ export function TaxonomicBreakdownButton({
               TaxonomicFilterGroupType.EventFeatureFlags,
               ...groupsTaxonomicTypes,
               TaxonomicFilterGroupType.CohortsWithAllUsers,
-          ].concat(includeSessions ? [TaxonomicFilterGroupType.Sessions] : [])
+              ...(includeSessions ? [TaxonomicFilterGroupType.Sessions] : []),
+              TaxonomicFilterGroupType.HogQLExpression,
+          ]
 
     return (
         <Popup
