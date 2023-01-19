@@ -1,10 +1,8 @@
 import { LemonButton, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconArrowRight, IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
-import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { BillingProductV2Type, BillingV2PlanType } from '~/types'
 import { billingV2Logic } from './billingV2Logic'
 import './PlanTable.scss'
 
@@ -364,10 +362,87 @@ export function PlanIcon({
     )
 }
 
+const getPlanBasePrice = (plan: BillingV2PlanType): number | string => {
+    const basePlan = plan.products.find((product) => product.type === 'enterprise' || product.type === 'base')
+    if (basePlan?.unit_amount_usd) {
+        return `$${parseInt(basePlan.unit_amount_usd)}/mo`
+    }
+    if (plan.name === 'Starter') {
+        return 'Free forever'
+    }
+    return '$0/mo'
+}
+
+const convertTierToHumanReadable = (
+    // The number to convert
+    num: number | null,
+    // The previous tier's number
+    previousNum: number | null,
+    // Whether we will be showing multiple tiers (to denote the first tier with 'first')
+    multipleTiers: boolean = false,
+    // The product type (to denote the unit)
+    productType: BillingProductV2Type['type'] | null = null
+): string => {
+    if (num === null && previousNum) {
+        return `${convertTierToHumanReadable(previousNum, null)} +`
+    }
+    if (num === null) {
+        return ''
+    }
+
+    let denominator = 1
+
+    if (num >= 1000000) {
+        denominator = 1000000
+    } else if (num >= 1000) {
+        denominator = 1000
+    }
+
+    return `${previousNum ? `${(previousNum / denominator).toFixed(0)}-` : multipleTiers ? 'First ' : ''}${(
+        num / denominator
+    ).toFixed(0)}${denominator === 1000000 ? ' million' : 'k'}${
+        !previousNum && multipleTiers ? ` ${productType}/mo` : ''
+    }`
+}
+
+const getProductTiers = (plan: BillingV2PlanType, productType: BillingProductV2Type['type']): JSX.Element => {
+    const product = plan.products.find((planProduct) => planProduct.type === productType)
+    const tiers = product?.tiers
+    return (
+        <>
+            {tiers ? (
+                tiers?.map((tier, i) => (
+                    <div
+                        key={`${plan.name}-${productType}-${tier.up_to}`}
+                        className="flex justify-between items-center"
+                    >
+                        <span className="text-xs">
+                            {convertTierToHumanReadable(tier.up_to, tiers[i - 1]?.up_to, true, productType)}
+                        </span>
+                        <span className="font-bold">
+                            {i === 0 && parseFloat(tier.unit_amount_usd) === 0
+                                ? plan.name === 'Scale'
+                                    ? 'Free'
+                                    : 'Included'
+                                : `$${parseFloat(tier.unit_amount_usd).toFixed(6)}`}
+                        </span>
+                    </div>
+                ))
+            ) : (
+                <div key={`${plan.name}-${productType}-tiers`} className="flex justify-between items-center">
+                    <span className="text-xs">
+                        Up to {convertTierToHumanReadable(product?.usage_limit || null, null)} {product?.type}/mo
+                    </span>
+                    <span className="font-bold">Free</span>
+                </div>
+            )}
+        </>
+    )
+}
+
 export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
     const { billing } = useValues(billingV2Logic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const upgradeButtons = billingPlans.map((plan) => (
         <td key={`${plan.name}-cta`}>
@@ -395,14 +470,10 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                 <thead>
                     <tr>
                         <td />
-                        {billingPlans.map((plan) => (
+                        {billing?.available_plans?.map((plan) => (
                             <td key={plan.name}>
                                 <h3 className="font-bold">{plan.name}</h3>
                                 <p className="ml-0 text-xs">{plan.description}</p>
-                                {featureFlags[FEATURE_FLAGS.BILLING_PLAN_MOST_POPULAR_EXPERIMENT] === 'test' &&
-                                plan.name === 'PostHog Cloud' ? (
-                                    <LemonSnack className="text-xs mt-1">Most popular</LemonSnack>
-                                ) : null}
                             </td>
                         ))}
                     </tr>
@@ -418,47 +489,36 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                     </tr>
                     <tr className="PlanTable__tr__border">
                         <td className="font-bold">Monthly base price</td>
-                        {billingPlans.map((plan) => (
+                        {billing?.available_plans?.map((plan) => (
                             <td key={`${plan.name}-basePrice`} className="text-sm font-bold">
-                                {plan.basePrice}
+                                {getPlanBasePrice(plan)}
                             </td>
                         ))}
                     </tr>
-                    {Object.keys(billingPlans[0].products).map((product, i) => (
-                        <tr
-                            key={product}
-                            className={
-                                i !== Object.keys(billingPlans[0].products).length - 1 ? 'PlanTable__tr__border' : ''
-                            }
-                        >
-                            <th scope="row">
-                                {billingPlans[0].products[product].name}
-                                <p className="ml-0 text-xs text-muted mt-1">{billingPlans[0].products[product].note}</p>
-                            </th>
-                            {billingPlans.map((plan) => (
-                                <td key={`${plan.name}-${product}`}>
-                                    {plan.products[i].tiers.map((tier) => (
-                                        <div
-                                            key={`${plan.name}-${product}-${tier.description}`}
-                                            className="flex justify-between items-center"
-                                        >
-                                            <span className="text-xs">{tier.description}</span>
-                                            <span className="font-bold">{tier.price}</span>
-                                        </div>
-                                    ))}
-                                    {plan.name !== 'PostHog Cloud Lite' ? (
-                                        <Link
-                                            to="https://posthog.com/pricing"
-                                            target="_blank"
-                                            className="text-xs font-semibold"
-                                        >
-                                            More volume tiers
-                                        </Link>
-                                    ) : null}
-                                </td>
-                            ))}
-                        </tr>
-                    ))}
+                    {billing?.available_plans
+                        ? billing?.available_plans[0].products
+                              .filter((product) => product.type !== 'base' && product.type !== 'enterprise')
+                              .map((product, i) => (
+                                  <tr
+                                      key={product.type}
+                                      className={
+                                          i !== billing?.available_plans[0].products.length - 1
+                                              ? 'PlanTable__tr__border'
+                                              : ''
+                                      }
+                                  >
+                                      <th scope="row">
+                                          {product.type === 'events' ? 'Product analytics' : 'Session recording'}
+                                          <p className="ml-0 text-xs text-muted mt-1">
+                                              Priced per {product.type === 'events' ? 'event' : 'recording'}
+                                          </p>
+                                      </th>
+                                      {billing?.available_plans?.map((plan) => (
+                                          <td key={`${plan.key}-${product}`}>{getProductTiers(plan, product.type)}</td>
+                                      ))}
+                                  </tr>
+                              ))
+                        : null}
                     <tr>
                         <td />
                         {upgradeButtons}

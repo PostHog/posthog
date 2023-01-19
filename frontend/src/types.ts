@@ -1018,7 +1018,7 @@ export interface BillingType {
 export type BillingVersion = 'v1' | 'v2'
 
 export interface BillingProductV2Type {
-    type: 'EVENTS' | 'RECORDINGS' | 'events' | 'recordings'
+    type: 'EVENTS' | 'RECORDINGS' | 'ENTERPRISE' | 'BASE' | 'events' | 'recordings' | 'enterprise' | 'base'
     name: string
     description?: string
     price_description?: string
