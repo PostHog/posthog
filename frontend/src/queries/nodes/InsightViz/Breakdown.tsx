@@ -1,6 +1,6 @@
 import { useValues, useActions } from 'kea'
 import { QueryEditorFilterProps } from '~/types'
-import { BreakdownFilter } from 'scenes/insights/filters/BreakdownFilter'
+import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isTrendsQuery } from '~/queries/utils'
@@ -19,5 +19,5 @@ export function Breakdown({ insightProps, query }: QueryEditorFilterProps): JSX.
     const setFilters = (breakdown: BreakdownFilterType): void => {
         updateBreakdown(breakdown)
     }
-    return <BreakdownFilter filters={filters} setFilters={setFilters} useMultiBreakdown={useMultiBreakdown} />
+    return <TaxonomicBreakdownFilter filters={filters} setFilters={setFilters} useMultiBreakdown={useMultiBreakdown} />
 }

@@ -29,7 +29,7 @@ import {
     isStickinessFilter,
     isTrendsFilter,
 } from 'scenes/insights/sharedUtils'
-import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter'
+import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 
 export function getDefaultEvent(): Entity {
     const event = getDefaultEventName()
