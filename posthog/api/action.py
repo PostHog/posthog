@@ -17,12 +17,12 @@ from posthog.auth import JwtAuthentication, PersonalAPIKeyAuthentication, Tempor
 from posthog.client import sync_execute
 from posthog.constants import LIMIT, TREND_FILTER_TYPE_EVENTS
 from posthog.event_usage import report_user_action
+from posthog.hogql.hogql import HogQLContext
 from posthog.models import Action, ActionStep, Filter, Person
 from posthog.models.action.util import format_action_filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.trends.trends_actors import TrendsActors
 
-from ..hogql.hogql import HogQLContext
 from .forbid_destroy_model import ForbidDestroyModel
 from .person import get_person_name
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin

@@ -21,7 +21,6 @@ import {
 
 import { InsightQueryNode } from '~/queries/schema'
 import { EditorFilterGroup } from './EditorFilterGroup'
-import { LifecycleGlobalFilters } from './LifecycleGlobalFilters'
 import { LifecycleToggles } from './LifecycleToggles'
 import { GlobalAndOrFilters } from './GlobalAndOrFilters'
 import { TrendsSeries } from './TrendsSeries'
@@ -81,14 +80,6 @@ export function EditorFilters({ query, setQuery }: EditorFiltersProps): JSX.Elem
             title: 'Filters',
             count: filterPropertiesCount,
             editorFilters: filterFalsy([
-                isLifecycle
-                    ? {
-                          key: 'properties',
-                          label: 'Filters',
-                          position: 'right',
-                          component: LifecycleGlobalFilters as (props: QueryEditorFilterProps) => JSX.Element | null,
-                      }
-                    : null,
                 isLifecycle
                     ? {
                           key: 'toggles',

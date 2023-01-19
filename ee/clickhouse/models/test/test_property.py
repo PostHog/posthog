@@ -39,7 +39,11 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
 
     def _run_query(self, filter: Filter, **kwargs) -> List:
         query, params = parse_prop_grouped_clauses(
-            property_group=filter.property_groups, allow_denormalized_props=True, team_id=self.team.pk, **kwargs
+            property_group=filter.property_groups,
+            allow_denormalized_props=True,
+            team_id=self.team.pk,
+            hogql_context=filter.hogql_context,
+            **kwargs,
         )
         final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         return sync_execute(final_query, {**params, **filter.hogql_context.values, "team_id": self.team.pk})

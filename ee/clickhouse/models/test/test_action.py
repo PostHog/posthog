@@ -203,3 +203,18 @@ class TestActionFormat(ClickhouseTestMixin, BaseTest):
 
         events = _get_events_for_action(action1)
         self.assertEqual(len(events), 1)
+
+    def test_hogql(self):
+        # Tests a regression where the second step properties would override those of the first step, causing issues
+        _create_event(event="insight viewed", team=self.team, distinct_id="first", properties={"filters_count": 20})
+        _create_event(event="insight viewed", team=self.team, distinct_id="second", properties={"filters_count": 1})
+
+        action1 = Action.objects.create(team=self.team, name="action1")
+        ActionStep.objects.create(
+            event="insight viewed",
+            action=action1,
+            properties=[{"key": "toInt(properties.filters_count) > 10", "type": "hogql"}],
+        )
+
+        events = _get_events_for_action(action1)
+        self.assertEqual(len(events), 1)

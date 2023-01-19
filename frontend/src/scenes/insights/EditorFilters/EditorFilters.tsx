@@ -13,7 +13,6 @@ import { GlobalAndOrFilters } from 'scenes/insights/EditorFilters/GlobalAndOrFil
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
 import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
-import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
 import { RetentionSummary } from './RetentionSummary'
 import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'
@@ -162,14 +161,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             count: filterPropertiesCount,
 
             editorFilters: filterFalsy([
-                isLifecycle
-                    ? {
-                          key: 'properties',
-                          label: !usingEditorPanels ? 'Filters' : undefined,
-                          position: 'right',
-                          component: LifecycleGlobalFilters,
-                      }
-                    : null,
                 isLifecycle
                     ? {
                           key: 'toggles',
