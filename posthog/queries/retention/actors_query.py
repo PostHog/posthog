@@ -62,7 +62,9 @@ class RetentionActorsByPeriod(ActorBaseQuery):
             retention_events_query=self._retention_events_query,
         )
 
-        results = insight_sync_execute(actor_query, query_type="retention_actors", filter=self._filter)
+        results = insight_sync_execute(
+            actor_query, self._filter.hogql_context.values, query_type="retention_actors", filter=self._filter
+        )
         actor_appearances = [
             AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1]) for row in results
         ]

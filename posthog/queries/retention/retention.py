@@ -35,6 +35,7 @@ class Retention:
         actor_query = build_actor_activity_query(filter=filter, team=team, retention_events_query=self.event_query)
         result = insight_sync_execute(
             RETENTION_BREAKDOWN_SQL.format(actor_query=actor_query),
+            filter.hogql_context.values,
             settings={"timeout_before_checking_execution_speed": 60},
             filter=filter,
             query_type="retention_by_breakdown_values",

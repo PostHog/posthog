@@ -50,7 +50,7 @@ class TestEventQuery(ClickhouseTestMixin, APIBaseTest):
             using_person_on_events=self.team.person_on_events_querying_enabled,
         ).get_query()
 
-        result = sync_execute(query, params)
+        result = sync_execute(query, {**params, **filter.hogql_context.values})
 
         return result, query
 

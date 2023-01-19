@@ -4,12 +4,14 @@ from typing import Any, Dict, Optional
 
 from rest_framework import request
 
+from posthog.hogql.hogql import HogQLContext
 from posthog.models.filters.mixins.common import BaseParamMixin
+from posthog.models.filters.mixins.hogql import HogQLParamMixin
 from posthog.models.utils import sane_repr
 from posthog.utils import encode_get_request_params
 
 
-class BaseFilter(BaseParamMixin):
+class BaseFilter(BaseParamMixin, HogQLParamMixin):
     def __init__(
         self, data: Optional[Dict[str, Any]] = None, request: Optional[request.Request] = None, **kwargs
     ) -> None:
@@ -21,6 +23,7 @@ class BaseFilter(BaseParamMixin):
         self.kwargs = kwargs
         if kwargs.get("team"):
             self.team = kwargs["team"]
+        self.hogql_context = kwargs.get("hogql_context", HogQLContext())
 
         if "team" in kwargs and hasattr(self, "simplify") and not getattr(self, "is_simplified", False):
             simplified_filter = self.simplify(kwargs["team"])  # type: ignore

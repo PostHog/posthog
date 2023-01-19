@@ -55,7 +55,7 @@ from posthog.utils import is_json, is_valid_regex
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
-    hogql_context: Optional[HogQLContext] = None,
+    hogql_context: HogQLContext,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,

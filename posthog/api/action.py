@@ -22,6 +22,7 @@ from posthog.models.action.util import format_action_filter
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.trends.trends_actors import TrendsActors
 
+from ..hogql.hogql import HogQLContext
 from .forbid_destroy_model import ForbidDestroyModel
 from .person import get_person_name
 from .tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
@@ -235,7 +236,8 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
     def count(self, request: request.Request, **kwargs) -> Response:
         action = self.get_object()
         # NOTE: never accepts cohort parameters so no need for explicit person_id_joined_alias
-        query, params = format_action_filter(team_id=action.team_id, action=action)
+        hogql_context = HogQLContext()
+        query, params = format_action_filter(team_id=action.team_id, action=action, hogql_context=hogql_context)
         if query == "":
             return Response({"count": 0})
 
@@ -248,6 +250,7 @@ class ActionViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidDestro
                 "before": now().strftime("%Y-%m-%d %H:%M:%S.%f"),
                 "after": (now() - relativedelta(months=3)).strftime("%Y-%m-%d %H:%M:%S.%f"),
                 **params,
+                **hogql_context.values,
             },
         )
         return Response({"count": results[0][0]})

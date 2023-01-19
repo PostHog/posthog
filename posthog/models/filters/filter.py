@@ -5,6 +5,7 @@ from rest_framework import request
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import PROPERTIES
+from posthog.hogql.hogql import HogQLContext
 from posthog.models.filters.base_filter import BaseFilter
 from posthog.models.filters.mixins.common import (
     BreakdownMixin,
@@ -121,6 +122,8 @@ class Filter(
         self._data = data
 
         self.kwargs = kwargs
+
+        self.hogql_context = kwargs.get("hogql_context", HogQLContext())
 
         if "team" in kwargs and not self.is_simplified:
             simplified_filter = self.simplify(kwargs["team"])

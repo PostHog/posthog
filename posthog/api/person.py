@@ -197,7 +197,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         query, params = PersonQuery(filter, team.pk).get_query(paginate=True)
 
-        raw_result = sync_execute(query, params)
+        raw_result = sync_execute(query, {**params, **filter.hogql_context.values})
 
         actor_ids = [row[0] for row in raw_result]
         actors, serialized_actors = get_people(team.pk, actor_ids)

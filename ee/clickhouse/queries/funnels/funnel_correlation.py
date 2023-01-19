@@ -803,7 +803,9 @@ class FunnelCorrelation:
         """
 
         query, params = self.get_contingency_table_query()
-        results_with_total = insight_sync_execute(query, params, query_type="funnel_correlation", filter=self._filter)
+        results_with_total = insight_sync_execute(
+            query, {**params, **self._filter.hogql_context.values}, query_type="funnel_correlation", filter=self._filter
+        )
 
         # Get the total success/failure counts from the results
         results = [result for result in results_with_total if result[0] != self.TOTAL_IDENTIFIER]

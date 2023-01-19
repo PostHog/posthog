@@ -117,6 +117,7 @@ class TrendsBreakdown:
             person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
             if not self.using_person_on_events
             else "person_id",
+            hogql_context=self.filter.hogql_context,
         )
 
     def get_query(self) -> Tuple[str, Dict, Callable]:
@@ -153,6 +154,7 @@ class TrendsBreakdown:
                 table_name="e",
                 person_properties_mode=self._person_properties_mode,
                 person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else 'e'}.person_id",
+                hogql_context=self.filter.hogql_context,
             )
 
         self.params = {
@@ -390,8 +392,12 @@ class TrendsBreakdown:
         )
 
     def _get_breakdown_value(self, breakdown: str) -> str:
+        if self.filter.breakdown_type == "hogql":
+            from posthog.hogql.hogql import translate_hogql
 
-        if self.filter.breakdown_type == "session":
+            breakdown_value = translate_hogql(breakdown, self.filter.hogql_context)
+
+        elif self.filter.breakdown_type == "session":
             if breakdown == "$session_duration":
                 # Return the session duration expression right away because it's already an number,
                 # so it doesn't need casting for the histogram case (like the other properties)
