@@ -59,6 +59,9 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
     ORDER BY (team_id, old_person_id)
 """
 
+# An abstraction over Kafka that allows us to consume, via a ClickHouse
+# Materialized View from a Kafka topic and insert the messages into the
+# ClickHouse MergeTree table `person_overrides`
 PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
@@ -66,6 +69,8 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
     EMPTY AS SELECT * FROM `{CLICKHOUSE_DATABASE}.person_overrides`
 """
 
+# Materialized View that watches the Kafka table for data and inserts into the
+# `person_overrides` table.
 PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_mv`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
