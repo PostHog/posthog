@@ -184,14 +184,20 @@ class InsightSerializer(InsightBasicSerializer):
     timezone = serializers.SerializerMethodField(help_text="The timezone this chart is displayed in.")
     dashboards = serializers.PrimaryKeyRelatedField(
         help_text="""
-        DEPRECATED. Use dashboard_tiles,
+        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.
         A dashboard ID for each of the dashboards that this insight is displayed on.
         """,
         many=True,
         required=False,
         queryset=Dashboard.objects.all(),
     )
-    dashboard_tiles = DashboardTileBasicSerializer(many=True, read_only=True)
+    dashboard_tiles = DashboardTileBasicSerializer(
+        many=True,
+        read_only=True,
+        help_text="""
+    A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
+    """,
+    )
 
     class Meta:
         model = Insight
