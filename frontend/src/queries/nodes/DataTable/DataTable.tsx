@@ -66,7 +66,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     } = useValues(builtDataNodeLogic)
 
     const dataTableLogicProps: DataTableLogicProps = { query, key }
-    const { resultsWithLabelRows, columns, columnsInResponse, queryWithDefaults, canSort, isRowHighlighted } =
+    const { resultsWithLabelRows, columnsInQuery, columnsInResponse, queryWithDefaults, canSort, isRowHighlighted } =
         useValues(dataTableLogic(dataTableLogicProps))
 
     const {
@@ -83,9 +83,9 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         expandable,
     } = queryWithDefaults
 
-    const actionsColumnShown = showActions && isEventsQuery(query.source) && columns.includes('*')
+    const actionsColumnShown = showActions && isEventsQuery(query.source) && columnsInResponse?.includes('*')
     const lemonColumns: LemonTableColumn<Record<string, any> | any[], any>[] = [
-        ...columns.map(
+        ...columnsInQuery.map(
             (key, index) =>
                 ({
                     dataIndex: key as any,
@@ -95,7 +95,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                             if (index === (expandable ? 1 : 0)) {
                                 return {
                                     children: record[categoryRowKey],
-                                    props: { colSpan: columns.length + (actionsColumnShown ? 1 : 0) },
+                                    props: { colSpan: columnsInQuery.length + (actionsColumnShown ? 1 : 0) },
                                 }
                             } else {
                                 return { props: { colSpan: 0 } }
@@ -232,7 +232,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                                     groupTypes={groupTypes}
                                     buttonProps={{ type: undefined }}
                                 />
-                                {columns.filter((c) => c !== '*').length > 1 ? (
+                                {columnsInQuery.filter((c) => c !== '*').length > 1 ? (
                                     <>
                                         <LemonDivider />
                                         <LemonButton
@@ -368,19 +368,23 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         className="DataTable"
                         loading={responseLoading && !nextDataLoading && !newDataLoading}
                         columns={lemonColumns}
-                        key={columns.join('::') /* Bust the LemonTable cache when columns change */}
+                        key={
+                            (columnsInResponse ?? columnsInQuery).join(
+                                '::'
+                            ) /* Bust the LemonTable cache when columns change */
+                        }
                         dataSource={dataSource}
                         rowKey={(record, rowIndex) => {
                             if (categoryRowKey in record) {
                                 return `__category_row__${rowIndex}`
                             }
                             if (isEventsQuery(query.source)) {
-                                if (columns.includes('*')) {
-                                    return record[columns.indexOf('*')].uuid
-                                } else if (columns.includes('uuid')) {
-                                    return record[columns.indexOf('uuid')]
-                                } else if (columns.includes('id')) {
-                                    return record[columns.indexOf('id')]
+                                if ((columnsInResponse ?? columnsInQuery).includes('*')) {
+                                    return record[(columnsInResponse ?? columnsInQuery).indexOf('*')].uuid
+                                } else if ((columnsInResponse ?? columnsInQuery).includes('uuid')) {
+                                    return record[(columnsInResponse ?? columnsInQuery).indexOf('uuid')]
+                                } else if ((columnsInResponse ?? columnsInQuery).includes('id')) {
+                                    return record[(columnsInResponse ?? columnsInQuery).indexOf('id')]
                                 }
                                 return JSON.stringify(record)
                             } else {
@@ -395,20 +399,20 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         useURLForSorting={false}
                         emptyState={responseError ? <InsightErrorState /> : <InsightEmptyState />}
                         expandable={
-                            expandable && isEventsQuery(query.source) && columns.includes('*')
+                            expandable && isEventsQuery(query.source) && columnsInResponse?.includes('*')
                                 ? {
-                                      expandedRowRender: function renderExpand(event) {
-                                          if (isEventsQuery(query.source) && Array.isArray(event)) {
+                                      expandedRowRender: function renderExpand(record) {
+                                          if (isEventsQuery(query.source) && Array.isArray(record)) {
                                               return (
                                                   <EventDetails
-                                                      event={event[columns.indexOf('*')] ?? {}}
+                                                      event={record[columnsInResponse.indexOf('*')] ?? {}}
                                                       useReactJsonView
                                                   />
                                               )
                                           }
-                                          return event ? <EventDetails event={event} useReactJsonView /> : null
+                                          return record ? <EventDetails event={record} useReactJsonView /> : null
                                       },
-                                      rowExpandable: (event) => !(categoryRowKey in event),
+                                      rowExpandable: (record) => !(categoryRowKey in record),
                                       noIndent: true,
                                   }
                                 : undefined

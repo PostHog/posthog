@@ -60,20 +60,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     ? (response?.columns as string[])
                     : null,
         ],
-        columns: [
-            (s) => [s.columnsInResponse, s.columnsInQuery],
-            // always show columns in the query (what the user entered), and transform results to match below
-            (columnsInResponse, columnsInQuery): string[] => columnsInQuery ?? columnsInResponse ?? [],
-        ],
         resultsWithLabelRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columns, s.responseError],
-            (sourceKind, orderBy, response: AnyDataNode['response'], columns, responseError): any[] | null => {
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.responseError],
+            (sourceKind, orderBy, response: AnyDataNode['response'], columnsInQuery, responseError): any[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const eventsQueryResponse = response as EventsQuery['response'] | null
                     if (eventsQueryResponse) {
                         const { results, columns: columnsInResponse } = eventsQueryResponse
                         const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
-                        const orderKeyIndex = columns.findIndex(
+                        const orderKeyIndex = columnsInResponse.findIndex(
                             (column) =>
                                 removeExpressionComment(column) === orderKey ||
                                 removeExpressionComment(column) === `-${orderKey}`
@@ -84,17 +79,17 @@ export const dataTableLogic = kea<dataTableLogicType>([
                         if (
                             responseError &&
                             columnsInResponse &&
-                            (columns.length <= columnsInResponse.length ||
-                                columnsInResponse.find((c) => !columns.includes(c)))
+                            (columnsInQuery.length <= columnsInResponse.length ||
+                                columnsInResponse.find((c) => !columnsInQuery.includes(c)))
                         ) {
                             return []
                         }
 
                         const columnMap = Object.fromEntries(columnsInResponse.map((c, i) => [c, i]))
-                        const convertResultToDisplayedColumns = equal(columns, columnsInResponse)
+                        const convertResultToDisplayedColumns = equal(columnsInQuery, columnsInResponse)
                             ? (result: any[]) => result
                             : (result: any[]): any[] => {
-                                  const newResult = columns.map((c) =>
+                                  const newResult = columnsInQuery.map((c) =>
                                       c in columnMap
                                           ? result[columnMap[c]]
                                           : responseError
