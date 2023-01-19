@@ -1018,18 +1018,18 @@ export interface BillingType {
 export type BillingVersion = 'v1' | 'v2'
 
 export interface BillingProductV2Type {
-    type: 'EVENTS' | 'RECORDINGS'
+    type: 'EVENTS' | 'RECORDINGS' | 'events' | 'recordings'
     name: string
-    description: string
-    price_description: string
+    description?: string
+    price_description?: string
     image_url?: string
     free_allocation?: number
-    tiers: {
+    tiers?: {
         unit_amount_usd: string
         current_amount_usd?: string | null
         up_to: number | null
     }[]
-    tiered: boolean
+    tiered?: boolean
     current_usage?: number
     projected_usage?: number
     percentage_usage: number
@@ -1058,6 +1058,14 @@ export interface BillingV2Type {
     license?: {
         plan: LicensePlan
     }
+    available_plans?: BillingV2PlanType[]
+}
+
+export interface BillingV2PlanType {
+    key: string
+    name: string
+    description: string
+    products: BillingProductV2Type[]
 }
 
 export interface BillingTierType {
