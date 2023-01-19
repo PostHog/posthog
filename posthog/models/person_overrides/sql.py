@@ -66,8 +66,17 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
 PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
     CREATE TABLE IF NOT EXISTS `{CLICKHOUSE_DATABASE}.person_overrides_kafka`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
-    ENGINE = Kafka('{KAFKA_HOSTS}', 'person_overrides', 'clickhouse-person-overrides', 'JSONEachRow')
-    EMPTY AS SELECT
+
+    ENGINE = Kafka(
+        '{KAFKA_HOSTS}',
+        'person_overrides',
+        'clickhouse-person-overrides',
+        'JSONEachRow'
+    )
+
+    -- We use the same schema as the `person_overrides` table except for columns
+    -- that are set e.g. as defaults.
+    AS SELECT
         team_id,
         old_person_id,
         override_person_id,
@@ -75,7 +84,7 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
         -- created_at is not included in the Kafka message, rather it is set as
         -- a default in the MergeTree table
         version
-    FROM `{CLICKHOUSE_DATABASE}.person_overrides`
+    FROM `{CLICKHOUSE_DATABASE}.person_overrides` LIMIT 0
 """
 
 # Materialized View that watches the Kafka table for data and inserts into the
