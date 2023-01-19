@@ -95,7 +95,9 @@ export async function processPersonsStep(
             runner.hub.db,
             runner.hub.statsd,
             runner.hub.personManager,
-            personContainer
+            personContainer,
+            undefined,
+            runner.poEEmbraceJoin
         )
 
         return runner.nextStep('prepareEventStep', event, newPersonContainer)

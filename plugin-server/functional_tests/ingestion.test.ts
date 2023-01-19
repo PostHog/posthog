@@ -317,11 +317,11 @@ test.concurrent('consumer updates timestamp exported to prometheus', async () =>
     }, 10_000)
 })
 
-// We only want to run these test if we are running with the delay all events
-// feature enabled. See https://github.com/PostHog/product-internal/pull/405 for
-// details.
-const testIfDelayEnabled = process.env.DELAY_ALL_EVENTS_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip
-testIfDelayEnabled(
+// We only want to run these test if we are running with the embrace the joins
+// feature enabled.
+const testIfPoEEmbraceJoinEnabled =
+    process.env.POE_EMBRACE_JOIN_FOR_TEAMS === '*' ? test.concurrent : test.concurrent.skip
+testIfPoEEmbraceJoinEnabled(
     `anonymous event recieves same person_id if $identify happenes shortly after, and there's already an anonymous person`,
     async () => {
         const teamId = await createTeam(postgres, organizationId)
@@ -380,7 +380,7 @@ testIfDelayEnabled(
     }
 )
 
-testIfDelayEnabled(`events reference same person_id if two people merged shortly after`, async () => {
+testIfPoEEmbraceJoinEnabled(`events reference same person_id if two people merged shortly after`, async () => {
     const teamId = await createTeam(postgres, organizationId)
     const firstDistinctId = new UUIDT().toString()
     const secondDistinctId = new UUIDT().toString()
@@ -418,7 +418,7 @@ testIfDelayEnabled(`events reference same person_id if two people merged shortly
     }, 10000)
 })
 
-testIfDelayEnabled(`person properties don't see properties from descendents`, async () => {
+testIfPoEEmbraceJoinEnabled(`person properties don't see properties from descendents`, async () => {
     // The only thing that should propagate to an ancestor is the person_id.
     // Person properties should not propagate to ancestors within a branch.
     //
