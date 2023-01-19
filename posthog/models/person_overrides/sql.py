@@ -28,13 +28,13 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
         override_person_id UUID NOT NULL,
 
         -- The timestamp the merge of the two people was completed.
-        merged_at TIMESTAMP WITH TIME ZONE NOT NULL
+        merged_at DateTime64(6, 'UTC') NOT NULL,
         -- The timestamp rows are created.
-        created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(),
+        created_at DateTime64(6, 'UTC') DEFAULT now(),
 
         -- the specific version of the `old_person_id` mapping. This is used to
         -- allow us to discard old mappings as new ones are added.
-        version INT NOT NULL,
+        version INT NOT NULL
     )
     -- By specifying Replacing merge tree on version, we allow ClickHouse to
     -- discard old versions of a `old_person_id` mapping. This should help keep
