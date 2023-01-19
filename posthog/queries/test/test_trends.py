@@ -4506,12 +4506,8 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
                 "2020-01-09 17:00:00",
             ],
         )
-        # p0 falls out of the window at noon, p1 and p2 are counted because the next 24 hours are included.
-        # FIXME: This is isn't super intuitive, in particular for hour-by-hour queries, but currently
-        # necessary, because there's a presentation issue: in monthly/weekly graphs data points are formatted as
-        # D-MMM-YYYY, so if a user sees e.g. 1-Jan-2077, they'll likely expect the active users count to be for
-        # the first day of the month, and not the last. If they saw just Jan-2077, the more general case would work.
-        self.assertEqual(result[0]["data"], [3.0, 3.0, 3.0, 3.0, 3.0, 3.0, 2.0, 2.0, 2.0, 2.0, 2.0, 2.0])
+
+        self.assertEqual(result[0]["data"], [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 3.0, 3.0, 3.0, 3.0, 3.0, 0.0])
 
     def test_weekly_active_users_daily_based_on_action_with_zero_person_ids(self):
         # only a person-on-event test

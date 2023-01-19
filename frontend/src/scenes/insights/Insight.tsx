@@ -6,7 +6,6 @@ import { insightLogic } from './insightLogic'
 import { insightCommandLogic } from './insightCommandLogic'
 import { insightDataLogic } from './insightDataLogic'
 import { AvailableFeature, ExporterFormat, InsightModel, InsightShortId, InsightType, ItemMode } from '~/types'
-import { NPSPrompt } from 'lib/experimental/NPSPrompt'
 import { InsightsNav } from './InsightsNav'
 import { AddToDashboard } from 'lib/components/AddToDashboard/AddToDashboard'
 import { InsightContainer } from 'scenes/insights/InsightContainer'
@@ -14,7 +13,6 @@ import { EditableField } from 'lib/components/EditableField/EditableField'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { InsightSaveButton } from './InsightSaveButton'
 import { userLogic } from 'scenes/userLogic'
-import { FeedbackCallCTA } from 'lib/experimental/FeedbackCallCTA'
 import { PageHeader } from 'lib/components/PageHeader'
 import { IconLock } from 'lib/components/icons'
 import { summarizeInsightFilters, summarizeInsightQuery } from './utils'
@@ -41,6 +39,7 @@ import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { tagsModel } from '~/models/tagsModel'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode } from '~/queries/schema'
+import { InlineEditorButton } from '~/queries/nodes/Node/InlineEditorButton'
 
 export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): JSX.Element {
     // insightSceneLogic
@@ -141,7 +140,12 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                         value={insight.name || ''}
                         placeholder={
                             isUsingDataExploration
-                                ? summarizeInsightQuery((query as InsightVizNode).source, aggregationLabel)
+                                ? summarizeInsightQuery(
+                                      (query as InsightVizNode).source,
+                                      aggregationLabel,
+                                      cohortsById,
+                                      mathDefinitions
+                                  )
                                 : summarizeInsightFilters(filters, aggregationLabel, cohortsById, mathDefinitions)
                         }
                         onSave={(value) => setInsightMetadata({ name: value })}
@@ -271,6 +275,7 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                                 insightChanged={insightChanged}
                             />
                         )}
+                        {isUsingDataExploration && <InlineEditorButton query={query} setQuery={setQuery} />}
                     </div>
                 }
                 caption={
@@ -336,13 +341,6 @@ export function Insight({ insightId }: { insightId: InsightShortId | 'new' }): J
                     </div>
                 </>
             )}
-
-            {insightMode !== ItemMode.View ? (
-                <>
-                    <NPSPrompt />
-                    <FeedbackCallCTA />
-                </>
-            ) : null}
         </div>
     )
 

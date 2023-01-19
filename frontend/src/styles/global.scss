@@ -10,6 +10,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 // Global components
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'fonts';
+@import 'functions';
 @import 'mixins';
 @import 'utility-legacy';
 @import 'utilities';

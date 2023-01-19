@@ -6,8 +6,6 @@ from typing import Any, Dict, List, Optional, cast
 
 from clickhouse_driver.util.escape import escape_param
 
-from posthog.models.property.util import get_property_string_expr
-
 # fields you can select from in the events query
 EVENT_FIELDS = ["id", "uuid", "event", "timestamp", "distinct_id"]
 # "person.*" fields you can select from in the events query
@@ -91,7 +89,7 @@ CLICKHOUSE_FUNCTIONS = {
 }
 # Permitted HogQL aggregations
 HOGQL_AGGREGATIONS = [
-    "total",
+    "count",
     "min",
     "max",
     "sum",
@@ -118,18 +116,18 @@ SELECT_STAR_FROM_EVENTS_FIELDS = [
 
 
 @dataclass
-class ExprParserContext:
+class HogQLContext:
     """Context given to a HogQL expression parser"""
 
-    # If set, will save string constants to this list instead of inlining them
-    collect_values: Optional[Dict[str, Any]] = None
+    # If set, will save string constants to this dict. Inlines strings into the query if None.
+    values: Optional[Dict] = field(default_factory=dict)
     # List of field and property accesses found in the expression
     attribute_list: List[List[str]] = field(default_factory=list)
-    # Did the expression contain a call from HOGQL_AGGREGATIONS
-    is_aggregation: bool = False
+    # Did the last calls to translate_hogql since setting this to False contain any HOGQL_AGGREGATIONS
+    found_aggregation: bool = False
 
 
-def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
+def translate_hogql(hql: str, context: HogQLContext) -> str:
     """Translate a HogQL expression into a Clickhouse expression."""
     if hql == "*":
         return f"tuple({','.join(SELECT_STAR_FROM_EVENTS_FIELDS)})"
@@ -145,12 +143,10 @@ def translate_hql(hql: str, context: Optional[ExprParserContext] = None) -> str:
         node = ast.parse(hql)
     except SyntaxError as err:
         raise ValueError(f"SyntaxError: {err.msg}")
-    if not context:
-        context = ExprParserContext()
     return translate_ast(node, [], context)
 
 
-def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContext) -> str:
+def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) -> str:
     """Translate a parsed HogQL expression in the shape of a Python AST into a Clickhouse expression."""
     stack.append(node)
     if isinstance(node, ast.Module):
@@ -210,12 +206,12 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
         else:
             raise ValueError(f"Unknown Compare: {type(node.ops[0])}")
     elif isinstance(node, ast.Constant):
-        key = f"val_{len(context.collect_values or {})}"
+        key = f"val_{len(context.values or {})}"
         if isinstance(node.value, int) or isinstance(node.value, float):
             response = str(node.value)
         elif isinstance(node.value, str):
-            if isinstance(context.collect_values, dict):
-                context.collect_values[key] = node.value
+            if isinstance(context.values, dict):
+                context.values[key] = node.value
                 response = f"%({key})s"
             else:
                 response = escape_param(node.value)
@@ -259,16 +255,17 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
 
     elif isinstance(node, ast.Call):
         if not isinstance(node.func, ast.Name):
-            raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'total()'")
+            raise ValueError(f"Can only call simple functions like 'avg(properties.bla)' or 'count()'")
         call_name = node.func.id
         if call_name in HOGQL_AGGREGATIONS:
-            context.is_aggregation = True
-            if call_name == "total":
-                if len(node.args) != 0:
-                    raise ValueError(f"Aggregation 'total' does not accept any arguments.")
+            context.found_aggregation = True
+
+            if call_name == "count" and len(node.args) == 0:
                 response = "count(*)"
             else:
-                if len(node.args) != 1:
+                if call_name == "count" and len(node.args) != 1:
+                    raise ValueError(f"Aggregation 'count' expects one or zero arguments.")
+                elif len(node.args) != 1:
                     raise ValueError(f"Aggregation '{call_name}' expects just one argument.")
 
                 # check that we're not running inside another aggregate
@@ -285,7 +282,10 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
 
                 # check that we're running an aggregate on a property
                 properties_before = len(context.attribute_list)
-                response = f"{call_name}({translate_ast(node.args[0], stack, context)})"
+                if call_name == "count":
+                    response = f"{call_name}(distinct {translate_ast(node.args[0], stack, context)})"
+                else:
+                    response = f"{call_name}({translate_ast(node.args[0], stack, context)})"
                 properties_after = len(context.attribute_list)
                 if properties_after == properties_before:
                     raise ValueError(f"{call_name}(...) must be called on fields or properties, not literals.")
@@ -306,6 +306,9 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: ExprParserContex
 
 
 def property_access_to_clickhouse(chain: List[str]):
+    # Circular import otherwise
+    from posthog.models.property.util import get_property_string_expr
+
     """Given a list like ['properties', '$browser'] or ['uuid'], translate to the correct ClickHouse expr."""
     if len(chain) == 2:
         if chain[0] == "properties":

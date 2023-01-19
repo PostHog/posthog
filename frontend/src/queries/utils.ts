@@ -85,8 +85,12 @@ export function isLifecycleQuery(node?: Node): node is LifecycleQuery {
     return node?.kind === NodeKind.LifecycleQuery
 }
 
-export function isInsightQueryWithDisplay(node?: Node): boolean {
+export function isInsightQueryWithDisplay(node?: Node): node is TrendsQuery | StickinessQuery {
     return isTrendsQuery(node) || isStickinessQuery(node)
+}
+
+export function isInsightQueryWithBreakdown(node?: Node): node is TrendsQuery | FunnelsQuery {
+    return isTrendsQuery(node) || isFunnelsQuery(node)
 }
 
 export function isUnimplementedQuery(node?: Node): node is UnimplementedQuery {
@@ -172,7 +176,7 @@ export function hogQlToTaxonomicFilter(hogQl: string): [TaxonomicFilterGroupType
 
 export function isHogQlAggregation(hogQl: string): boolean {
     return (
-        hogQl.includes('total(') ||
+        hogQl.includes('count(') ||
         hogQl.includes('any(') ||
         hogQl.includes('sum(') ||
         hogQl.includes('avg(') ||

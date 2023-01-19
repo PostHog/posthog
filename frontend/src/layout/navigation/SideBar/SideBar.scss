@@ -35,8 +35,7 @@
 .SideBar__overlay {
     z-index: var(--z-mobile-nav-overlay);
     transition: background-color var(--modal-transition-time) ease-out,
-        backdrop-filter var(--modal-transition-time) ease-out,
-        -webkit-backdrop-filter var(--modal-transition-time) ease-out;
+        backdrop-filter var(--modal-transition-time) ease-out;
     opacity: 1;
     position: absolute;
     height: 100%;
@@ -44,12 +43,10 @@
 
     background-color: var(--modal-backdrop-color);
     backdrop-filter: blur(var(--modal-backdrop-blur));
-    -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
 
     .SideBar--hidden & {
         background-color: transparent;
         backdrop-filter: blur(0px);
-        -webkit-backdrop-filter: blur(var(--modal-backdrop-blur));
         pointer-events: none;
     }
     @include screen($lg) {

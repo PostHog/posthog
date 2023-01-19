@@ -1,7 +1,14 @@
 import { LemonButton, LemonInput, LemonSelect, LemonCheckbox } from '@posthog/lemon-ui'
 import { Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
-import { IconInfo, IconSchedule, IconPlayCircle, IconGauge, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import {
+    IconInfo,
+    IconSchedule,
+    IconPlayCircle,
+    IconGauge,
+    IconTerminal,
+    IconUnverifiedEvent,
+} from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -14,21 +21,17 @@ import { SessionRecordingPlayerLogicProps } from '../../sessionRecordingPlayerLo
 import { playerInspectorLogic } from '../playerInspectorLogic'
 
 const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
-    [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
-    [SessionRecordingPlayerTab.PERFORMANCE]: <IconGauge />,
+    [SessionRecordingPlayerTab.ALL]: undefined,
+    [SessionRecordingPlayerTab.EVENTS]: IconUnverifiedEvent,
+    [SessionRecordingPlayerTab.CONSOLE]: IconTerminal,
+    [SessionRecordingPlayerTab.NETWORK]: IconGauge,
 }
 
-export function PlayerInspectorControls({
-    sessionRecordingId,
-    playerKey,
-    matching,
-}: SessionRecordingPlayerLogicProps): JSX.Element {
-    const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, searchQuery, syncScroll, tabsState, windowIds } = useValues(
-        playerInspectorLogic(logicProps)
+export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps): JSX.Element {
+    const { windowIdFilter, tab, searchQuery, syncScroll, tabsState, windowIds, showMatchingEventsFilter } = useValues(
+        playerInspectorLogic(props)
     )
-    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScroll } = useActions(playerInspectorLogic(logicProps))
+    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScroll } = useActions(playerInspectorLogic(props))
     const { showOnlyMatching, timestampMode, miniFilters } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching, setTimestampMode, setMiniFilter } = useActions(playerSettingsLogic)
 
@@ -40,7 +43,7 @@ export function PlayerInspectorControls({
             SessionRecordingPlayerTab.ALL,
             SessionRecordingPlayerTab.EVENTS,
             SessionRecordingPlayerTab.CONSOLE,
-            inspectorPerformance ? SessionRecordingPlayerTab.PERFORMANCE : undefined,
+            inspectorPerformance ? SessionRecordingPlayerTab.NETWORK : undefined,
         ].filter(Boolean) as SessionRecordingPlayerTab[]
     }, [inspectorPerformance])
 
@@ -48,19 +51,30 @@ export function PlayerInspectorControls({
         <div className="bg-side p-2 space-y-2">
             <div className="flex justify-between gap-2 flex-wrap">
                 <div className="flex flex-1 items-center gap-1">
-                    {tabs.map((tabId) => (
-                        <LemonButton
-                            key={tabId}
-                            size="small"
-                            // We want to indicate the tab is loading, but not disable it so we just override the icon here
-                            icon={tabsState[tabId] === 'loading' ? <Spinner monocolor /> : TabToIcon[tabId]}
-                            status={tab === tabId ? 'primary' : 'primary-alt'}
-                            active={tab === tabId}
-                            onClick={() => setTab(tabId)}
-                        >
-                            {capitalizeFirstLetter(tabId)}
-                        </LemonButton>
-                    ))}
+                    {tabs.map((tabId) => {
+                        const TabIcon = TabToIcon[tabId]
+                        return (
+                            <LemonButton
+                                key={tabId}
+                                size="small"
+                                // We want to indicate the tab is loading, but not disable it so we just override the icon here
+                                icon={
+                                    TabIcon ? (
+                                        tabsState[tabId] === 'loading' ? (
+                                            <Spinner monocolor />
+                                        ) : (
+                                            <TabIcon />
+                                        )
+                                    ) : undefined
+                                }
+                                status={tab === tabId ? 'primary' : 'primary-alt'}
+                                active={tab === tabId}
+                                onClick={() => setTab(tabId)}
+                            >
+                                {capitalizeFirstLetter(tabId)}
+                            </LemonButton>
+                        )
+                    })}
                 </div>
 
                 <div className="flex items-center gap-2 flex-1">
@@ -85,12 +99,12 @@ export function PlayerInspectorControls({
                                 {
                                     value: undefined,
                                     label: 'All windows',
-                                    icon: <IconWindow value="A" className="text-muted" />,
+                                    icon: <IconWindow size="small" value="A" className="text-muted" />,
                                 },
                                 ...windowIds.map((windowId, index) => ({
                                     value: windowId,
                                     label: `Window ${index + 1}`,
-                                    icon: <IconWindow value={index + 1} className="text-muted" />,
+                                    icon: <IconWindow size="small" value={index + 1} className="text-muted" />,
                                 })),
                             ]}
                         />
@@ -156,7 +170,7 @@ export function PlayerInspectorControls({
                     </LemonButton>
                 </div>
             </div>
-            {matching?.length && tab === SessionRecordingPlayerTab.EVENTS ? (
+            {showMatchingEventsFilter ? (
                 <div className="flex items-center">
                     <span className="flex items-center whitespace-nowrap text-xs gap-1">
                         Only events matching filters

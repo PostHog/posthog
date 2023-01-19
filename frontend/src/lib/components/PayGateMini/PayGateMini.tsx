@@ -15,6 +15,7 @@ type PayGateSupportedFeatures =
     | AvailableFeature.DASHBOARD_COLLABORATION
     | AvailableFeature.ROLE_BASED_ACCESS
     | AvailableFeature.CORRELATION_ANALYSIS
+    | AvailableFeature.PATHS_ADVANCED
 
 export interface PayGateMiniProps {
     feature: PayGateSupportedFeatures
@@ -26,38 +27,47 @@ export interface PayGateMiniProps {
 const FEATURE_SUMMARIES: Record<
     PayGateSupportedFeatures,
     {
-        icon: React.ReactElement
+        /** IconPremium is the default one, but choose a more relevant one when possible. */
+        icon?: React.ReactElement
         description: string
         umbrella: string
+        docsHref?: string
     }
 > = {
     [AvailableFeature.DASHBOARD_PERMISSIONING]: {
         icon: <IconEmojiPeople />,
-        description:
-            'Share insights, collaborate on dashboards, manage permissions, and make decisions with your team.',
-        umbrella: 'advanced permissioning',
+        description: 'Control access to this dashboard with dashboard permissions.',
+        umbrella: 'team-oriented permissioning',
     },
     [AvailableFeature.SSO_ENFORCEMENT]: {
         icon: <IconLock />,
-        description:
-            'Enable SAML single sign-on, enforce login with SSO, automatic user provisioning, and advanced authentication controls.',
-        umbrella: 'advanced authentication',
+        description: 'Use SAML single sign-on, enforce login with SSO, enable automatic user provisioning.',
+        umbrella: 'organization-level authentication',
+        docsHref: 'https://posthog.com/manual/sso',
     },
     [AvailableFeature.DASHBOARD_COLLABORATION]: {
-        icon: <IconPremium />,
         description:
-            'Make sense of insights your team has learned with the help of tags, descriptions, and text cards.',
-        umbrella: 'advanced collaboration',
+            'Make sense of insights your team has learned with the help of tags, descriptions, and text cards.',
+        umbrella: 'collaboration features',
+        docsHref: 'https://posthog.com/docs/user-guides/dashboards#tagging-a-dashboard',
     },
     [AvailableFeature.ROLE_BASED_ACCESS]: {
-        icon: <IconPremium />,
-        description: 'Create custom roles to give you precise access control for your organization.',
-        umbrella: 'advanced permissioning',
+        description: 'Create and manage custom roles for granular access control within your organization.',
+        umbrella: 'team-oriented permissioning',
+        docsHref: 'https://posthog.com/manual/role-based-access',
     },
     [AvailableFeature.CORRELATION_ANALYSIS]: {
         icon: <IconLightBulb />,
-        description: 'See what events and properties are correlated with conversion or drop-off.',
-        umbrella: 'correlation analysis',
+        description:
+            'Correlation Analysis reveals which events and properties go hand in hand with conversion or drop-off.',
+        umbrella: 'advanced analysis capabilities',
+        docsHref: 'https://posthog.com/manual/correlation',
+    },
+    [AvailableFeature.PATHS_ADVANCED]: {
+        description:
+            'Tune path analysis with wildcards, path cleaning rules, or custom end points, and quickly jump from a path to its funnel.',
+        umbrella: 'advanced analysis capabilities',
+        docsHref: 'https://posthog.com/manual/paths',
     },
 }
 
@@ -96,11 +106,19 @@ export function PayGateMini({
 
     return gateVariant ? (
         <div className={clsx('PayGateMini', className)}>
-            <div className="PayGateMini__icon">{featureSummary.icon}</div>
+            <div className="PayGateMini__icon">{featureSummary.icon || <IconPremium />}</div>
             <div className="PayGateMini__description">{featureSummary.description}</div>
             <div className="PayGateMini__cta">
-                Upgrade to {gateVariant === 'add-card' ? 'a premium' : `the ${capitalizeFirstLetter(planRequired)}`}{' '}
-                plan to gain {featureSummary.umbrella}.
+                Upgrade to {gateVariant === 'add-card' ? 'a premium' : `the ${capitalizeFirstLetter(planRequired)}`}{' '}
+                plan to gain {featureSummary.umbrella}.
+                {featureSummary.docsHref && (
+                    <>
+                        {' '}
+                        <a href={featureSummary.docsHref} target="_blank" rel="noopener noreferrer">
+                            Learn more in PostHog Docs.
+                        </a>
+                    </>
+                )}
             </div>
             <LemonButton
                 to={
