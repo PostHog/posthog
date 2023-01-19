@@ -15,10 +15,18 @@ class Migration(migrations.Migration):
             name="group_type_index",
             field=models.PositiveSmallIntegerField(null=True),
         ),
-        migrations.AddField(
-            model_name="propertydefinition",
-            name="type",
-            field=models.PositiveSmallIntegerField(choices=[(1, "event"), (2, "person"), (3, "group")], default=1),
+        migrations.RunSQL(
+            'ALTER TABLE "posthog_propertydefinition" ADD COLUMN "type" smallint DEFAULT 1 NOT NULL CHECK ("type" >= 0)',
+            'ALTER TABLE "posthog_propertydefinition" DROP COLUMN "type"',
+            state_operations=[
+                migrations.AddField(
+                    model_name="propertydefinition",
+                    name="type",
+                    field=models.PositiveSmallIntegerField(
+                        choices=[(1, "event"), (2, "person"), (3, "group")], default=1
+                    ),
+                ),
+            ],
         ),
         migrations.AddConstraint(
             model_name="propertydefinition",
