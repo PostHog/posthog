@@ -76,7 +76,7 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
 
     -- We use the same schema as the `person_overrides` table except for columns
     -- that are set e.g. as defaults.
-    AS SELECT
+    EMPTY AS SELECT
         team_id,
         old_person_id,
         override_person_id,
@@ -84,7 +84,7 @@ PERSON_OVERRIDES_CREATE_KAFKA_TABLE_SQL = f"""
         -- created_at is not included in the Kafka message, rather it is set as
         -- a default in the MergeTree table
         version
-    FROM `{CLICKHOUSE_DATABASE}.person_overrides` LIMIT 0
+    FROM `{CLICKHOUSE_DATABASE}.person_overrides`
 """
 
 # Materialized View that watches the Kafka table for data and inserts into the
