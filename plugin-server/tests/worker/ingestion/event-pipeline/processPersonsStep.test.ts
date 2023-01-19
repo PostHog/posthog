@@ -96,6 +96,7 @@ describe('processPersonsStep()', () => {
 
     it('updates person', async () => {
         const updatedContainer = new LazyPersonContainer(2, 'my_id2', runner.hub)
+        runner.poEEmbraceJoin = false
         jest.mocked(updatePersonState).mockResolvedValue(updatedContainer)
 
         const response = await processPersonsStep(runner, pluginEvent, personContainer)
@@ -108,7 +109,9 @@ describe('processPersonsStep()', () => {
             'hub.db',
             'hub.statsd',
             'hub.personManager',
-            personContainer
+            personContainer,
+            undefined,
+            false
         )
         expect(response).toEqual(['prepareEventStep', pluginEvent, updatedContainer])
     })
