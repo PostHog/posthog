@@ -169,9 +169,6 @@ jobs:
             - name: Code check out
               uses: actions/checkout@v3
 
-            - name: Setup Pages
-              uses: actions/configure-pages@v2
-
             - name: Stop/Start stack with Docker Compose
               run: |
                   docker compose -f docker-compose.dev.yml down
@@ -233,14 +230,11 @@ jobs:
                   cd plugin-server
                   ./bin/ci_functional_tests.sh
 
-            - name: Upload artifact
+            - name: Upload coverage report
+              uses: actions/upload-artifact@v3
               if: always()
-              uses: actions/upload-pages-artifact@v1
               with:
-                  # Upload entire coverage folder
+                  name: functional-coverage
+                  if-no-files-found: warn
+                  retention-days: 1
                   path: 'plugin-server/coverage'
-
-            - name: Deploy to GitHub Pages
-              if: always()
-              id: deployment
-              uses: actions/deploy-pages@v1
