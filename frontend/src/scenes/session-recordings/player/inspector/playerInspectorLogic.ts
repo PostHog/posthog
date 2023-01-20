@@ -219,30 +219,20 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
         allItems: [
             (s) => [
-                s.tab,
                 s.recordingTimeInfo,
                 s.performanceEvents,
                 s.consoleLogs,
                 s.sessionEventsData,
                 s.featureFlags,
-                s.miniFiltersByKey,
                 s.matchingEvents,
-                s.showOnlyMatching,
-                s.showMatchingEventsFilter,
-                s.windowIdFilter,
             ],
             (
-                tab,
                 recordingTimeInfo,
                 performanceEvents,
                 consoleLogs,
                 eventsData,
                 featureFlags,
-                miniFiltersByKey,
-                matchingEvents,
-                showOnlyMatching,
-                showMatchingEventsFilter,
-                windowIdFilter
+                matchingEvents
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
                 // and then do the filtering of what items are shown, elsewhere
@@ -250,10 +240,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 const items: InspectorListItem[] = []
 
                 // PERFORMANCE EVENTS
-                if (
-                    !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
-                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.NETWORK)
-                ) {
+                if (!!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]) {
                     const performanceEventsArr = performanceEvents || []
                     for (const event of performanceEventsArr) {
                         const timestamp = dayjs(event.timestamp)
@@ -272,85 +259,8 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             }
                         }
 
-                        let include = false
-
-                        if (
-                            miniFiltersByKey['performance-all']?.enabled ||
-                            miniFiltersByKey['all-everything']?.enabled
-                        ) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['performance-document']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['navigation'].includes(event.entry_type || '')
-                        ) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['performance-fetch']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'resource' &&
-                            ['fetch', 'xmlhttprequest'].includes(event.initiator_type || '')
-                        ) {
-                            include = true
-                        }
-
-                        if (
-                            miniFiltersByKey['performance-assets-js']?.enabled &&
-                            event.entry_type === 'resource' &&
-                            (event.initiator_type === 'script' ||
-                                (['link', 'other'].includes(event.initiator_type || '') && event.name?.includes('.js')))
-                        ) {
-                            include = true
-                        }
-
-                        if (
-                            miniFiltersByKey['performance-assets-css']?.enabled &&
-                            event.entry_type === 'resource' &&
-                            (event.initiator_type === 'css' ||
-                                (['link', 'other'].includes(event.initiator_type || '') &&
-                                    event.name?.includes('.css')))
-                        ) {
-                            include = true
-                        }
-
-                        if (
-                            miniFiltersByKey['performance-assets-img']?.enabled &&
-                            event.entry_type === 'resource' &&
-                            (event.initiator_type === 'img' ||
-                                (['link', 'other'].includes(event.initiator_type || '') &&
-                                    !!IMAGE_WEB_EXTENSIONS.some((ext) => event.name?.includes(`.${ext}`))))
-                        ) {
-                            include = true
-                        }
-
-                        if (
-                            miniFiltersByKey['performance-other']?.enabled &&
-                            event.entry_type === 'resource' &&
-                            ['other'].includes(event.initiator_type || '') &&
-                            ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => event.name?.includes(`.${ext}`))
-                        ) {
-                            include = true
-                        }
-
-                        if (
-                            (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                            responseStatus >= 400
-                        ) {
-                            include = true
-                        }
-
-                        if (windowIdFilter && event.window_id !== windowIdFilter) {
-                            include = false
-                        }
-
                         if (event.entry_type === 'paint') {
                             // We don't include paint events as they are covered in the navigation events
-                            include = false
-                        }
-
-                        if (!include) {
                             continue
                         }
 
@@ -367,21 +277,134 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 }
 
                 // CONSOLE LOGS
-                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.CONSOLE) {
-                    for (const event of consoleLogs || []) {
-                        const timestamp = dayjs(event.timestamp)
+                for (const event of consoleLogs || []) {
+                    const timestamp = dayjs(event.timestamp)
+                    items.push({
+                        type: SessionRecordingPlayerTab.CONSOLE,
+                        timestamp,
+                        timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                        search: event.content,
+                        data: event,
+                        highlightColor:
+                            event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : undefined,
+                        windowId: event.windowId,
+                    })
+                }
 
-                        let include = false
+                for (const event of eventsData?.events || []) {
+                    const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
+
+                    const timestamp = dayjs(event.timestamp)
+                    const search = `${
+                        getKeyMapping(event.event, 'event')?.label ?? event.event ?? ''
+                    } ${eventToDescription(event)}`.replace(/['"]+/g, '')
+
+                    items.push({
+                        type: SessionRecordingPlayerTab.EVENTS,
+                        timestamp,
+                        timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
+                        search: search,
+                        data: event,
+                        highlightColor: isMatchingEvent ? 'primary' : undefined,
+                        windowId: event.properties?.$window_id,
+                    })
+                }
+
+                // NOTE: Native JS sorting is relatively slow here - be careful changing this
+                items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
+
+                return items
+            },
+        ],
+
+        filteredItems: [
+            (s) => [
+                s.allItems,
+                s.tab,
+                s.miniFiltersByKey,
+                s.showOnlyMatching,
+                s.showMatchingEventsFilter,
+                s.windowIdFilter,
+            ],
+            (
+                allItems,
+                tab,
+                miniFiltersByKey,
+                showOnlyMatching,
+                showMatchingEventsFilter,
+                windowIdFilter
+            ): InspectorListItem[] => {
+                const items: InspectorListItem[] = []
+
+                for (const item of allItems) {
+                    let include = false
+
+                    // EVENTS
+                    if (item.type === SessionRecordingPlayerTab.EVENTS) {
+                        if (tab !== SessionRecordingPlayerTab.EVENTS && tab !== SessionRecordingPlayerTab.ALL) {
+                            continue
+                        }
+
+                        if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
+                            include = true
+                        }
+                        if (miniFiltersByKey['events-posthog']?.enabled && item.data.event.startsWith('$')) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['events-custom']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            !item.data.event.startsWith('$')
+                        ) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['events-pageview']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            ['$pageview', 'screen'].includes(item.data.event)
+                        ) {
+                            include = true
+                        }
+                        if (
+                            (miniFiltersByKey['events-autocapture']?.enabled ||
+                                miniFiltersByKey['all-automatic']?.enabled) &&
+                            item.data.event === '$autocapture'
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['all-errors']?.enabled &&
+                            (item.data.event === '$exception' || item.data.event.toLowerCase().includes('error'))
+                        ) {
+                            include = true
+                        }
+
+                        if (showMatchingEventsFilter && showOnlyMatching) {
+                            // Special case - overrides the others
+                            include = include && item.highlightColor === 'primary'
+                        }
+
+                        if (windowIdFilter && item.data.properties?.$window_id !== windowIdFilter) {
+                            include = false
+                        }
+                    }
+
+                    // CONSOLE LOGS
+                    if (item.type === SessionRecordingPlayerTab.CONSOLE) {
+                        if (tab !== SessionRecordingPlayerTab.CONSOLE && tab !== SessionRecordingPlayerTab.ALL) {
+                            continue
+                        }
 
                         if (miniFiltersByKey['console-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
                             include = true
                         }
-                        if (miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(event.level)) {
+                        if (miniFiltersByKey['console-info']?.enabled && ['log', 'info'].includes(item.data.level)) {
                             include = true
                         }
                         if (
                             (miniFiltersByKey['console-warn']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.level === 'warn'
+                            item.data.level === 'warn'
                         ) {
                             include = true
                         }
@@ -389,108 +412,127 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             (miniFiltersByKey['console-error']?.enabled ||
                                 miniFiltersByKey['all-errors']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.level === 'error'
+                            item.data.level === 'error'
                         ) {
                             include = true
                         }
 
-                        if (windowIdFilter && event.windowId !== windowIdFilter) {
+                        if (windowIdFilter && item.data.windowId !== windowIdFilter) {
                             include = false
                         }
+                    }
 
-                        if (!include) {
+                    // NETWORK
+                    if (item.type === SessionRecordingPlayerTab.NETWORK) {
+                        if (tab !== SessionRecordingPlayerTab.NETWORK && tab !== SessionRecordingPlayerTab.ALL) {
                             continue
                         }
 
-                        items.push({
-                            type: SessionRecordingPlayerTab.CONSOLE,
-                            timestamp,
-                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
-                            search: event.content,
-                            data: event,
-                            highlightColor:
-                                event.level === 'error' ? 'danger' : event.level === 'warn' ? 'warning' : undefined,
-                            windowId: event.windowId,
-                        })
-                    }
-                }
+                        const responseStatus = item.data.response_status || 200
 
-                // EVENTS
-                if (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.EVENTS) {
-                    for (const event of eventsData?.events || []) {
-                        let include = false
-
-                        if (miniFiltersByKey['events-all']?.enabled || miniFiltersByKey['all-everything']?.enabled) {
-                            include = true
-                        }
-                        if (miniFiltersByKey['events-posthog']?.enabled && event.event.startsWith('$')) {
+                        if (
+                            miniFiltersByKey['performance-all']?.enabled ||
+                            miniFiltersByKey['all-everything']?.enabled
+                        ) {
                             include = true
                         }
                         if (
-                            (miniFiltersByKey['events-custom']?.enabled ||
+                            (miniFiltersByKey['performance-document']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            !event.event.startsWith('$')
+                            ['navigation'].includes(item.data.entry_type || '')
                         ) {
                             include = true
                         }
                         if (
-                            (miniFiltersByKey['events-pageview']?.enabled ||
+                            (miniFiltersByKey['performance-fetch']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            ['$pageview', 'screen'].includes(event.event)
-                        ) {
-                            include = true
-                        }
-                        if (
-                            (miniFiltersByKey['events-autocapture']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.event === '$autocapture'
+                            item.data.entry_type === 'resource' &&
+                            ['fetch', 'xmlhttprequest'].includes(item.data.initiator_type || '')
                         ) {
                             include = true
                         }
 
                         if (
-                            miniFiltersByKey['all-errors']?.enabled &&
-                            (event.event === '$exception' || event.event.toLowerCase().includes('error'))
+                            miniFiltersByKey['performance-assets-js']?.enabled &&
+                            item.data.entry_type === 'resource' &&
+                            (item.data.initiator_type === 'script' ||
+                                (['link', 'other'].includes(item.data.initiator_type || '') &&
+                                    item.data.name?.includes('.js')))
                         ) {
                             include = true
                         }
 
-                        const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
-
-                        if (showMatchingEventsFilter && showOnlyMatching) {
-                            // Special case - overrides the others
-                            include = include && isMatchingEvent
+                        if (
+                            miniFiltersByKey['performance-assets-css']?.enabled &&
+                            item.data.entry_type === 'resource' &&
+                            (item.data.initiator_type === 'css' ||
+                                (['link', 'other'].includes(item.data.initiator_type || '') &&
+                                    item.data.name?.includes('.css')))
+                        ) {
+                            include = true
                         }
 
-                        if (windowIdFilter && event.properties?.$window_id !== windowIdFilter) {
+                        if (
+                            miniFiltersByKey['performance-assets-img']?.enabled &&
+                            item.data.entry_type === 'resource' &&
+                            (item.data.initiator_type === 'img' ||
+                                (['link', 'other'].includes(item.data.initiator_type || '') &&
+                                    !!IMAGE_WEB_EXTENSIONS.some((ext) => item.data.name?.includes(`.${ext}`))))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-other']?.enabled &&
+                            item.data.entry_type === 'resource' &&
+                            ['other'].includes(item.data.initiator_type || '') &&
+                            ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => item.data.name?.includes(`.${ext}`))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
+                            responseStatus >= 400
+                        ) {
+                            include = true
+                        }
+
+                        if (windowIdFilter && item.data.window_id !== windowIdFilter) {
                             include = false
                         }
 
-                        if (!include) {
-                            continue
+                        if (item.data.entry_type === 'paint') {
+                            // We don't include paint events as they are covered in the navigation events
+                            include = false
                         }
-
-                        const timestamp = dayjs(event.timestamp)
-                        const search = `${
-                            getKeyMapping(event.event, 'event')?.label ?? event.event ?? ''
-                        } ${eventToDescription(event)}`.replace(/['"]+/g, '')
-
-                        items.push({
-                            type: SessionRecordingPlayerTab.EVENTS,
-                            timestamp,
-                            timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
-                            search: search,
-                            data: event,
-                            highlightColor: isMatchingEvent ? 'primary' : undefined,
-                            windowId: event.properties?.$window_id,
-                        })
                     }
-                }
 
-                // NOTE: Native JS sorting is relatively slow here - be careful changing this
-                items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
+                    if (!include) {
+                        continue
+                    }
+
+                    items.push(item)
+                }
 
                 return items
+            },
+        ],
+
+        seekbarItems: [
+            (s) => [s.allItems, s.showOnlyMatching, s.showMatchingEventsFilter],
+            (allItems, showOnlyMatching, showMatchingEventsFilter): InspectorListItemEvent[] => {
+                return allItems.filter((item) => {
+                    if (item.type !== SessionRecordingPlayerTab.EVENTS) {
+                        return false
+                    }
+
+                    if (showMatchingEventsFilter && showOnlyMatching && item.highlightColor !== 'primary') {
+                        return false
+                    }
+
+                    return true
+                }) as InspectorListItemEvent[]
             },
         ],
 
@@ -558,9 +600,9 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         fuse: [
-            (s) => [s.allItems],
-            (allItems): Fuse =>
-                new FuseClass<InspectorListItem>(allItems, {
+            (s) => [s.filteredItems],
+            (filteredItems): Fuse =>
+                new FuseClass<InspectorListItem>(filteredItems, {
                     threshold: 0.3,
                     keys: ['search'],
                     findAllMatches: true,
@@ -570,10 +612,10 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         ],
 
         items: [
-            (s) => [s.allItems, s.fuse, s.searchQuery],
-            (allItems, fuse, searchQuery): InspectorListItem[] => {
+            (s) => [s.filteredItems, s.fuse, s.searchQuery],
+            (filteredItems, fuse, searchQuery): InspectorListItem[] => {
                 if (searchQuery === '') {
-                    return allItems
+                    return filteredItems
                 }
                 const items = fuse.search(searchQuery).map((x: any) => x.item)
 

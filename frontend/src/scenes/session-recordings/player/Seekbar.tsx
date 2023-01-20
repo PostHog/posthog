@@ -117,15 +117,63 @@ function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEv
     )
 }
 
+function PlayerSeekbarTicks(props: SessionRecordingPlayerLogicProps): JSX.Element {
+    const { seekbarItems } = useValues(playerInspectorLogic(props))
+    const { endTimeMs } = useValues(seekbarLogic(props))
+
+    return (
+        <div className="PlayerSeekbar__ticks">
+            {seekbarItems.map((item, i) => (
+                <div
+                    key={i}
+                    className={clsx('PlayerSeekbarTick', status === RowStatus.Match && 'PlayerSeekbarTick--match')}
+                    title={item.data.event}
+                    style={{
+                        left: `${(item.timeInRecording / endTimeMs) * 100}%`,
+                        zIndex: i,
+                    }}
+                    onClick={(e) => {}}
+                >
+                    <div className="PlayerSeekbarTick__info">
+                        <PropertyKeyInfo
+                            className="font-medium"
+                            disableIcon
+                            disablePopover
+                            ellipsis={true}
+                            value={capitalizeFirstLetter(autoCaptureEventToDescription(item.data))}
+                        />
+                        {item.data.event === '$autocapture' ? (
+                            <span className="opacity-75 ml-2">(Autocapture)</span>
+                        ) : null}
+                        {item.data.event === '$pageview' ? (
+                            <span className="ml-2 opacity-75">
+                                {item.data.properties.$pathname || item.data.properties.$current_url}
+                            </span>
+                        ) : null}
+                    </div>
+                    <div className="PlayerSeekbarTick__line" />
+                </div>
+            ))}
+
+            {/* {eventListData.map((event: RecordingEventType, i) => (
+                <PlayerSeekbarTick
+                    key={event.id}
+                    index={i}
+                    event={event}
+                    status={event.level as RowStatus}
+                    numEvents={eventListData.length}
+                    onClick={() => event.playerPosition && handleTickClick(event.playerPosition)}
+                />
+            ))} */}
+        </div>
+    )
+}
+
 export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-    const { handleDown, setSlider, setThumb, handleTickClick } = useActions(seekbarLogic(props))
+    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic(props))
     const { sessionPlayerData } = useValues(sessionRecordingDataLogic(props))
-
-    const { allItems } = useValues(playerInspectorLogic(props))
-
-    const { eventListData } = useValues(eventsListLogic(props))
     const { thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(props))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
@@ -176,18 +224,8 @@ export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
 
                     <PlayerSeekbarInspector minMs={0} maxMs={sessionPlayerData.metadata.recordingDurationMs} />
                 </div>
-                <div className="PlayerSeekbar__ticks">
-                    {eventListData.map((event: RecordingEventType, i) => (
-                        <PlayerSeekbarTick
-                            key={event.id}
-                            index={i}
-                            event={event}
-                            status={event.level as RowStatus}
-                            numEvents={eventListData.length}
-                            onClick={() => event.playerPosition && handleTickClick(event.playerPosition)}
-                        />
-                    ))}
-                </div>
+
+                <PlayerSeekbarTicks {...props} />
             </div>
         </div>
     )
