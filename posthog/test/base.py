@@ -564,8 +564,8 @@ def failhard_threadhook_context():
     test failure.
     """
 
-    def raise_hook(exc_type, exc_value, exc_traceback, thread):
-        raise exc_value
+    def raise_hook(args: threading.ExceptHookArgs):
+        raise args.exc_type(args.exc_value)
 
     old_hook, threading.excepthook = threading.excepthook, raise_hook
     try:
