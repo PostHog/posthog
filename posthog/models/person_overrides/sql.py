@@ -36,6 +36,14 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
         -- the specific version of the `old_person_id` mapping. This is used to
         -- allow us to discard old mappings as new ones are added.
         version INT NOT NULL
+
+        -- A flag that can be used to tombstone a mapping. This is useful in
+        -- cases where all references to e.g. `old_person_id` have been removed,
+        -- and can therefore be excluded from the JOIN, thereby making the right
+        -- side of the JOIN smaller and the JOIN faster. It is then possible to
+        -- e.g. perform periodic `ALTER TABLE ... DELETE WHERE is_deleted = 1`
+        -- or similar to reclaim space and performance.
+        is_deleted UInt8 DEFAULT 0
     )
 
     -- By specifying Replacing merge tree on version, we allow ClickHouse to
