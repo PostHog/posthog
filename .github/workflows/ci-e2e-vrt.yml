@@ -50,3 +50,21 @@ jobs:
                       playwright-report/
                       test-results/
                   retention-days: 7
+
+            - name: Setup Pages
+              if: always()
+              uses: actions/configure-pages@v2
+
+            - name: Upload artifact
+              if: always()
+              uses: actions/upload-pages-artifact@v1
+              with:
+                  # Upload entire coverage folder
+                  path: |
+                      playwright-report/
+                      test-results/
+
+            - name: Deploy to GitHub Pages
+              if: always()
+              id: deployment
+              uses: actions/deploy-pages@v1
