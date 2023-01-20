@@ -1,18 +1,18 @@
 import json
 import uuid
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Set, Union
 
 import pytz
 from dateutil.parser import isoparse
 from django.utils import timezone
 from rest_framework import serializers
 
-from posthog.client import query_with_columns, sync_execute
+from posthog.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Group
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
-from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, GET_EVENTS_BY_TEAM_SQL, INSERT_EVENT_SQL
+from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
 from posthog.models.team import Team
 from posthog.settings import TEST
@@ -83,8 +83,10 @@ def create_event(
 
 def format_clickhouse_timestamp(
     raw_timestamp: Optional[Union[timezone.datetime, str]],
-    default=timezone.now(),
+    default=None,
 ) -> str:
+    if default is None:
+        default = timezone.now()
     parsed_datetime = (
         isoparse(raw_timestamp) if isinstance(raw_timestamp, str) else (raw_timestamp or default).astimezone(pytz.utc)
     )
@@ -238,12 +240,6 @@ def bulk_create_events(events: List[Dict[str, Any]], person_mapping: Optional[Di
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
 
 
-def get_events_by_team(team_id: Union[str, int]):
-
-    events = query_with_columns(GET_EVENTS_BY_TEAM_SQL, {"team_id": str(team_id)})
-    return ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
-
-
 class ElementSerializer(serializers.ModelSerializer):
     event = serializers.CharField()
 
@@ -261,6 +257,17 @@ class ElementSerializer(serializers.ModelSerializer):
             "attributes",
             "order",
         ]
+
+
+def parse_properties(properties: str, allow_list: Set[str] = set()) -> Dict:
+    # parse_constants gets called for any NaN, Infinity etc values
+    # we just want those to be returned as None
+    props = json.loads(properties or "{}", parse_constant=lambda x: None)
+    return {
+        key: value.strip('"') if isinstance(value, str) else value
+        for key, value in props.items()
+        if not allow_list or key in allow_list
+    }
 
 
 # reference raw sql for
@@ -281,11 +288,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
         return event["distinct_id"]
 
     def get_properties(self, event):
-        # parse_constants gets called for any NaN, Infinity etc values
-        # we just want those to be returned as None
-        props = json.loads(event["properties"], parse_constant=lambda x: None)
-        unpadded = {key: value.strip('"') if isinstance(value, str) else value for key, value in props.items()}
-        return unpadded
+        return parse_properties(event["properties"])
 
     def get_event(self, event):
         return event["event"]
@@ -339,21 +342,6 @@ def get_agg_event_count_for_teams(team_ids: List[Union[str, int]]) -> int:
         WHERE team_id IN (%(team_id_clause)s)
     """,
         {"team_id_clause": team_ids},
-    )[0][0]
-    return result
-
-
-def get_agg_event_count_for_teams_and_period(
-    team_ids: List[Union[str, int]], begin: timezone.datetime, end: timezone.datetime
-) -> int:
-    result = sync_execute(
-        """
-        SELECT count(1) as count
-        FROM events
-        WHERE team_id IN (%(team_id_clause)s)
-        AND timestamp between %(begin)s AND %(end)s
-    """,
-        {"team_id_clause": team_ids, "begin": begin, "end": end},
     )[0][0]
     return result
 
@@ -421,35 +409,3 @@ def get_event_count_month_to_date() -> int:
     """
     )[0][0]
     return result
-
-
-def get_events_count_for_team_by_client_lib(
-    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
-) -> dict:
-    results = sync_execute(
-        """
-        SELECT JSONExtractString(properties, '$lib') as lib, COUNT(1) as freq
-        FROM events
-        WHERE team_id = %(team_id)s
-        AND timestamp between %(begin)s AND %(end)s
-        GROUP BY lib
-    """,
-        {"team_id": str(team_id), "begin": begin, "end": end},
-    )
-    return {result[0]: result[1] for result in results}
-
-
-def get_events_count_for_team_by_event_type(
-    team_id: Union[str, int], begin: timezone.datetime, end: timezone.datetime
-) -> dict:
-    results = sync_execute(
-        """
-        SELECT event, COUNT(1) as freq
-        FROM events
-        WHERE team_id = %(team_id)s
-        AND timestamp between %(begin)s AND %(end)s
-        GROUP BY event
-    """,
-        {"team_id": str(team_id), "begin": begin, "end": end},
-    )
-    return {result[0]: result[1] for result in results}

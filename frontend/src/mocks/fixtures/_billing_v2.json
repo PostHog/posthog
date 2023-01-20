@@ -1,0 +1,50 @@
+{
+    "has_active_subscription": true,
+    "stripe_portal_url": "https://billing.stripe.com/p/session/test_12345",
+    "current_total_amount_usd": "457.65",
+    "products": [
+        {
+            "name": "Product OS",
+            "description": "Product Analytics, event pipelines, data warehousing",
+            "price_description": null,
+            "type": "EVENTS",
+            "free_allocation": 10000,
+            "tiers": [
+                {
+                    "unit_amount_usd": "0",
+                    "up_to": 1000000,
+                    "current_amount_usd": "0.00"
+                },
+                {
+                    "unit_amount_usd": "0.00045",
+                    "up_to": 2000000,
+                    "current_amount_usd": "450.00"
+                },
+                {
+                    "unit_amount_usd": "0.000225",
+                    "up_to": 10000000,
+                    "current_amount_usd": "7.65"
+                },
+                {
+                    "unit_amount_usd": "0.000075",
+                    "up_to": 100000000,
+                    "current_amount_usd": null
+                },
+                {
+                    "unit_amount_usd": "0.000025",
+                    "up_to": null,
+                    "current_amount_usd": null
+                }
+            ],
+            "current_amount_usd": "457.65",
+            "current_usage": 2340000,
+            "usage_limit": null,
+            "has_exceeded_limit": false
+        }
+    ],
+    "custom_limits_usd": { "EVENTS": null, "RECORDINGS": null },
+    "billing_period": {
+        "current_period_start": "2022-10-04T13:59:41",
+        "current_period_end": "2022-11-04T13:59:41"
+    }
+}

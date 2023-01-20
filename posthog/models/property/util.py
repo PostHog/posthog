@@ -1,16 +1,8 @@
 import re
-from typing import (
-    Any,
-    Callable,
-    Counter,
-    Dict,
-    List,
-    Literal,
-    Optional,
-    Tuple,
-    Union,
-    cast,
-)
+from collections import Counter
+from typing import Any, Callable
+from typing import Counter as TCounter
+from typing import Dict, List, Literal, Optional, Tuple, Union, cast
 
 from clickhouse_driver.util.escape import escape_param
 from rest_framework import exceptions
@@ -18,6 +10,7 @@ from rest_framework import exceptions
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
+from posthog.hogql.hogql import HogQLContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -37,6 +30,7 @@ from posthog.models.property import (
     PropertyIdentifier,
     PropertyName,
 )
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.session_query import SessionQuery
@@ -61,6 +55,7 @@ from posthog.utils import is_json, is_valid_regex
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
+    hogql_context: Optional[HogQLContext] = None,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -89,6 +84,7 @@ def parse_prop_grouped_clauses(
                     person_properties_mode=person_properties_mode,
                     person_id_joined_alias=person_id_joined_alias,
                     group_properties_joined=group_properties_joined,
+                    hogql_context=hogql_context,
                     _top_level=False,
                 )
                 group_clauses.append(clause)
@@ -109,6 +105,7 @@ def parse_prop_grouped_clauses(
             group_properties_joined=group_properties_joined,
             property_operator=property_group.type,
             team_id=team_id,
+            hogql_context=hogql_context,
         )
 
     if not _final:
@@ -131,6 +128,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 def parse_prop_clauses(
     team_id: int,
     filters: List[Property],
+    hogql_context: Optional[HogQLContext],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -235,7 +233,7 @@ def parse_prop_clauses(
                 idx,
                 prepend=f"personquery_{prepend}",
                 allow_denormalized_props=True,
-                transform_expression=lambda column_name: f"argMax(person.{column_name}, _timestamp)",
+                transform_expression=lambda column_name: f"argMax(person.{column_name}, version)",
                 property_operator=property_operator,
             )
             final.append(filter_query)
@@ -258,7 +256,11 @@ def parse_prop_clauses(
             if query:
                 final.append(f"{property_operator} {query}")
                 params.update(filter_params)
-        elif prop.type == "group" and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
+        elif (
+            prop.type == "group"
+            and person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS
+            and groups_on_events_querying_enabled()
+        ):
             group_column = f"group{prop.group_type_index}_properties"
             filter_query, filter_params = prop_filter_json_extract(
                 prop,
@@ -317,6 +319,11 @@ def parse_prop_clauses(
             filter_query, filter_params = get_session_property_filter_statement(prop, idx, prepend)
             final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
+        elif prop.type == "hogql":
+            from posthog.hogql.hogql import translate_hogql
+
+            filter_query = translate_hogql(prop.key, hogql_context)
+            final.append(f"{property_operator} {filter_query}")
 
     if final:
         # remove the first operator
@@ -541,6 +548,7 @@ def get_single_or_multi_property_string_expr(
     column: str,
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
+    normalize_url: bool = False,
 ):
     """
     When querying for breakdown properties:
@@ -565,6 +573,8 @@ def get_single_or_multi_property_string_expr(
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
         )
+
+        expression = normalize_url_breakdown(expression, normalize_url)
     else:
         expressions = []
         for b in breakdown:
@@ -576,7 +586,7 @@ def get_single_or_multi_property_string_expr(
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
             )
-            expressions.append(expr)
+            expressions.append(normalize_url_breakdown(expr, normalize_url))
 
         expression = f"array({','.join(expressions)})"
 
@@ -584,6 +594,15 @@ def get_single_or_multi_property_string_expr(
         return expression
 
     return f"{expression} AS {query_alias}"
+
+
+def normalize_url_breakdown(breakdown_value, breakdown_normalize_url: bool = True):
+    if breakdown_normalize_url:
+        return (
+            f"if( empty(trim(TRAILING '/?#' from {breakdown_value})), '/', trim(TRAILING '/?#' from {breakdown_value}))"
+        )
+
+    return breakdown_value
 
 
 def get_property_string_expr(
@@ -614,7 +633,11 @@ def get_property_string_expr(
 
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
-    if allow_denormalized_props and (property_name, materialised_table_column) in materialized_columns:
+    if (
+        allow_denormalized_props
+        and (property_name, materialised_table_column) in materialized_columns
+        and ("group" not in materialised_table_column or groups_on_events_querying_enabled())
+    ):
         return f'{table_string}"{materialized_columns[(property_name, materialised_table_column)]}"', True
 
     return trim_quotes_expr(f"JSONExtractRaw({table_string}{column}, {var})"), False
@@ -734,7 +757,7 @@ def build_selector_regex(selector: Selector) -> str:
     return regex
 
 
-def extract_tables_and_properties(props: List[Property]) -> Counter[PropertyIdentifier]:
+def extract_tables_and_properties(props: List[Property]) -> TCounter[PropertyIdentifier]:
     return Counter((prop.key, prop.type, prop.group_type_index) for prop in props)
 
 

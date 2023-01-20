@@ -12,7 +12,7 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSelect } from 'lib/components/LemonSelect'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { CohortTypeEnum } from 'lib/constants'
+import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
 import { AvailableFeature } from '~/types'
 import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import Dragger from 'antd/lib/upload/Dragger'
@@ -22,10 +22,13 @@ import { AndOrFilterSelect } from 'lib/components/PropertyGroupFilters/PropertyG
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Persons } from 'scenes/persons/Persons'
-import React from 'react'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
 import { Form } from 'kea-forms'
 import { NotFound } from 'lib/components/NotFound'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
+import { pluralize } from 'lib/utils'
 
 export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const logicProps = { id }
@@ -34,6 +37,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
     const { cohort, cohortLoading, cohortMissing } = useValues(logic)
     const { hasAvailableFeature } = useValues(userLogic)
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (cohortMissing) {
         return <NotFound object="cohort" />
@@ -131,7 +136,8 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                                 <>
                                     <span>
                                         Upload a CSV file to add users to your cohort. The CSV file only requires a
-                                        single column with the user’s distinct ID.
+                                        single column with the user’s distinct ID. The very first row (the header) will
+                                        be skipped during import.
                                     </span>
                                     <Dragger
                                         name="file"
@@ -193,17 +199,41 @@ export function CohortEdit({ id }: CohortLogicProps): JSX.Element {
                     </>
                 )}
 
-                {!isNewCohort && (
+                {/* The typeof here is needed to pass the cohort id to the query below. Using `isNewCohort` won't work */}
+                {typeof cohort.id === 'number' && (
                     <>
                         <Divider />
                         <div>
-                            <h3 className="l3">Persons in this cohort</h3>
+                            <h3 className="l3 mb-4">
+                                Persons in this cohort
+                                <span className="text-muted ml-2">
+                                    {!cohort.is_calculating &&
+                                        `(${cohort.count} matching ${pluralize(
+                                            cohort.count ?? 0,
+                                            'person',
+                                            'persons',
+                                            false
+                                        )})`}
+                                </span>
+                            </h3>
                             {cohort.is_calculating ? (
                                 <div className="cohort-recalculating flex items-center">
                                     <Spinner className="mr-4" />
                                     We're recalculating who belongs to this cohort. This could take up to a couple of
                                     minutes.
                                 </div>
+                            ) : featureDataExploration ? (
+                                <Query
+                                    query={{
+                                        kind: NodeKind.DataTableNode,
+                                        source: {
+                                            kind: NodeKind.PersonsNode,
+                                            cohort: cohort.id,
+                                        },
+                                        columns: undefined,
+                                        full: true,
+                                    }}
+                                />
                             ) : (
                                 <Persons cohort={cohort.id} />
                             )}

@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import {
     LemonButton,
@@ -10,10 +9,12 @@ import {
 import { IconCalculate, IconInfo, IconPlus } from '../icons'
 import { More, MoreProps } from './More'
 import { LemonDivider } from '../LemonDivider'
-import { capitalizeFirstLetter, range } from 'lib/utils'
+import { capitalizeFirstLetter, delay, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 import { Link } from '@posthog/lemon-ui'
 import { AlertMessage } from '../AlertMessage'
+import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
+import clsx from 'clsx'
 
 const statuses: LemonButtonProps['status'][] = ['primary', 'danger', 'primary-alt', 'muted']
 const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
@@ -21,7 +22,7 @@ const types: LemonButtonProps['type'][] = ['primary', 'secondary', 'tertiary']
 export default {
     title: 'Lemon UI/Lemon Button',
     component: LemonButton,
-
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         icon: {
             defaultValue: <IconCalculate />,
@@ -39,12 +40,16 @@ const BasicTemplate: ComponentStory<typeof LemonButton> = (props: LemonButtonPro
 export const Default = BasicTemplate.bind({})
 Default.args = {}
 
-const StatusesTemplate = ({ ...props }: LemonButtonProps & { noText?: boolean }): JSX.Element => {
+const StatusesTemplate = ({
+    noText,
+    accommodateTooltip,
+    ...props
+}: LemonButtonProps & { noText?: boolean; accommodateTooltip?: boolean }): JSX.Element => {
     return (
-        <div className="flex gap-2 border rounded-lg p-2 flex-wrap">
+        <div className={clsx('flex gap-2 border rounded-lg p-2 flex-wrap', accommodateTooltip && 'pt-12')}>
             {statuses.map((status, j) => (
                 <LemonButton key={j} status={status} icon={<IconCalculate />} {...props}>
-                    {!(props as any).noText ? capitalizeFirstLetter(status || 'default') : undefined}
+                    {!noText ? capitalizeFirstLetter(status || 'default') : undefined}
                 </LemonButton>
             ))}
         </div>
@@ -113,12 +118,31 @@ export const SizesIconOnly = (): JSX.Element => {
     )
 }
 
-export const Disabled = (): JSX.Element => {
-    return <StatusesTemplate disabled />
+export const DisabledWithReason = (): JSX.Element => {
+    return <StatusesTemplate disabledReason="You're not cool enough to click this." accommodateTooltip />
 }
 
 export const Loading = (): JSX.Element => {
     return <TypesAndStatusesTemplate loading />
+}
+
+export const LoadingViaOnClick = (): JSX.Element => {
+    const { loading, onEvent } = useAsyncHandler(async () => await delay(1000))
+
+    return (
+        <div className="space-y-2">
+            <p>
+                For simple use-cases, you may want to use a button click to trigger something async and show a loading
+                state. Generally speaking this should exist in a <code>kea logic</code> but for simple cases you can use
+                the <code>useAsyncHandler</code>
+            </p>
+            <div className="flex items-center gap-2">
+                <LemonButton type="secondary" loading={loading} onClick={onEvent}>
+                    I load for one second
+                </LemonButton>
+            </div>
+        </div>
+    )
 }
 
 export const Active = (): JSX.Element => {

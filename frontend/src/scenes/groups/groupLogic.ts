@@ -48,7 +48,7 @@ export const groupLogic = kea<groupLogicType>({
         ],
         groupType: [
             (s) => [s.groupTypes, s.groupTypeIndex],
-            (groupTypes, index): string => groupTypes[index].group_type,
+            (groupTypes, index): string => groupTypes[index]?.group_type,
         ],
         breadcrumbs: [
             (s) => [s.groupTypeName, s.groupTypeIndex, s.groupKey, s.groupData],

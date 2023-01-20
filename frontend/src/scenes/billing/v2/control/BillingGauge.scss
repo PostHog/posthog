@@ -1,0 +1,30 @@
+.BillingGauge {
+}
+
+.BillingGaugeItem {
+    transition: all 1000ms cubic-bezier(0.15, 0.15, 0.2, 1);
+
+    .BillingGaugeItem__info {
+        position: absolute;
+        white-space: nowrap;
+        border-left: 1px solid var(--border);
+        left: 100%;
+        margin-left: -1px;
+        font-size: 0.8rem;
+        background: var(--white);
+
+        bottom: 100%;
+        padding: 0 0.25rem 0.5rem 0.25rem;
+        line-height: 1rem;
+
+        &--bottom {
+            top: 100%;
+            bottom: auto;
+            padding: 0.5rem 0.25rem 0 0.25rem;
+        }
+
+        &:hover {
+            z-index: 100;
+        }
+    }
+}

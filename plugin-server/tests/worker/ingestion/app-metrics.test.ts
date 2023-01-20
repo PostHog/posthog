@@ -1,5 +1,6 @@
 import { Hub } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
+import { UUIDT } from '../../../src/utils/utils'
 import { AppMetricIdentifier, AppMetrics } from '../../../src/worker/ingestion/app-metrics'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 
@@ -12,6 +13,9 @@ const metric: AppMetricIdentifier = {
 }
 
 const timestamp = 1_000_000
+
+const uuid1 = new UUIDT().toString()
+const uuid2 = new UUIDT().toString()
 
 describe('AppMetrics()', () => {
     let appMetrics: AppMetrics
@@ -100,6 +104,66 @@ describe('AppMetrics()', () => {
             ])
         })
 
+        it('stores separate entries for errors', async () => {
+            await appMetrics.queueMetric(
+                {
+                    ...metric,
+                    failures: 1,
+                    errorUuid: uuid1,
+                    errorType: 'SomeError',
+                    errorDetails: '{}',
+                },
+                timestamp
+            )
+            await appMetrics.queueMetric(
+                {
+                    ...metric,
+                    failures: 1,
+                    errorUuid: uuid2,
+                    errorType: 'SomeError',
+                    errorDetails: '{}',
+                },
+                timestamp + 1000
+            )
+
+            expect(Object.values(appMetrics.queuedData)).toEqual([
+                {
+                    successes: 0,
+                    successesOnRetry: 0,
+                    failures: 1,
+
+                    errorUuid: uuid1,
+                    errorType: 'SomeError',
+                    errorDetails: '{}',
+
+                    lastTimestamp: timestamp,
+                    queuedAt: timestamp,
+                    metric: {
+                        teamId: 2,
+                        pluginConfigId: 2,
+                        category: 'processEvent',
+                    },
+                },
+                {
+                    successes: 0,
+                    successesOnRetry: 0,
+                    failures: 1,
+
+                    errorUuid: uuid2,
+                    errorType: 'SomeError',
+                    errorDetails: '{}',
+
+                    lastTimestamp: timestamp + 1000,
+                    queuedAt: timestamp + 1000,
+                    metric: {
+                        teamId: 2,
+                        pluginConfigId: 2,
+                        category: 'processEvent',
+                    },
+                },
+            ])
+        })
+
         it('creates timer to flush if no timer before', async () => {
             jest.spyOn(appMetrics, 'flush')
             jest.useFakeTimers()
@@ -129,6 +193,75 @@ describe('AppMetrics()', () => {
 
             await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
             expect(appMetrics.queuedData).toEqual({})
+        })
+
+        it('does not query `hasAvailableFeature` if not needed', async () => {
+            hub.APP_METRICS_GATHERED_FOR_ALL = true
+
+            await appMetrics.queueMetric({ ...metric, successes: 1 }, timestamp)
+
+            expect(appMetrics.queuedData).not.toEqual({})
+            expect(hub.organizationManager.hasAvailableFeature).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('queueError()', () => {
+        const failureMetric = { ...metric, failures: 1 }
+
+        beforeEach(() => {
+            jest.spyOn(appMetrics, 'queueMetric')
+        })
+
+        it('queues Error objects', async () => {
+            await appMetrics.queueError(failureMetric, { error: new Error('foobar'), eventCount: 2 }, timestamp)
+
+            const call = jest.mocked(appMetrics.queueMetric).mock.calls[0]
+
+            expect(call).toEqual([
+                {
+                    ...failureMetric,
+                    errorUuid: expect.any(String),
+                    errorType: 'Error',
+                    errorDetails: expect.any(String),
+                },
+                timestamp,
+            ])
+            expect(JSON.parse(call[0].errorDetails)).toEqual({
+                error: {
+                    name: 'Error',
+                    message: 'foobar',
+                    stack: expect.stringContaining('Error: foobar\n'),
+                },
+                eventCount: 2,
+            })
+        })
+
+        it('queues String objects', async () => {
+            await appMetrics.queueError(failureMetric, { error: 'StringError', eventCount: 2 }, timestamp)
+
+            const call = jest.mocked(appMetrics.queueMetric).mock.calls[0]
+            expect(call).toEqual([
+                {
+                    ...failureMetric,
+                    errorUuid: expect.any(String),
+                    errorType: 'StringError',
+                    errorDetails: expect.any(String),
+                },
+                timestamp,
+            ])
+            expect(JSON.parse(call[0].errorDetails)).toEqual({
+                error: {
+                    name: 'StringError',
+                },
+                eventCount: 2,
+            })
+        })
+
+        it('handles errors gracefully', async () => {
+            // @ts-expect-error This will cause an error downstream
+            await appMetrics.queueError(failureMetric, { error: undefined, eventCount: 2 }, timestamp)
+
+            expect(appMetrics.queueMetric).toHaveBeenCalledWith(failureMetric, timestamp)
         })
     })
 
@@ -167,7 +300,6 @@ describe('AppMetrics()', () => {
             ])
 
             await appMetrics.flush()
-            console.log('current batch is', hub.kafkaProducer.currentBatch)
             await hub.kafkaProducer.flush()
 
             const rows = await delayUntilEventIngested(fetchRowsFromClickhouse)
@@ -182,8 +314,49 @@ describe('AppMetrics()', () => {
                     successes: 3,
                     successes_on_retry: 4,
                     failures: 1,
+                    error_uuid: '00000000-0000-0000-0000-000000000000',
+                    error_type: '',
+                    error_details: '',
                 })
             )
+        })
+
+        it('can read errors', async () => {
+            jest.spyOn
+
+            await appMetrics.queueError(
+                { ...metric, failures: 1 },
+                { error: new Error('foobar'), eventCount: 1 },
+                timestamp
+            ),
+                await appMetrics.flush()
+            await hub.kafkaProducer.flush()
+
+            const rows = await delayUntilEventIngested(fetchRowsFromClickhouse)
+
+            expect(rows.length).toEqual(1)
+            expect(rows[0]).toEqual(
+                expect.objectContaining({
+                    timestamp: '1970-01-01 00:16:40.000000',
+                    team_id: metric.teamId,
+                    plugin_config_id: metric.pluginConfigId,
+                    category: metric.category,
+                    job_id: '',
+                    successes: 0,
+                    successes_on_retry: 0,
+                    failures: 1,
+                    error_type: 'Error',
+                })
+            )
+            expect(rows[0].error_uuid).not.toEqual('00000000-0000-0000-0000-000000000000')
+            expect(JSON.parse(rows[0].error_details)).toEqual({
+                error: {
+                    name: 'Error',
+                    message: 'foobar',
+                    stack: expect.stringContaining('Error: foobar\n'),
+                },
+                eventCount: 1,
+            })
         })
     })
 })

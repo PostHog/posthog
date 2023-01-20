@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { PaginationControl } from './PaginationControl'
 import { usePagination } from './usePagination'
@@ -6,6 +5,7 @@ import { usePagination } from './usePagination'
 export default {
     title: 'Lemon UI/Pagination Control',
     component: PaginationControl,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PaginationControl>
 
 const DATA_SOURCE = Array(43)

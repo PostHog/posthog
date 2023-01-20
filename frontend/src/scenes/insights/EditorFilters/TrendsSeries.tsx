@@ -6,11 +6,11 @@ import { EditorFilterProps, FilterType, InsightType } from '~/types'
 import { alphabet } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React from 'react'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { LemonButton } from '@posthog/lemon-ui'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCalculate } from 'lib/components/icons'
+import { isFilterWithDisplay, isLifecycleFilter, isStickinessFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
     const { setFilters } = useActions(trendsLogic(insightProps))
@@ -24,11 +24,11 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
         ...groupsTaxonomicTypes,
         TaxonomicFilterGroupType.Cohorts,
         TaxonomicFilterGroupType.Elements,
-        ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
+        ...(isTrendsFilter(filters) ? [TaxonomicFilterGroupType.Sessions] : []),
     ]
     return (
         <>
-            {filters.insight === InsightType.LIFECYCLE && (
+            {isLifecycleFilter(filters) && (
                 <div className="mb-2">
                     Showing <b>Unique users</b> who did
                 </div>
@@ -41,15 +41,18 @@ export function TrendsSeries({ insightProps }: EditorFilterProps): JSX.Element {
                 showSeriesIndicator
                 showNestedArrow
                 entitiesLimit={
-                    filters.insight === InsightType.LIFECYCLE ||
-                    (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && !filters.formula)
+                    (isFilterWithDisplay(filters) &&
+                        filters.display &&
+                        SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
+                        !isFormulaOn) ||
+                    isLifecycleFilter(filters)
                         ? 1
                         : alphabet.length
                 }
                 mathAvailability={
-                    filters.insight === InsightType.LIFECYCLE
+                    isLifecycleFilter(filters)
                         ? MathAvailability.None
-                        : filters.insight === InsightType.STICKINESS
+                        : isStickinessFilter(filters)
                         ? MathAvailability.ActorsOnly
                         : MathAvailability.All
                 }
@@ -63,25 +66,29 @@ export function TrendsSeriesLabel({ insightProps }: EditorFilterProps): JSX.Elem
     const { filters, localFilters, isFormulaOn } = useValues(trendsLogic(insightProps))
     const { setIsFormulaOn } = useActions(trendsLogic(insightProps))
 
-    const formulaRemovalDisabled: boolean =
-        !!filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) && localFilters.length > 1
+    const formulaModeButtonDisabled: boolean =
+        isFormulaOn &&
+        isTrendsFilter(filters) &&
+        !!filters.display &&
+        SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
+        localFilters.length > 1
 
     return (
         <div className="flex items-center justify-between w-full">
             <span>{isFormulaOn ? 'Variables' : 'Series'}</span>
             <Tooltip
                 title={
-                    formulaRemovalDisabled
+                    formulaModeButtonDisabled
                         ? 'This chart type does not support multiple series, so in order to disable formula mode, remove variables or switch to a different chart type.'
                         : 'Make your own formula the output of the insight with formula mode. Use graph series as variables.'
                 }
             >
                 {/** The negative margin negates the button's effect on label sizing. */}
-                <div style={{ margin: '-0.25rem 0' }}>
+                <div className="-my-1">
                     <LemonButton
                         size="small"
                         onClick={() => setIsFormulaOn(!isFormulaOn)}
-                        disabled={formulaRemovalDisabled}
+                        disabled={formulaModeButtonDisabled}
                         icon={<IconCalculate />}
                         id="trends-formula-switch"
                     >

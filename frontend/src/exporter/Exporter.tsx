@@ -1,12 +1,13 @@
 import '~/styles'
 import './Exporter.scss'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { ExportedData, ExportType } from '~/exporter/types'
 import { DashboardPlacement } from '~/types'
 import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { FriendlyLogo } from '~/toolbar/assets/FriendlyLogo'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
+import { Link } from 'lib/components/Link'
 import clsx from 'clsx'
 
 export function Exporter(props: ExportedData): JSX.Element {
@@ -32,9 +33,12 @@ export function Exporter(props: ExportedData): JSX.Element {
             {!whitelabel && dashboard ? (
                 type === ExportType.Scene ? (
                     <div className="SharedDashboard-header">
-                        <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
+                        <Link
+                            to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
+                            target="_blank"
+                        >
                             <FriendlyLogo className="text-lg" />
-                        </a>
+                        </Link>
                         <div className="SharedDashboard-header-title">
                             <h1 className="mb-2" data-attr="dashboard-item-title">
                                 {dashboard.name}
@@ -44,9 +48,9 @@ export function Exporter(props: ExportedData): JSX.Element {
                         <span className="SharedDashboard-header-team">{team?.name}</span>
                     </div>
                 ) : type === ExportType.Embed ? (
-                    <a href="https://posthog.com" target="_blank" rel="noopener noreferrer">
+                    <Link to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard" target="_blank">
                         <FriendlyLogo className="text-lg" />
-                    </a>
+                    </Link>
                 ) : type === ExportType.Image ? (
                     <>
                         <h1 className="mb-2">{dashboard.name}</h1>
@@ -54,7 +58,6 @@ export function Exporter(props: ExportedData): JSX.Element {
                     </>
                 ) : null
             ) : null}
-
             {insight ? (
                 <ExportedInsight type={type} insight={insight} exportOptions={exportOptions} />
             ) : dashboard ? (
@@ -66,19 +69,17 @@ export function Exporter(props: ExportedData): JSX.Element {
             ) : (
                 <h1 className="text-center p-4">Something went wrong...</h1>
             )}
-
             {!whitelabel && dashboard && (
                 <div className="text-center pb-4">
                     {type === ExportType.Image ? <FriendlyLogo className="text-lg" /> : null}
                     <div>
                         Made with{' '}
-                        <a
-                            href="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
+                        <Link
+                            to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                             target="_blank"
-                            rel="noopener"
                         >
-                            PostHog – open-source product analytics
-                        </a>
+                            PostHog — open-source product analytics
+                        </Link>
                     </div>
                 </div>
             )}

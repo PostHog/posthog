@@ -1,12 +1,14 @@
 import * as Sentry from '@sentry/node'
 import { StatsD } from 'hot-shots'
-import { CompressionCodecs, CompressionTypes, Message, Producer, ProducerRecord } from 'kafkajs'
+import { CompressionCodecs, CompressionTypes, KafkaJSError, Message, Producer, ProducerRecord } from 'kafkajs'
 // @ts-expect-error no type definitions
 import SnappyCodec from 'kafkajs-snappy'
 
 import { runInSpan } from '../../sentry'
 import { PluginsServerConfig } from '../../types'
 import { instrument } from '../metrics'
+import { status } from '../status'
+import { DependencyUnavailableError } from './error'
 import { timeoutGuard } from './utils'
 
 CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
@@ -22,10 +24,11 @@ CompressionCodecs[CompressionTypes.Snappy] = SnappyCodec
  * We also flush the queue regularly to avoid dropping any messages as the program quits.
  */
 export class KafkaProducerWrapper {
-    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
-    private producer: Producer
     /** StatsD instance used to do instrumentation */
     private statsd: StatsD | undefined
+
+    /** Kafka producer used for syncing Postgres and ClickHouse person data. */
+    producer: Producer
 
     lastFlushTime: number
     currentBatch: Array<ProducerRecord>
@@ -35,7 +38,7 @@ export class KafkaProducerWrapper {
     maxQueueSize: number
     maxBatchSize: number
 
-    flushInterval: NodeJS.Timeout
+    flushInterval: NodeJS.Timeout | undefined
 
     constructor(producer: Producer, statsd: StatsD | undefined, serverConfig: PluginsServerConfig) {
         this.producer = producer
@@ -49,12 +52,17 @@ export class KafkaProducerWrapper {
         this.maxQueueSize = serverConfig.KAFKA_PRODUCER_MAX_QUEUE_SIZE
         this.maxBatchSize = serverConfig.KAFKA_MAX_MESSAGE_BATCH_SIZE
 
-        this.flushInterval = setInterval(async () => {
-            // :TRICKY: Swallow uncaught errors from flush as flush is already doing custom error reporting which would get lost.
-            try {
-                await this.flush()
-            } catch (err) {}
-        }, this.flushFrequencyMs)
+        if (this.flushFrequencyMs > 0) {
+            // If flush frequency is set, we flush the queue at intervals. We
+            // allow disabling this to avoid out of band flushing occuring for
+            // which we would not be able to explicitly handle.
+            this.flushInterval = setInterval(async () => {
+                // :TRICKY: Swallow uncaught errors from flush as flush is already doing custom error reporting which would get lost.
+                try {
+                    await this.flush()
+                } catch (err) {}
+            }, this.flushFrequencyMs)
+        }
     }
 
     queueMessage(kafkaMessage: ProducerRecord): Promise<void> {
@@ -122,7 +130,6 @@ export class KafkaProducerWrapper {
             } catch (err) {
                 Sentry.captureException(err, {
                     extra: {
-                        messages: messages,
                         batchCount: messages.length,
                         topics: messages.map((record) => record.topic),
                         messageCounts: messages.map((record) => record.messages.length),
@@ -130,7 +137,23 @@ export class KafkaProducerWrapper {
                     },
                 })
                 // :TODO: Implement some retrying, https://github.com/PostHog/plugin-server/issues/511
-                this.statsd?.increment('query.kafka_send.failure')
+                this.statsd?.increment('query.kafka_send.failure', {
+                    firstTopic: messages[0].topic,
+                })
+                status.error('⚠️', 'Failed to flush kafka messages that were produced', {
+                    error: err,
+                    batchCount: messages.length,
+                    topics: messages.map((record) => record.topic),
+                    messageCounts: messages.map((record) => record.messages.length),
+                    estimatedSize: batchSize,
+                })
+
+                if (err instanceof KafkaJSError) {
+                    if (err.retriable === true) {
+                        throw new DependencyUnavailableError(err.name, 'Kafka', err)
+                    }
+                }
+
                 throw err
             } finally {
                 clearTimeout(timeout)

@@ -8,6 +8,7 @@ import { PlanInterface, BillingType } from '~/types'
 import { router } from 'kea-router'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 
 const PLANS: PlanInterface[] = [
     {
@@ -113,18 +114,21 @@ describe('billingLogic', () => {
         jest.spyOn(api, 'get')
         useMocks({
             get: {
-                '/api/plans': {
-                    results: PLANS,
-                },
+                '/api/plans': { results: PLANS },
+                '/api/billing-v2/': () => [404, {}],
             },
         })
         initKeaTests()
+        silenceKeaLoadersErrors()
         logic = billingLogic()
         logic.mount()
         await expectLogic(logic).toMount([featureFlagLogic, eventUsageLogic])
     })
 
-    afterEach(() => logic.unmount())
+    afterEach(() => {
+        logic.unmount()
+        resumeKeaLoadersErrors()
+    })
 
     it('loads billing and plans for user without a plan', async () => {
         mockBilling(BILLING_NO_PLAN)
@@ -208,15 +212,6 @@ describe('billingLogic', () => {
             .toFinishAllListeners()
             .toMatchValues({
                 alertToShow: BillingAlertType.UsageNearLimit,
-            })
-
-        mockBilling(BILLING_NO_PLAN)
-        await expectLogic(logic, () => {
-            logic.actions.loadBilling()
-        })
-            .toFinishAllListeners()
-            .toMatchValues({
-                alertToShow: BillingAlertType.FreeUsageNearLimit,
             })
     })
     it('reports that billing has been cancelled during onboarding', async () => {

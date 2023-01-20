@@ -44,8 +44,10 @@ class License(models.Model):
     plan: models.CharField = models.CharField(max_length=200)
     valid_until: models.DateTimeField = models.DateTimeField()
     key: models.CharField = models.CharField(max_length=200)
+    # DEPRECATED: This is no longer used
     max_users: models.IntegerField = models.IntegerField(default=None, null=True)  # None = no restriction
 
+    # NOTE: Remember to update the Billing Service as well. Long-term it will be the source of truth.
     SCALE_PLAN = "scale"
     SCALE_FEATURES = [
         AvailableFeature.ZAPIER,
@@ -63,6 +65,9 @@ class License(models.Model):
         AvailableFeature.WHITE_LABELLING,
         AvailableFeature.SUBSCRIPTIONS,
         AvailableFeature.APP_METRICS,
+        AvailableFeature.RECORDINGS_PLAYLISTS,
+        AvailableFeature.RECORDINGS_FILE_EXPORT,
+        AvailableFeature.RECORDINGS_PERFORMANCE,
     ]
 
     ENTERPRISE_PLAN = "enterprise"
@@ -71,6 +76,7 @@ class License(models.Model):
         AvailableFeature.PROJECT_BASED_PERMISSIONING,
         AvailableFeature.SAML,
         AvailableFeature.SSO_ENFORCEMENT,
+        AvailableFeature.ROLE_BASED_ACCESS,
     ]
     PLANS = {SCALE_PLAN: SCALE_FEATURES, ENTERPRISE_PLAN: ENTERPRISE_FEATURES}
     # The higher the plan, the higher its sorting value - sync with front-end licenseLogic
@@ -79,6 +85,10 @@ class License(models.Model):
     @property
     def available_features(self) -> List[AvailableFeature]:
         return self.PLANS.get(self.plan, [])
+
+    @property
+    def is_v2_license(self) -> bool:
+        return self.key and len(self.key.split("::")) == 2
 
     __repr__ = sane_repr("key", "plan", "valid_until")
 

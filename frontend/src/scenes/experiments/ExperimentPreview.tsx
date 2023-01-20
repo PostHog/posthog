@@ -3,15 +3,17 @@ import { useValues, useActions } from 'kea'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { dayjs } from 'lib/dayjs'
-import React from 'react'
-import { ActionFilter, AnyPropertyFilter, Experiment, InsightType, MultivariateFlagVariant } from '~/types'
+import { ActionFilter as ActionFilterType, AnyPropertyFilter, InsightType, MultivariateFlagVariant } from '~/types'
 import { experimentLogic } from './experimentLogic'
 import { ExperimentWorkflow } from './ExperimentWorkflow'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { capitalizeFirstLetter, convertPropertyGroupToProperties, humanFriendlyNumber } from 'lib/utils'
+import { LemonButton, LemonModal } from '@posthog/lemon-ui'
+import { Field, Form } from 'kea-forms'
+import { MetricSelector } from './MetricSelector'
+import { IconInfo } from 'lib/components/icons'
 
 interface ExperimentPreviewProps {
-    experiment: Partial<Experiment> | null
+    experimentId: number | 'new'
     trendCount: number
     trendExposure?: number
     funnelSampleSize?: number
@@ -20,22 +22,32 @@ interface ExperimentPreviewProps {
 }
 
 export function ExperimentPreview({
-    experiment,
+    experimentId,
     trendCount,
     funnelConversionRate,
     trendExposure,
     funnelSampleSize,
     funnelEntrants,
 }: ExperimentPreviewProps): JSX.Element {
-    const experimentId = experiment?.id || 'new'
     const {
         experimentInsightType,
         editingExistingExperiment,
         minimumDetectableChange,
         expectedRunningTime,
         aggregationLabel,
+        experiment,
+        isExperimentGoalModalOpen,
+        experimentLoading,
+        experimentInsightId,
     } = useValues(experimentLogic({ experimentId }))
-    const { setNewExperimentData } = useActions(experimentLogic({ experimentId }))
+    const {
+        setExperiment,
+        openExperimentGoalModal,
+        closeExperimentGoalModal,
+        updateExperimentGoal,
+        setFilters,
+        createNewExperimentInsight,
+    } = useActions(experimentLogic({ experimentId }))
     const sliderMaxValue =
         experimentInsightType === InsightType.FUNNELS
             ? 100 - funnelConversionRate < 50
@@ -68,7 +80,7 @@ export function ExperimentPreview({
                             </div>
                             <div className="text-muted">
                                 Here are the baseline metrics for your experiment. Adjust your minimum detectible
-                                threshold to adjust for the smallest conversion value you’ll accept, and the experiment
+                                threshold to adjust for the smallest conversion value you'll accept, and the experiment
                                 duration.{' '}
                             </div>
                         </div>
@@ -84,7 +96,7 @@ export function ExperimentPreview({
                                         'Minimum acceptable improvement is a calculation that estimates the smallest significant improvement you are willing to accept.'
                                     }
                                 >
-                                    <InfoCircleOutlined style={{ marginLeft: 4 }} />
+                                    <IconInfo className="ml-1 text-muted text-xl" />
                                 </Tooltip>
                             </div>
                             <Row className="mde-slider">
@@ -97,8 +109,11 @@ export function ExperimentPreview({
                                         trackStyle={{ background: 'var(--primary)' }}
                                         handleStyle={{ background: 'var(--primary)' }}
                                         onChange={(value) => {
-                                            setNewExperimentData({
-                                                parameters: { minimum_detectable_effect: value },
+                                            setExperiment({
+                                                parameters: {
+                                                    ...experiment.parameters,
+                                                    minimum_detectable_effect: value,
+                                                },
                                             })
                                         }}
                                         tipFormatter={(value) => `${value}%`}
@@ -112,8 +127,8 @@ export function ExperimentPreview({
                                     style={{ margin: '0 16px' }}
                                     value={minimumDetectableChange}
                                     onChange={(value) => {
-                                        setNewExperimentData({
-                                            parameters: { minimum_detectable_effect: value },
+                                        setExperiment({
+                                            parameters: { ...experiment.parameters, minimum_detectable_effect: value },
                                         })
                                     }}
                                 />
@@ -260,10 +275,10 @@ export function ExperimentPreview({
                                 [
                                     ...(experiment?.filters?.events || []),
                                     ...(experiment?.filters?.actions || []),
-                                ] as ActionFilter[]
+                                ] as ActionFilterType[]
                             )
                                 .sort((a, b) => (a.order || 0) - (b.order || 0))
-                                .map((event: ActionFilter, idx: number) => (
+                                .map((event: ActionFilterType, idx: number) => (
                                     <Col key={idx} className="mb-2">
                                         <Row style={{ marginBottom: 4 }}>
                                             <div className="preview-conversion-goal-num">
@@ -284,6 +299,13 @@ export function ExperimentPreview({
                                         ))}
                                     </Col>
                                 ))}
+                            {experiment?.start_date && (
+                                <div className="mb-2 mt-4">
+                                    <LemonButton type="secondary" onClick={openExperimentGoalModal}>
+                                        Change experiment goal
+                                    </LemonButton>
+                                </div>
+                            )}
                         </Col>
                     </Row>
                 )}
@@ -294,6 +316,56 @@ export function ExperimentPreview({
                     <ExperimentWorkflow />
                 </Col>
             )}
+            <LemonModal
+                isOpen={isExperimentGoalModalOpen}
+                onClose={closeExperimentGoalModal}
+                width={650}
+                title={'Change experiment goal'}
+                footer={
+                    <div className="flex items-center gap-2">
+                        <LemonButton
+                            form="edit-experiment-goal-form"
+                            type="secondary"
+                            onClick={closeExperimentGoalModal}
+                        >
+                            Cancel
+                        </LemonButton>
+                        <LemonButton
+                            form="edit-experiment-goal-form"
+                            onClick={() => {
+                                updateExperimentGoal(experiment.filters)
+                            }}
+                            type="primary"
+                            loading={experimentLoading}
+                            data-attr="create-annotation-submit"
+                        >
+                            Save
+                        </LemonButton>
+                    </div>
+                }
+            >
+                <Form
+                    logic={experimentLogic}
+                    props={{ experimentId }}
+                    formKey="experiment"
+                    id="edit-experiment-goal-form"
+                    className="space-y-4"
+                >
+                    <Field name="filters">
+                        {({ value, onChange }) => (
+                            <MetricSelector
+                                createPreviewInsight={createNewExperimentInsight}
+                                setFilters={(payload) => {
+                                    setFilters(payload)
+                                    onChange(payload)
+                                }}
+                                previewInsightId={experimentInsightId}
+                                filters={value}
+                            />
+                        )}
+                    </Field>
+                </Form>
+            </LemonModal>
         </Row>
     )
 }

@@ -35,7 +35,7 @@ def mock_email_messages(MockEmailMessage: MagicMock) -> List[Any]:
             )
             os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
-            with open(output_file, "w") as f:
+            with open(output_file, "w", encoding="utf_8") as f:
                 f.write(email_message.html_body)
 
             print(f"Email rendered to {output_file}")  # noqa: T201

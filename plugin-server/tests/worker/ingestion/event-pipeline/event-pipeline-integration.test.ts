@@ -17,7 +17,12 @@ describe('Event Pipeline integration test', () => {
     let hub: Hub
     let closeServer: () => Promise<void>
 
-    const ingestEvent = (event: PluginEvent) => new EventPipelineRunner(hub, event).runEventPipeline(event)
+    const ingestEvent = async (event: PluginEvent) => {
+        const runner = new EventPipelineRunner(hub, event)
+        const result = await runner.runEventPipeline(event)
+        const resultEvent = result.args[0]
+        return runner.runAsyncHandlersEventPipeline(resultEvent)
+    }
 
     beforeEach(async () => {
         await resetTestDatabase()
@@ -92,6 +97,7 @@ describe('Event Pipeline integration test', () => {
         expect(persons.length).toEqual(1)
         expect(persons[0].version).toEqual(0)
         expect(persons[0].properties).toEqual({
+            $creator_event_uuid: event.uuid,
             $initial_browser: 'Chrome',
             personProp: 'value',
             anotherValue: 2,
@@ -128,6 +134,7 @@ describe('Event Pipeline integration test', () => {
             body: JSON.stringify(expectedPayload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
             method: 'POST',
+            timeout: 10000,
         })
     })
 
@@ -182,7 +189,9 @@ describe('Event Pipeline integration test', () => {
                     id: expect.any(Number),
                     created_at: expect.any(String),
                     team_id: 2,
-                    properties: {},
+                    properties: {
+                        $creator_event_uuid: event.uuid,
+                    },
                     uuid: expect.any(String),
                 },
             },
@@ -211,7 +220,7 @@ describe('Event Pipeline integration test', () => {
             uuid: new UUIDT().toString(),
         }
 
-        await ingestEvent(event)
+        await new EventPipelineRunner(hub, event).runEventPipeline(event)
 
         expect(hub.db.fetchPerson).toHaveBeenCalledTimes(1)
     })

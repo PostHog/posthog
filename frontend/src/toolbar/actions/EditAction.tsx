@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { useActions, useValues } from 'kea'
 import { Button, Form, Input } from 'antd'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'

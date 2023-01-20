@@ -10,15 +10,17 @@ from unittest.mock import patch
 import pytest
 import sqlparse
 from django.apps import apps
-from django.db import connection
+from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils.timezone import now
 from rest_framework.test import APITestCase as DRFTestCase
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ch_pool
 from posthog.clickhouse.plugin_log_entries import TRUNCATE_PLUGIN_LOG_ENTRIES_TABLE_SQL
-from posthog.client import ch_pool, sync_execute
+from posthog.cloud_utils import TEST_clear_cloud_cache
 from posthog.models import Organization, Team, User
 from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.event.sql import DISTRIBUTED_EVENTS_TABLE_SQL, DROP_EVENTS_TABLE_SQL, EVENTS_TABLE_SQL
@@ -41,6 +43,7 @@ from posthog.models.session_recording_event.sql import (
     SESSION_RECORDING_EVENTS_TABLE_SQL,
 )
 from posthog.settings import CLICKHOUSE_REPLICATION
+from posthog.settings.utils import get_from_env, str_to_bool
 
 persons_cache_tests: List[Dict[str, Any]] = []
 events_cache_tests: List[Dict[str, Any]] = []
@@ -125,7 +128,7 @@ class TestMixin:
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
 
-            util.can_enable_person_on_events = True
+            util.can_enable_actor_on_events = True
 
         if not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
@@ -165,6 +168,10 @@ class BaseTest(TestMixin, ErrorResponsesMixin, TestCase):
     Read more: https://docs.djangoproject.com/en/3.1/topics/testing/tools/#testcase
     """
 
+    def is_cloud(self, value: bool):
+        TEST_clear_cloud_cache()
+        return self.settings(MULTI_TENANCY=value)
+
 
 class NonAtomicBaseTest(TestMixin, ErrorResponsesMixin, TransactionTestCase):
     """
@@ -185,6 +192,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
 
     def setUp(self):
         super().setUp()
+
+        # Clear the cached "is_cloud" setting so that it's recalculated for each test
+        TEST_clear_cloud_cache()
+
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
 
@@ -192,6 +203,10 @@ class APIBaseTest(TestMixin, ErrorResponsesMixin, DRFTestCase):
         stripped_response1 = stripResponse(response1, remove=remove)
         stripped_response2 = stripResponse(response2, remove=remove)
         self.assertDictEqual(stripped_response1[0], stripped_response2[0])
+
+    def is_cloud(self, value: bool):
+        TEST_clear_cloud_cache()
+        return self.settings(MULTI_TENANCY=value)
 
 
 def stripResponse(response, remove=("action", "label", "persons_urls", "filter")):
@@ -236,8 +251,13 @@ def cleanup_materialized_columns():
         sync_execute(f"ALTER TABLE groups DROP COLUMN {column_name}")
 
 
-def test_with_materialized_columns(
-    event_properties=[], person_properties=[], group_properties=[], verify_no_jsonextract=True
+def also_test_with_materialized_columns(
+    event_properties=[],
+    person_properties=[],
+    group_properties=[],
+    verify_no_jsonextract=True,
+    # :TODO: Remove this when groups-on-events is released
+    materialize_only_with_person_on_events=False,
 ):
     """
     Runs the test twice on clickhouse - once verifying it works normally, once with materialized columns.
@@ -249,6 +269,12 @@ def test_with_materialized_columns(
         from ee.clickhouse.materialized_columns.analyze import materialize
     except:
         # EE not available? Just run the main test
+        return lambda fn: fn
+
+    if materialize_only_with_person_on_events and not get_from_env(
+        "PERSON_ON_EVENTS_ENABLED", False, type_cast=str_to_bool
+    ):
+        # Don't run materialized test unless PERSON_ON_EVENTS_ENABLED
         return lambda fn: fn
 
     def decorator(fn):
@@ -328,25 +354,62 @@ class QueryMatchingTest:
             assert params == self.snapshot, "\n".join(self.snapshot.get_assert_diff())
 
 
-def snapshot_postgres_queries(fn):
+@contextmanager
+def snapshot_postgres_queries_context(testcase: QueryMatchingTest, replace_all_numbers: bool = True):
     """
     Captures and snapshots select queries from test using `syrupy` library.
     Requires queries to be stable to avoid flakiness.
 
     Snapshots are automatically saved in a __snapshot__/*.ambr file.
     Update snapshots via --snapshot-update.
+
+    To avoid flakiness, we optionally replaces all numbers in the query with a
+    fixed output.
+
+    Returns a context manager that can be used to capture queries.
+
+    NOTE: it requires specifically that a `QueryMatchingTest` is used as the
+    testcase argument.
+
+    TODO: remove requirement that this must be used in conjunction with a
+    `QueryMatchingTest` class.
+
+    Example usage:
+
+    class MyTest(QueryMatchingTest):
+        def test_something(self):
+            with snapshot_postgres_queries_context(self) as context:
+                # Run some code that generates queries
+
     """
-    from django.db import connections
+    with CaptureQueriesContext(connections["default"]) as context:
+        yield context
+
+    for query_with_time in context.captured_queries:
+        query = query_with_time["sql"]
+        if query and "SELECT" in query and "django_session" not in query and not re.match(r"^\s*INSERT", query):
+            testcase.assertQueryMatchesSnapshot(query, replace_all_numbers=replace_all_numbers)
+
+
+def snapshot_postgres_queries(fn):
+    """
+    Decorator that captures and snapshots select queries from test using
+    `syrupy` library. It wraps `snapshot_postgres_queries_context`, see that
+    context manager for more details.
+
+    Example usage:
+
+    class MyTest(QueryMatchingTest):
+        @snapshot_postgres_queries
+        def test_something(self):
+            # Run some code that generates queries
+
+    """
 
     @wraps(fn)
-    def wrapped(self, *args, **kwargs):
-        with CaptureQueriesContext(connections["default"]) as context:
+    def wrapped(self: QueryMatchingTest, *args, **kwargs):
+        with snapshot_postgres_queries_context(self):
             fn(self, *args, **kwargs)
-
-        for query_with_time in context.captured_queries:
-            query = query_with_time["sql"]
-            if "SELECT" in query and "django_session" not in query:
-                self.assertQueryMatchesSnapshot(query, replace_all_numbers=True)
 
     return wrapped
 
@@ -461,7 +524,7 @@ def _create_person(*args, **kwargs):
 class ClickhouseTestMixin(QueryMatchingTest):
     RUN_MATERIALIZED_COLUMN_TESTS = True
     # overrides the basetest in posthog/test/base.py
-    #  this way the team id will increment so we don't have to destroy all clickhouse tables on each test
+    # this way the team id will increment so we don't have to destroy all clickhouse tables on each test
     CLASS_DATA_LEVEL_SETUP = False
 
     snapshot: Any
@@ -490,23 +553,43 @@ class ClickhouseTestMixin(QueryMatchingTest):
                 with patch.object(client, "execute", wraps=execute_wrapper) as _:
                     yield client
 
-        with patch("posthog.client.ch_pool.get_client", wraps=get_client) as _:
+        with patch("posthog.clickhouse.client.connection.ch_pool.get_client", wraps=get_client) as _:
             yield queries
+
+
+@contextmanager
+def failhard_threadhook_context():
+    """
+    Context manager to ensure that exceptions raised by threads are treated as a
+    test failure.
+    """
+
+    def raise_hook(args: threading.ExceptHookArgs):
+        if args.exc_value is not None:
+            raise args.exc_type(args.exc_value)
+
+    old_hook, threading.excepthook = threading.excepthook, raise_hook
+    try:
+        yield old_hook
+    finally:
+        assert threading.excepthook is raise_hook
+        threading.excepthook = old_hook
 
 
 def run_clickhouse_statement_in_parallel(statements: List[str]):
     jobs = []
-    for item in statements:
-        thread = threading.Thread(target=sync_execute, args=(item,))
-        jobs.append(thread)
+    with failhard_threadhook_context():
+        for item in statements:
+            thread = threading.Thread(target=sync_execute, args=(item,))
+            jobs.append(thread)
 
-    # Start the threads (i.e. calculate the random number lists)
-    for j in jobs:
-        j.start()
+        # Start the threads (i.e. calculate the random number lists)
+        for j in jobs:
+            j.start()
 
-    # Ensure all of the threads have finished
-    for j in jobs:
-        j.join()
+        # Ensure all of the threads have finished
+        for j in jobs:
+            j.join()
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):

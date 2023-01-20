@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { EditorFilterProps, InsightEditorFilterGroup, InsightLogicProps, InsightModel } from '~/types'
 import { cleanFilters } from '../utils/cleanFilters'
 import './EditorFilterGroup.scss'
@@ -44,7 +44,7 @@ export function EditorFilterGroup({ editorFilterGroup, insight, insightProps }: 
                     >
                         <div className="flex items-center space-x-2 font-semibold">
                             <span>{title}</span>
-                            <LemonBadge count={count} />
+                            <LemonBadge.Number count={count || 0} />
                         </div>
                     </LemonButton>
                 </div>

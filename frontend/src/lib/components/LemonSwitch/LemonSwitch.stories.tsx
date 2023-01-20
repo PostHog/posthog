@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { LemonSwitch as RawLemonSwitch, LemonSwitchProps } from './LemonSwitch'
@@ -7,6 +7,7 @@ import { IconGlobeLock } from '../icons'
 export default {
     title: 'Lemon UI/Lemon Switch',
     component: RawLemonSwitch,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         label: {
             defaultValue: 'Switch this!',

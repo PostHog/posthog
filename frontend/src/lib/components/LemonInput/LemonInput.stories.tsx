@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 
 import { LemonInput } from './LemonInput'
@@ -8,6 +8,7 @@ import { LemonButtonWithPopup } from 'lib/components/LemonButton'
 export default {
     title: 'Lemon UI/Lemon Input',
     component: LemonInput,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         value: { defaultValue: 'Foo' },
     },
@@ -45,8 +46,14 @@ Password.args = { type: 'password', placeholder: 'Enter your password' }
 export const Disabled = Template.bind({})
 Disabled.args = { disabled: true }
 
+export const DangerStatus = Template.bind({})
+DangerStatus.args = { status: 'danger' }
+
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true }
 
 export const Numeric = Template.bind({})
 Numeric.args = { type: 'number', min: 0, step: 1, value: 3 }
+
+export const Small = Template.bind({})
+Small.args = { allowClear: true, size: 'small' }

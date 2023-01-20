@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import hhFall from 'public/hedgehog/sprites/fall.png'
 import hhJump from 'public/hedgehog/sprites/jump.png'
@@ -6,6 +6,12 @@ import hhSign from 'public/hedgehog/sprites/sign.png'
 import hhSpin from 'public/hedgehog/sprites/spin.png'
 import hhWalk from 'public/hedgehog/sprites/walk.png'
 import hhWave from 'public/hedgehog/sprites/wave.png'
+import hhFallXmas from 'public/hedgehog/sprites/fall-xmas.png'
+import hhJumpXmas from 'public/hedgehog/sprites/jump-xmas.png'
+import hhSignXmas from 'public/hedgehog/sprites/sign-xmas.png'
+import hhSpinXmas from 'public/hedgehog/sprites/spin-xmas.png'
+import hhWalkXmas from 'public/hedgehog/sprites/walk-xmas.png'
+import hhWaveXmas from 'public/hedgehog/sprites/wave-xmas.png'
 import clsx from 'clsx'
 import { capitalizeFirstLetter, range, sampleOne } from 'lib/utils'
 import { Popup } from '../Popup/Popup'
@@ -13,6 +19,8 @@ import { LemonButton } from '../LemonButton'
 import { useActions, useValues } from 'kea'
 import { hedgehogbuddyLogic } from './hedgehogbuddyLogic'
 import { LemonDivider } from '../LemonDivider'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 const size = 64
 const imageWidth = 512
@@ -20,7 +28,7 @@ const xFrames = imageWidth / size
 const boundaryPadding = 20
 const fps = 20
 
-const animations: {
+const standardAnimations: {
     [key: string]: {
         frames: number
         img: string
@@ -79,8 +87,68 @@ const animations: {
     },
 }
 
-const randomChoiceList: string[] = Object.keys(animations).reduce((acc: string[], key: string) => {
-    return [...acc, ...range(animations[key].randomChance || 0).map(() => key)]
+// Copy-paste but its only for xmas sooo...
+const xmasAnimations: {
+    [key: string]: {
+        frames: number
+        img: string
+        maxIteration?: number
+        forceDirection?: 'left' | 'right'
+        moveX?: number
+        moveY?: number
+        randomChance?: number
+    }
+} = {
+    stop: {
+        img: hhWaveXmas,
+        frames: 1,
+        maxIteration: 50,
+        randomChance: 1,
+    },
+    fall: {
+        img: hhFallXmas,
+        frames: 9,
+        moveY: -10,
+        forceDirection: 'left',
+        randomChance: 0,
+    },
+    jump: {
+        img: hhJumpXmas,
+        frames: 10,
+        maxIteration: 10,
+        randomChance: 2,
+    },
+    sign: {
+        img: hhSignXmas,
+        frames: 33,
+        maxIteration: 1,
+        forceDirection: 'right',
+        randomChance: 1,
+    },
+    spin: {
+        img: hhSpinXmas,
+        frames: 9,
+        maxIteration: 3,
+        randomChance: 2,
+    },
+    walk: {
+        img: hhWalkXmas,
+        frames: 11,
+        moveX: 1,
+        moveY: 0,
+        maxIteration: 20,
+        randomChance: 10,
+    },
+    wave: {
+        img: hhWaveXmas,
+        frames: 27,
+        maxIteration: 1,
+        randomChance: 2,
+    },
+}
+
+const randomChoiceList: string[] = Object.keys(standardAnimations).reduce((acc: string[], key: string) => {
+    return [...acc, ...range(standardAnimations[key].randomChance || 0).map(() => key)]
 }, [])
 
 export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element {
@@ -95,6 +163,9 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
     const [popupVisible, setPopupVisible] = useState(false)
 
     const [animationName, setAnimationName] = useState('fall')
+
+    const { featureFlags } = useValues(featureFlagLogic)
+    const animations = featureFlags[FEATURE_FLAGS.YULE_HOG] ? xmasAnimations : standardAnimations
     const animation = animations[animationName]
 
     useEffect(() => {
@@ -151,6 +222,16 @@ export function HedgehogBuddy({ onClose }: { onClose: () => void }): JSX.Element
             clearTimeout(timer)
         }
     }, [animation, isDragging])
+
+    useEffect(() => {
+        if (isDragging) {
+            document.body.classList.add('select-none')
+        } else {
+            document.body.classList.remove('select-none')
+        }
+
+        return () => document.body.classList.remove('select-none')
+    }, [isDragging])
 
     const onClick = (): void => {
         !isDragging && setPopupVisible(!popupVisible)

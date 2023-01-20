@@ -1,4 +1,3 @@
-import React from 'react'
 import { systemStatusLogic } from './systemStatusLogic'
 import { useValues } from 'kea'
 import { SystemStatusRow, SystemStatusSubrows } from '~/types'

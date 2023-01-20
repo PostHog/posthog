@@ -1,5 +1,5 @@
 import { Meta } from '@storybook/react'
-import React from 'react'
+import { useState } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { EventSelect } from './EventSelect'
 
@@ -32,8 +32,8 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId': { id: 2 },
-                '/api/projects/:projectId/event_definitions': {
+                '/api/projects/:team_id': { id: 2 },
+                '/api/projects/:team_id/event_definitions': {
                     count: eventDefinitions.length,
                     next: null,
                     previous: null,
@@ -42,10 +42,13 @@ export default {
             },
         }),
     ],
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
 } as Meta
 
 export function EventSelect_(): JSX.Element {
-    const [selectedEvents, setSelectedEvents] = React.useState<string[]>([])
+    const [selectedEvents, setSelectedEvents] = useState<string[]>([])
 
     return (
         <EventSelect

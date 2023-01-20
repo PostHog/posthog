@@ -20,7 +20,6 @@ import { triggerExport } from 'lib/components/ExportButton/exporter'
 import equal from 'fast-deep-equal'
 
 const DAYS_FIRST_FETCH = 5
-const DAYS_SECOND_FETCH = 365
 
 const POLL_TIMEOUT = 5000
 
@@ -100,7 +99,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                     return { properties }
                 }
             } else {
-                return { properties: [properties] }
+                return { properties: [properties as AnyPropertyFilter] }
             }
         },
         fetchEvents: (
@@ -244,6 +243,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                     })}`,
         ],
         months: [() => [(_, prop) => prop.fetchMonths], (months) => months || 12],
+        daysSecondFetch: [() => [selectors.months], (months) => now().diff(now().subtract(months, 'months'), 'day')],
         minimumExportDate: [() => [selectors.months], () => now().subtract(1, 'months').toISOString()],
         pollAfter: [
             () => [selectors.events],
@@ -352,7 +352,7 @@ export const eventsTableLogic = kea<eventsTableLogicType>({
                 apiResponse = await getAPIResponse(daysAgo(DAYS_FIRST_FETCH))
 
                 if (apiResponse.results.length === 0) {
-                    apiResponse = await getAPIResponse(daysAgo(DAYS_SECOND_FETCH))
+                    apiResponse = await getAPIResponse(daysAgo(values.daysSecondFetch))
                     usedSecondFetch = true
                 }
             } catch (error) {

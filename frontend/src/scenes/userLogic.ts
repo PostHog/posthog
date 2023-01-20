@@ -8,6 +8,7 @@ import { preflightLogic } from './PreflightCheck/preflightLogic'
 import { lemonToast } from 'lib/components/lemonToast'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'
+import { urlToAction } from 'kea-router'
 
 export interface UserDetailsFormType {
     first_name: string
@@ -123,6 +124,7 @@ export const userLogic = kea<userLogicType>([
                             ingested_event: user.team.ingested_event,
                             is_demo: user.team.is_demo,
                             timezone: user.team.timezone,
+                            instance_tag: user.organization?.metadata?.instance_tag,
                         })
                     }
 
@@ -135,6 +137,10 @@ export const userLogic = kea<userLogicType>([
                             available_features: user.organization.available_features,
                             ...user.organization.metadata,
                         })
+
+                        if (user.organization.customer_id) {
+                            posthog.group('customer', user.organization.customer_id)
+                        }
                     }
                 }
             }
@@ -169,13 +175,6 @@ export const userLogic = kea<userLogicType>([
                 return (feature: AvailableFeature) => !!user?.organization?.available_features.includes(feature)
             },
         ],
-        upgradeLink: [
-            (s) => [s.preflight],
-            (preflight): string =>
-                preflight?.cloud
-                    ? '/organization/billing'
-                    : 'https://license.posthog.com?utm_medium=in-product&utm_campaign=in-product-upgrade',
-        ],
         otherOrganizations: [
             (s) => [s.user],
             (user): OrganizationBasicType[] =>
@@ -198,4 +197,15 @@ export const userLogic = kea<userLogicType>([
             actions.loadUser()
         }
     }),
+
+    urlToAction(({ values }) => ({
+        '/year_in_posthog/2022': () => {
+            if (window.POSTHOG_APP_CONTEXT?.year_in_hog_url) {
+                window.location.href = `${window.location.origin}${window.POSTHOG_APP_CONTEXT.year_in_hog_url}`
+            }
+            if (values.user?.uuid) {
+                window.location.href = `${window.location.origin}/year_in_posthog/2022/${values.user?.uuid}`
+            }
+        },
+    })),
 ])

@@ -1,27 +1,13 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
 
 from django.utils import timezone
 
 from posthog.constants import INSIGHT_FUNNELS, FunnelVizType
 from posthog.models.filters import Filter
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.funnels.funnel_trends_persons import ClickhouseFunnelTrendsActors
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, snapshot_clickhouse_queries
 from posthog.test.test_journeys import journeys_for
-
-
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
-    create_session_recording_event(
-        uuid=uuid4(),
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        session_id=session_id,
-        window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
-    )
-
 
 filter_data = {
     "insight": INSIGHT_FUNNELS,
@@ -51,7 +37,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             },
             self.team,
         )
-        _create_session_recording_event(self.team.pk, "user_one", "s1b", timezone.now() + timedelta(days=1))
+        create_session_recording_events(self.team.pk, timezone.now() + timedelta(days=1), "user_one", "s1b")
 
         filter = Filter(data={"funnel_to_step": 1, **filter_data})
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
@@ -70,7 +56,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             },
             self.team,
         )
-        _create_session_recording_event(self.team.pk, "user_one", "s1c", timezone.now() + timedelta(days=1))
+        create_session_recording_events(self.team.pk, timezone.now() + timedelta(days=1), "user_one", "s1c")
 
         filter = Filter(data=filter_data)
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()
@@ -87,7 +73,7 @@ class TestFunnelTrendsPersons(ClickhouseTestMixin, APIBaseTest):
             },
             self.team,
         )
-        _create_session_recording_event(self.team.pk, "user_one", "s1a", timezone.now() + timedelta(days=1))
+        create_session_recording_events(self.team.pk, timezone.now() + timedelta(days=1), "user_one", "s1a")
 
         filter = Filter(data={**filter_data, "drop_off": True})
         _, results, _ = ClickhouseFunnelTrendsActors(filter, self.team).get_actors()

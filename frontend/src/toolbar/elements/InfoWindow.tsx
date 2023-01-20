@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { CloseOutlined } from '@ant-design/icons'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'

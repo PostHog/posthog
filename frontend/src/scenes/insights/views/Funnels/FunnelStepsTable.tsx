@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'

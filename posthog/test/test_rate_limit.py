@@ -1,7 +1,7 @@
 import base64
 import json
 from datetime import timedelta
-from unittest.mock import patch
+from unittest.mock import ANY, call, patch
 from urllib.parse import quote
 
 from django.core.cache import cache
@@ -83,7 +83,7 @@ class TestUserAPI(APIBaseTest):
         for _ in range(10):
             response = self.client.get(f"/api/projects/{self.team.pk}/feature_flags")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(incr_mock.call_count, 0)
+        assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 
         for _ in range(5):
             response = self.client.get(f"/api/projects/{self.team.pk}/events")
@@ -213,7 +213,7 @@ class TestUserAPI(APIBaseTest):
         for _ in range(6):
             response = self.client.get("/e/?data=%s" % quote(json.dumps(data)), HTTP_ORIGIN="https://localhost")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(incr_mock.call_count, 0)
+        assert call("rate_limit_exceeded", tags=ANY) not in incr_mock.mock_calls
 
     @patch("posthog.rate_limit.PassThroughBurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.incr")

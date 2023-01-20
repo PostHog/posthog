@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonModal } from 'lib/components/LemonModal'
 import { DOMAIN_REGEX } from 'lib/constants'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 
 export function AddDomainModal(): JSX.Element {

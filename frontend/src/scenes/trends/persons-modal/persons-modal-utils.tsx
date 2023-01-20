@@ -1,8 +1,8 @@
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { dayjs } from 'lib/dayjs'
 import { capitalizeFirstLetter, convertPropertiesToPropertyGroup, pluralize, toParams } from 'lib/utils'
-import React from 'react'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { isFunnelsFilter, isPathsFilter, isStickinessFilter } from 'scenes/insights/sharedUtils'
 import {
     ActionFilter,
     ChartDisplayType,
@@ -10,7 +10,7 @@ import {
     FilterType,
     FunnelVizType,
     GraphDataset,
-    InsightType,
+    LifecycleToggle,
     StepOrderValue,
 } from '~/types'
 import { filterTrendsClientSideParams } from 'scenes/insights/sharedUtils'
@@ -93,7 +93,9 @@ export const urlsForDatasets = (
                 label: (
                     <InsightLabel
                         seriesColor={
-                            dataset.status ? getBarColorFromStatus(dataset.status) : getSeriesColor(dataset.id)
+                            dataset.status
+                                ? getBarColorFromStatus(dataset.status as LifecycleToggle)
+                                : getSeriesColor(dataset.id)
                         }
                         action={dataset.action}
                         breakdownValue={
@@ -138,7 +140,7 @@ export function parsePeopleParams(peopleParams: PeopleParamType, filters: Partia
     })
 
     // casting here is not the best
-    if (filters.insight === InsightType.STICKINESS) {
+    if (isStickinessFilter(filters)) {
         params.stickiness_days = date_from as number
     } else if (params.display === ChartDisplayType.ActionsLineGraphCumulative) {
         params.date_to = date_from as string
@@ -170,13 +172,13 @@ export const buildPeopleUrl = ({
     breakdown_value,
     funnelStep,
 }: PeopleUrlBuilderParams): string | undefined => {
-    if (filters.funnel_correlation_person_entity) {
+    if (isFunnelsFilter(filters) && filters.funnel_correlation_person_entity) {
         const cleanedParams = cleanFilters(filters)
         return `api/person/funnel/correlation/?${cleanedParams}`
-    } else if (filters.insight === InsightType.STICKINESS) {
+    } else if (isStickinessFilter(filters)) {
         const filterParams = parsePeopleParams({ action, date_from, date_to, breakdown_value }, filters)
         return `api/person/stickiness/?${filterParams}`
-    } else if (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends) {
+    } else if (isFunnelsFilter(filters) && (funnelStep || filters.funnel_viz_type === FunnelVizType.Trends)) {
         let params
         if (filters.funnel_viz_type === FunnelVizType.Trends) {
             // funnel trends
@@ -193,7 +195,7 @@ export const buildPeopleUrl = ({
         const cleanedParams = cleanFilters(params)
         const funnelParams = toParams(cleanedParams)
         return `api/person/funnel/?${funnelParams}`
-    } else if (filters.insight === InsightType.PATHS) {
+    } else if (isPathsFilter(filters)) {
         const cleanedParams = cleanFilters(filters)
         const pathParams = toParams(cleanedParams)
 

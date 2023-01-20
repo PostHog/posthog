@@ -64,7 +64,7 @@ describe('fetchEventsForInterval()', () => {
         ])
 
         await hub.kafkaProducer.flush()
-        await delayUntilEventIngested(() => hub.db.fetchEvents(), 8)
+        await delayUntilEventIngested(() => hub.db.fetchEvents(), 7)
 
         const events = await fetchEventsForInterval(
             hub.db,

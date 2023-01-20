@@ -5,6 +5,10 @@ from posthog.models import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
+from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models.property.util import parse_prop_grouped_clauses
+from posthog.models.team.team import groups_on_events_querying_enabled
+from posthog.models.utils import PersonPropertiesMode
 
 
 class GroupsJoinQuery:
@@ -33,7 +37,7 @@ class GroupsJoinQuery:
     def get_join_query(self) -> Tuple[str, Dict]:
         join_queries, params = [], {}
 
-        if self._using_person_on_events:
+        if self._using_person_on_events and groups_on_events_querying_enabled():
             return "", {}
 
         for group_type_index in self._column_optimizer.group_types_to_query:
@@ -57,3 +61,34 @@ class GroupsJoinQuery:
             params[var] = group_type_index
 
         return "\n".join(join_queries), params
+
+    def get_filter_query(self, group_type_index: GroupTypeIndex) -> Tuple[str, Dict]:
+        var = f"group_index_{group_type_index}"
+        params = {
+            "team_id": self._team_id,
+            var: group_type_index,
+        }
+
+        aggregated_group_filters, filter_params = parse_prop_grouped_clauses(
+            self._team_id,
+            self._filter.property_groups,
+            prepend=f"group_properties_{group_type_index}",
+            has_person_id_joined=False,
+            group_properties_joined=True,
+            person_properties_mode=PersonPropertiesMode.DIRECT,
+            _top_level=True,
+        )
+
+        params.update(filter_params)
+
+        query = f"""
+            SELECT
+                group_key,
+                argMax(group_properties, _timestamp) AS group_properties_{group_type_index}
+            FROM groups
+            WHERE team_id = %(team_id)s AND group_type_index = %({var})s
+            GROUP BY group_key
+            HAVING 1=1
+            {aggregated_group_filters}
+        """
+        return query, params

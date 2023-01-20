@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta
-from uuid import uuid4
 
 import pytest
 from django.utils import timezone
@@ -7,8 +6,8 @@ from freezegun import freeze_time
 
 from posthog.constants import INSIGHT_FUNNELS
 from posthog.models.filters import Filter
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -19,18 +18,6 @@ from posthog.test.base import (
 from posthog.test.test_journeys import journeys_for
 
 FORMAT_TIME = "%Y-%m-%d 00:00:00"
-
-
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
-    create_session_recording_event(
-        uuid=uuid4(),
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        session_id=session_id,
-        window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
-    )
 
 
 class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
@@ -173,7 +160,7 @@ class TestFunnelUnorderedStepsPersons(ClickhouseTestMixin, APIBaseTest):
             event_uuid="11111111-1111-1111-1111-111111111111",
         )
 
-        _create_session_recording_event(self.team.pk, "user_1", "s1", timezone.now() + timedelta(days=1))
+        create_session_recording_events(self.team.pk, timezone.now() + timedelta(days=1), "user_1", "s1")
 
         filter = Filter(
             data={

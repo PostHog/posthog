@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { CommandResultDisplayable } from './commandPaletteLogic'
 import { useEventListener } from 'lib/hooks/useEventListener'
 import { useActions, useMountedLogic, useValues } from 'kea'

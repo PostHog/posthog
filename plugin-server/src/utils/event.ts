@@ -1,7 +1,8 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import { KafkaMessage } from 'kafkajs'
 
-import { ClickHouseEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
+import { ClickHouseEvent, PipelineEvent, PostIngestionEvent, RawClickHouseEvent } from '../types'
+import { convertDatabaseElementsToRawElements } from '../worker/vm/upgrades/utils/fetchEventsForInterval'
 import { chainToElements } from './db/elements-chain'
 import { personInitialAndUTMProperties } from './db/utils'
 import { clickHouseTimestampToDateTime, clickHouseTimestampToISO } from './utils'
@@ -17,7 +18,7 @@ export function convertToProcessedPluginEvent(event: PostIngestionEvent): Proces
         $set: event.properties.$set,
         $set_once: event.properties.$set_once,
         uuid: event.eventUuid,
-        elements: event.elementsList,
+        elements: convertDatabaseElementsToRawElements(event.elementsList ?? []),
     }
 }
 
@@ -38,6 +39,21 @@ export function parseRawClickHouseEvent(rawEvent: RawClickHouseEvent): ClickHous
         group2_properties: rawEvent.group2_properties ? JSON.parse(rawEvent.group2_properties) : {},
         group3_properties: rawEvent.group3_properties ? JSON.parse(rawEvent.group3_properties) : {},
         group4_properties: rawEvent.group4_properties ? JSON.parse(rawEvent.group4_properties) : {},
+        group0_created_at: rawEvent.group0_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group0_created_at)
+            : null,
+        group1_created_at: rawEvent.group1_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group1_created_at)
+            : null,
+        group2_created_at: rawEvent.group2_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group2_created_at)
+            : null,
+        group3_created_at: rawEvent.group3_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group3_created_at)
+            : null,
+        group4_created_at: rawEvent.group4_created_at
+            ? clickHouseTimestampToDateTime(rawEvent.group4_created_at)
+            : null,
     }
 }
 
@@ -65,18 +81,18 @@ export function normalizeEvent(event: PluginEvent): PluginEvent {
     if (event['$set_once']) {
         properties['$set_once'] = { ...properties['$set_once'], ...event['$set_once'] }
     }
-    if (event.event !== '$snapshot') {
+    if (!['$snapshot', '$performance_event'].includes(event.event)) {
         properties = personInitialAndUTMProperties(properties)
     }
     event.properties = properties
     return event
 }
 
-export function formPluginEvent(message: KafkaMessage): PluginEvent {
+export function formPipelineEvent(message: KafkaMessage): PipelineEvent {
     // TODO: inefficient to do this twice?
     const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
     const combinedEvent = { ...JSON.parse(dataStr), ...rawEvent }
-    const event: PluginEvent = normalizeEvent({
+    const event: PipelineEvent = normalizeEvent({
         ...combinedEvent,
         site_url: combinedEvent.site_url || null,
         ip: combinedEvent.ip || null,

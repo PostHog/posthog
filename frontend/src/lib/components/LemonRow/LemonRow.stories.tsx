@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { IconInfo, IconPremium } from '../icons'
 import { LemonRow, LemonRowProps } from './LemonRow'
@@ -6,6 +5,7 @@ import { LemonRow, LemonRowProps } from './LemonRow'
 export default {
     title: 'Lemon UI/Lemon Row',
     component: LemonRow,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         icon: {
             defaultValue: <IconPremium />,

@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSnack, LemonSnackProps } from './LemonSnack'
 import { ProfilePicture } from '../ProfilePicture'
@@ -6,6 +5,7 @@ import { ProfilePicture } from '../ProfilePicture'
 export default {
     title: 'Lemon UI/Lemon Snack',
     component: LemonSnack,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         children: {
             defaultValue: 'Tasty snacks',
@@ -20,6 +20,15 @@ const BasicTemplate: ComponentStory<typeof LemonSnack> = (props: LemonSnackProps
 export const Default = BasicTemplate.bind({})
 Default.args = {
     onClose: null as any,
+}
+
+export const Colors = (): JSX.Element => {
+    return (
+        <div className="flex flex-row space-x-2">
+            <LemonSnack>Default, primary-highlight</LemonSnack>
+            <LemonSnack color="primary-extralight">primary-extralight</LemonSnack>
+        </div>
+    )
 }
 
 export const ComplexContent = BasicTemplate.bind({})

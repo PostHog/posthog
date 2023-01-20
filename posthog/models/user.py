@@ -17,6 +17,7 @@ from django.utils.translation import gettext_lazy as _
 from rest_framework.exceptions import ValidationError
 
 from posthog.constants import AvailableFeature
+from posthog.settings import INSTANCE_TAG, SITE_URL
 from posthog.utils import get_instance_realm
 
 from .organization import Organization, OrganizationMembership
@@ -268,6 +269,8 @@ class User(AbstractUser, UUIDClassicModel):
             "has_password_set": self.has_usable_password(),
             "has_social_auth": self.social_auth.exists(),  # type: ignore
             "social_providers": list(self.social_auth.values_list("provider", flat=True)),  # type: ignore
+            "instance_url": SITE_URL,
+            "instance_tag": INSTANCE_TAG,
         }
 
     __repr__ = sane_repr("email", "first_name", "distinct_id")

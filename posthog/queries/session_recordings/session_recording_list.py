@@ -70,9 +70,12 @@ class SessionRecordingList(EventQuery):
         SELECT
             session_id,
             any(window_id) as window_id,
-            MIN(timestamp) AS start_time,
-            MAX(timestamp) AS end_time,
-            dateDiff('second', toDateTime(MIN(timestamp)), toDateTime(MAX(timestamp))) as duration,
+            minIf(first_event_timestamp, first_event_timestamp != '1970-01-01 00:00:00') as start_time,
+            MAX(last_event_timestamp) as end_time,
+            SUM(click_count) as click_count,
+            SUM(keypress_count) as keypress_count,
+            groupArrayArray(urls) as urls,
+            dateDiff('second', start_time, end_time) as duration,
             any(distinct_id) as distinct_id,
             SUM(has_full_snapshot) as full_snapshots
         FROM session_recording_events
@@ -83,6 +86,7 @@ class SessionRecordingList(EventQuery):
         HAVING full_snapshots > 0
         {recording_start_time_clause}
         {duration_clause}
+        {session_ids_clause}
     """
 
     _session_recordings_query_with_events: str = """
@@ -90,6 +94,9 @@ class SessionRecordingList(EventQuery):
         session_recordings.session_id,
         any(session_recordings.start_time) as start_time,
         any(session_recordings.end_time) as end_time,
+        any(session_recordings.click_count) as click_count,
+        any(session_recordings.keypress_count) as keypress_count,
+        any(session_recordings.urls) as urls,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
         {event_filter_aggregate_select_clause}
@@ -100,11 +107,7 @@ class SessionRecordingList(EventQuery):
         {core_recordings_query}
     ) AS session_recordings
     ON session_recordings.distinct_id = events.distinct_id
-    JOIN (
-        {person_distinct_id_query}
-    ) as pdi
-    ON pdi.distinct_id = session_recordings.distinct_id
-    {person_query}
+    {recording_person_query}
     WHERE
         {event_and_recording_match_comditions_clause}
         {prop_filter_clause}
@@ -121,16 +124,15 @@ class SessionRecordingList(EventQuery):
         session_recordings.session_id,
         any(session_recordings.start_time) as start_time,
         any(session_recordings.end_time) as end_time,
+        any(session_recordings.click_count) as click_count,
+        any(session_recordings.keypress_count) as keypress_count,
+        any(session_recordings.urls) as urls,
         any(session_recordings.duration) as duration,
         any(session_recordings.distinct_id) as distinct_id
     FROM (
         {core_recordings_query}
     ) AS session_recordings
-    JOIN (
-        {person_distinct_id_query}
-    ) as pdi
-    ON pdi.distinct_id = session_recordings.distinct_id
-    {person_query}
+    {recording_person_query}
     WHERE 1 = 1
         {prop_filter_clause}
         {person_id_clause}
@@ -200,6 +202,12 @@ class SessionRecordingList(EventQuery):
             start_time_params["end_time"] = self._filter.date_to
         return start_time_clause, start_time_params
 
+    def session_ids_clause(self) -> Tuple[str, Dict[str, Any]]:
+        if self._filter.session_ids is None:
+            return "", {}
+
+        return "AND session_id in %(session_ids)s", {"session_ids": self._filter.session_ids}
+
     def _get_duration_clause(self) -> Tuple[str, Dict[str, Any]]:
         duration_clause = ""
         duration_params = {}
@@ -211,6 +219,22 @@ class SessionRecordingList(EventQuery):
             duration_clause = "\nAND duration {operator} %(recording_duration)s".format(operator=operator)
             duration_params = {"recording_duration": self._filter.recording_duration_filter.value}
         return duration_clause, duration_params
+
+    def _get_recording_person_query(self) -> Tuple[str, Dict]:
+        person_query, person_query_params = self._get_person_query()
+        person_distinct_id_query = get_team_distinct_ids_query(self._team_id)
+        if person_query:
+            return (
+                f"""
+                    JOIN (
+                    {person_distinct_id_query}
+                    ) as pdi
+                    ON pdi.distinct_id = session_recordings.distinct_id
+                    {person_query}
+                """,
+                person_query_params,
+            )
+        return person_query, person_query_params
 
     def format_event_filter(self, entity: Entity, prepend: str, team_id: int) -> Tuple[str, Dict[str, Any]]:
         filter_sql, params = format_entity_filter(
@@ -246,9 +270,7 @@ class SessionRecordingList(EventQuery):
         for index, entity in enumerate(self._filter.entities):
             if entity.type == TREND_FILTER_TYPE_ACTIONS:
                 action = entity.get_action()
-                for action_step in action.steps.all():
-                    if action_step.event not in event_names_to_filter:
-                        event_names_to_filter.append(action_step.event)
+                event_names_to_filter.extend([ae for ae in action.get_step_events() if ae not in event_names_to_filter])
             else:
                 if entity.id not in event_names_to_filter:
                     event_names_to_filter.append(entity.id)
@@ -270,7 +292,7 @@ class SessionRecordingList(EventQuery):
     def get_query(self) -> Tuple[str, Dict[str, Any]]:
         offset = self._filter.offset or 0
         base_params = {"team_id": self._team_id, "limit": self.limit + 1, "offset": offset}
-        person_query, person_query_params = self._get_person_query()
+        recording_person_query, recording_person_query_params = self._get_recording_person_query()
 
         prop_query, prop_params = self._get_prop_groups(
             self._filter.property_groups, person_id_joined_alias=f"{self.DISTINCT_ID_TABLE_ALIAS}.person_id"
@@ -278,6 +300,7 @@ class SessionRecordingList(EventQuery):
 
         events_timestamp_clause, events_timestamp_params = self._get_events_timestamp_clause()
         recording_start_time_clause, recording_start_time_params = self._get_recording_start_time_clause()
+        session_ids_clause, session_ids_params = self.session_ids_clause()
         person_id_clause, person_id_params = self._get_person_id_clause()
         duration_clause, duration_params = self._get_duration_clause()
         properties_select_clause = self._get_properties_select_clause()
@@ -286,25 +309,26 @@ class SessionRecordingList(EventQuery):
             recording_start_time_clause=recording_start_time_clause,
             duration_clause=duration_clause,
             events_timestamp_clause=events_timestamp_clause,
+            session_ids_clause=session_ids_clause,
         )
 
         if not self._determine_should_join_events():
             return (
                 self._session_recordings_query.format(
                     core_recordings_query=core_recordings_query,
-                    person_distinct_id_query=get_team_distinct_ids_query(self._team_id),
-                    person_query=person_query,
+                    recording_person_query=recording_person_query,
                     prop_filter_clause=prop_query,
                     person_id_clause=person_id_clause,
                 ),
                 {
                     **base_params,
                     **person_id_params,
-                    **person_query_params,
+                    **recording_person_query_params,
                     **prop_params,
                     **events_timestamp_params,
                     **duration_params,
                     **recording_start_time_params,
+                    **session_ids_params,
                 },
             )
 
@@ -321,8 +345,7 @@ class SessionRecordingList(EventQuery):
                 event_filter_aggregate_select_clause=event_filters.aggregate_select_clause,
                 core_events_query=core_events_query,
                 core_recordings_query=core_recordings_query,
-                person_distinct_id_query=get_team_distinct_ids_query(self._team_id),
-                person_query=person_query,
+                recording_person_query=recording_person_query,
                 event_and_recording_match_comditions_clause=self._event_and_recording_match_conditions_clause,
                 prop_filter_clause=prop_query,
                 person_id_clause=person_id_clause,
@@ -331,12 +354,13 @@ class SessionRecordingList(EventQuery):
             {
                 **base_params,
                 **person_id_params,
-                **person_query_params,
+                **recording_person_query_params,
                 **prop_params,
                 **events_timestamp_params,
                 **duration_params,
                 **recording_start_time_params,
                 **event_filters.params,
+                **session_ids_params,
             },
         )
 
@@ -348,7 +372,17 @@ class SessionRecordingList(EventQuery):
         return SessionRecordingQueryResult(session_recordings, more_recordings_available)
 
     def _data_to_return(self, results: List[Any]) -> List[Dict[str, Any]]:
-        default_columns = ["session_id", "start_time", "end_time", "duration", "distinct_id"]
+        default_columns = [
+            "session_id",
+            "start_time",
+            "end_time",
+            "click_count",
+            "keypress_count",
+            "urls",
+            "duration",
+            "distinct_id",
+        ]
+
         return [
             {
                 **dict(zip(default_columns, row[: len(default_columns)])),

@@ -8,8 +8,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -84,15 +84,15 @@
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
      HAVING steps = max_steps)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+  GROUP BY prop
   '
 ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -105,8 +105,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'buy'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(e.properties, '$version'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -184,8 +184,8 @@
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) ) ARRAY
                  JOIN prop_vals as prop
                  WHERE prop != [] ))
@@ -194,7 +194,7 @@
               steps,
               prop
      HAVING steps = max_steps)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+  GROUP BY prop
   '
 ---
 # name: TestFunnelStrictStepsBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -207,8 +207,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -282,14 +282,14 @@
                           GROUP BY distinct_id
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
      HAVING steps = max_steps)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+  GROUP BY prop
   '
 ---

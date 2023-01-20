@@ -17,7 +17,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import MethodNotAllowed, NotFound
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -39,10 +39,11 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort.util import get_all_cohort_ids_by_person_uuid
 from posthog.models.filters.path_filter import PathFilter
+from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.person.sql import GET_PERSON_PROPERTIES_COUNT
-from posthog.models.person.util import delete_ch_distinct_ids, delete_person
+from posthog.models.person.util import delete_person
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 from posthog.queries.actor_base_query import ActorBaseQuery, get_people
 from posthog.queries.funnels import ClickhouseFunnelActors, ClickhouseFunnelTrendsActors
@@ -50,6 +51,7 @@ from posthog.queries.funnels.funnel_strict_persons import ClickhouseFunnelStrict
 from posthog.queries.funnels.funnel_unordered_persons import ClickhouseFunnelUnorderedActors
 from posthog.queries.paths import PathsActors
 from posthog.queries.person_query import PersonQuery
+from posthog.queries.properties_timeline import PropertiesTimeline
 from posthog.queries.property_values import get_person_property_values_for_key
 from posthog.queries.retention import Retention
 from posthog.queries.stickiness import Stickiness
@@ -146,6 +148,10 @@ def get_funnel_actor_class(filter: Filter) -> Callable:
 
 
 class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewSet):
+    """
+    To create or update persons, use a PostHog library of your choice and [use an identify call](/docs/integrate/identifying-users). This API endpoint is only for reading and deleting.
+    """
+
     renderer_classes = tuple(api_settings.DEFAULT_RENDERER_CLASSES) + (csvrenderers.PaginatedCSVRenderer,)
     queryset = Person.objects.all()
     serializer_class = PersonSerializer
@@ -170,7 +176,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 description="Filter persons by email (exact match)",
                 examples=[OpenApiExample(name="email", value="test@test.com")],
             ),
-            OpenApiParameter("distinct_id", OpenApiTypes.INT, description="Filter list by distinct id."),
+            OpenApiParameter("distinct_id", OpenApiTypes.STR, description="Filter list by distinct id."),
             OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
@@ -206,23 +212,22 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "delete_events",
+                OpenApiTypes.BOOL,
+                description="If true, a task to delete all events associated with this person will be created and queued. The task does not run immediately and instead is batched together and at 5AM UTC every Sunday (controlled by environment variable CLEAR_CLICKHOUSE_REMOVED_DATA_SCHEDULE_CRON)",
+                default=False,
+            ),
+        ],
+    )
     def destroy(self, request: request.Request, pk=None, **kwargs):  # type: ignore
         try:
             person = self.get_object()
             person_id = person.id
-
             delete_person(person=person)
-            delete_ch_distinct_ids(person=person)
-            if "delete_events" in request.GET:
-                AsyncDeletion.objects.create(
-                    deletion_type=DeletionType.Person,
-                    team_id=self.team_id,
-                    key=str(person.uuid),
-                    created_by=cast(User, self.request.user),
-                )
-
-            person.delete()
-
+            self.perform_destroy(person)
             log_activity(
                 organization_id=self.organization.id,
                 team_id=self.team_id,
@@ -230,9 +235,21 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
                 item_id=person_id,
                 scope="Person",
                 activity="deleted",
-                detail=Detail(name=str(person_id)),
+                detail=Detail(name=str(person.uuid)),
             )
-
+            # Once the person is deleted, queue deletion of associated data, if that was requested
+            if "delete_events" in request.GET:
+                AsyncDeletion.objects.bulk_create(
+                    [
+                        AsyncDeletion(
+                            deletion_type=DeletionType.Person,
+                            team_id=self.team_id,
+                            key=str(person.uuid),
+                            created_by=cast(User, self.request.user),
+                        )
+                    ],
+                    ignore_conflicts=True,
+                )
             return response.Response(status=204)
         except Person.DoesNotExist:
             raise NotFound(detail="Person not found.")
@@ -294,11 +311,32 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             item_id=person.id,
             scope="Person",
             activity="split_person",
-            detail=Detail(changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})]),
+            detail=Detail(
+                name=str(person.uuid),
+                changes=[Change(type="Person", action="split", after={"distinct_ids": distinct_ids})],
+            ),
         )
 
         return response.Response({"success": True}, status=201)
 
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("key", OpenApiTypes.STR, description="Specify the property key", required=True),
+            OpenApiParameter("value", OpenApiTypes.ANY, description="Specify the property value", required=True),
+        ]
+    )
+    @action(methods=["POST"], detail=True)
+    def update_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
+        self._set_properties({request.data["key"]: request.data["value"]}, request.user)
+        return Response(status=204)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "$unset", OpenApiTypes.STR, description="Specify the property key to delete", required=True
+            ),
+        ]
+    )
     @action(methods=["POST"], detail=True)
     def delete_property(self, request: request.Request, pk=None, **kwargs) -> response.Response:
         person: Person = get_pk_or_uuid(Person.objects.filter(team_id=self.team_id), pk).get()
@@ -325,7 +363,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             item_id=person.id,
             scope="Person",
             activity="delete_property",
-            detail=Detail(changes=[Change(type="Person", action="changed")]),
+            detail=Detail(name=str(person.uuid), changes=[Change(type="Person", action="changed")]),
         )
 
         return response.Response({"success": True}, status=201)
@@ -369,6 +407,22 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         return activity_page_response(activity_page, limit, page, request)
 
     def update(self, request, *args, **kwargs):
+        """
+        Only for setting properties on the person. "properties" from the request data will be updated via a "$set" event.
+        This means that only the properties listed will be updated, but other properties won't be removed nor updated.
+        If you would like to remove a property use the `delete_property` endpoint.
+        """
+        self._set_properties(request.data["properties"], request.user)
+        return Response(status=204)
+
+    @extend_schema(exclude=True)
+    def create(self, *args, **kwargs):
+        raise MethodNotAllowed(
+            method="POST",
+            detail="Creating persons via this API is not allowed. Please create persons by sending an $identify event. See https://posthog.com/docs/integrate/identifying-user for details.",
+        )
+
+    def _set_properties(self, properties, user):
         instance = self.get_object()
         capture_internal(
             distinct_id=instance.distinct_ids[0],
@@ -379,7 +433,7 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
             sent_at=None,
             event={
                 "event": "$set",
-                "properties": {"$set": request.data["properties"]},
+                "properties": {"$set": properties},
                 "distinct_id": instance.distinct_ids[0],
                 "timestamp": datetime.now().isoformat(),
             },
@@ -388,14 +442,12 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
         log_activity(
             organization_id=self.organization.id,
             team_id=self.team.id,
-            user=request.user,
+            user=user,
             item_id=instance.pk,
             scope="Person",
             activity="updated",
             detail=Detail(changes=[Change(type="Person", action="changed", field="properties")]),
         )
-
-        return Response(status=204)
 
     # PRAGMA: Methods for getting Persons via clickhouse queries
     def _respond_with_cached_results(self, results_package: Dict[str, Tuple[List, Optional[str], Optional[str], int]]):
@@ -486,6 +538,18 @@ class PersonViewSet(PKorUUIDViewSet, StructuredViewSetMixin, viewsets.ModelViewS
 
         # cached_function expects a dict with the key result
         return {"result": (serialized_actors, next_url, initial_url, raw_count - len(serialized_actors))}
+
+    @action(methods=["GET"], detail=True)
+    def properties_timeline(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
+        if request.user.is_anonymous or not self.team:
+            return response.Response(data=[])
+
+        person = self.get_object()
+        filter = PropertiesTimelineFilter(request=request, team=self.team)
+
+        properties_timeline = PropertiesTimeline().run(filter, self.team, person)
+
+        return response.Response(data=properties_timeline)
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:

@@ -15,7 +15,7 @@ class TestUser(BaseTest):
             organization_name="Test Org", email="test_org@posthog.com", password="12345678", anonymize_data=True
         )
 
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             self.assertEqual(
                 user.get_analytics_metadata(),
                 {
@@ -36,6 +36,8 @@ class TestUser(BaseTest):
                     "joined_at": user.date_joined,
                     "has_social_auth": False,
                     "social_providers": [],
+                    "instance_url": "http://localhost:8000",
+                    "instance_tag": "none",
                 },
             )
 
@@ -47,7 +49,7 @@ class TestUser(BaseTest):
         user_2: User = User.objects.create(email="test_org_2@posthog.com", email_opt_in=True)
         user_2.join(organization=self.organization)
 
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             self.assertEqual(
                 user_2.get_analytics_metadata(),
                 {
@@ -68,5 +70,7 @@ class TestUser(BaseTest):
                     "joined_at": user_2.date_joined,
                     "has_social_auth": False,
                     "social_providers": [],
+                    "instance_url": "http://localhost:8000",
+                    "instance_tag": "none",
                 },
             )

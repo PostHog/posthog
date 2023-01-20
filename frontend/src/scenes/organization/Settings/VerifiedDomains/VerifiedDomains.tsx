@@ -3,7 +3,6 @@ import { IconCheckmark, IconDelete, IconExclamation, IconWarning, IconLock, Icon
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { Tooltip } from 'lib/components/Tooltip'
-import React from 'react'
 import { OrganizationDomainType } from '~/types'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { InfoCircleOutlined } from '@ant-design/icons'

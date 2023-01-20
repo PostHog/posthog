@@ -1,5 +1,4 @@
 import './LemonLabel.scss'
-import React from 'react'
 import { Tooltip } from '../Tooltip'
 import { IconInfo } from '../icons'
 import clsx from 'clsx'
@@ -33,7 +32,7 @@ export function LemonLabel({
 
             {info ? (
                 <Tooltip title={info}>
-                    <IconInfo className="text-xl text-muted-alt" />
+                    <IconInfo className="text-xl text-muted-alt shrink-0" />
                 </Tooltip>
             ) : null}
         </label>

@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { dashboardLogic, DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
@@ -8,7 +8,6 @@ import './Dashboard.scss'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { TZIndicator } from 'lib/components/TimezoneAware'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 import { NotFound } from 'lib/components/NotFound'
 import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
@@ -17,6 +16,8 @@ import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { DashboardHeader } from './DashboardHeader'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { LemonDivider } from '@posthog/lemon-ui'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { groupsModel } from '../../models/groupsModel'
 
 interface Props {
     id?: string
@@ -52,10 +53,17 @@ function DashboardScene(): JSX.Element {
         dashboardMode,
         receivedErrorsFromAPI,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, setDates, reportDashboardViewed, setProperties } = useActions(dashboardLogic)
+    const { setDashboardMode, setDates, reportDashboardViewed, setProperties, abortAnyRunningQuery } =
+        useActions(dashboardLogic)
+
+    const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     useEffect(() => {
         reportDashboardViewed()
+        return () => {
+            // request cancellation of any running queries when this component is no longer in the dom
+            abortAnyRunningQuery()
+        }
     }, [])
 
     useKeyboardHotkeys(
@@ -98,18 +106,13 @@ function DashboardScene(): JSX.Element {
             {receivedErrorsFromAPI ? (
                 <InsightErrorState title="There was an error loading this dashboard" />
             ) : !tiles || tiles.length === 0 ? (
-                <EmptyDashboardComponent loading={itemsLoading} />
+                <EmptyDashboardComponent loading={itemsLoading} canEdit={canEditDashboard} />
             ) : (
                 <div>
-                    {![
-                        DashboardPlacement.Public,
-                        DashboardPlacement.Export,
-                        DashboardPlacement.InternalMetrics,
-                    ].includes(placement) && (
-                        <>
+                    <div className="flex space-x-4 justify-between">
+                        {![DashboardPlacement.Public, DashboardPlacement.Export].includes(placement) && (
                             <div className="flex space-x-4">
-                                <div className="flex items-center" style={{ height: '2rem' }}>
-                                    <TZIndicator style={{ marginRight: '0.5rem' }} />
+                                <div className="flex items-center h-8">
                                     <DateFilter
                                         showCustom
                                         dateFrom={dashboardFilters?.date_from ?? undefined}
@@ -128,25 +131,33 @@ function DashboardScene(): JSX.Element {
                                     onChange={setProperties}
                                     pageKey={'dashboard_' + dashboard?.id}
                                     propertyFilters={dashboard?.filters.properties}
+                                    taxonomicGroupTypes={[
+                                        TaxonomicFilterGroupType.EventProperties,
+                                        TaxonomicFilterGroupType.PersonProperties,
+                                        TaxonomicFilterGroupType.EventFeatureFlags,
+                                        ...groupsTaxonomicTypes,
+                                        TaxonomicFilterGroupType.Cohorts,
+                                        TaxonomicFilterGroupType.Elements,
+                                    ]}
                                 />
                             </div>
-                            <LemonDivider className="my-4" />
-                        </>
-                    )}
-                    {placement !== DashboardPlacement.Export && (
-                        <div className="flex pb-4 space-x-4 dashoard-items-actions">
-                            <div
-                                className="left-item"
-                                style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
-                            >
-                                {[DashboardPlacement.Public, DashboardPlacement.InternalMetrics].includes(placement) ? (
-                                    <LastRefreshText />
-                                ) : (
-                                    <DashboardReloadAction />
-                                )}
+                        )}
+                        {placement !== DashboardPlacement.Export && (
+                            <div className="flex space-x-4 dashoard-items-actions">
+                                <div
+                                    className="left-item"
+                                    style={placement === DashboardPlacement.Public ? { textAlign: 'right' } : undefined}
+                                >
+                                    {[DashboardPlacement.Public].includes(placement) ? (
+                                        <LastRefreshText />
+                                    ) : (
+                                        <DashboardReloadAction />
+                                    )}
+                                </div>
                             </div>
-                        </div>
-                    )}
+                        )}
+                    </div>
+                    {placement !== DashboardPlacement.Export && <LemonDivider className="my-4" />}
                     <DashboardItems />
                 </div>
             )}

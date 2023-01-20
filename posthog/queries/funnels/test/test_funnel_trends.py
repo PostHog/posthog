@@ -1147,7 +1147,7 @@ class TestFunnelTrends(ClickhouseTestMixin, APIBaseTest):
                 ],
                 "user_three": [
                     {"event": "step one", "timestamp": datetime(2021, 5, 1, 1)},  # 04-30 in pacific
-                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 10)},  #  today in pacific
+                    {"event": "step two", "timestamp": datetime(2021, 5, 1, 10)},  # today in pacific
                     {"event": "step three", "timestamp": datetime(2021, 5, 1, 11)},  # today in pacific
                 ],
                 "user_eight": [],

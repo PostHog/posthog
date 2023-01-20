@@ -1,6 +1,6 @@
 import { Meta } from '@storybook/react'
 
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import eventList from './__mocks__/eventList.json'
 import { router } from 'kea-router'
@@ -11,7 +11,7 @@ export default {
     title: 'Scenes-App/Events',
     decorators: [
         mswDecorator({
-            get: { '/api/projects/:projectId/events': { next: null, results: eventList } },
+            get: { '/api/projects/:team_id/events': { next: null, results: eventList } },
         }),
     ],
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },

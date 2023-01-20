@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { PropertyDefinition, PropertyFilterValue, PropertyOperator, PropertyType } from '~/types'
 import {
     allOperatorsMapping,
@@ -22,6 +22,7 @@ export interface OperatorValueSelectProps {
     endpoint?: string
     onChange: (operator: PropertyOperator, value: PropertyFilterValue) => void
     operatorSelectProps?: Omit<LemonSelectProps<any>, 'onChange'>
+    eventNames?: string[]
     propertyDefinitions: PropertyDefinition[]
     defaultOpen?: boolean
 }
@@ -62,6 +63,7 @@ export function OperatorValueSelect({
     onChange,
     operatorSelectProps,
     propertyDefinitions = [],
+    eventNames = [],
     defaultOpen,
 }: OperatorValueSelectProps): JSX.Element {
     const propertyDefinition = propertyDefinitions.find((pd) => pd.name === propkey)
@@ -133,6 +135,7 @@ export function OperatorValueSelect({
                         operator={currentOperator || PropertyOperator.Exact}
                         placeholder={placeholder}
                         value={value}
+                        eventNames={eventNames}
                         onSet={(newValue: string | number | string[] | null) => {
                             const tentativeValidationError =
                                 currentOperator && newValue

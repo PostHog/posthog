@@ -14,7 +14,7 @@
                0 AS successes,
                0 AS successes_on_retry,
                0 AS failures
-        FROM numbers(dateDiff('hour', dateTrunc('hour', toDateTime('2021-08-25 00:00:00'), 'UTC'), dateTrunc('hour', toDateTime('2021-08-25 05:00:00') + toIntervalHour(1), 'UTC')))
+        FROM numbers(dateDiff('hour', dateTrunc('hour', toDateTime('2021-08-25 00:00:00'), 'UTC'), dateTrunc('hour', toDateTime('2021-08-25 06:00:00') + toIntervalHour(1), 'UTC')))
         UNION ALL SELECT dateTrunc('hour', timestamp, 'UTC') AS date,
                          sum(successes) AS successes,
                          sum(successes_on_retry) AS successes_on_retry,
@@ -25,13 +25,31 @@
           AND category = 'exportEvents'
           AND job_id = '1234'
           AND timestamp >= '2021-08-25 00:00:00'
-          AND timestamp < '2021-08-25 05:00:00'
+          AND timestamp < '2021-08-25 06:00:00'
         GROUP BY dateTrunc('hour', timestamp, 'UTC'))
      GROUP BY date
      ORDER BY date)
   '
 ---
 # name: TestHistoricalExports.test_historical_export_metrics.1
+  '
+  
+  SELECT error_type,
+         count() AS count,
+         max(timestamp) AS last_seen
+  FROM app_metrics
+  WHERE team_id = 2
+    AND plugin_config_id = 3
+    AND category = 'exportEvents'
+    AND job_id = '1234'
+    AND timestamp >= '2021-08-25 00:00:00'
+    AND timestamp < '2021-08-25 06:00:00'
+    AND error_type <> ''
+  GROUP BY error_type
+  ORDER BY count DESC
+  '
+---
+# name: TestHistoricalExports.test_historical_export_metrics.2
   '
   SELECT "posthog_activitylog"."id",
          "posthog_activitylog"."team_id",
@@ -54,6 +72,32 @@
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
+  '
+---
+# name: TestHistoricalExports.test_historical_export_metrics.3
+  '
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
   '
 ---
 # name: TestHistoricalExports.test_historical_exports_activity_for_failed_export
@@ -79,6 +123,32 @@
          AND "posthog_activitylog"."team_id" = 2)
   '
 ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_failed_export.1
+  '
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
+  '
+---
 # name: TestHistoricalExports.test_historical_exports_activity_for_finished_export
   '
   SELECT "posthog_activitylog"."id",
@@ -102,6 +172,32 @@
          AND "posthog_activitylog"."team_id" = 2)
   '
 ---
+# name: TestHistoricalExports.test_historical_exports_activity_for_finished_export.1
+  '
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
+  '
+---
 # name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export
   '
   SELECT "posthog_activitylog"."id",
@@ -123,5 +219,44 @@
          AND "posthog_activitylog"."item_id" = '3'
          AND "posthog_activitylog"."scope" = 'PluginConfig'
          AND "posthog_activitylog"."team_id" = 2)
+  '
+---
+# name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export.1
+  '
+  SELECT "posthog_user"."id",
+         "posthog_user"."password",
+         "posthog_user"."last_login",
+         "posthog_user"."first_name",
+         "posthog_user"."last_name",
+         "posthog_user"."is_staff",
+         "posthog_user"."is_active",
+         "posthog_user"."date_joined",
+         "posthog_user"."uuid",
+         "posthog_user"."current_organization_id",
+         "posthog_user"."current_team_id",
+         "posthog_user"."email",
+         "posthog_user"."temporary_token",
+         "posthog_user"."distinct_id",
+         "posthog_user"."email_opt_in",
+         "posthog_user"."partial_notification_settings",
+         "posthog_user"."anonymize_data",
+         "posthog_user"."toolbar_mode",
+         "posthog_user"."events_column_config"
+  FROM "posthog_user"
+  WHERE "posthog_user"."id" = 2
+  LIMIT 21
+  '
+---
+# name: TestHistoricalExports.test_historical_exports_activity_for_not_finished_export.2
+  '
+  SELECT "posthog_pluginstorage"."id",
+         "posthog_pluginstorage"."plugin_config_id",
+         "posthog_pluginstorage"."key",
+         "posthog_pluginstorage"."value"
+  FROM "posthog_pluginstorage"
+  WHERE ("posthog_pluginstorage"."key" = 'EXPORT_COORDINATION'
+         AND "posthog_pluginstorage"."plugin_config_id" = 2)
+  ORDER BY "posthog_pluginstorage"."id" ASC
+  LIMIT 1
   '
 ---

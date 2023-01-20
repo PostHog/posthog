@@ -1,6 +1,5 @@
 import './index.scss'
 
-import React from 'react'
 import { Alert, Tabs } from 'antd'
 import { systemStatusLogic, InstanceStatusTabName } from './systemStatusLogic'
 import { useActions, useValues } from 'kea'

@@ -1,0 +1,403 @@
+# name: TestBlastRadius.test_user_blast_radius
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(person.properties, 'group'), '^"|"$', ''))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))))
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_groups
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
+     WHERE team_id = 2
+       AND group_type_index = 0
+     GROUP BY group_key
+     HAVING 1=1
+     AND (has(['0', '1', '2', '3'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', ''))))
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_groups.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT group_key)
+  FROM groups
+  WHERE team_id = 2
+    AND group_type_index = 0
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT group_key,
+            argMax(group_properties, _timestamp) AS group_properties_0
+     FROM groups
+     WHERE team_id = 2
+       AND group_type_index = 0
+     GROUP BY group_key
+     HAVING 1=1
+     AND ((has(['0', '1', '2', '3', '4'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))
+          AND (has(['2', '3', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '')))))
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_groups_multiple_queries.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(DISTINCT group_key)
+  FROM groups
+  WHERE team_id = 2
+    AND group_type_index = 0
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.1
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.2
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.3
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.4
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id in
+         (SELECT person_id
+          FROM cohortpeople
+          WHERE team_id = 2
+            AND cohort_id = 2
+          GROUP BY person_id,
+                   cohort_id,
+                   team_id,
+                   version
+          HAVING sum(sign) > 0)
+       AND id in
+         (SELECT person_id
+          FROM cohortpeople
+          WHERE team_id = 2
+            AND cohort_id = 2
+          GROUP BY person_id,
+                   cohort_id,
+                   team_id,
+                   version
+          HAVING sum(sign) > 0)
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_precalculated_cohorts.5
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          INNER JOIN
+            (SELECT person_id
+             FROM person_static_cohort
+             WHERE team_id = 2
+               AND cohort_id = 2
+             GROUP BY person_id,
+                      cohort_id,
+                      team_id) cohort_persons ON cohort_persons.person_id = person.id
+          WHERE team_id = 2
+            AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(person.properties, 'group'), '^"|"$', '')))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND ((has(['1', '2', '4', '5', '6'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))))
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.5
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.6
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id in
+         (SELECT person_id as id
+          FROM person_static_cohort
+          WHERE cohort_id = 2
+            AND team_id = 2)
+       AND id in
+         (SELECT person_id
+          FROM cohortpeople
+          WHERE team_id = 2
+            AND cohort_id = 2
+          GROUP BY person_id,
+                   cohort_id,
+                   team_id,
+                   version
+          HAVING sum(sign) > 0)
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+       AND id IN
+         (SELECT id
+          FROM person
+          WHERE team_id = 2
+            AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(person.properties, 'group'), '^"|"$', ''))
+                  OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(person.properties, 'group'), '^"|"$', '')))) )
+     GROUP BY id
+     HAVING max(is_deleted) = 0
+     AND ((has(['none'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', ''))
+           OR has(['1', '2', '3'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'group'), '^"|"$', '')))))
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.1
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.2
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.3
+  '
+  
+  SELECT count(*)
+  FROM
+    (SELECT 1
+     FROM cohortpeople
+     WHERE team_id = 2
+       AND cohort_id = 2
+     GROUP BY person_id,
+              cohort_id,
+              team_id,
+              version
+     HAVING sum(sign) > 0)
+  '
+---
+# name: TestBlastRadius.test_user_blast_radius_with_single_cohort.4
+  '
+  /* user_id:0 request:_snapshot_ */
+  SELECT count(1)
+  FROM
+    (SELECT id
+     FROM person
+     INNER JOIN
+       (SELECT person_id
+        FROM cohortpeople
+        WHERE team_id = 2
+          AND cohort_id = 2
+        GROUP BY person_id,
+                 cohort_id,
+                 team_id,
+                 version
+        HAVING sum(sign) > 0
+        ORDER BY person_id) cohort_persons ON cohort_persons.person_id = person.id
+     WHERE team_id = 2
+     GROUP BY id
+     HAVING max(is_deleted) = 0)
+  '
+---

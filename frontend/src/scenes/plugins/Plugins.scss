@@ -47,9 +47,6 @@
             cursor: move;
         }
         .arrow {
-            &.hide {
-                visibility: hidden;
-            }
             color: #888;
             height: 19px;
         }

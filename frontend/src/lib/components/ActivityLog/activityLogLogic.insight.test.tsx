@@ -1,7 +1,6 @@
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import React from 'react'
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
@@ -77,7 +76,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             const renderedDescription = render(<>{actual[0].description}</>).container
-            expect(renderedDescription).toHaveTextContent('peter changed details on test insight')
+            expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
         })
 
         it('can handle change of filters on a retention graph', async () => {
@@ -107,7 +106,7 @@ describe('the activity log logic', () => {
             const actual = logic.values.humanizedActivity
 
             const renderedDescription = render(<>{actual[0].description}</>).container
-            expect(renderedDescription).toHaveTextContent('peter changed details on test insight')
+            expect(renderedDescription).toHaveTextContent('peter changed query definition on test insight')
         })
 
         it('can handle soft delete', async () => {

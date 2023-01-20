@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'

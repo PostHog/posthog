@@ -7,7 +7,6 @@ import { makePiscina } from '../../src/worker/piscina'
 import { pluginConfig39 } from '../helpers/plugins'
 import { getErrorForPluginConfig, resetTestDatabase } from '../helpers/sql'
 
-jest.mock('@graphile/logger')
 jest.mock('../../src/utils/status')
 jest.setTimeout(60000) // 60 sec timeout
 

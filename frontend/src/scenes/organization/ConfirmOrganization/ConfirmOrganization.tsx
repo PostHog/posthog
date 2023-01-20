@@ -1,4 +1,3 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { LemonButton } from 'lib/components/LemonButton'
@@ -11,6 +10,7 @@ import { AnimatedCollapsible } from 'lib/components/AnimatedCollapsible'
 import { urls } from 'scenes/urls'
 import { Form } from 'kea-forms'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
+import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 
 export const scene: SceneExport = {
     component: ConfirmOrganization,
@@ -22,7 +22,7 @@ export function ConfirmOrganization(): JSX.Element {
     const { setShowNewOrgWarning } = useActions(confirmOrganizationLogic)
 
     return (
-        <BridgePage view="org-creation-confirmation">
+        <BridgePage view="org-creation-confirmation" hedgehog>
             <h2>Create a new organization</h2>
             <div className="flex-1">
                 <p className="text-center">
@@ -75,6 +75,8 @@ export function ConfirmOrganization(): JSX.Element {
                 >
                     <LemonInput className="ph-ignore-input" placeholder="Hogflix Movies" />
                 </Field>
+
+                <SignupRoleSelect />
 
                 <LemonButton
                     htmlType="submit"

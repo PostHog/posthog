@@ -1,52 +1,17 @@
-import datetime
 from unittest.mock import patch
 
 import fakeredis
 from clickhouse_driver.errors import ServerException
 from django.test import TestCase
-from freezegun import freeze_time
 
-from posthog import client
-from posthog.client import CACHE_TTL, _deserialize, _key_hash, cache_sync_execute, sync_execute
+from posthog.clickhouse.client import execute_async as client
+from posthog.client import sync_execute
 from posthog.test.base import ClickhouseTestMixin
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
     def setUp(self):
         self.redis_client = fakeredis.FakeStrictRedis()
-
-    def test_caching_client(self):
-        ts_start = datetime.datetime.now()
-        query = "select 1"
-        args = None
-        res = cache_sync_execute(query, args=args, redis_client=self.redis_client)
-        cache = self.redis_client.get(_key_hash(query, args=args))
-        cache_res = _deserialize(cache)
-        self.assertEqual(res, cache_res)
-        ts_end = datetime.datetime.now()
-        dur = (ts_end - ts_start).microseconds
-
-        # second hits cache, should be faster
-        ts_start = datetime.datetime.now()
-        res_cached = cache_sync_execute(query, args=args, redis_client=self.redis_client)
-        self.assertEqual(res, res_cached)
-        ts_end = datetime.datetime.now()
-        dur_cached = (ts_end - ts_start).microseconds
-
-        self.assertLess(dur_cached, dur)
-
-    def test_cache_eviction(self):
-        query = "select 1"
-        args = None
-        start = datetime.datetime.fromisoformat("2020-01-01 12:00:00")
-        with freeze_time(start.isoformat()):
-            cache_sync_execute("select 1", args=args, redis_client=self.redis_client, ttl=CACHE_TTL)
-        with freeze_time(start.isoformat()):
-            exists = self.redis_client.exists(_key_hash(query, args=args))
-            self.assertTrue(exists)
-        with freeze_time(start + datetime.timedelta(seconds=CACHE_TTL + 10)):
-            exists = self.redis_client.exists(_key_hash(query, args=args))
-            self.assertFalse(exists)
 
     def test_async_query_client(self):
         query = "SELECT 1+1"
@@ -83,7 +48,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertTrue(result.error)
         self.assertEqual(result.error_message, "Requesting team is not executing team")
 
-    @patch("posthog.client.execute_with_progress")
+    @patch("posthog.clickhouse.client.execute_async.enqueue_clickhouse_execute_with_progress")
     def test_async_query_client_is_lazy(self, execute_sync_mock):
         query = "SELECT 4 + 4"
         team_id = 2
@@ -98,7 +63,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we only called clickhouse once
         execute_sync_mock.assert_called_once()
 
-    @patch("posthog.client.execute_with_progress")
+    @patch("posthog.clickhouse.client.execute_async.enqueue_clickhouse_execute_with_progress")
     def test_async_query_client_is_lazy_but_not_too_lazy(self, execute_sync_mock):
         query = "SELECT 8 + 8"
         team_id = 2
@@ -113,7 +78,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         # Assert that we called clickhouse twice
         self.assertEqual(execute_sync_mock.call_count, 2)
 
-    @patch("posthog.client.execute_with_progress")
+    @patch("posthog.clickhouse.client.execute_async.enqueue_clickhouse_execute_with_progress")
     def test_async_query_client_manual_query_uuid(self, execute_sync_mock):
         # This is a unique test because technically in the test pattern `SELECT 8 + 8` is already
         # in redis. This tests to make sure it is treated as a unique run of that query
@@ -142,10 +107,12 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         Note I'm not really testing much complexity, I trust that those will
         come out as failures in other tests.
         """
+        from posthog.clickhouse.query_tagging import tag_queries
+
         # First add in the request information that should be added to the sql.
         # We check this to make sure it is not removed by the comment stripping
         with self.capture_select_queries() as sqls:
-            client._request_information = {"kind": "request", "id": "1"}
+            tag_queries(kind="request", id="1")
             sync_execute(
                 query="""
                     -- this request returns 1

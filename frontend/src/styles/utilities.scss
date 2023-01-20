@@ -5,87 +5,116 @@
     PLEASE READ BEFORE MODIFYING THIS FILE
 
     We don't use Tailwind in PostHog but we do use a lot of helpful Utility classes to make straightforward CSS easy.
-    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible. 
+    To keep this maintainable we are attempting to emulate as much of Tailwind's API as possible.
     As such, if something is missing here, please go to Tailwind's docs and copy their implementation rather than creating your own
     custom naming conventions 🙌
 */
 
 // TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
-@each $space in $spaces {
-    .space-y-#{$space} {
+@each $space in $tiny_spaces {
+    .space-y-#{escape-number($space)} {
         & > * + * {
-            margin-top: #{$space/4}rem;
+            margin-top: #{$space * 0.25}rem;
         }
     }
 
-    .space-x-#{$space} {
+    .space-x-#{escape-number($space)} {
         & > * + * {
-            margin-left: #{$space/4}rem;
+            margin-left: #{$space * 0.25}rem;
         }
     }
 
-    .gap-#{$space} {
-        gap: #{$space/4}rem;
+    .gap-#{escape-number($space)} {
+        gap: #{$space * 0.25}rem;
     }
 
-    .w-#{$space} {
-        width: #{$space/4}rem;
+    .gap-x-#{escape-number($space)} {
+        column-gap: #{$space * 0.25}rem;
     }
 
-    .h-#{$space} {
-        height: #{$space/4}rem;
+    .gap-y-#{escape-number($space)} {
+        row-gap: #{$space * 0.25}rem;
     }
 
-    .max-w-#{$space} {
-        max-width: #{$space/4}rem;
-    }
-    .max-h-#{$space} {
-        max-height: #{$space/4}rem;
+    .m-#{escape-number($space)} {
+        margin: #{$space * 0.25}rem;
     }
 
-    .min-w-#{$space} {
-        min-width: #{$space/4}rem;
-    }
-    .min-h-#{$space} {
-        min-height: #{$space/4}rem;
+    .-m-#{escape-number($space)} {
+        margin: #{-$space * 0.25}rem;
     }
 
-    .m-#{$space} {
-        margin: #{$space/4}rem;
+    .mx-#{escape-number($space)} {
+        margin-left: #{$space * 0.25}rem;
+        margin-right: #{$space * 0.25}rem;
     }
 
-    .mx-#{$space} {
-        margin-left: #{$space/4}rem;
-        margin-right: #{$space/4}rem;
+    .-mx-#{escape-number($space)} {
+        margin-left: #{-$space * 0.25}rem;
+        margin-right: #{-$space * 0.25}rem;
     }
 
-    .my-#{$space} {
-        margin-top: #{$space/4}rem;
-        margin-bottom: #{$space/4}rem;
+    .my-#{escape-number($space)} {
+        margin-top: #{$space * 0.25}rem;
+        margin-bottom: #{$space * 0.25}rem;
     }
 
-    .px-#{$space} {
-        padding-left: #{$space/4}rem;
-        padding-right: #{$space/4}rem;
+    .-my-#{escape-number($space)} {
+        margin-top: #{-$space * 0.25}rem;
+        margin-bottom: #{-$space * 0.25}rem;
     }
 
-    .py-#{$space} {
-        padding-top: #{$space/4}rem;
-        padding-bottom: #{$space/4}rem;
+    .px-#{escape-number($space)} {
+        padding-left: #{$space * 0.25}rem;
+        padding-right: #{$space * 0.25}rem;
     }
 
-    .p-#{$space} {
-        padding: #{$space/4}rem;
+    .py-#{escape-number($space)} {
+        padding-top: #{$space * 0.25}rem;
+        padding-bottom: #{$space * 0.25}rem;
+    }
+
+    .p-#{escape-number($space)} {
+        padding: #{$space * 0.25}rem;
     }
 
     @each $side in $sides {
-        .m#{str-slice($side, 0, 1)}-#{$space} {
-            margin-#{$side}: #{$space/4}rem;
+        .m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
+            margin-#{$side}: #{$space * 0.25}rem;
         }
 
-        .p#{str-slice($side, 0, 1)}-#{$space} {
-            padding-#{$side}: #{$space/4}rem;
+        .-m#{str-slice($side, 0, 1)}-#{escape-number($space)} {
+            margin-#{$side}: #{-$space * 0.25}rem;
         }
+
+        .p#{str-slice($side, 0, 1)}-#{escape-number($space)} {
+            padding-#{$side}: #{$space * 0.25}rem;
+        }
+    }
+}
+
+// TODO: Wrap all of this in a catch for the screen breakpoints like md:foo
+@each $space in $all_spaces {
+    .w-#{escape-number($space)} {
+        width: #{$space * 0.25}rem;
+    }
+
+    .h-#{escape-number($space)} {
+        height: #{$space * 0.25}rem;
+    }
+
+    .max-w-#{escape-number($space)} {
+        max-width: #{$space * 0.25}rem;
+    }
+    .max-h-#{escape-number($space)} {
+        max-height: #{$space * 0.25}rem;
+    }
+
+    .min-w-#{escape-number($space)} {
+        min-width: #{$space * 0.25}rem;
+    }
+    .min-h-#{escape-number($space)} {
+        min-height: #{$space * 0.25}rem;
     }
 }
 
@@ -117,15 +146,35 @@
         #{$kind}-top: auto;
         #{$kind}-bottom: auto;
     }
+    .#{$char}-px {
+        #{$kind}: 1px;
+    }
+
+    .#{$char}x-px {
+        #{$kind}-left: 1px;
+        #{$kind}-right: 1px;
+    }
+
+    .#{$char}y-px {
+        #{$kind}-top: 1px;
+        #{$kind}-bottom: 1px;
+    }
 
     @each $side in $sides {
-        .m#{str-slice($side, 0, 1)}-auto {
+        .#{$char}#{str-slice($side, 0, 1)}-auto {
             #{$kind}-#{$side}: auto;
+        }
+
+        .#{$char}#{str-slice($side, 0, 1)}-px {
+            #{$kind}-#{$side}: 1px;
         }
     }
 }
 
 // Border
+.border {
+    border-width: 1px;
+}
 .border-0 {
     border-width: 0px;
 }
@@ -137,9 +186,6 @@
 }
 .border-8 {
     border-width: 8px;
-}
-.border {
-    border-width: 1px;
 }
 .border-t-0 {
     border-top-width: 0px;
@@ -270,35 +316,46 @@
         max-#{$kind}: unquote('100v' + $char);
     }
 
-    .#{$char}-1\/2 {
-        #{$kind}: 50%;
-    }
-    .#{$char}-1\/3 {
-        #{$kind}: 33.333333%;
-    }
-    .#{$char}-2\/3 {
-        #{$kind}: 66.666667%;
-    }
-    .#{$char}-1\/4 {
-        #{$kind}: 25%;
-    }
-    .#{$char}-2\/4 {
-        #{$kind}: 50%;
-    }
-    .#{$char}-3\/4 {
-        #{$kind}: 75%;
-    }
-    .#{$char}-1\/5 {
-        #{$kind}: 20%;
-    }
-    .#{$char}-2\/5 {
-        #{$kind}: 40%;
-    }
-    .#{$char}-3\/5 {
-        #{$kind}: 60%;
-    }
-    .#{$char}-4\/5 {
-        #{$kind}: 80%;
+    @each $variant in ('', 'max-', 'min-') {
+        .#{$variant}#{$char}-1\/2 {
+            #{$variant}#{$kind}: 50%;
+        }
+
+        .#{$variant}#{$char}-1\/3 {
+            #{$variant}#{$kind}: 33.333333%;
+        }
+
+        .#{$variant}#{$char}-2\/3 {
+            #{$variant}#{$kind}: 66.666667%;
+        }
+
+        .#{$variant}#{$char}-1\/4 {
+            #{$variant}#{$kind}: 25%;
+        }
+
+        .#{$variant}#{$char}-2\/4 {
+            #{$variant}#{$kind}: 50%;
+        }
+
+        .#{$variant}#{$char}-3\/4 {
+            #{$variant}#{$kind}: 75%;
+        }
+
+        .#{$variant}#{$char}-1\/5 {
+            #{$variant}#{$kind}: 20%;
+        }
+
+        .#{$variant}#{$char}-2\/5 {
+            #{$variant}#{$kind}: 40%;
+        }
+
+        .#{$variant}#{$char}-3\/5 {
+            #{$variant}#{$kind}: 60%;
+        }
+
+        .#{$variant}#{$char}-4\/5 {
+            #{$variant}#{$kind}: 80%;
+        }
     }
 }
 
@@ -597,9 +654,9 @@
     @extend %mixin-text-ellipsis;
 }
 
-@each $space in $spaces {
-    .leading-#{$space} {
-        line-height: #{$space/4}rem;
+@each $space in $tiny_spaces {
+    .leading-#{escape-number($space)} {
+        line-height: #{$space * 0.25}rem;
     }
 }
 
@@ -616,32 +673,36 @@
 }
 
 .rounded-sm {
-    border-radius: 0.125rem; /* 2px */
+    border-radius: calc(var(--radius) / 2); /* 2px */
 }
 .rounded {
-    border-radius: 0.25rem; /* 4px */
+    border-radius: var(--radius); /* 4px */
 }
 .rounded-t {
-    border-top-left-radius: 0.25rem; /* 4px */
-    border-top-right-radius: 0.25rem; /* 4px */
+    border-top-left-radius: var(--radius); /* 4px */
+    border-top-right-radius: var(--radius); /* 4px */
+}
+.rounded-b {
+    border-bottom-left-radius: var(--radius); /* 4px */
+    border-bottom-right-radius: var(--radius); /* 4px */
 }
 .rounded-md {
-    border-radius: 0.375rem; /* 6px */
+    border-radius: calc(var(--radius) * 1.5); /* 6px */
 }
 .rounded-lg {
-    border-radius: 0.5rem; /* 8px */
+    border-radius: calc(var(--radius) * 2); /* 8px */
 }
 .rounded-xl {
-    border-radius: 0.75rem; /* 12px */
+    border-radius: calc(var(--radius) * 3); /* 12px */
 }
 .rounded-2xl {
-    border-radius: 1rem; /* 16px */
+    border-radius: calc(var(--radius) * 4); /* 16px */
 }
 .rounded-3xl {
-    border-radius: 1.5rem; /* 24px */
+    border-radius: calc(var(--radius) * 6); /* 24px */
 }
 .rounded-full {
-    border-radius: 9999px;
+    border-radius: 1000rem;
 }
 
 .overflow-auto {
@@ -679,52 +740,53 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', 'Roboto', Helvetica, Arial, sans-serif,
         'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
 }
+
 .font-mono {
-    font-family: monospace;
+    font-family: ui-monospace, 'SFMono-Regular', 'SF Mono', 'Menlo', 'Consolas', 'Liberation Mono', monospace;
 }
 
 .opacity-0 {
     opacity: 0;
 }
-// .opacity-5 {
-//     opacity: 0.05;
-// }
-// .opacity-10 {
-//     opacity: 0.1;
-// }
-// .opacity-20 {
-//     opacity: 0.2;
-// }
+.opacity-5 {
+    opacity: 0.05;
+}
+.opacity-10 {
+    opacity: 0.1;
+}
+.opacity-20 {
+    opacity: 0.2;
+}
 .opacity-25 {
     opacity: 0.25;
 }
-// .opacity-30 {
-//     opacity: 0.3;
-// }
-// .opacity-40 {
-//     opacity: 0.4;
-// }
+.opacity-30 {
+    opacity: 0.3;
+}
+.opacity-40 {
+    opacity: 0.4;
+}
 .opacity-50 {
     opacity: 0.5;
 }
-// .opacity-60 {
-//     opacity: 0.6;
-// }
-// .opacity-70 {
-//     opacity: 0.7;
-// }
+.opacity-60 {
+    opacity: 0.6;
+}
+.opacity-70 {
+    opacity: 0.7;
+}
 .opacity-75 {
     opacity: 0.75;
 }
-// .opacity-80 {
-//     opacity: 0.8;
-// }
-// .opacity-90 {
-//     opacity: 0.9;
-// }
-// .opacity-95 {
-//     opacity: 0.95;
-// }
+.opacity-80 {
+    opacity: 0.8;
+}
+.opacity-90 {
+    opacity: 0.9;
+}
+.opacity-95 {
+    opacity: 0.95;
+}
 .opacity-100 {
     opacity: 1;
 }
@@ -766,4 +828,87 @@
 
 .object-contain {
     object-fit: contain;
+}
+
+.tracking-tighter {
+    letter-spacing: -0.05em;
+}
+.tracking-tight {
+    letter-spacing: -0.025em;
+}
+.tracking-normal {
+    letter-spacing: 0em;
+}
+.tracking-wide {
+    letter-spacing: 0.025em;
+}
+.tracking-wider {
+    letter-spacing: 0.05em;
+}
+.tracking-widest {
+    letter-spacing: 0.1em;
+}
+
+.select-none {
+    user-select: none;
+}
+.select-text {
+    user-select: text;
+}
+.select-all {
+    user-select: all;
+}
+.select-auto {
+    user-select: auto;
+}
+
+.rotate-90 {
+    transform: rotate(90deg);
+}
+.rotate-180 {
+    transform: rotate(180deg);
+}
+
+.rotate-270 {
+    transform: rotate(270deg);
+}
+
+.z-0 {
+    z-index: 0;
+}
+
+.z-10 {
+    z-index: 10;
+}
+
+.z-20 {
+    z-index: 20;
+}
+
+.z-30 {
+    z-index: 30;
+}
+
+.z-40 {
+    z-index: 40;
+}
+
+.z-50 {
+    z-index: 50;
+}
+
+.z-auto {
+    z-index: auto;
+}
+
+.invisible {
+    visibility: hidden;
+}
+
+.hidden {
+    display: none;
+}
+
+.resize-y {
+    resize: vertical;
 }

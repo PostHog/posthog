@@ -1,4 +1,3 @@
-import React from 'react'
 import clsx from 'clsx'
 
 // Imitates how Antd renders the expand icon

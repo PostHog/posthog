@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState } from 'react'
+import { useRef, useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { copyToClipboard, stripHTTP } from 'lib/utils'
 import * as d3 from 'd3'

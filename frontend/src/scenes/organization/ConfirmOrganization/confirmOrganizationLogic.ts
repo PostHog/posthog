@@ -10,6 +10,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 export interface ConfirmOrganizationFormValues {
     organization_name?: string
     first_name?: string
+    role_at_organization?: string
 }
 
 export const confirmOrganizationLogic = kea<confirmOrganizationLogicType>([

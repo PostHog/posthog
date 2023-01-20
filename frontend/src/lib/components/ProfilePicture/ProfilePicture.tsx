@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import md5 from 'md5'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { userLogic } from 'scenes/userLogic'
 import { Lettermark, LettermarkColor } from '../Lettermark/Lettermark'
 import './ProfilePicture.scss'
@@ -9,7 +9,7 @@ import './ProfilePicture.scss'
 export interface ProfilePictureProps {
     name?: string
     email?: string
-    size?: 'md' | 'sm' | 'xl' | 'xxl'
+    size?: 'md' | 'xs' | 'sm' | 'xl' | 'xxl'
     showName?: boolean
     style?: React.CSSProperties
     className?: string

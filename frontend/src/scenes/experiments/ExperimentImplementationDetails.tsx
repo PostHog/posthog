@@ -8,7 +8,7 @@ import {
     IconPython,
     IconRuby,
 } from 'lib/components/icons'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 import { CaretDownOutlined } from '@ant-design/icons'
 import {

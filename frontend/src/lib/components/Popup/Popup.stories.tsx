@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentStory, ComponentMeta } from '@storybook/react'
 
 import { Popup } from './Popup'
@@ -7,6 +6,7 @@ import { IconArrowDropDown } from '../icons'
 export default {
     title: 'Lemon UI/Popup',
     component: Popup,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof Popup>
 
 const Template: ComponentStory<typeof Popup> = (args) => <Popup {...args} />

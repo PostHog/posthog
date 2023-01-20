@@ -112,7 +112,7 @@ def test_get_clickhouse_schema_drift() -> None:
     assert diff == ["table1", "table2"]
 
 
-@patch("posthog.client.ch_pool.get_client")
+@patch("posthog.clickhouse.client.connection.ch_pool.get_client")
 def test_check_clickhouse_schema_drift_error_from_clickhouse(mock_ch: Mock) -> None:
     mock_ch.side_effect = ClickhouseError("Broken to connect")
     check_clickhouse_schema_drift()

@@ -1,7 +1,6 @@
 import { Button, Col, Divider, Row } from 'antd'
 import { useValues } from 'kea'
-import React from 'react'
-import { CodeSnippet, Language } from 'scenes/ingestion/frameworks/CodeSnippet'
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { kafkaInspectorLogic } from './kafkaInspectorLogic'
 import { Field, Form } from 'kea-forms'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'

@@ -29,7 +29,7 @@ cffi==1.14.5
     # via
     #   -c requirements.txt
     #   cryptography
-chardet==3.0.4
+charset-normalizer==2.1.0
     # via
     #   -c requirements.txt
     #   requests
@@ -56,7 +56,7 @@ deprecated==1.2.13
     # via
     #   -c requirements.txt
     #   redis
-django==3.2.15
+django==3.2.16
     # via
     #   -c requirements.txt
     #   django-stubs
@@ -206,7 +206,7 @@ redis==4.3.4
     # via
     #   -c requirements.txt
     #   fakeredis
-requests==2.25.1
+requests==2.28.1
     # via
     #   -c requirements.txt
     #   coreapi
@@ -260,10 +260,14 @@ uritemplate==4.1.1
     # via
     #   -c requirements.txt
     #   coreapi
-urllib3[secure,socks]==1.26.5
+urllib3[secure,socks]==1.26.13
     # via
     #   -c requirements.txt
     #   requests
+urllib3-secure-extra==0.1.0
+    # via
+    #   -c requirements.txt
+    #   urllib3
 watchdog==2.1.8
     # via pytest-watch
 wheel==0.37.1

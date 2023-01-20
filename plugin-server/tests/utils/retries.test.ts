@@ -15,6 +15,7 @@ const mockHub: Hub = {
     promiseManager: new PromiseManager({ MAX_PENDING_PROMISES_PER_WORKER: 1 } as any),
     appMetrics: {
         queueMetric: jest.fn(),
+        queueError: jest.fn(),
     },
 } as unknown as Hub
 
@@ -108,6 +109,9 @@ describe('runRetriableFunction', () => {
                 catchFn,
                 finallyFn,
                 appMetric,
+                appMetricErrorContext: {
+                    event: testEvent,
+                },
             })
         })
         jest.runAllTimers()
@@ -118,10 +122,16 @@ describe('runRetriableFunction', () => {
         expect(catchFn).toHaveBeenCalledWith(expect.any(TypeError))
         expect(finallyFn).toHaveBeenCalledTimes(1)
         expect(setTimeout).not.toHaveBeenCalled()
-        expect(mockHub.appMetrics.queueMetric).toHaveBeenCalledWith({
-            ...appMetric,
-            failures: 1,
-        })
+        expect(mockHub.appMetrics.queueError).toHaveBeenCalledWith(
+            {
+                ...appMetric,
+                failures: 1,
+            },
+            {
+                error: expect.any(TypeError),
+                event: testEvent,
+            }
+        )
     })
 
     it('catches RetryError error and retries up to 5 times', async () => {
@@ -141,6 +151,9 @@ describe('runRetriableFunction', () => {
                 catchFn,
                 finallyFn,
                 appMetric,
+                appMetricErrorContext: {
+                    event: testEvent,
+                },
             })
         })
 
@@ -160,10 +173,16 @@ describe('runRetriableFunction', () => {
         expect(setTimeout).toHaveBeenNthCalledWith(2, expect.any(Function), 10_000)
         expect(setTimeout).toHaveBeenNthCalledWith(3, expect.any(Function), 20_000)
         expect(setTimeout).toHaveBeenNthCalledWith(4, expect.any(Function), 40_000)
-        expect(mockHub.appMetrics.queueMetric).toHaveBeenCalledWith({
-            ...appMetric,
-            failures: 1,
-        })
+        expect(mockHub.appMetrics.queueError).toHaveBeenCalledWith(
+            {
+                ...appMetric,
+                failures: 1,
+            },
+            {
+                error: expect.any(RetryError),
+                event: testEvent,
+            }
+        )
     })
 
     it('catches RetryError error and allow the function to succeed on 3rd attempt', async () => {

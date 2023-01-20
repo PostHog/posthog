@@ -1,5 +1,5 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
-import { DateTime } from 'luxon'
+import tk from 'timekeeper'
 
 import { parseDate, parseEventTimestamp } from '../../../src/worker/ingestion/timestamps'
 
@@ -30,82 +30,174 @@ describe('parseDate()', () => {
 })
 
 describe('parseEventTimestamp()', () => {
-    it('captures sent_at', () => {
-        const rightNow = DateTime.utc()
-        const tomorrow = rightNow.plus({ days: 1, hours: 2 })
-        const tomorrowSentAt = rightNow.plus({ days: 1, hours: 2, minutes: 10 })
-
-        const event = {
-            timestamp: tomorrow.toISO(),
-            now: rightNow,
-            sent_at: tomorrowSentAt,
-        } as any as PluginEvent
-
-        const timestamp = parseEventTimestamp(event)
-        const eventSecondsBeforeNow = rightNow.diff(timestamp, 'seconds').seconds
-
-        expect(eventSecondsBeforeNow).toBeGreaterThan(590)
-        expect(eventSecondsBeforeNow).toBeLessThan(610)
+    beforeEach(() => {
+        tk.freeze('2020-08-12T01:02:00.000Z')
+    })
+    afterEach(() => {
+        tk.reset()
     })
 
-    it('captures sent_at with no timezones', () => {
-        const rightNow = DateTime.utc()
-        const tomorrow = rightNow.plus({ days: 1, hours: 2 }).setZone('UTC+4')
-        const tomorrowSentAt = rightNow.plus({ days: 1, hours: 2, minutes: 10 }).setZone('UTC+4')
-
-        // TODO: not sure if this is correct?
-        // tomorrow = tomorrow.replace(tzinfo=None)
-        // tomorrow_sent_at = tomorrow_sent_at.replace(tzinfo=None)
-
+    it('captures sent_at to adjusts timestamp', () => {
         const event = {
-            timestamp: tomorrow,
-            now: rightNow,
-            sent_at: tomorrowSentAt,
+            timestamp: '2021-10-30T03:02:00.000Z',
+            sent_at: '2021-10-30T03:12:00.000Z',
+            now: '2021-10-29T01:44:00.000Z',
         } as any as PluginEvent
 
-        const timestamp = parseEventTimestamp(event)
-        const eventSecondsBeforeNow = rightNow.diff(timestamp, 'seconds').seconds
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls.length).toEqual(0)
 
-        expect(eventSecondsBeforeNow).toBeGreaterThan(590)
-        expect(eventSecondsBeforeNow).toBeLessThan(610)
+        expect(timestamp.toISO()).toEqual('2021-10-29T01:34:00.000Z')
     })
 
-    it('captures with no sent_at', () => {
-        const rightNow = DateTime.utc()
-        const tomorrow = rightNow.plus({ days: 1, hours: 2 })
-
+    it('ignores and reports invalid sent_at', () => {
         const event = {
-            timestamp: tomorrow,
-            now: rightNow,
+            timestamp: '2021-10-31T00:44:00.000Z',
+            sent_at: 'invalid',
+            now: '2021-10-30T01:44:00.000Z',
         } as any as PluginEvent
 
-        const timestamp = parseEventTimestamp(event)
-        const difference = tomorrow.diff(timestamp, 'seconds').seconds
-        expect(difference).toBeLessThan(1)
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'ignored_invalid_timestamp',
+                {
+                    field: 'sent_at',
+                    reason: 'the input "invalid" can\'t be parsed as ISO 8601',
+                    value: 'invalid',
+                },
+            ],
+        ])
+
+        expect(timestamp.toISO()).toEqual('2021-10-31T00:44:00.000Z')
     })
 
-    it('works with offset timestamp', () => {
-        const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
-
+    it('captures sent_at with timezone info', () => {
         const event = {
-            offset: 150,
-            now,
-            sent_at: now,
+            timestamp: '2021-10-30T03:02:00.000+04:00',
+            sent_at: '2021-10-30T03:12:00.000+04:00',
+            now: '2021-10-29T01:44:00.000Z',
         } as any as PluginEvent
 
-        const timestamp = parseEventTimestamp(event)
-        expect(timestamp.toUTC().toISO()).toEqual('2020-01-01T12:00:05.050Z')
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls.length).toEqual(0)
+
+        expect(timestamp.toISO()).toEqual('2021-10-29T01:34:00.000Z')
     })
 
-    it('works with offset timestamp and no sent_at', () => {
-        const now = DateTime.fromISO('2020-01-01T12:00:05.200Z')
-
+    it('captures timestamp with no sent_at', () => {
         const event = {
-            offset: 150,
-            now,
+            timestamp: '2021-10-30T03:02:00.000Z',
+            now: '2021-10-30T01:44:00.000Z',
         } as any as PluginEvent
 
-        const timestamp = parseEventTimestamp(event)
-        expect(timestamp.toUTC().toISO()).toEqual('2020-01-01T12:00:05.050Z')
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls.length).toEqual(0)
+
+        expect(timestamp.toISO()).toEqual(event.timestamp)
+    })
+
+    it('captures with time offset and ignores sent_at', () => {
+        const event = {
+            offset: 6000, // 6 seconds
+            now: '2021-10-29T01:44:00.000Z',
+            sent_at: '2021-10-30T03:12:00.000+04:00', // ignored
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls.length).toEqual(0)
+
+        expect(timestamp.toUTC().toISO()).toEqual('2021-10-29T01:43:54.000Z')
+    })
+
+    it('captures with time offset', () => {
+        const event = {
+            offset: 6000, // 6 seconds
+            now: '2021-10-29T01:44:00.000Z',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls.length).toEqual(0)
+
+        expect(timestamp.toUTC().toISO()).toEqual('2021-10-29T01:43:54.000Z')
+    })
+
+    it('reports timestamp parsing error and fallbacks to DateTime.utc', () => {
+        const event = {
+            team_id: 123,
+            timestamp: 'notISO',
+            now: '2020-01-01T12:00:05.200Z',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'ignored_invalid_timestamp',
+                {
+                    field: 'timestamp',
+                    reason: 'the input "notISO" can\'t be parsed as ISO 8601',
+                    value: 'notISO',
+                },
+            ],
+        ])
+
+        expect(timestamp.toUTC().toISO()).toEqual('2020-08-12T01:02:00.000Z')
+    })
+
+    it('reports event_timestamp_in_future with sent_at', () => {
+        const event = {
+            timestamp: '2021-10-29T02:30:00.000Z',
+            sent_at: '2021-10-28T01:00:00.000Z',
+            now: '2021-10-29T01:00:00.000Z',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'event_timestamp_in_future',
+                {
+                    now: '2021-10-29T01:00:00.000Z',
+                    offset: '',
+                    result: '2021-10-30T02:30:00.000Z',
+                    sentAt: '2021-10-28T01:00:00.000Z',
+                    timestamp: '2021-10-29T02:30:00.000Z',
+                },
+            ],
+        ])
+
+        expect(timestamp.toISO()).toEqual('2021-10-30T02:30:00.000Z')
+    })
+
+    it('reports event_timestamp_in_future with negative offset', () => {
+        const event = {
+            offset: -82860000,
+            now: '2021-10-29T01:00:00.000Z',
+        } as any as PluginEvent
+
+        const callbackMock = jest.fn()
+        const timestamp = parseEventTimestamp(event, callbackMock)
+
+        expect(callbackMock.mock.calls).toEqual([
+            [
+                'event_timestamp_in_future',
+                {
+                    now: '2021-10-29T01:00:00.000Z',
+                    offset: -82860000,
+                    result: '2021-10-30T00:01:00.000Z',
+                    sentAt: '',
+                    timestamp: '',
+                },
+            ],
+        ])
+
+        expect(timestamp.toISO()).toEqual('2021-10-30T00:01:00.000Z')
     })
 })

@@ -5,13 +5,14 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, cast
 
 from django.conf import settings
 from django.core import exceptions
+from django.db import transaction
 
 from posthog.client import query_with_columns, sync_execute
-from posthog.demo.graphile import (
-    GraphileJob,
-    bulk_queue_graphile_jobs,
-    copy_graphile_jobs_between_teams,
-    erase_graphile_jobs_of_team,
+from posthog.demo.graphile_worker import (
+    GraphileWorkerJob,
+    bulk_queue_graphile_worker_jobs,
+    copy_graphile_worker_jobs_between_teams,
+    erase_graphile_worker_jobs_for_team,
 )
 from posthog.models import (
     Cohort,
@@ -25,18 +26,12 @@ from posthog.models import (
     User,
 )
 from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.async_deletion.delete import process_found_event_table_deletions
+from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 from posthog.models.utils import UUIDT
 from posthog.tasks.calculate_event_property_usage import calculate_event_property_usage_for_team
 
 from .matrix import Matrix
 from .models import SimEvent, SimPerson
-
-# Because the Postgres `Person.id` value is synthesized here (instead of relying on the DB sequence), we can
-# bulk insert persons AND person distinct IDs into Postgres without having to query for the person IDs resulting
-# from auto-incrementation. The trade-off is that we need to make sure synthesized IDs don't collide between teams,
-# so the limit is used as an ID multiplier.
-PERSON_COUNT_LIMIT = 500_000
 
 
 class MatrixManager:
@@ -75,11 +70,12 @@ class MatrixManager:
             organization_kwargs: Dict[str, Any] = {"name": organization_name}
             if settings.DEMO:
                 organization_kwargs["plugins_access_level"] = Organization.PluginsAccessLevel.INSTALL
-            organization = Organization.objects.create(**organization_kwargs)
-            new_user = User.objects.create_and_join(
-                organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
-            )
-            team = self.create_team(organization)
+            with transaction.atomic():
+                organization = Organization.objects.create(**organization_kwargs)
+                new_user = User.objects.create_and_join(
+                    organization, email, password, first_name, OrganizationMembership.Level.ADMIN, is_staff=is_staff
+                )
+                team = self.create_team(organization)
             if self.print_steps:
                 print(f"Saving simulated data...")
             self.run_on_team(team, new_user)
@@ -117,16 +113,18 @@ class MatrixManager:
         return team
 
     def run_on_team(self, team: Team, user: User):
-        source_team = self._prepare_master_team() if self.use_pre_save else team
-        if not self.use_pre_save or not self._is_demo_data_pre_saved():
+        does_clickhouse_data_need_saving = True
+        if self.use_pre_save:
+            does_clickhouse_data_need_saving = not self._is_demo_data_pre_saved()
+            source_team = self._prepare_master_team()
+        else:
+            source_team = team
+        if does_clickhouse_data_need_saving:
             if self.matrix.is_complete is None:
                 self.matrix.simulate()
             self._save_analytics_data(source_team)
         if self.use_pre_save:
             self._copy_analytics_data_from_master_team(team)
-        else:
-            # If we're not using pre-saved data, we need to wait a bit for data just queued into Kafka to show up in CH
-            self._sleep_until_person_data_in_clickhouse(team.pk)
         self._sync_postgres_with_clickhouse_data(source_team.pk, team.pk)
         self.matrix.set_project_up(team, user)
         calculate_event_property_usage_for_team(team.pk, complete_inference=True)
@@ -136,11 +134,6 @@ class MatrixManager:
 
     def _save_analytics_data(self, data_team: Team):
         sim_persons = self.matrix.people
-        if len(sim_persons) >= PERSON_COUNT_LIMIT:
-            raise exceptions.ValidationError(
-                f"The simulation has {len(sim_persons)} persons, when the limit is {PERSON_COUNT_LIMIT}. "
-                "Reduce the number of clusters."
-            )
         bulk_group_type_mappings = []
         for group_type_index, (group_type, groups) in enumerate(self.matrix.groups.items()):
             bulk_group_type_mappings.append(
@@ -153,6 +146,8 @@ class MatrixManager:
         GroupTypeMapping.objects.bulk_create(bulk_group_type_mappings)
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
+        # We need to wait a bit for data just queued into Kafka to show up in CH
+        self._sleep_until_person_data_in_clickhouse(data_team.pk)
 
     @classmethod
     def _prepare_master_team(cls, *, ensure_blank_slate: bool = False) -> Team:
@@ -170,31 +165,32 @@ class MatrixManager:
 
     @classmethod
     def _erase_master_team_data(cls):
-        process_found_event_table_deletions(
+        AsyncEventDeletion().process(
             [AsyncDeletion(team_id=cls.MASTER_TEAM_ID, key=cls.MASTER_TEAM_ID, deletion_type=DeletionType.Team)]
         )
         GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).delete()
-        erase_graphile_jobs_of_team(cls.MASTER_TEAM_ID)
+        erase_graphile_worker_jobs_for_team(cls.MASTER_TEAM_ID)
 
-    @classmethod
-    def _copy_analytics_data_from_master_team(cls, target_team: Team):
+    def _copy_analytics_data_from_master_team(self, target_team: Team):
         from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
-        copy_graphile_jobs_between_teams(cls.MASTER_TEAM_ID, target_team.pk)
-        copy_params = {"source_team_id": cls.MASTER_TEAM_ID, "target_team_id": target_team.pk}
+        if self.matrix.end > self.matrix.now:
+            copy_graphile_worker_jobs_between_teams(self.MASTER_TEAM_ID, target_team.pk)
+        copy_params = {"source_team_id": self.MASTER_TEAM_ID, "target_team_id": target_team.pk}
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
+        GroupTypeMapping.objects.filter(team_id=target_team.pk).delete()
         GroupTypeMapping.objects.bulk_create(
             (
                 GroupTypeMapping(team=target_team, **record)
-                for record in GroupTypeMapping.objects.filter(team_id=cls.MASTER_TEAM_ID).values(
+                for record in GroupTypeMapping.objects.filter(team_id=self.MASTER_TEAM_ID).values(
                     "group_type", "group_type_index", "name_singular", "name_plural"
                 )
-            )
+            ),
         )
 
     @classmethod
@@ -205,13 +201,16 @@ class MatrixManager:
         list_params = {"source_team_id": source_team_id}
         # Persons
         clickhouse_persons = query_with_columns(
-            SELECT_PERSONS_OF_TEAM, list_params, ["team_id", "is_deleted", "_timestamp", "_offset"], {"id": "uuid"}
+            SELECT_PERSONS_OF_TEAM,
+            list_params,
+            ["team_id", "is_deleted", "_timestamp", "_offset", "_partition"],
+            {"id": "uuid"},
         )
         bulk_persons: Dict[str, Person] = {}
-        for i, row in enumerate(clickhouse_persons):
-            synthetic_id = target_team_id * PERSON_COUNT_LIMIT + i
+        for row in clickhouse_persons:
             properties = json.loads(row.pop("properties", "{}"))
-            bulk_persons[row["uuid"]] = Person(id=synthetic_id, team_id=target_team_id, properties=properties, **row)
+            bulk_persons[row["uuid"]] = Person(team_id=target_team_id, properties=properties, **row)
+        # This sets the pk in the bulk_persons dict so we can use them later
         Person.objects.bulk_create(bulk_persons.values())
         # Person distinct IDs
         clickhouse_distinct_ids = query_with_columns(
@@ -240,15 +239,18 @@ class MatrixManager:
         if subject.past_events:
             from posthog.models.person.util import create_person, create_person_distinct_id
 
-            person_uuid_str = str(subject.cluster.roll_uuidt(subject.past_events[0].timestamp))
-            create_person(uuid=person_uuid_str, team_id=team.pk, properties=subject.properties_at_now, version=0)
+            create_person(
+                uuid=str(subject.in_posthog_id), team_id=team.pk, properties=subject.properties_at_now, version=0
+            )
             self._persons_created += 1
             self._person_distinct_ids_created += len(subject.distinct_ids_at_now)
             for distinct_id in subject.distinct_ids_at_now:
-                create_person_distinct_id(team_id=team.pk, distinct_id=str(distinct_id), person_id=person_uuid_str)
+                create_person_distinct_id(
+                    team_id=team.pk, distinct_id=str(distinct_id), person_id=str(subject.in_posthog_id)
+                )
             self._save_past_sim_events(team, subject.past_events)
         # We only want to queue future events if there are any
-        if subject.future_events:
+        if subject.future_events and self.matrix.end > self.matrix.now:
             self._save_future_sim_events(team, subject.future_events)
 
     @staticmethod
@@ -265,12 +267,25 @@ class MatrixManager:
                 distinct_id=event.distinct_id,
                 timestamp=event.timestamp,
                 properties=event.properties,
+                person_id=event.person_id,
+                person_properties=event.person_properties,
+                person_created_at=event.person_created_at,
+                group0_properties=event.group0_properties,
+                group1_properties=event.group1_properties,
+                group2_properties=event.group2_properties,
+                group3_properties=event.group3_properties,
+                group4_properties=event.group4_properties,
+                group0_created_at=event.group0_created_at,
+                group1_created_at=event.group1_created_at,
+                group2_created_at=event.group2_created_at,
+                group3_created_at=event.group3_created_at,
+                group4_created_at=event.group4_created_at,
             )
 
     @staticmethod
     def _save_future_sim_events(team: Team, events: List[SimEvent]):
         """Future events are not saved immediately, instead they're scheduled for ingestion via event buffer."""
-        graphile_jobs: List[GraphileJob] = []
+        graphile_jobs: List[GraphileWorkerJob] = []
         for event in events:
             event_uuid = UUIDT(unix_time_ms=int(event.timestamp.timestamp() * 1000))
             timestamp_iso = event.timestamp.isoformat()
@@ -285,11 +300,11 @@ class MatrixManager:
                 }
             }
             graphile_jobs.append(
-                GraphileJob(
+                GraphileWorkerJob(
                     task_identifier="bufferJob", payload=payload, run_at=event.timestamp, flags={"team_id": team.pk}
                 )
             )
-        bulk_queue_graphile_jobs(graphile_jobs)
+        bulk_queue_graphile_worker_jobs(graphile_jobs)
 
     @staticmethod
     def _save_sim_group(

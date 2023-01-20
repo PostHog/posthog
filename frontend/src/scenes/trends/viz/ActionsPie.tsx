@@ -1,5 +1,5 @@
 import './ActionsPie.scss'
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { getSeriesColor } from 'lib/colors'
 import { useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -10,18 +10,21 @@ import { openPersonsModal } from '../persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { urlsForDatasets } from '../persons-modal/persons-modal-utils'
 import { PieChart } from 'scenes/insights/views/LineGraph/PieChart'
+import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
+import clsx from 'clsx'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
-export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParams): JSX.Element | null {
+export function ActionsPie({ inSharedMode, inCardView, showPersonsModal = true }: ChartParams): JSX.Element | null {
     const [data, setData] = useState<GraphDataset[] | null>(null)
     const [total, setTotal] = useState(0)
     const { insightProps, insight } = useValues(insightLogic)
     const logic = trendsLogic(insightProps)
-    const { indexedResults, labelGroupType, hiddenLegendKeys } = useValues(logic)
+    const { indexedResults, labelGroupType, hiddenLegendKeys, filters } = useValues(logic)
 
     function updateData(): void {
         const _data = [...indexedResults].sort((a, b) => b.aggregated_value - a.aggregated_value)
         const days = _data.length > 0 ? _data[0].days : []
-        const colorList = _data.map(({ id }) => getSeriesColor(id))
+        const colorList = _data.map(({ seriesIndex }) => getSeriesColor(seriesIndex))
 
         setData([
             {
@@ -46,43 +49,50 @@ export function ActionsPie({ inSharedMode, showPersonsModal = true }: ChartParam
 
     return data ? (
         data[0] && data[0].labels ? (
-            <div className="actions-pie-component">
-                <div className="pie-chart">
-                    <PieChart
-                        data-attr="trend-pie-graph"
-                        hiddenLegendKeys={hiddenLegendKeys}
-                        type={GraphType.Pie}
-                        datasets={data}
-                        labels={data[0].labels}
-                        labelGroupType={labelGroupType}
-                        inSharedMode={!!inSharedMode}
-                        showPersonsModal={showPersonsModal}
-                        aggregationAxisFormat={insight.filters?.aggregation_axis_format}
-                        onClick={
-                            !showPersonsModal || insight.filters?.formula
-                                ? undefined
-                                : (payload) => {
-                                      const { points, index, crossDataset } = payload
-                                      const dataset = points.referencePoint.dataset
-                                      const label = dataset.labels?.[index]
+            <div
+                className={clsx(
+                    'ActionsPie w-full',
+                    inCardView && 'flex flex-row h-full items-center',
+                    isTrendsFilter(filters) && filters.show_legend && 'pr-4'
+                )}
+            >
+                <div className={clsx('actions-pie-component', inCardView && 'grow')}>
+                    <div className="pie-chart">
+                        <PieChart
+                            data-attr="trend-pie-graph"
+                            hiddenLegendKeys={hiddenLegendKeys}
+                            type={GraphType.Pie}
+                            datasets={data}
+                            labels={data[0].labels}
+                            labelGroupType={labelGroupType}
+                            inSharedMode={!!inSharedMode}
+                            showPersonsModal={showPersonsModal}
+                            filters={insight.filters}
+                            onClick={
+                                !showPersonsModal || (isTrendsFilter(insight.filters) && insight.filters?.formula)
+                                    ? undefined
+                                    : (payload) => {
+                                          const { points, index, crossDataset } = payload
+                                          const dataset = points.referencePoint.dataset
+                                          const label = dataset.labels?.[index]
 
-                                      const urls = urlsForDatasets(crossDataset, index)
-                                      const selectedUrl = urls[index]?.value
+                                          const urls = urlsForDatasets(crossDataset, index)
+                                          const selectedUrl = urls[index]?.value
 
-                                      if (selectedUrl) {
-                                          openPersonsModal({
-                                              urls,
-                                              urlsIndex: index,
-                                              title: <PropertyKeyInfo value={label || ''} disablePopover />,
-                                          })
+                                          if (selectedUrl) {
+                                              openPersonsModal({
+                                                  urls,
+                                                  urlsIndex: index,
+                                                  title: <PropertyKeyInfo value={label || ''} disablePopover />,
+                                              })
+                                          }
                                       }
-                                  }
-                        }
-                    />
+                            }
+                        />
+                    </div>
+                    <h1 className="text-7xl text-center mb-0">{formatAggregationAxisValue(insight.filters, total)}</h1>
                 </div>
-                <h1 className="text-7xl text-center">
-                    {formatAggregationAxisValue(insight.filters?.aggregation_axis_format, total)}
-                </h1>
+                {inCardView && isTrendsFilter(filters) && filters.show_legend && <InsightLegend inCardView />}
             </div>
         ) : (
             <p className="text-center mt-16">We couldn't find any matching actions.</p>

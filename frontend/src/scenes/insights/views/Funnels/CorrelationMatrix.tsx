@@ -1,6 +1,4 @@
 import { Button, Modal } from 'antd'
-import React from 'react'
-import { CheckCircleFilled, InfoCircleOutlined, MinusCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
 import './CorrelationMatrix.scss'
 import { useActions, useValues } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
@@ -11,7 +9,15 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { Link } from 'lib/components/Link'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelCorrelationResultsType, FunnelCorrelationType } from '~/types'
-import { InlineMessage } from 'lib/components/InlineMessage/InlineMessage'
+import {
+    IconCancel,
+    IconCheckCircleOutline,
+    IconErrorOutline,
+    IconTrendingFlat,
+    IconTrendingFlatDown,
+} from 'lib/components/icons'
+import { AlertMessage } from 'lib/components/AlertMessage'
+import clsx from 'clsx'
 
 export function CorrelationMatrix(): JSX.Element {
     const { insightProps } = useValues(insightLogic)
@@ -48,11 +54,11 @@ export function CorrelationMatrix(): JSX.Element {
 
     const scoreIcon =
         correlationScoreStrength === 'strong' ? (
-            <CheckCircleFilled style={{ color: 'var(--success)' }} />
+            <IconCheckCircleOutline className="text-success" />
         ) : correlationScoreStrength === 'moderate' ? (
-            <MinusCircleOutlined style={{ color: 'var(--warning)' }} />
+            <IconCancel className="text-warning" />
         ) : (
-            <CloseCircleOutlined style={{ color: 'var(--danger)' }} />
+            <IconErrorOutline className="text-danger" />
         )
 
     const dismiss = (): void => setFunnelCorrelationDetails(null)
@@ -183,50 +189,44 @@ export function CorrelationMatrix(): JSX.Element {
                             {capitalizeFirstLetter(funnelCorrelationDetails?.result_type || '')} <b>{displayName}</b>{' '}
                             has a{' '}
                             {funnelCorrelationDetails?.correlation_type === FunnelCorrelationType.Success ? (
-                                <b className="text-success">
-                                    positive{' '}
-                                    <Tooltip
-                                        title={`Positive correlation means this ${actor} is correlated with a successful conversion.`}
-                                    >
-                                        <InfoCircleOutlined className="cursor-pointer" />
-                                    </Tooltip>
-                                </b>
-                            ) : (
-                                <b className="text-danger">
-                                    negative{' '}
-                                    <Tooltip
-                                        title={`Negative correlation means this ${actor} is correlated with an unsuccessful conversion (user dropped off).`}
-                                    >
-                                        <InfoCircleOutlined className="cursor-pointer" />
-                                    </Tooltip>
-                                </b>
-                            )}{' '}
-                            correlation score of{' '}
-                            <b
-                                style={{
-                                    color:
-                                        correlationScoreStrength === 'strong'
-                                            ? 'var(--success)'
-                                            : correlationScoreStrength === 'moderate'
-                                            ? 'var(--warning)'
-                                            : 'var(--danger)',
-                                }}
-                            >
-                                <Tooltip title={`This ${actor} has ${correlationScoreStrength} correlation.`}>
-                                    <span style={{ cursor: 'pointer' }}>
-                                        {scoreIcon} {correlationScore.toFixed(3)}
+                                <Tooltip
+                                    title={`Positive correlation means this ${actor} is correlated with a successful conversion.`}
+                                >
+                                    <span className="cursor-help text-success">
+                                        <IconTrendingFlat /> positive correlation
                                     </span>
                                 </Tooltip>
-                            </b>
+                            ) : (
+                                <Tooltip
+                                    title={`Negative correlation means this ${actor} is correlated with an unsuccessful conversion (user dropped off).`}
+                                >
+                                    <strong className="cursor-help text-danger">
+                                        <IconTrendingFlatDown /> negative correlation
+                                    </strong>
+                                </Tooltip>
+                            )}{' '}
+                            score of{' '}
+                            <Tooltip title={`This ${actor} has ${correlationScoreStrength} correlation.`}>
+                                <strong
+                                    className={clsx(
+                                        'cursor-help',
+                                        correlationScoreStrength === 'strong'
+                                            ? 'text-success'
+                                            : correlationScoreStrength === 'moderate'
+                                            ? 'text-warning'
+                                            : 'text-danger'
+                                    )}
+                                >
+                                    {scoreIcon} {correlationScore.toFixed(3)}
+                                </strong>
+                            </Tooltip>
                         </div>
                     </>
                 ) : (
-                    <div>
-                        <InlineMessage type="danger">
-                            We could not load the details for this correlation value. Please recreate your funnel and
-                            try again.
-                        </InlineMessage>
-                    </div>
+                    <AlertMessage type="error">
+                        We could not load the details for this correlation value. Please recreate your funnel and try
+                        again.
+                    </AlertMessage>
                 )}
             </div>
         </Modal>

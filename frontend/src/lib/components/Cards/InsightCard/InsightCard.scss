@@ -12,17 +12,10 @@
         border-color: var(--primary);
         outline: 1px solid var(--primary);
     }
-    .InsightMeta {
-        border-radius: var(--radius) var(--radius) 0 0;
-        border-bottom: 1px solid var(--border);
-    }
     .ant-alert {
         margin: 1rem;
         width: 100%;
         overflow: auto;
-    }
-    .insight-empty-state {
-        font-size: 0.875rem;
     }
 }
 
@@ -41,6 +34,8 @@
         padding: 1rem;
     }
     .insight-empty-state {
+        height: 100%; // Fix wonkiness when SpinnerOverlay is shown
+        font-size: 0.875rem; // Reduce font size
         padding-top: 0;
         padding-bottom: 0;
     }
@@ -49,145 +44,6 @@
     }
     > :last-child {
         margin-bottom: auto;
-    }
-}
-
-.InsightMeta {
-    position: absolute;
-    top: 0;
-    left: 0;
-    display: flex;
-    flex-direction: column;
-    padding: 1rem;
-    width: 100%;
-    max-height: calc(100% - 2rem);
-    background: #fff;
-    z-index: 101; // Elevate above viz
-    overflow: hidden;
-    h5 {
-        color: var(--muted);
-        line-height: 1.5rem;
-        margin-bottom: 0;
-    }
-    h4 {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        height: 1.5em;
-        font-size: 1rem;
-        font-weight: 600;
-        margin-bottom: 0.125rem;
-    }
-}
-
-.InsightMeta--expansion-enter-active,
-.InsightMeta--expansion-exit-active,
-.InsightMeta--expansion-enter,
-.InsightMeta--expansion-exit {
-    transition: box-shadow 200ms ease, height 200ms ease;
-}
-.InsightMeta--expansion-exit.InsightMeta--expansion-exit-active,
-.InsightMeta--expansion-exit-done,
-.InsightMeta--expansion-enter {
-    box-shadow: none;
-}
-.InsightMeta--expansion-enter.InsightMeta--expansion-enter-active,
-.InsightMeta--expansion-enter-done,
-.InsightMeta--expansion-exit {
-    box-shadow: var(--shadow-elevation);
-}
-.InsightMeta--expansion-enter-done {
-    overflow: auto;
-}
-
-.InsightMeta__primary {
-    display: flex;
-    width: 100%;
-    margin-bottom: 0.5rem;
-}
-
-.InsightMeta__ribbon {
-    align-self: stretch;
-    width: 0.375rem;
-    margin: 0 0.75rem 0 -0.25rem;
-    border-radius: var(--radius);
-    background: var(--muted); // Just a fallback value in case there's some unrecognized value
-    &.blue {
-        background: var(--blue);
-    }
-    &.purple {
-        background: var(--purple);
-    }
-    &.green {
-        background: var(--green);
-    }
-    &.black {
-        background: var(--default);
-    }
-}
-
-.InsightMeta__main {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    overflow: auto;
-    width: 100%;
-    height: fit-content;
-    > * {
-        max-width: 100%; // Make sure that horizontal overflow is capped, so that ellipsis on insight name works
-    }
-}
-
-.InsightMeta__top {
-    align-self: stretch;
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    height: 1.5rem;
-    button {
-        height: 1.5rem;
-    }
-}
-
-.InsightMeta__controls {
-    display: flex;
-    align-items: center;
-    button:not(:last-child) {
-        margin-right: 0.5rem;
-    }
-}
-
-.InsightMeta__description {
-    color: var(--muted);
-    max-height: 7em; // Display at most 4.5 lines at once, then scroll
-    overflow: auto;
-}
-
-.handle {
-    display: flex;
-    align-items: flex-end;
-    justify-content: center;
-    position: absolute;
-    width: 100%;
-    height: 100%;
-    pointer-events: none;
-    z-index: var(--z-raised);
-    &.horizontal {
-        svg {
-            transform: rotate(90deg) translateX(0.75rem);
-        }
-    }
-    &.vertical {
-        flex-direction: column;
-        svg {
-            transform: translateX(0.5rem);
-        }
-    }
-    &.corner {
-        justify-content: flex-end;
-        svg {
-            transform: translate(0.5rem, 0.5rem);
-        }
     }
 }
 
@@ -269,6 +125,7 @@
     font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1rem;
+    vertical-align: -0.375em;
     &.SeriesDisplay__raw-name--action,
     &.SeriesDisplay__raw-name--event {
         padding: 0.25rem;

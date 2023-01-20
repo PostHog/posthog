@@ -2,7 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { retentionTableLogic } from 'scenes/retention/retentionTableLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightShortId, InsightType } from '~/types'
+import { InsightShortId, InsightType, RetentionFilterType } from '~/types'
 import { useMocks } from '~/mocks/jest'
 
 const Insight123 = '123' as InsightShortId
@@ -53,6 +53,7 @@ describe('retentionTableLogic', () => {
             post: {
                 '/api/projects/:team/insights/': { results: [result] },
                 '/api/projects/:team/insights/:id/viewed': [201],
+                '/api/projects/:team/insights/cancel': [200],
             },
         })
     })
@@ -89,7 +90,10 @@ describe('retentionTableLogic', () => {
 
         it('insightLogic.setFilters updates filters', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
+                insightLogic(props).actions.setFilters({
+                    insight: InsightType.RETENTION,
+                    period: 'Week',
+                } as RetentionFilterType)
             })
                 .toMatchValues(logic, {
                     filters: expect.objectContaining({
@@ -105,7 +109,10 @@ describe('retentionTableLogic', () => {
 
         it('handles conversion from cohort percentage to derivative of percentages when retentionReference is previous', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
+                insightLogic(props).actions.setFilters({
+                    insight: InsightType.RETENTION,
+                    period: 'Week',
+                } as RetentionFilterType)
                 logic.actions.setRetentionReference('previous')
             })
                 .toFinishAllListeners()
@@ -121,7 +128,10 @@ describe('retentionTableLogic', () => {
 
         it('calculates max number of intervals in the results', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
+                insightLogic(props).actions.setFilters({
+                    insight: InsightType.RETENTION,
+                    period: 'Week',
+                } as RetentionFilterType)
             })
                 .toFinishAllListeners()
                 .toMatchValues(logic, {
@@ -131,7 +141,10 @@ describe('retentionTableLogic', () => {
 
         it('calculates the table headers', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
+                insightLogic(props).actions.setFilters({
+                    insight: InsightType.RETENTION,
+                    period: 'Week',
+                } as RetentionFilterType)
             })
                 .toFinishAllListeners()
                 .toMatchValues(logic, {
@@ -141,7 +154,10 @@ describe('retentionTableLogic', () => {
 
         it('calculates the table rows', async () => {
             await expectLogic(logic, () => {
-                insightLogic(props).actions.setFilters({ insight: InsightType.RETENTION, period: 'Week' })
+                insightLogic(props).actions.setFilters({
+                    insight: InsightType.RETENTION,
+                    period: 'Week',
+                } as RetentionFilterType)
             })
                 .toFinishAllListeners()
                 .toMatchValues(logic, {

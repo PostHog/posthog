@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonCalendarSelect, LemonCalendarSelectProps } from 'lib/components/LemonCalendar/LemonCalendarSelect'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -9,10 +9,11 @@ import { formatDate } from 'lib/utils'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Select',
     component: LemonCalendarSelect,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonCalendarSelect>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarSelect> = (props: LemonCalendarSelectProps) => {
-    const [value, setValue] = useState(dayjs().subtract(10, 'day').format('YYYY-MM-DD'))
+    const [value, setValue] = useState(dayjs().subtract(10, 'day'))
     const [visible, setVisible] = useState(true)
 
     return (
@@ -35,7 +36,7 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarSelect> = (props: LemonC
                 onClickOutside={() => setVisible(false)}
             >
                 <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                    {formatDate(dayjs(value))}
+                    {formatDate(value)}
                 </LemonButton>
             </Popup>
         </div>

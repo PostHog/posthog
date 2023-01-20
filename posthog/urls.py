@@ -17,20 +17,25 @@ from posthog.api import (
     decide,
     organizations_router,
     project_dashboards_router,
+    project_feature_flags_router,
     projects_router,
     router,
     sharing,
     signup,
     site_app,
     unsubscribe,
+    uploaded_media,
     user,
 )
 from posthog.api.decide import hostname_in_allowed_url_list
-from posthog.demo import demo_route
+from posthog.api.prompt import prompt_webhook
+from posthog.cloud_utils import is_cloud
+from posthog.demo.legacy import demo_route
 from posthog.models import User
 
 from .utils import render_template
 from .views import health, login_required, preflight_check, robots_txt, security_txt, stats
+from .year_in_posthog import year_in_posthog
 
 ee_urlpatterns: List[Any] = []
 try:
@@ -39,7 +44,13 @@ try:
 except ImportError:
     pass
 else:
-    extend_api_router(router, projects_router=projects_router, project_dashboards_router=project_dashboards_router)
+    extend_api_router(
+        router,
+        projects_router=projects_router,
+        organizations_router=organizations_router,
+        project_dashboards_router=project_dashboards_router,
+        project_feature_flags_router=project_feature_flags_router,
+    )
 
 
 try:
@@ -53,7 +64,7 @@ else:
 # The admin interface is disabled on self-hosted instances, as its misuse can be unsafe
 admin_urlpatterns = (
     [path("admin/", include("loginas.urls")), path("admin/", admin.site.urls)]
-    if settings.MULTI_TENANCY or settings.DEMO
+    if is_cloud() or settings.DEMO or settings.DEBUG
     else []
 )
 
@@ -121,6 +132,7 @@ urlpatterns = [
     path("api/", include(router.urls)),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
+    opt_slash_path("api/prompts/webhook", prompt_webhook),
     opt_slash_path("api/signup", signup.SignupViewset.as_view()),
     opt_slash_path("api/social_signup", signup.SocialSignupViewset.as_view()),
     path("api/signup/<str:invite_id>/", signup.InviteSignupViewset.as_view()),
@@ -138,6 +150,7 @@ urlpatterns = [
     path("site_app/<int:id>/<str:token>/<str:hash>/", site_app.get_site_app),
     re_path(r"^demo.*", login_required(demo_route)),
     # ingestion
+    # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("decide", decide.get_decide),
     opt_slash_path("e", capture.get_event),
     opt_slash_path("engage", capture.get_event),
@@ -153,6 +166,9 @@ urlpatterns = [
         "login/<str:backend>/", authentication.sso_login, name="social_begin"
     ),  # overrides from `social_django.urls` to validate proper license
     path("", include("social_django.urls", namespace="social")),
+    path("uploaded_media/<str:image_uuid>", uploaded_media.download),
+    path("year_in_posthog/2022/<str:user_uuid>", year_in_posthog.render_2022),
+    path("year_in_posthog/2022/<str:user_uuid>/", year_in_posthog.render_2022),
 ]
 
 if settings.DEBUG:

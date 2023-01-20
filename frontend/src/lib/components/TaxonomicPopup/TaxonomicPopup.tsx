@@ -1,8 +1,13 @@
 import './TaxonomicPopup.scss'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
-import React, { useEffect, useState } from 'react'
-import { LemonButton, LemonButtonWithPopup, LemonButtonWithPopupProps } from 'lib/components/LemonButton'
+import { useEffect, useState } from 'react'
+import {
+    LemonButton,
+    LemonButtonProps,
+    LemonButtonWithPopup,
+    LemonButtonWithPopupProps,
+} from 'lib/components/LemonButton'
 import { IconArrowDropDown, IconClose } from 'lib/components/icons'
 
 export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
@@ -19,6 +24,7 @@ export interface TaxonomicPopupProps<ValueType = TaxonomicFilterValue>
     dropdownMatchSelectWidth?: boolean
     allowClear?: boolean
     style?: React.CSSProperties
+    buttonProps?: Omit<LemonButtonProps, 'onClick'>
 }
 
 /** Like TaxonomicPopup, but convenient when you know you will only use string values */
@@ -43,6 +49,7 @@ export function TaxonomicPopup({
     eventNames = [],
     placeholder = 'Please select',
     fullWidth = true,
+    buttonProps,
 }: TaxonomicPopupProps): JSX.Element {
     const [visible, setVisible] = useState(false)
 
@@ -69,6 +76,7 @@ export function TaxonomicPopup({
             onClick={() => setVisible(!visible)}
             fullWidth={fullWidth}
             type={'secondary'}
+            {...buttonProps}
         >
             <span className="TaxonomicPopup__button__label text-overflow">
                 {value ? renderValue?.(value) ?? String(value) : <em>{placeholder}</em>}

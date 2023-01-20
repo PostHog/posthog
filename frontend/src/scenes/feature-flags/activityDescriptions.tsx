@@ -9,10 +9,10 @@ import {
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FeatureFlagFilters, FeatureFlagGroupType, FeatureFlagType } from '~/types'
-import React from 'react'
 import { pluralize } from 'lib/utils'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 
 const nameOrLinkToFlag = (id: string | undefined, name: string | null | undefined): string | JSX.Element => {
     // detail.name
@@ -180,12 +180,42 @@ const featureFlagActionsMapping: Record<
 
         return { description: [<>{describeChange} experience continuity</>] }
     },
+    tags: function onTags(change) {
+        const tagsBefore = change?.before as string[]
+        const tagsAfter = change?.after as string[]
+        const addedTags = tagsAfter.filter((t) => tagsBefore.indexOf(t) === -1)
+        const removedTags = tagsBefore.filter((t) => tagsAfter.indexOf(t) === -1)
+
+        const changes: Description[] = []
+        if (addedTags.length) {
+            changes.push(
+                <>
+                    added {pluralize(addedTags.length, 'tag', 'tags', false)}{' '}
+                    <ObjectTags tags={addedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+        if (removedTags.length) {
+            changes.push(
+                <>
+                    removed {pluralize(removedTags.length, 'tag', 'tags', false)}{' '}
+                    <ObjectTags tags={removedTags} saving={false} style={{ display: 'inline' }} staticOnly />
+                </>
+            )
+        }
+
+        return { description: changes }
+    },
     // fields that are excluded on the backend
     id: () => null,
     created_at: () => null,
     created_by: () => null,
     is_simple_flag: () => null,
     experiment_set: () => null,
+    // TODO: handle activity
+    rollback_conditions: () => null,
+    performed_rollback: () => null,
+    can_edit: () => null,
 }
 
 export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?: boolean): HumanizedChange {
@@ -223,12 +253,15 @@ export function flagActivityDescriber(logItem: ActivityLogItem, asNotification?:
                 continue // feature flag updates have to have a "field" to be described
             }
 
-            const { description, suffix } = featureFlagActionsMapping[change.field](change, logItem)
-            if (description) {
-                changes = changes.concat(description)
-            }
-            if (suffix) {
-                changeSuffix = suffix
+            const possibleLogItem = featureFlagActionsMapping[change.field](change, logItem)
+            if (possibleLogItem) {
+                const { description, suffix } = possibleLogItem
+                if (description) {
+                    changes = changes.concat(description)
+                }
+                if (suffix) {
+                    changeSuffix = suffix
+                }
             }
         }
 

@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ActionFilter, ActionFilterProps } from './ActionFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -11,6 +11,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { alphabet, uuid } from 'lib/utils'
 import { ComponentStory } from '@storybook/react'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { isFilterWithDisplay, isLifecycleFilter } from 'scenes/insights/sharedUtils'
 
 export default {
     title: 'Filters/Action Filter',
@@ -52,8 +53,10 @@ const Template: ComponentStory<typeof ActionFilter> = ({ ...props }: Partial<Act
             buttonCopy="Add graph series"
             showSeriesIndicator
             entitiesLimit={
-                filters.insight === InsightType.LIFECYCLE ||
-                (filters.display && SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
+                isLifecycleFilter(filters) ||
+                (isFilterWithDisplay(filters) &&
+                    filters.display &&
+                    SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display))
                     ? 1
                     : alphabet.length
             }

@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { OrganizationInviteType } from '~/types'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'

@@ -1,12 +1,10 @@
-import React from 'react'
 import { compactNumber, uuid } from 'lib/utils'
 import { Link } from 'lib/components/Link'
 import { useActions, useValues } from 'kea'
 import { actionEditLogic, ActionEditLogicProps } from './actionEditLogic'
 import './Actions.scss'
 import { ActionStep } from './ActionStep'
-import { Button, Col, Row } from 'antd'
-import { InfoCircleOutlined, LoadingOutlined, PlusOutlined } from '@ant-design/icons'
+import { Col, Row } from 'antd'
 import { combineUrl, router } from 'kea-router'
 import { PageHeader } from 'lib/components/PageHeader'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,7 +19,9 @@ import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { Form } from 'kea-forms'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
-import { IconPlayCircle } from 'lib/components/icons'
+import { IconInfo, IconPlayCircle, IconPlus } from 'lib/components/icons'
+import { tagsModel } from '~/models/tagsModel'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }: ActionEditLogicProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
@@ -35,6 +35,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
     const { submitAction, deleteAction } = useActions(logic)
     const { currentTeam } = useValues(teamLogic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { tags } = useValues(tagsModel)
 
     const slackEnabled = currentTeam?.slack_incoming_webhook
 
@@ -133,6 +134,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                         onChange={(_, newTags) => onChange(newTags)}
                                         className="action-tags"
                                         saving={actionLoading}
+                                        tagsAvailable={tags.filter((tag) => !action.tags?.includes(tag))}
                                     />
                                 )}
                             </Field>
@@ -170,36 +172,37 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                 {id && (
                     <div className="input-set">
                         <div>
-                            <span className="text-muted mb-2">
-                                {actionCountLoading && <LoadingOutlined />}
+                            <span className="flex items-center gap-2 text-muted mb-2">
                                 {actionCount !== null && actionCount > -1 && (
-                                    <>
+                                    <span>
                                         This action matches <b>{compactNumber(actionCount)}</b> events in the last 3
                                         months
-                                    </>
+                                    </span>
                                 )}
+                                {actionCountLoading && <Spinner />}
                             </span>
                         </div>
                     </div>
                 )}
 
-                <div style={{ overflow: 'visible' }}>
+                <div>
                     <h2 className="subtitle">Match groups</h2>
                     <div>
-                        Your action will be triggered whenever <b>any of your match groups</b> are received.{' '}
-                        <a href="https://posthog.com/docs/features/actions" target="_blank">
-                            <InfoCircleOutlined />
-                        </a>
+                        Your action will be triggered whenever <b>any of your match groups</b> are received.
+                        <Link to="https://posthog.com/docs/features/actions" target="_blank">
+                            <IconInfo className="ml-1 text-muted text-xl" />
+                        </Link>
                     </div>
                     <Field name="steps">
                         {({ onChange }) => (
-                            <div style={{ textAlign: 'right', marginBottom: 12 }}>
-                                <Button
+                            <div className="flex justify-end mb-2">
+                                <LemonButton
                                     onClick={() => onChange([...(action.steps || []), { isNew: uuid() }])}
                                     size="small"
+                                    type="secondary"
                                 >
                                     Add another match group
-                                </Button>
+                                </LemonButton>
                             </div>
                         )}
                     </Field>
@@ -251,7 +254,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                             onChange([...(action.steps || []), { isNew: uuid() }])
                                         }}
                                     >
-                                        <PlusOutlined style={{ fontSize: 28, color: '#666666' }} />
+                                        <IconPlus style={{ fontSize: 28, color: '#666666' }} />
                                     </div>
                                 </Col>
                             </Row>
@@ -271,7 +274,7 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                 />
                                 <p className="pl-7">
                                     <Link to="/project/settings#webhook">
-                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Setup.
+                                        {slackEnabled ? 'Configure' : 'Enable'} this integration in Project Settings.
                                     </Link>
                                 </p>
                             </>
@@ -291,13 +294,12 @@ export function ActionEdit({ action: loadedAction, id, onSave, temporaryToken }:
                                             data-attr="edit-slack-message-format"
                                         />
                                         <small>
-                                            <a
-                                                href="https://posthog.com/docs/integrations/message-formatting/"
+                                            <Link
+                                                to="https://posthog.com/docs/integrate/webhooks/message-formatting"
                                                 target="_blank"
-                                                rel="noopener noreferrer"
                                             >
                                                 See documentation on how to format webhook messages.
-                                            </a>
+                                            </Link>
                                         </small>
                                     </>
                                 )}

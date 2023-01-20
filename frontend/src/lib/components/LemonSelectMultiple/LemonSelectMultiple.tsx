@@ -1,6 +1,5 @@
 import { Select } from 'antd'
 import { range } from 'lib/utils'
-import React from 'react'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
 import { LemonSkeleton } from '../LemonSkeleton'
 import './LemonSelectMultiple.scss'
@@ -19,6 +18,7 @@ export interface LemonSelectMultipleOptionItem extends LemonSelectMultipleOption
 export type LemonSelectMultipleOptions = Record<string, LemonSelectMultipleOption>
 
 export interface LemonSelectMultipleProps {
+    selectClassName?: string
     options?: LemonSelectMultipleOptions | LemonSelectMultipleOptionItem[]
     value?: string[] | null
     disabled?: boolean
@@ -26,6 +26,8 @@ export interface LemonSelectMultipleProps {
     placeholder?: string
     onChange?: (newValue: string[]) => void
     onSearch?: (value: string) => void
+    onFocus?: () => void
+    onBlur?: () => void
     filterOption?: boolean
     mode?: 'single' | 'multiple' | 'multiple-custom'
     'data-attr'?: string
@@ -39,8 +41,11 @@ export function LemonSelectMultiple({
     placeholder,
     onChange,
     onSearch,
+    onFocus,
+    onBlur,
     filterOption = true,
     mode = 'single',
+    selectClassName,
     ...props
 }: LemonSelectMultipleProps): JSX.Element {
     const optionsAsList: LemonSelectMultipleOptionItem[] = Array.isArray(options)
@@ -60,11 +65,15 @@ export function LemonSelectMultiple({
     return (
         <div className="LemonSelectMultiple" {...props}>
             <Select
+                className={selectClassName}
                 mode={mode === 'multiple' ? 'multiple' : mode === 'multiple-custom' ? 'tags' : undefined}
                 showSearch
                 disabled={disabled}
                 loading={loading}
                 onSearch={onSearch}
+                onFocus={onFocus}
+                onBlur={onBlur}
+                showAction={['focus']}
                 onChange={(v) => onChange?.(v)}
                 tokenSeparators={[',']}
                 value={value ? value : []}

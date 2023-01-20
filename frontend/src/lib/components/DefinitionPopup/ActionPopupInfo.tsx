@@ -1,4 +1,3 @@
-import React from 'react'
 import { ActionType } from '~/types'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
 import {
@@ -66,7 +65,7 @@ export function ActionPopupInfo({ entity }: { entity: ActionType }): JSX.Element
                                             <li key={propIndex}>
                                                 <span>
                                                     <pre>{eventToHumanName(property.key)}</pre>
-                                                    {genericOperatorToHumanName(property.operator)}
+                                                    {genericOperatorToHumanName(property)}
                                                     <pre>{propertyValueToHumanName(property.value)}</pre>
                                                 </span>
                                             </li>

@@ -11,6 +11,7 @@ from posthog.constants import (
     NON_TIME_SERIES_DISPLAY_TYPES,
     TREND_FILTER_TYPE_ACTIONS,
     TRENDS_CUMULATIVE,
+    UNIQUE_USERS,
     WEEKLY_ACTIVE,
     PropertyOperatorType,
 )
@@ -20,8 +21,9 @@ from posthog.models.event.sql import EVENT_JOIN_PERSON_SQL
 from posthog.models.filters import Filter
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.property import PropertyGroup
-from posthog.models.property.util import get_property_string_expr, parse_prop_grouped_clauses
+from posthog.models.property.util import get_property_string_expr, normalize_url_breakdown, parse_prop_grouped_clauses
 from posthog.models.team import Team
+from posthog.models.team.team import groups_on_events_querying_enabled
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.breakdown_props import (
     ALL_USERS_COHORT_ID,
@@ -36,6 +38,7 @@ from posthog.queries.person_query import PersonQuery
 from posthog.queries.query_date_range import TIME_IN_SECONDS, QueryDateRange
 from posthog.queries.session_query import SessionQuery
 from posthog.queries.trends.sql import (
+    BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL,
     BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL,
     BREAKDOWN_ACTIVE_USER_INNER_SQL,
     BREAKDOWN_AGGREGATE_QUERY_SQL,
@@ -45,10 +48,20 @@ from posthog.queries.trends.sql import (
     BREAKDOWN_INNER_SQL,
     BREAKDOWN_PROP_JOIN_SQL,
     BREAKDOWN_QUERY_SQL,
-    SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL,
-    SESSION_MATH_BREAKDOWN_INNER_SQL,
+    SESSION_DURATION_BREAKDOWN_AGGREGATE_SQL,
+    SESSION_DURATION_BREAKDOWN_INNER_SQL,
+    VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL,
+    VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL,
 )
-from posthog.queries.trends.util import enumerate_time_range, get_active_user_params, parse_response, process_math
+from posthog.queries.trends.util import (
+    COUNT_PER_ACTOR_MATH_FUNCTIONS,
+    PROPERTY_MATH_FUNCTIONS,
+    ensure_value_is_json_serializable,
+    enumerate_time_range,
+    get_active_user_params,
+    parse_response,
+    process_math,
+)
 from posthog.queries.util import start_of_week_fix
 from posthog.utils import encode_get_request_params
 
@@ -79,6 +92,12 @@ class TrendsBreakdown:
             if not self.using_person_on_events
             else PersonPropertiesMode.DIRECT_ON_EVENTS
         )
+
+    @cached_property
+    def actor_aggregator(self) -> str:
+        if self.team.aggregate_users_by_distinct_id:
+            return "e.distinct_id"
+        return f"{'e' if self._person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS else 'pdi'}.person_id"
 
     @cached_property
     def _props_to_filter(self) -> Tuple[str, Dict]:
@@ -153,7 +172,7 @@ class TrendsBreakdown:
             "actions_query": "AND {}".format(action_query) if action_query else "",
             "event_filter": "AND event = %(event)s" if not action_query else "",
             "filters": prop_filters,
-            "null_person_filter": f"AND e.person_id != toUUIDOrZero('')" if self.using_person_on_events else "",
+            "null_person_filter": f"AND notEmpty(e.person_id)" if self.using_person_on_events else "",
         }
 
         _params, _breakdown_filter_params = {}, {}
@@ -161,8 +180,13 @@ class TrendsBreakdown:
         if self.filter.breakdown_type == "cohort":
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_cohort_params()
         else:
+            aggregate_operation_for_breakdown_init = (
+                "count(*)"
+                if self.entity.math == "dau" or self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS
+                else aggregate_operation
+            )
             _params, breakdown_filter, _breakdown_filter_params, breakdown_value = self._breakdown_prop_params(
-                "count(*)" if self.entity.math == "dau" else aggregate_operation, math_params
+                aggregate_operation_for_breakdown_init, math_params
             )
 
         if len(_params["values"]) == 0:
@@ -181,10 +205,32 @@ class TrendsBreakdown:
         if self.filter.display in NON_TIME_SERIES_DISPLAY_TYPES:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
-            if self.entity.math_property == "$session_duration":
+            if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
+                active_user_format_params, active_user_query_params = get_active_user_params(
+                    self.filter, self.entity, self.team_id
+                )
+                self.params.update(active_user_query_params)
+                conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
+                    **breakdown_filter_params, **active_user_format_params
+                )
+                content_sql = BREAKDOWN_ACTIVE_USER_AGGREGATE_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
+                    person_id_alias=self.DISTINCT_ID_TABLE_ALIAS if not self.using_person_on_events else "e",
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    breakdown_value=breakdown_value,
+                    conditions=conditions,
+                    GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
+                    **active_user_format_params,
+                    **breakdown_filter_params,
+                )
+            elif self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                content_sql = SESSION_MATH_BREAKDOWN_AGGREGATE_QUERY_SQL.format(
+                content_sql = SESSION_DURATION_BREAKDOWN_AGGREGATE_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
@@ -192,6 +238,16 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     breakdown_value=breakdown_value,
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
+                )
+            elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
+                content_sql = VOLUME_PER_ACTOR_BREAKDOWN_AGGREGATE_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join_condition=sessions_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    aggregator=self.actor_aggregator,
+                    breakdown_value=breakdown_value,
                 )
             else:
                 content_sql = BREAKDOWN_AGGREGATE_QUERY_SQL.format(
@@ -215,9 +271,12 @@ class TrendsBreakdown:
             breakdown_filter = breakdown_filter.format(**breakdown_filter_params)
 
             if self.entity.math in [WEEKLY_ACTIVE, MONTHLY_ACTIVE]:
-                active_user_params = get_active_user_params(self.filter, self.entity, self.team_id)
+                active_user_format_params, active_user_query_params = get_active_user_params(
+                    self.filter, self.entity, self.team_id
+                )
+                self.params.update(active_user_query_params)
                 conditions = BREAKDOWN_ACTIVE_USER_CONDITIONS_SQL.format(
-                    **breakdown_filter_params, **active_user_params
+                    **breakdown_filter_params, **active_user_format_params
                 )
                 inner_sql = BREAKDOWN_ACTIVE_USER_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
@@ -230,7 +289,7 @@ class TrendsBreakdown:
                     breakdown_value=breakdown_value,
                     conditions=conditions,
                     GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(self.team_id),
-                    **active_user_params,
+                    **active_user_format_params,
                     **breakdown_filter_params,
                 )
             elif self.filter.display == TRENDS_CUMULATIVE and self.entity.math == "dau":
@@ -243,13 +302,13 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
-            elif self.entity.math_property == "$session_duration":
+            elif self.entity.math in PROPERTY_MATH_FUNCTIONS and self.entity.math_property == "$session_duration":
                 # TODO: When we add more person/group properties to math_property,
                 # generalise this query to work for everything, not just sessions.
-                inner_sql = SESSION_MATH_BREAKDOWN_INNER_SQL.format(
+                inner_sql = SESSION_DURATION_BREAKDOWN_INNER_SQL.format(
                     breakdown_filter=breakdown_filter,
                     person_join=person_join_condition,
                     groups_join=groups_join_condition,
@@ -257,8 +316,21 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     event_sessions_table_alias=SessionQuery.SESSION_TABLE_ALIAS,
+                    **breakdown_filter_params,
+                )
+            elif self.entity.math in COUNT_PER_ACTOR_MATH_FUNCTIONS:
+                inner_sql = VOLUME_PER_ACTOR_BREAKDOWN_INNER_SQL.format(
+                    breakdown_filter=breakdown_filter,
+                    person_join=person_join_condition,
+                    groups_join=groups_join_condition,
+                    sessions_join=sessions_join_condition,
+                    aggregate_operation=aggregate_operation,
+                    interval_annotation=interval_annotation,
+                    aggregator=self.actor_aggregator,
+                    breakdown_value=breakdown_value,
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
             else:
@@ -270,7 +342,7 @@ class TrendsBreakdown:
                     aggregate_operation=aggregate_operation,
                     interval_annotation=interval_annotation,
                     breakdown_value=breakdown_value,
-                    start_of_week_fix=start_of_week_fix(self.filter),
+                    start_of_week_fix=start_of_week_fix(self.filter.interval),
                     **breakdown_filter_params,
                 )
 
@@ -278,7 +350,6 @@ class TrendsBreakdown:
                 interval=interval_annotation, num_intervals=num_intervals, inner_sql=inner_sql
             )
             self.params.update({"seconds_in_interval": seconds_in_interval, "num_intervals": num_intervals})
-
             return breakdown_query, self.params, self._parse_trend_result(self.filter, self.entity)
 
     def _breakdown_cohort_params(self):
@@ -328,15 +399,19 @@ class TrendsBreakdown:
             else:
                 raise ValidationError(f'Invalid breakdown "{breakdown}" for breakdown type "session"')
 
-        elif self.using_person_on_events:
+        elif (
+            self.using_person_on_events
+            and self.filter.breakdown_type == "group"
+            and groups_on_events_querying_enabled()
+        ):
+            properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
+            breakdown_value, _ = get_property_string_expr(
+                "events", breakdown, "%(key)s", properties_field, materialised_table_column=properties_field
+            )
+        elif self.using_person_on_events and self.filter.breakdown_type != "group":
             if self.filter.breakdown_type == "person":
                 breakdown_value, _ = get_property_string_expr(
                     "events", breakdown, "%(key)s", "person_properties", materialised_table_column="person_properties"
-                )
-            elif self.filter.breakdown_type == "group":
-                properties_field = f"group{self.filter.breakdown_group_type_index}_properties"
-                breakdown_value, _ = get_property_string_expr(
-                    "events", breakdown, "%(key)s", properties_field, materialised_table_column=properties_field
                 )
             else:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
@@ -352,7 +427,10 @@ class TrendsBreakdown:
                 breakdown_value, _ = get_property_string_expr("events", breakdown, "%(key)s", "properties")
 
         if self.filter.using_histogram:
-            return f"toFloat64OrNull(toString({breakdown_value}))"
+            breakdown_value = f"toFloat64OrNull(toString({breakdown_value}))"
+
+        breakdown_value = normalize_url_breakdown(breakdown_value, self.filter.breakdown_normalize_url)
+
         return breakdown_value
 
     def _get_histogram_breakdown_values(self, raw_breakdown_value: str, buckets: List[int]):
@@ -392,14 +470,17 @@ class TrendsBreakdown:
         if self.filter.breakdown_type == "session":
             # if session duration breakdown, we want ordering based on the time buckets, not the value
             return (-1, "")
-        return (value.get("count", value.get("aggregated_value", 0)) * -1, value.get("label"))  # reverse it
+
+        count_or_aggregated_value = value.get("count", value.get("aggregated_value") or 0)
+        return count_or_aggregated_value * -1, value.get("label")  # reverse it
 
     def _parse_single_aggregate_result(
         self, filter: Filter, entity: Entity, additional_values: Dict[str, Any]
     ) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for idx, stats in enumerate(result):
+            for stats in result:
+                aggregated_value = ensure_value_is_json_serializable(stats[0])
                 result_descriptors = self._breakdown_result_descriptors(stats[1], filter, entity)
                 filter_params = filter.to_params()
                 extra_params = {
@@ -410,7 +491,7 @@ class TrendsBreakdown:
                 }
                 parsed_params: Dict[str, str] = encode_get_request_params({**filter_params, **extra_params})
                 parsed_result = {
-                    "aggregated_value": stats[0],
+                    "aggregated_value": aggregated_value,
                     "filter": filter_params,
                     "persons": {
                         "filter": extra_params,
@@ -427,7 +508,7 @@ class TrendsBreakdown:
     def _parse_trend_result(self, filter: Filter, entity: Entity) -> Callable:
         def _parse(result: List) -> List:
             parsed_results = []
-            for idx, stats in enumerate(result):
+            for stats in result:
                 result_descriptors = self._breakdown_result_descriptors(stats[2], filter, entity)
                 parsed_result = parse_response(stats, filter, additional_values=result_descriptors)
                 parsed_result.update(
@@ -521,9 +602,9 @@ class TrendsBreakdown:
                 params,
             )
         elif (
-            self.entity.math in ["dau", WEEKLY_ACTIVE, MONTHLY_ACTIVE]
-            or self.column_optimizer.is_using_cohort_propertes
-        ):
+            self.entity.math in [UNIQUE_USERS, WEEKLY_ACTIVE, MONTHLY_ACTIVE]
+            and not self.team.aggregate_users_by_distinct_id
+        ) or self.column_optimizer.is_using_cohort_propertes:
             # Only join distinct_ids
             return event_join, {}
         else:

@@ -4,7 +4,7 @@ import * as fs from 'fs'
 import { createPool } from 'generic-pool'
 import { StatsD } from 'hot-shots'
 import Redis from 'ioredis'
-import { Kafka, Partitioners, SASLOptions } from 'kafkajs'
+import { Kafka, KafkaJSError, Partitioners, SASLOptions } from 'kafkajs'
 import { DateTime } from 'luxon'
 import * as path from 'path'
 import { types as pgTypes } from 'pg'
@@ -13,9 +13,15 @@ import { ConnectionOptions } from 'tls'
 import { getPluginServerCapabilities } from '../../capabilities'
 import { defaultConfig } from '../../config/config'
 import { KAFKAJS_LOG_LEVEL_MAPPING } from '../../config/constants'
-import { GraphileWorker } from '../../main/jobs/graphile-worker'
+import { KAFKA_JOBS } from '../../config/kafka-topics'
 import { connectObjectStorage } from '../../main/services/object_storage'
-import { Hub, KafkaSecurityProtocol, PluginServerCapabilities, PluginsServerConfig } from '../../types'
+import {
+    EnqueuedPluginJob,
+    Hub,
+    KafkaSecurityProtocol,
+    PluginServerCapabilities,
+    PluginsServerConfig,
+} from '../../types'
 import { ActionManager } from '../../worker/ingestion/action-manager'
 import { ActionMatcher } from '../../worker/ingestion/action-matcher'
 import { AppMetrics } from '../../worker/ingestion/app-metrics'
@@ -25,14 +31,13 @@ import { PersonManager } from '../../worker/ingestion/person-manager'
 import { EventsProcessor } from '../../worker/ingestion/process-event'
 import { SiteUrlManager } from '../../worker/ingestion/site-url-manager'
 import { TeamManager } from '../../worker/ingestion/team-manager'
-import { InternalMetrics } from '../internal-metrics'
-import { killProcess } from '../kill'
 import { status } from '../status'
-import { createPostgresPool, createRedis, logOrThrowJobQueueError, UUIDT } from '../utils'
+import { createPostgresPool, createRedis, UUIDT } from '../utils'
 import { PluginsApiKeyManager } from './../../worker/vm/extensions/helpers/api-key-manager'
 import { RootAccessManager } from './../../worker/vm/extensions/helpers/root-acess-manager'
 import { PromiseManager } from './../../worker/vm/promise-manager'
 import { DB } from './db'
+import { DependencyUnavailableError } from './error'
 import { KafkaProducerWrapper } from './kafka-producer-wrapper'
 
 const { version } = require('../../../package.json')
@@ -71,10 +76,6 @@ export async function createHub(
 
     const conversionBufferEnabledTeams = new Set(
         serverConfig.CONVERSION_BUFFER_ENABLED_TEAMS.split(',').filter(String).map(Number)
-    )
-
-    const conversionBufferTopicEnabledTeams = new Set(
-        serverConfig.CONVERSION_BUFFER_TOPIC_ENABLED_TEAMS.split(',').filter(String).map(Number)
     )
 
     if (serverConfig.STATSD_HOST) {
@@ -139,7 +140,8 @@ export async function createHub(
 
     status.info('🤔', `Connecting to ClickHouse...`)
     const clickhouse = new ClickHouse({
-        host: serverConfig.CLICKHOUSE_HOST,
+        // We prefer to run queries on the offline cluster.
+        host: serverConfig.CLICKHOUSE_OFFLINE_CLUSTER_HOST ?? serverConfig.CLICKHOUSE_HOST,
         port: serverConfig.CLICKHOUSE_SECURE ? 8443 : 8123,
         protocol: serverConfig.CLICKHOUSE_SECURE ? 'https:' : 'http:',
         user: serverConfig.CLICKHOUSE_USER,
@@ -177,7 +179,7 @@ export async function createHub(
     status.info('👍', `Kafka ready`)
 
     status.info('🤔', `Connecting to Postgresql...`)
-    const postgres = createPostgresPool(serverConfig)
+    const postgres = createPostgresPool(serverConfig.DATABASE_URL)
     status.info('👍', `Postgresql ready`)
 
     status.info('🤔', `Connecting to Redis...`)
@@ -213,8 +215,7 @@ export async function createHub(
         clickhouse,
         statsd,
         promiseManager,
-        serverConfig.PERSON_INFO_CACHE_TTL,
-        new Set(serverConfig.PERSON_INFO_TO_REDIS_TEAMS.split(',').filter(String).map(Number))
+        serverConfig.PERSON_INFO_CACHE_TTL
     )
     const teamManager = new TeamManager(db, serverConfig, statsd)
     const organizationManager = new OrganizationManager(db, teamManager)
@@ -223,6 +224,40 @@ export async function createHub(
     const siteUrlManager = new SiteUrlManager(db, serverConfig.SITE_URL)
     const actionManager = new ActionManager(db, capabilities)
     await actionManager.prepare()
+
+    const enqueuePluginJob = async (job: EnqueuedPluginJob) => {
+        // NOTE: we use the producer directly here rather than using the wrapper
+        // such that we can a response immediately on error, and thus bubble up
+        // any errors in producing. It's important that we ensure that we have
+        // an acknowledgement as for instance there are some jobs that are
+        // chained, and if we do not manage to produce then the chain will be
+        // broken.
+        try {
+            await kafkaProducer.producer.send({
+                topic: KAFKA_JOBS,
+                messages: [
+                    {
+                        key: job.pluginConfigTeam.toString(),
+                        value: JSON.stringify(job),
+                    },
+                ],
+            })
+        } catch (error) {
+            if (error instanceof KafkaJSError) {
+                // If we get a retriable Kafka error (maybe it's down for
+                // example), rethrow the error as a generic `DependencyUnavailableError`
+                // passing through retriable such that we can decide if this is
+                // something we should retry at the consumer level.
+                if (error.retriable) {
+                    throw new DependencyUnavailableError(error.message, 'Kafka', error)
+                }
+            }
+
+            // Otherwise, just rethrow the error as is. E.g. if we fail to
+            // serialize then we don't want to retry.
+            throw error
+        }
+    }
 
     const hub: Partial<Hub> = {
         ...serverConfig,
@@ -235,6 +270,7 @@ export async function createHub(
         kafka,
         kafkaProducer,
         statsd,
+        enqueuePluginJob,
 
         plugins: new Map(),
         pluginConfigs: new Map(),
@@ -243,7 +279,6 @@ export async function createHub(
         pluginConfigSecretLookup: new Map(),
 
         pluginSchedule: null,
-        pluginSchedulePromises: { runEveryMinute: {}, runEveryHour: {}, runEveryDay: {} },
 
         teamManager,
         organizationManager,
@@ -254,38 +289,19 @@ export async function createHub(
         actionManager,
         actionMatcher: new ActionMatcher(db, actionManager, statsd),
         conversionBufferEnabledTeams,
-        conversionBufferTopicEnabledTeams,
     }
 
     // :TODO: This is only used on worker threads, not main
     hub.eventsProcessor = new EventsProcessor(hub as Hub)
     hub.personManager = new PersonManager(hub as Hub)
 
-    hub.graphileWorker = new GraphileWorker(hub as Hub)
     hub.hookCannon = new HookCommander(db, teamManager, organizationManager, siteUrlManager, statsd)
     hub.appMetrics = new AppMetrics(hub as Hub)
 
-    if (serverConfig.CAPTURE_INTERNAL_METRICS) {
-        hub.internalMetrics = new InternalMetrics(hub as Hub)
-    }
-
-    try {
-        await hub.graphileWorker.connectProducer()
-    } catch (error) {
-        try {
-            logOrThrowJobQueueError(hub as Hub, error, `Cannot start job queue producer!`)
-        } catch {
-            killProcess()
-        }
-    }
-
     const closeHub = async () => {
         hub.mmdbUpdateJob?.cancel()
-        await hub.graphileWorker?.disconnectProducer()
-        await kafkaProducer.disconnect()
-        await redisPool.drain()
+        await Promise.allSettled([kafkaProducer.disconnect(), redisPool.drain(), hub.postgres?.end()])
         await redisPool.clear()
-        await hub.postgres?.end()
     }
 
     return [hub as Hub, closeHub]

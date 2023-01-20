@@ -1,6 +1,5 @@
 import './Funnel.scss'
 import { BindLogic, useValues } from 'kea'
-import React from 'react'
 import { ChartParams, FunnelVizType } from '~/types'
 import { FunnelHistogram } from './FunnelHistogram'
 import { funnelLogic } from './funnelLogic'

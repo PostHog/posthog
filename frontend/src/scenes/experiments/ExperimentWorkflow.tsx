@@ -1,6 +1,6 @@
 import { Card, Col, Row } from 'antd'
 import { IconCheckmark, IconRadioButtonUnchecked } from 'lib/components/icons'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import './Experiment.scss'
 
 export function ExperimentWorkflow(): JSX.Element {

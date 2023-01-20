@@ -1,4 +1,3 @@
-import React from 'react'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 import { getBreakpoint } from 'lib/utils/responsiveUtils'
 

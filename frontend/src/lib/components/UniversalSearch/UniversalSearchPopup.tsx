@@ -1,5 +1,5 @@
 import './UniversalSearch.scss'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { LemonButtonWithPopupProps } from '../LemonButton'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps, TaxonomicFilterValue } from '../TaxonomicFilter/types'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -124,7 +124,7 @@ export function UniversalSearchPopup({
     const [visible, setVisible] = useState(false)
 
     const { isSideBarShown } = useValues(navigationLogic)
-    const universalSearchLogicProps: TaxonomicFilterLogicProps = {
+    const taxonomicFilterLogicProps: TaxonomicFilterLogicProps = {
         groupType,
         value,
         onChange: ({ type }, payload, item) => {
@@ -138,7 +138,7 @@ export function UniversalSearchPopup({
         selectFirstItem: true,
         taxonomicFilterLogicKey: 'universalSearch',
     }
-    const logic = taxonomicFilterLogic(universalSearchLogicProps)
+    const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)
     const { searchQuery } = useValues(logic)
 
     // Command+S shortcut to get to universal search popup
@@ -152,14 +152,7 @@ export function UniversalSearchPopup({
     return (
         <div className="universal-search">
             <Popup
-                overlay={
-                    <TaxonomicFilter
-                        taxonomicFilterLogicKey="universalSearch"
-                        groupType={groupType}
-                        value={value}
-                        taxonomicGroupTypes={groupTypes ?? [groupType]}
-                    />
-                }
+                overlay={<TaxonomicFilter {...taxonomicFilterLogicProps} />}
                 visible={visible}
                 placement="right-start"
                 fallbackPlacements={['bottom']}

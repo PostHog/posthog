@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
@@ -14,8 +14,8 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/feature_flags': featureFlags,
-                '/api/projects/:projectId/feature_flags/:flagId/': (req) => [
+                '/api/projects/:team_id/feature_flags': featureFlags,
+                '/api/projects/:team_id/feature_flags/:flagId/': (req) => [
                     200,
                     featureFlags.results.find((r) => r.id === Number(req.params['flagId'])),
                 ],

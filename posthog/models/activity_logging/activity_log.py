@@ -15,7 +15,7 @@ from posthog.models.utils import UUIDT, UUIDModel
 
 logger = structlog.get_logger(__name__)
 
-ActivityScope = Literal["FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig"]
+ActivityScope = Literal["FeatureFlag", "Person", "Insight", "Plugin", "PluginConfig", "SessionRecordingPlaylist"]
 ChangeAction = Literal["changed", "created", "deleted", "merged", "split", "exported"]
 
 
@@ -87,7 +87,7 @@ class ActivityLog(UUIDModel):
     created_at: models.DateTimeField = models.DateTimeField(default=timezone.now)
 
 
-field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] = {
+field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"], List[str]] = {
     "FeatureFlag": ["id", "created_at", "created_by", "is_simple_flag", "experiment", "team", "featureflagoverride"],
     "Person": [
         "id",
@@ -129,11 +129,13 @@ field_exclusions: Dict[Literal["FeatureFlag", "Person", "Insight"], List[str]] =
         "created_by",
         "insightviewed",
         "dashboardtile",
+        "caching_states",
     ],
+    "SessionRecordingPlaylist": ["id", "short_id", "created_at", "created_by", "last_modified_at", "last_modified_by"],
 }
 
 
-def _description(m: List[Any]) -> Union[str, Dict]:
+def describe_change(m: Any) -> Union[str, Dict]:
     if isinstance(m, Dashboard):
         return {"id": m.id, "name": m.name}
     if isinstance(m, DashboardTile):
@@ -148,7 +150,7 @@ def _description(m: List[Any]) -> Union[str, Dict]:
 
 
 def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
-    described_models = [_description(r) for r in relation.all()]
+    described_models = [describe_change(r) for r in relation.all()]
 
     if all(isinstance(elem, str) for elem in described_models):
         # definitely a list of strings now but mypy doesn't know that
@@ -158,7 +160,7 @@ def _read_through_relation(relation: models.Manager) -> List[Union[Dict, str]]:
 
 
 def changes_between(
-    model_type: Literal["FeatureFlag", "Person", "Insight"],
+    model_type: Literal["FeatureFlag", "Person", "Insight", "SessionRecordingPlaylist"],
     previous: Optional[models.Model],
     current: Optional[models.Model],
 ) -> List[Change]:

@@ -1,6 +1,5 @@
-import React from 'react'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { useValues } from 'kea'
 import './ActivityLog.scss'
 import { activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
@@ -107,7 +106,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
             ) : humanizedActivity.length > 0 ? (
                 <>
                     {humanizedActivity.map((logItem, index) => (
-                        <ActivityLogRow key={index} logItem={logItem} />
+                        <ActivityLogRow key={index} logItem={logItem} showExtendedDescription={true} />
                     ))}
                     <PaginationControl {...paginationState} nouns={['activity', 'activities']} />
                 </>

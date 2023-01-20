@@ -5,12 +5,12 @@ from . import (
     calculate_cohort,
     calculate_event_property_usage,
     check_clickhouse_schema_drift,
+    demo_create_data,
     email,
     exporter,
     split_person,
-    status_report,
     sync_all_organization_available_features,
-    update_cache,
+    usage_report,
     user_identify,
 )
 
@@ -19,11 +19,11 @@ __all__ = [
     "calculate_cohort",
     "calculate_event_property_usage",
     "check_clickhouse_schema_drift",
+    "demo_create_data",
     "email",
     "exporter",
     "split_person",
-    "status_report",
     "sync_all_organization_available_features",
-    "update_cache",
     "user_identify",
+    "usage_report",
 ]

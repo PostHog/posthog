@@ -44,7 +44,7 @@
                                           AND ((replaceRegexpAll(JSONExtractRaw(person.properties, 'email'), '^"|"$', '') ILIKE '%.com%')) )
                                    GROUP BY id
                                    HAVING max(is_deleted) = 0
-                                   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%')))), 1, 0) as step_0,
+                                   AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%')))), 1, 0) as step_0,
                         if(step_0 = 1, timestamp, null) as latest_0,
                         if(event = 'paid', 1, 0) as step_1,
                         if(step_1 = 1, timestamp, null) as latest_1
@@ -71,14 +71,14 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_precalculated_cohort_step_filter
@@ -181,14 +181,14 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups
@@ -296,21 +296,21 @@
                                              OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
                              GROUP BY id
                              HAVING max(is_deleted) = 0
-                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
-                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
-                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.1
@@ -412,25 +412,25 @@
                                              OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
                              GROUP BY id
                              HAVING max(is_deleted) = 0
-                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
-                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
-                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.2
@@ -532,25 +532,25 @@
                                              OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
                              GROUP BY id
                              HAVING max(is_deleted) = 0
-                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
-                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
-                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [2, 3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_property_groups.3
@@ -652,25 +652,25 @@
                                              OR has(['28'], replaceRegexpAll(JSONExtractRaw(person.properties, 'age'), '^"|"$', '')))) )
                              GROUP BY id
                              HAVING max(is_deleted) = 0
-                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.com%'
-                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', '')))
-                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'email'), '^"|"$', '') ILIKE '%.org%'
-                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                             AND ((replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.com%'
+                                   AND has(['20'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', '')))
+                                  OR (replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'email'), '^"|"$', '') ILIKE '%.org%'
+                                      OR has(['28'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'age'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                           WHERE team_id = 2
                             AND event IN ['$pageview', 'user signed up']
-                            AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                            AND timestamp <= toDateTime('2020-07-01 00:00:00') ) events
+                            AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                            AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-07-01 23:59:59', 'UTC') ) events
                        WHERE (step_0 = 1
                               OR step_1 = 1
                               OR step_2 = 1) ))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [3]
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFOSSFunnel.test_funnel_with_static_cohort_step_filter
@@ -739,14 +739,14 @@
                        HAVING max(is_deleted) = 0) person ON person.id = pdi.person_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                      AND timestamp <= toDateTime('2020-01-14 23:59:59') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'UTC') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFOSSFunnel.test_timezones
@@ -804,14 +804,14 @@
                        HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                     WHERE team_id = 2
                       AND event IN ['paid', 'user signed up']
-                      AND timestamp >= toDateTime('2020-01-01 08:00:00')
-                      AND timestamp <= toDateTime('2020-01-15 07:59:59') ) events
+                      AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'US/Pacific')
+                      AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-14 23:59:59', 'US/Pacific') ) events
                  WHERE (step_0 = 1
                         OR step_1 = 1) ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1) SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
   '
 ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen
@@ -824,8 +824,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -902,16 +902,16 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestFunnelBreakdown.test_funnel_breakdown_correct_breakdown_props_are_chosen_for_step
@@ -924,8 +924,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = 'buy'
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (has(['xyz'], replaceRegexpAll(JSONExtractRaw(e.properties, '$version'), '^"|"$', '')))
      GROUP BY value
      ORDER BY count DESC, value DESC
@@ -1005,18 +1005,18 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) ) ARRAY
                  JOIN prop_vals as prop
                  WHERE prop != [] ))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestFunnelBreakdown.test_funnel_step_multiple_breakdown_snapshot
@@ -1029,8 +1029,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1106,15 +1106,15 @@
                           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
                        WHERE team_id = 2
                          AND event IN ['buy', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1) )))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---

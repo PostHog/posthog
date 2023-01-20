@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import Fuse from 'fuse.js'
 import { Select } from 'antd'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'

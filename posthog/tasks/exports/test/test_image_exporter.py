@@ -18,7 +18,7 @@ from posthog.test.base import APIBaseTest
 TEST_BUCKET = "Test-Exports"
 
 
-@patch("posthog.tasks.exports.image_exporter.synchronously_update_insight_cache")
+@patch("posthog.tasks.exports.image_exporter.synchronously_update_cache")
 @patch("posthog.tasks.exports.image_exporter._screenshot_asset")
 @patch("builtins.open", new_callable=mock_open, read_data=b"image_data")
 @patch("os.remove")
@@ -44,9 +44,7 @@ class TestImageExporter(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_BUCKET).delete()
 
-    def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(
-        self, mock_update_cache, mock_screenshot, mock_file_read, mock_remove
-    ) -> None:
+    def test_image_exporter_writes_to_asset_when_object_storage_is_disabled(self, *args) -> None:
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(self.exported_asset)
 
@@ -54,9 +52,7 @@ class TestImageExporter(APIBaseTest):
             assert self.exported_asset.content_location is None
 
     @patch("posthog.models.exported_asset.UUIDT")
-    def test_image_exporter_writes_to_object_storage_when_object_storage_is_enabled(
-        self, mocked_uuidt, mock_update_cache, mock_screenshot, mock_file_read, mock_remove
-    ) -> None:
+    def test_image_exporter_writes_to_object_storage_when_object_storage_is_enabled(self, mocked_uuidt, *args) -> None:
         mocked_uuidt.return_value = "a-guid"
         with self.settings(OBJECT_STORAGE_ENABLED=True, OBJECT_STORAGE_EXPORTS_FOLDER="Test-Exports"):
             image_exporter.export_image(self.exported_asset)
@@ -74,7 +70,7 @@ class TestImageExporter(APIBaseTest):
     @patch("posthog.models.exported_asset.UUIDT")
     @patch("posthog.models.exported_asset.object_storage.write")
     def test_image_exporter_writes_to_object_storage_when_object_storage_write_fails(
-        self, mocked_object_storage_write, mocked_uuidt, mock_update_cache, mock_screenshot, mock_file_read, mock_remove
+        self, mocked_object_storage_write, mocked_uuidt, *args
     ) -> None:
         mocked_uuidt.return_value = "a-guid"
         mocked_object_storage_write.side_effect = ObjectStorageError("mock write failed")

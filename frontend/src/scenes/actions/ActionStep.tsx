@@ -1,15 +1,16 @@
-import React from 'react'
 import { EventName } from './EventName'
-import { AppEditorLink } from 'lib/components/AppEditorLink/AppEditorLink'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { Tooltip } from 'lib/components/Tooltip'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
-import { Card, Col, Radio, Typography, Space, RadioChangeEvent } from 'antd'
-import { ExportOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { Col, Radio, RadioChangeEvent } from 'antd'
 import { ActionStepType } from '~/types'
-import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
-
-const { Text } = Typography
+import { LemonButton, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { IconClose, IconOpenInApp } from 'lib/components/icons'
+import { LemonDialog } from 'lib/components/LemonDialog'
+import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
+import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { useState } from 'react'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 const learnMoreLink = 'https://posthog.com/docs/user-guides/actions?utm_medium=in-product&utm_campaign=action-page'
 
@@ -30,100 +31,100 @@ export function ActionStep({ step, actionId, isOnlyStep, index, identifier, onDe
 
     return (
         <Col span={24} md={12}>
-            <Card className="action-step" style={{ overflow: 'visible' }}>
+            <div className="rounded border p-4 relative h-full">
                 {index > 0 && <div className="stateful-badge pos-center-end or">OR</div>}
-                <div>
-                    {!isOnlyStep && (
-                        <div className="remove-wrapper">
-                            <button type="button" aria-label="delete" onClick={onDelete}>
-                                <span aria-hidden="true">&times;</span>
-                            </button>
-                        </div>
-                    )}
-                    <div className="mb-4">
+                <div className="space-y-4">
+                    <div className="flex items-center justify-between">
                         <b>Match Group #{index + 1}</b>
+
+                        {!isOnlyStep && (
+                            <LemonButton
+                                status="primary-alt"
+                                icon={<IconClose />}
+                                size="small"
+                                aria-label="delete"
+                                onClick={onDelete}
+                            />
+                        )}
                     </div>
                     {<TypeSwitcher step={step} sendStep={sendStep} />}
-                    <div
-                        style={{
-                            marginTop: step.event === '$pageview' ? 20 : 8,
-                            paddingBottom: 0,
-                        }}
-                    >
-                        {step.event === '$autocapture' && (
-                            <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
-                        )}
-                        {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
-                            <div style={{ marginTop: '2rem' }}>
-                                <label>
-                                    <b>Event name: </b>
-                                </label>
-                                <EventName
-                                    value={step.event}
-                                    onChange={(value) =>
-                                        sendStep({
-                                            ...step,
-                                            event: value || '',
-                                        })
-                                    }
-                                />
 
-                                <br />
+                    {step.event === '$autocapture' && (
+                        <AutocaptureFields step={step} sendStep={sendStep} actionId={actionId} />
+                    )}
+                    {step.event != null && step.event !== '$autocapture' && step.event !== '$pageview' && (
+                        <div className="space-y-1">
+                            <LemonLabel>Event name</LemonLabel>
+                            <EventName
+                                value={step.event}
+                                onChange={(value) =>
+                                    sendStep({
+                                        ...step,
+                                        event: value || '',
+                                    })
+                                }
+                            />
 
-                                <small>
-                                    <a
-                                        href="https://posthog.com/docs/libraries"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                    >
-                                        See documentation
-                                    </a>{' '}
-                                    on how to send custom events in lots of languages.
-                                </small>
-                            </div>
-                        )}
-                        {step.event === '$pageview' && (
-                            <div>
-                                <Option
-                                    step={step}
-                                    sendStep={sendStep}
-                                    item="url"
-                                    extra_options={<URLMatching step={step} sendStep={sendStep} />}
-                                    label="URL"
-                                />
-                                {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
-                                    <small style={{ display: 'block', marginTop: -12 }}>
-                                        {URL_MATCHING_HINTS[step.url_matching]}
-                                    </small>
-                                )}
-                            </div>
-                        )}
+                            <small>
+                                <Link to="https://posthog.com/docs/libraries" target="_blank">
+                                    See documentation
+                                </Link>{' '}
+                                on how to send custom events in lots of languages.
+                            </small>
+                        </div>
+                    )}
+                    {step.event === '$pageview' && (
+                        <div>
+                            <Option
+                                step={step}
+                                sendStep={sendStep}
+                                item="url"
+                                extra_options={<URLMatching step={step} sendStep={sendStep} />}
+                                label="URL"
+                            />
+                            {step.url_matching && step.url_matching in URL_MATCHING_HINTS && (
+                                <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
+                            )}
+                        </div>
+                    )}
 
-                        {step.event && (
-                            <div className="action-property-filters">
-                                <h3 className="l3">Filters</h3>
-                                {(!step.properties || step.properties.length === 0) && (
-                                    <div className="text-muted">This match group has no additional filters.</div>
-                                )}
-                                <PropertyFilters
-                                    propertyFilters={step.properties}
-                                    pageKey={identifier}
-                                    eventNames={step.event ? [step.event] : []}
-                                    onChange={(properties) => {
-                                        sendStep({
-                                            ...step,
-                                            properties: properties as [],
-                                        })
-                                    }}
-                                    showConditionBadge
-                                />
-                            </div>
-                        )}
-                    </div>
+                    {step.event && (
+                        <div className="mt-6 space-y-2">
+                            <h3>Filters</h3>
+                            {(!step.properties || step.properties.length === 0) && (
+                                <div className="text-muted">This match group has no additional filters.</div>
+                            )}
+                            <PropertyFilters
+                                propertyFilters={step.properties}
+                                pageKey={identifier}
+                                eventNames={step.event ? [step.event] : []}
+                                onChange={(properties) => {
+                                    sendStep({
+                                        ...step,
+                                        properties: properties as [],
+                                    })
+                                }}
+                                showConditionBadge
+                            />
+                        </div>
+                    )}
                 </div>
-            </Card>
+            </div>
         </Col>
     )
+}
+
+/**
+ * There are several issues with how autocapture actions are matched. See https://github.com/PostHog/posthog/issues/7333
+ *
+ * Until they are fixed this validator can be used to guide users to working solutions
+ */
+const validateSelector = (val: string, selectorPrompts: (s: string | null) => void): void => {
+    if (val.includes('#')) {
+        selectorPrompts('The ID selector "#example" does not match in PostHog actions. Use `[id="example"]` instead')
+    } else {
+        selectorPrompts(null)
+    }
 }
 
 function Option(props: {
@@ -141,18 +142,28 @@ function Option(props: {
             [props.item]: val || null, // "" is a valid filter, we don't want it
         })
 
+    const [selectorPrompt, setSelectorPrompt] = useState(null as string | null)
+
     return (
-        <div className="mb-4">
-            <label style={{ fontWeight: 'bold' }}>
+        <div className="space-y-1">
+            <LemonLabel>
                 {props.label} {props.extra_options}
-            </label>
+            </LemonLabel>
             {props.caption && <div className="action-step-caption">{props.caption}</div>}
             {props.item === 'selector' ? (
-                <LemonTextArea
-                    onChange={onOptionChange}
-                    value={props.step[props.item] || ''}
-                    placeholder={props.placeholder}
-                />
+                <>
+                    <LemonTextArea
+                        onChange={(val: string) => {
+                            validateSelector(val, setSelectorPrompt)
+                            onOptionChange(val)
+                        }}
+                        value={props.step[props.item] || ''}
+                        placeholder={props.placeholder}
+                    />
+                    <div className={selectorPrompt ? 'visible' : 'hidden'}>
+                        <AlertMessage type="warning">{selectorPrompt}</AlertMessage>
+                    </div>
+                </>
             ) : (
                 <LemonInput
                     data-attr="edit-action-url-input"
@@ -166,6 +177,14 @@ function Option(props: {
     )
 }
 
+const AndSeparator = (): JSX.Element => {
+    return (
+        <div className="text-center my-2">
+            <span className="stateful-badge and">AND</span>
+        </div>
+    )
+}
+
 function AutocaptureFields({
     step,
     actionId,
@@ -175,28 +194,33 @@ function AutocaptureFields({
     sendStep: (stepToSend: ActionStepType) => void
     actionId: number
 }): JSX.Element {
-    const AndC = (): JSX.Element => {
-        return (
-            <div className="text-center">
-                <span className="stateful-badge and">AND</span>
-            </div>
-        )
+    const onSelectElement = (): void => {
+        LemonDialog.open({
+            title: 'Select an element',
+            description: actionId
+                ? 'Choose the domain on which to edit this action'
+                : 'Choose the domain on which to create this action',
+            content: (
+                <>
+                    <AuthorizedUrlList actionId={actionId} type={AuthorizedUrlListType.TOOLBAR_URLS} />
+                </>
+            ),
+            primaryButton: {
+                children: 'Close',
+                type: 'secondary',
+            },
+        })
     }
     return (
-        <div>
-            <span>
-                <AppEditorLink actionId={actionId} style={{ margin: '1rem 0' }}>
-                    Select element on site <ExportOutlined />
-                </AppEditorLink>
-                <a
-                    href={`${learnMoreLink}#autocapture-based-actions`}
-                    target="_blank"
-                    rel="noopener"
-                    style={{ marginLeft: 8 }}
-                >
+        <div className="space-y-4">
+            <div className="flex items-center gap-2">
+                <LemonButton size="small" type="secondary" onClick={onSelectElement} sideIcon={<IconOpenInApp />}>
+                    Select element on site
+                </LemonButton>
+                <Link to={`${learnMoreLink}#autocapture-based-actions`} target="_blank">
                     See documentation.
-                </a>{' '}
-            </span>
+                </Link>
+            </div>
             <Option
                 step={step}
                 sendStep={sendStep}
@@ -208,7 +232,7 @@ function AutocaptureFields({
                     </>
                 }
             />
-            <AndC />
+            <AndSeparator />
             <Option
                 step={step}
                 sendStep={sendStep}
@@ -216,34 +240,22 @@ function AutocaptureFields({
                 label="Text equals"
                 caption="Text content inside your element"
             />
-            <AndC />
+            <AndSeparator />
             <Option
                 step={step}
                 sendStep={sendStep}
                 item="selector"
-                label={
-                    <>
-                        HTML selector matches
-                        <Tooltip title="Click here to learn more about supported selectors">
-                            <a href={`${learnMoreLink}#matching-selectors`} target="_blank" rel="noopener">
-                                <InfoCircleOutlined style={{ marginLeft: 4 }} />
-                            </a>
-                        </Tooltip>
-                    </>
-                }
+                label="HTML selector matches"
                 placeholder='button[data-attr="my-id"]'
                 caption={
-                    <Space direction="vertical">
-                        <Text style={{ color: 'var(--muted)' }}>
-                            CSS selector or an HTML attribute that ideally uniquely identifies your element. Example:{' '}
-                            <Text code>[data-attr="signup"]</Text>
-                        </Text>
-                    </Space>
+                    <span>
+                        CSS selector or an HTML attribute that ideally uniquely identifies your element. Example:{' '}
+                        <code className="code">[data-attr="signup"]</code>.{' '}
+                        <Link to={`${learnMoreLink}#matching-selectors`}>Learn more in Docs.</Link>
+                    </span>
                 }
             />
-            <div style={{ marginBottom: 18 }}>
-                <AndC />
-            </div>
+            <AndSeparator />
             <Option
                 step={step}
                 sendStep={sendStep}
@@ -253,7 +265,7 @@ function AutocaptureFields({
                 caption="Elements will match only when triggered from the URL (particularly useful if you have non-unique elements in different pages)."
             />
             {step?.url_matching && step.url_matching in URL_MATCHING_HINTS && (
-                <small style={{ display: 'block', marginTop: -12 }}>{URL_MATCHING_HINTS[step.url_matching]}</small>
+                <small>{URL_MATCHING_HINTS[step.url_matching]}</small>
             )}
         </div>
     )

@@ -1,5 +1,5 @@
 // Loads custom icons (some icons may come from a third-party library)
-import React, { ImgHTMLAttributes } from 'react'
+import { ImgHTMLAttributes } from 'react'
 import surprisedHog from 'public/hedgehog/surprised-hog.png'
 import xRayHog from 'public/hedgehog/x-ray-hog.png'
 import hospitalHog from 'public/hedgehog/hospital-hog.png'

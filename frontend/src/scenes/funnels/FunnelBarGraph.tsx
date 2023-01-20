@@ -19,6 +19,7 @@ import { getActionFilterFromFunnelStep } from 'scenes/insights/views/Funnels/fun
 import { useResizeObserver } from '../../lib/hooks/useResizeObserver'
 import { getSeriesColor } from 'lib/colors'
 import { FunnelStepMore } from './FunnelStepMore'
+import { Noun } from '~/models/groupsModel'
 
 interface BarProps {
     percentage: number
@@ -31,7 +32,7 @@ interface BarProps {
     breakdownSumPercentage?: number
     popoverTitle?: string | JSX.Element | null
     popoverMetrics?: { title: string; value: number | string; visible?: boolean }[]
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
 }
 
 type LabelPosition = 'inside' | 'outside'
@@ -201,7 +202,7 @@ interface AverageTimeInspectorProps {
     onClick: (e?: React.MouseEvent) => void
     disabled?: boolean
     averageTime: number
-    aggregationTargetLabel: { singular: string; plural: string }
+    aggregationTargetLabel: Noun
 }
 
 function AverageTimeInspector({
@@ -242,12 +243,8 @@ function AverageTimeInspector({
 
     return (
         <div ref={wrapperRef}>
-            <span
-                ref={infoTextRef}
-                className="text-muted-alt"
-                style={{ paddingRight: 4, display: 'inline-block', visibility: infoTextVisible ? undefined : 'hidden' }}
-            >
-                Average time:
+            <span ref={infoTextRef} className={clsx('inline-block text-muted-alt', !infoTextVisible && 'invisible')}>
+                Average time:{' '}
             </span>
             <ValueInspectorButton
                 innerRef={buttonRef}
@@ -369,7 +366,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                             converted: true,
                                                         })
                                                     }
-                                                    disabled={!isInDashboardContext}
+                                                    disabled={isInDashboardContext}
                                                     popoverTitle={
                                                         <div style={{ wordWrap: 'break-word' }}>
                                                             <PropertyKeyInfo value={step.name} />
@@ -390,7 +387,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                         },
                                                         {
                                                             title: 'Conversion rate (total)',
-                                                            value: percentage(breakdown.conversionRates.total, 1, true),
+                                                            value: percentage(breakdown.conversionRates.total, 2, true),
                                                         },
                                                         {
                                                             title: `Conversion rate (from step ${
@@ -398,7 +395,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                             })`,
                                                             value: percentage(
                                                                 breakdown.conversionRates.fromPrevious,
-                                                                1,
+                                                                2,
                                                                 true
                                                             ),
                                                             visible: step.order !== 0,
@@ -415,10 +412,12 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                                 breakdown.droppedOffFromPrevious > 0,
                                                         },
                                                         {
-                                                            title: `Dropoff rate (from step ${previousStep.order + 1})`,
+                                                            title: `Drop-off rate (from step ${
+                                                                previousStep.order + 1
+                                                            })`,
                                                             value: percentage(
                                                                 1 - breakdown.conversionRates.fromPrevious,
-                                                                1,
+                                                                2,
                                                                 true
                                                             ),
                                                             visible:
@@ -452,7 +451,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             percentage={step.conversionRates.fromBasisStep}
                                             name={step.name}
                                             onBarClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={!isInDashboardContext}
+                                            disabled={isInDashboardContext}
                                             popoverTitle={<PropertyKeyInfo value={step.name} />}
                                             popoverMetrics={[
                                                 {
@@ -465,11 +464,11 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                 },
                                                 {
                                                     title: 'Conversion rate (total)',
-                                                    value: percentage(step.conversionRates.total, 1, true),
+                                                    value: percentage(step.conversionRates.total, 2, true),
                                                 },
                                                 {
                                                     title: `Conversion rate (from step ${previousStep.order + 1})`,
-                                                    value: percentage(step.conversionRates.fromPrevious, 1, true),
+                                                    value: percentage(step.conversionRates.fromPrevious, 2, true),
                                                     visible: step.order !== 0,
                                                 },
                                                 {
@@ -482,8 +481,8 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
                                                 {
-                                                    title: `Dropoff rate (from step ${previousStep.order + 1})`,
-                                                    value: percentage(1 - step.conversionRates.fromPrevious, 1, true),
+                                                    title: `Drop-off rate (from step ${previousStep.order + 1})`,
+                                                    value: percentage(1 - step.conversionRates.fromPrevious, 2, true),
                                                     visible: step.order !== 0 && step.droppedOffFromPrevious > 0,
                                                 },
                                                 {
@@ -510,7 +509,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: true })}
-                                            disabled={!isInDashboardContext}
+                                            disabled={isInDashboardContext}
                                         >
                                             <IconTrendingFlat
                                                 style={{ color: 'var(--success)' }}
@@ -528,7 +527,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             (
                                             {percentage(
                                                 step.order > 0 ? step.count / steps[stepIndex - 1].count : 1,
-                                                1,
+                                                2,
                                                 true
                                             )}
                                             )
@@ -538,14 +537,11 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                         completed step
                                     </div>
                                 </div>
-                                <div
-                                    className="step-stat"
-                                    style={stepIndex === 0 ? { visibility: 'hidden' } : undefined}
-                                >
+                                <div className={clsx('step-stat', stepIndex === 0 && 'invisible')}>
                                     <div className="center-flex">
                                         <ValueInspectorButton
                                             onClick={() => openPersonsModalForStep({ step, converted: false })}
-                                            disabled={!isInDashboardContext}
+                                            disabled={isInDashboardContext}
                                         >
                                             <IconTrendingFlatDown
                                                 style={{ color: 'var(--danger)' }}
@@ -563,7 +559,7 @@ export function FunnelBarGraph(props: ChartParams): JSX.Element {
                                             (
                                             {percentage(
                                                 step.order > 0 ? 1 - step.count / steps[stepIndex - 1].count : 0,
-                                                1,
+                                                2,
                                                 true
                                             )}
                                             )

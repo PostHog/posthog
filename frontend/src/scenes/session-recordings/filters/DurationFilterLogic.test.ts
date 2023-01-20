@@ -1,6 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
-import { PropertyOperator } from '~/types'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 import { durationFilterLogic } from './durationFilterLogic'
 
 describe('durationFilterLogic', () => {
@@ -10,7 +10,7 @@ describe('durationFilterLogic', () => {
         initKeaTests()
         logic = durationFilterLogic({
             initialFilter: {
-                type: 'recording',
+                type: PropertyFilterType.Recording,
                 key: 'duration',
                 value: 60,
                 operator: PropertyOperator.GreaterThan,

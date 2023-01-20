@@ -1,7 +1,6 @@
 import { CaretRightOutlined, CaretDownOutlined, SyncOutlined, CloudDownloadOutlined } from '@ant-design/icons'
 import { Button, Row } from 'antd'
 import { Subtitle } from 'lib/components/PageHeader'
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { PluginSection, pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { InstalledPlugin } from '../InstalledPlugin'

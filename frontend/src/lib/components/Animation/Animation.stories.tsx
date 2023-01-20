@@ -1,4 +1,3 @@
-import * as React from 'react'
 import { AnimationType } from 'lib/animations/animations'
 import { ComponentStory, Meta } from '@storybook/react'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -12,6 +11,7 @@ export default {
                     'Animations are [LottieFiles.com](https://lottiefiles.com/) animations that we load asynchronously.',
             },
         },
+        chromatic: { disableSnapshot: false },
     },
     argTypes: {
         size: {

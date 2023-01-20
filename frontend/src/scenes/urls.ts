@@ -1,6 +1,14 @@
-import { DashboardType, FilterType, InsightShortId } from '~/types'
+import {
+    AnyPartialFilterType,
+    DashboardType,
+    FilterType,
+    InsightShortId,
+    PerformancePageView,
+    SessionRecordingsTabs,
+} from '~/types'
 import { combineUrl } from 'kea-router'
 import { ExportOptions } from '~/exporter/types'
+import { AppMetricsUrlParams } from './apps/appMetricsSceneLogic'
 
 /**
  * To add a new URL to the front end:
@@ -34,7 +42,7 @@ export const urls = {
     eventPropertyDefinition: (id: string | number): string => `/data-management/event-properties/${id}`,
     events: (): string => '/events',
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
-    insightNew: (filters?: Partial<FilterType>, dashboardId?: DashboardType['id'] | null): string =>
+    insightNew: (filters?: AnyPartialFilterType, dashboardId?: DashboardType['id'] | null): string =>
         combineUrl('/insights/new', dashboardId ? { dashboard: dashboardId } : {}, filters ? { filters } : {}).url,
     insightEdit: (id: InsightShortId): string => `/insights/${id}/edit`,
     insightView: (id: InsightShortId): string => `/insights/${id}`,
@@ -44,8 +52,20 @@ export const urls = {
     insightSharing: (id: InsightShortId): string => `/insights/${id}/sharing`,
     savedInsights: (): string => '/insights',
     webPerformance: (): string => '/web-performance',
-    webPerformanceWaterfall: (id: string): string => `/web-performance/${id}/waterfall`,
-    sessionRecordings: (): string => '/recordings',
+    webPerformanceWaterfall: (pageview?: PerformancePageView): string => {
+        // KLUDGE: only allow no pageview param for urlToAction in the logic
+        const queryParams = !!pageview
+            ? `?sessionId=${pageview.session_id}&pageviewId=${pageview.pageview_id}&timestamp=${pageview.timestamp}`
+            : ''
+        return `/web-performance/waterfall${queryParams}`
+    },
+
+    sessionRecordings: (tab?: SessionRecordingsTabs, filters?: Partial<FilterType>): string =>
+        combineUrl(tab ? `/recordings/${tab}` : '/recordings/recent', filters ? { filters } : {}).url,
+    sessionRecordingPlaylist: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/recordings/playlists/${id}`, filters ? { filters } : {}).url,
+    sessionRecording: (id: string, filters?: Partial<FilterType>): string =>
+        combineUrl(`/recordings/${id}`, filters ? { filters } : {}).url,
     person: (id: string, encode: boolean = true): string =>
         encode ? `/person/${encodeURIComponent(id)}` : `/person/${id}`,
     persons: (): string => '/persons',
@@ -61,7 +81,15 @@ export const urls = {
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     annotations: (): string => '/annotations',
     projectApps: (): string => '/project/apps',
+    projectApp: (id: string | number): string => `/project/apps/${id}`,
+    projectAppLogs: (id: string | number): string => `/project/apps/${id}/logs`,
+    projectAppSource: (id: string | number): string => `/project/apps/${id}/source`,
     frontendApp: (id: string | number): string => `/app/${id}`,
+    appMetrics: (pluginConfigId: string | number, params: AppMetricsUrlParams = {}): string =>
+        combineUrl(`/app/${pluginConfigId}/metrics`, params).url,
+    appHistoricalExports: (pluginConfigId: string | number): string => `/app/${pluginConfigId}/historical_exports`,
+    appHistory: (pluginConfigId: string | number, searchParams?: Record<string, any>): string =>
+        combineUrl(`/app/${pluginConfigId}/history`, searchParams).url,
     projectCreateFirst: (): string => '/project/create',
     projectHomepage: (): string => '/home',
     projectSettings: (section?: string): string => `/project/settings${section ? `#${section}` : ''}`,
@@ -107,4 +135,6 @@ export const urls = {
             ...(exportOptions?.legend ? { legend: null } : {}),
             ...(exportOptions?.noHeader ? { noHeader: null } : {}),
         }).url,
+    query: (query?: string | Record<string, any>): string =>
+        combineUrl('/query', {}, query ? { q: typeof query === 'string' ? query : JSON.stringify(query) } : {}).url,
 }

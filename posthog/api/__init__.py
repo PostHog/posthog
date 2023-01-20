@@ -9,7 +9,6 @@ from . import (
     app_metrics,
     async_migration,
     authentication,
-    dashboard,
     dead_letter_queue,
     event_definition,
     exports,
@@ -30,9 +29,12 @@ from . import (
     property_definition,
     sharing,
     site_app,
+    tagged_item,
     team,
+    uploaded_media,
     user,
 )
+from .dashboards import dashboard, dashboard_templates
 
 
 @decorators.api_view(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"])
@@ -50,7 +52,7 @@ router.register(r"dashboard_item", dashboard.LegacyInsightViewSet)  # To be dele
 router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet)
 
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
-router.register(r"prompts", prompt.PromptSequenceStateViewSet, "user_prompts")  # User prompts
+router.register(r"prompts", prompt.PromptSequenceViewSet, "user_prompts")  # User prompts
 
 # Nested endpoints shared
 projects_router = router.register(r"projects", team.TeamViewSet)
@@ -58,11 +60,31 @@ project_plugins_configs_router = projects_router.register(
     r"plugin_configs", plugin.PluginConfigViewSet, "project_plugin_configs", ["team_id"]
 )
 project_plugins_configs_router.register(
-    r"logs", plugin_log_entry.PluginLogEntryViewSet, "project_plugins_config_logs", ["team_id", "plugin_config_id"]
+    r"logs",
+    plugin_log_entry.PluginLogEntryViewSet,
+    "project_plugins_config_logs",
+    ["team_id", "plugin_config_id"],
 )
 projects_router.register(r"annotations", annotation.AnnotationsViewSet, "project_annotations", ["team_id"])
-projects_router.register(r"activity_log", activity_log.ActivityLogViewSet, "project_activity_log", ["team_id"])
-projects_router.register(r"feature_flags", feature_flag.FeatureFlagViewSet, "project_feature_flags", ["team_id"])
+projects_router.register(
+    r"activity_log",
+    activity_log.ActivityLogViewSet,
+    "project_activity_log",
+    ["team_id"],
+)
+project_feature_flags_router = projects_router.register(
+    r"feature_flags",
+    feature_flag.FeatureFlagViewSet,
+    "project_feature_flags",
+    ["team_id"],
+)
+
+projects_router.register(
+    r"dashboard_templates",
+    dashboard_templates.DashboardTemplateViewSet,
+    "project_dashboard_templates",
+    ["team_id"],
+)
 project_dashboards_router = projects_router.register(
     r"dashboards", dashboard.DashboardsViewSet, "project_dashboards", ["team_id"]
 )
@@ -70,7 +92,10 @@ project_dashboards_router = projects_router.register(
 projects_router.register(r"exports", exports.ExportedAssetViewSet, "exports", ["team_id"])
 projects_router.register(r"integrations", integration.IntegrationViewSet, "integrations", ["team_id"])
 projects_router.register(
-    r"ingestion_warnings", ingestion_warnings.IngestionWarningsViewSet, "ingestion_warnings", ["team_id"]
+    r"ingestion_warnings",
+    ingestion_warnings.IngestionWarningsViewSet,
+    "ingestion_warnings",
+    ["team_id"],
 )
 app_metrics_router = projects_router.register(r"app_metrics", app_metrics.AppMetricsViewSet, "app_metrics", ["team_id"])
 app_metrics_router.register(
@@ -86,25 +111,43 @@ organization_plugins_router = organizations_router.register(
     r"plugins", plugin.PluginViewSet, "organization_plugins", ["organization_id"]
 )
 organizations_router.register(
-    r"members", organization_member.OrganizationMemberViewSet, "organization_members", ["organization_id"]
+    r"members",
+    organization_member.OrganizationMemberViewSet,
+    "organization_members",
+    ["organization_id"],
 )
 organizations_router.register(
-    r"invites", organization_invite.OrganizationInviteViewSet, "organization_invites", ["organization_id"]
+    r"invites",
+    organization_invite.OrganizationInviteViewSet,
+    "organization_invites",
+    ["organization_id"],
 )
 organizations_router.register(
-    r"domains", organization_domain.OrganizationDomainViewset, "organization_domains", ["organization_id"]
+    r"domains",
+    organization_domain.OrganizationDomainViewset,
+    "organization_domains",
+    ["organization_id"],
 )
 
 # Project nested endpoints
 projects_router = router.register(r"projects", team.TeamViewSet, "projects")
 
 projects_router.register(
-    r"event_definitions", event_definition.EventDefinitionViewSet, "project_event_definitions", ["team_id"]
+    r"event_definitions",
+    event_definition.EventDefinitionViewSet,
+    "project_event_definitions",
+    ["team_id"],
 )
 projects_router.register(
-    r"property_definitions", property_definition.PropertyDefinitionViewSet, "project_property_definitions", ["team_id"]
+    r"property_definitions",
+    property_definition.PropertyDefinitionViewSet,
+    "project_property_definitions",
+    ["team_id"],
 )
 
+projects_router.register(r"uploaded_media", uploaded_media.MediaViewSet, "project_media", ["team_id"])
+
+projects_router.register(r"tags", tagged_item.TaggedItemViewSet, "project_tags", ["team_id"])
 
 # General endpoints (shared across CH & PG)
 router.register(r"login", authentication.LoginViewSet)
@@ -139,7 +182,12 @@ projects_router.register(r"actions", ActionViewSet, "project_actions", ["team_id
 projects_router.register(r"cohorts", CohortViewSet, "project_cohorts", ["team_id"])
 projects_router.register(r"persons", PersonViewSet, "project_persons", ["team_id"])
 projects_router.register(r"elements", ElementViewSet, "project_elements", ["team_id"])
-projects_router.register(r"session_recordings", SessionRecordingViewSet, "project_session_recordings", ["team_id"])
+projects_router.register(
+    r"session_recordings",
+    SessionRecordingViewSet,
+    "project_session_recordings",
+    ["team_id"],
+)
 
 if EE_AVAILABLE:
     from ee.clickhouse.views.experiments import ClickhouseExperimentsViewSet
@@ -162,9 +210,15 @@ else:
 
 
 project_dashboards_router.register(
-    r"sharing", sharing.SharingConfigurationViewSet, "project_dashboard_sharing", ["team_id", "dashboard_id"]
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_dashboard_sharing",
+    ["team_id", "dashboard_id"],
 )
 
 project_insights_router.register(
-    r"sharing", sharing.SharingConfigurationViewSet, "project_insight_sharing", ["team_id", "insight_id"]
+    r"sharing",
+    sharing.SharingConfigurationViewSet,
+    "project_insight_sharing",
+    ["team_id", "insight_id"],
 )

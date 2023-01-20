@@ -45,6 +45,7 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'EMAIL_REPLY_TO',
     'AGGREGATE_BY_DISTINCT_IDS_TEAMS',
     'PERSON_ON_EVENTS_ENABLED',
+    'GROUPS_ON_EVENTS_ENABLED',
     'STRICT_CACHING_TEAMS',
     'SLACK_APP_CLIENT_ID',
     'SLACK_APP_CLIENT_SECRET',
@@ -52,8 +53,11 @@ const EDITABLE_INSTANCE_SETTINGS = [
     'PARALLEL_DASHBOARD_ITEM_CACHE',
     'RATE_LIMIT_ENABLED',
     'RATE_LIMITING_ALLOW_LIST_TEAMS',
+    'SENTRY_AUTH_TOKEN',
+    'SENTRY_ORGANIZATION',
 ]
 
+// Note: This logic does some heavy calculations - avoid connecting it outside of system status pages!
 export const systemStatusLogic = kea<systemStatusLogicType>({
     path: ['scenes', 'instance', 'SystemStatus', 'systemStatusLogic'],
     actions: {

@@ -1,9 +1,8 @@
-import React from 'react'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { Popup } from 'lib/components/Popup/Popup'
 import { LemonSnack } from '../LemonSnack/LemonSnack'
+import React, { useState } from 'react'
 
 interface EventSelectProps {
     onChange: (names: string[]) => void
@@ -12,7 +11,7 @@ interface EventSelectProps {
 }
 
 export const EventSelect = ({ onChange, selectedEvents, addElement }: EventSelectProps): JSX.Element => {
-    const [open, setOpen] = React.useState<boolean>(false)
+    const [open, setOpen] = useState<boolean>(false)
 
     const handleChange = (name: string): void => {
         onChange(Array.from(new Set(selectedEvents.concat([name]))))

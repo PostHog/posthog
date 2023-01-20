@@ -4,14 +4,13 @@ from django.conf import settings
 from django.db import connection
 from rest_framework import viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.dashboard import DashboardSerializer
 from posthog.async_migrations.status import async_migrations_ok
+from posthog.clickhouse.system_status import dead_letter_queue_ratio_ok_cached
 from posthog.gitsha import GIT_SHA
-from posthog.internal_metrics.team import get_internal_metrics_dashboards
 from posthog.permissions import OrganizationAdminAnyPermissions, SingleTenancyOrAdmin
 from posthog.storage import object_storage
 from posthog.utils import (
@@ -140,24 +139,25 @@ class InstanceStatusViewSet(viewsets.ViewSet):
                 {"key": "object_storage", "metric": "Object Storage healthy", "value": object_storage.health_check()}
             )
 
-        # NOTE: This is hacky but needed for the dashboard serializer
-        self.action = "retrieve"
-        dashboard_context = {"view": self, "request": request}
-        dashboards = get_internal_metrics_dashboards()
-        dashboards_serialized = {
-            key: DashboardSerializer(dashboards[key], context=dashboard_context).data for key in dashboards
-        }
+        return Response({"results": {"overview": metrics}})
 
-        return Response({"results": {"overview": metrics, "internal_metrics": dashboards_serialized}})
-
-    # Used to capture internal metrics shown on dashboards
-    @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
-    def capture(self, request: Request) -> Response:
-        from posthog.internal_metrics import incr, timing
-
-        method: Any = timing if request.data["method"] == "timing" else incr
-        method(request.data["metric"], request.data["value"], request.data.get("tags", None))
-        return Response({"status": 1})
+    @action(methods=["GET"], detail=False)
+    def navigation(self, request: Request) -> Response:
+        return Response(
+            {
+                "system_status_ok": (
+                    # :TRICKY: Cloud alerts of services down via pagerduty
+                    settings.MULTI_TENANCY
+                    or (
+                        is_redis_alive()
+                        and is_postgres_alive()
+                        and is_plugin_server_alive()
+                        and dead_letter_queue_ratio_ok_cached()
+                    )
+                ),
+                "async_migrations_ok": async_migrations_ok(),
+            }
+        )
 
     @action(methods=["GET"], detail=False)
     def queries(self, request: Request) -> Response:

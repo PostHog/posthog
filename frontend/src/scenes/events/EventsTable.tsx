@@ -1,15 +1,14 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { useActions, useValues } from 'kea'
 import { EventDetails } from 'scenes/events/EventDetails'
 import { Link } from 'lib/components/Link'
-import { Popconfirm } from 'antd'
 import { FilterPropertyLink } from 'lib/components/FilterPropertyLink'
 import { Property } from 'lib/components/Property'
 import { autoCaptureEventToDescription } from 'lib/utils'
 import './EventsTable.scss'
 import { eventsTableLogic } from './eventsTableLogic'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import {
     ActionType,
@@ -17,8 +16,8 @@ import {
     ChartDisplayType,
     ColumnChoice,
     EventsTableRowItem,
-    FilterType,
     InsightType,
+    TrendsFilterType,
 } from '~/types'
 import { LemonEventName } from 'scenes/actions/EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
@@ -39,10 +38,9 @@ import { LemonTableConfig } from 'lib/components/ResizableTable/TableConfig'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { EventBufferNotice } from './EventBufferNotice'
 import { LemonDivider } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { sessionPlayerDrawerLogic } from 'scenes/session-recordings/sessionPlayerDrawerLogic'
-import { SessionPlayerDrawer } from 'scenes/session-recordings/SessionPlayerDrawer'
+import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
+import { SessionPlayerModal } from 'scenes/session-recordings/player/modal/SessionPlayerModal'
+import { ExportWithConfirmation } from '~/queries/nodes/DataTable/ExportWithConfirmation'
 
 export interface FixedFilters {
     action_id?: ActionType['id']
@@ -69,31 +67,6 @@ interface EventsTableProps {
     showPersonColumn?: boolean
     linkPropertiesToFilters?: boolean
     'data-attr'?: string
-}
-
-interface ExportWithConfirmationProps {
-    placement: 'topRight' | 'bottomRight'
-    onConfirm: (e?: React.MouseEvent<HTMLElement>) => void
-    children: React.ReactNode
-}
-
-function ExportWithConfirmation({ placement, onConfirm, children }: ExportWithConfirmationProps): JSX.Element {
-    return (
-        <Popconfirm
-            placement={placement}
-            title={
-                <>
-                    Exporting by csv is limited to 3,500 events.
-                    <br />
-                    To return more, please use <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
-                    export by CSV?
-                </>
-            }
-            onConfirm={onConfirm}
-        >
-            {children}
-        </Popconfirm>
-    )
 }
 
 export function EventsTable({
@@ -155,9 +128,7 @@ export function EventsTable({
 
     const { reportEventsTablePollingReactedToPageVisibility } = useActions(eventUsageLogic)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
-    const { openSessionPlayer } = useActions(sessionPlayerDrawerLogic)
+    const { openSessionPlayer } = useActions(sessionPlayerModalLogic)
 
     usePageVisibility((pageIsVisible) => {
         setPollingActive(pageIsVisible)
@@ -279,13 +250,15 @@ export function EventsTable({
     }, [tableWidth])
 
     const columns = useMemo(() => {
-        let columnsSoFar: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[] = []
+        let columnsSoFar: LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined>[]
         if (selectedColumns === 'DEFAULT') {
             columnsSoFar = [...defaultColumns]
         } else {
-            const columnsToBeMapped = !showPersonColumn
+            let columnsToBeMapped = !showPersonColumn
                 ? selectedColumns.filter((column) => column !== 'person')
                 : selectedColumns
+            // If user has saved `timestamp`, a column only used in the Data Exploration flagged version of this feature, remove it
+            columnsToBeMapped = columnsToBeMapped.filter((c) => c !== 'timestamp')
             columnsSoFar = columnsToBeMapped.map(
                 (e, index): LemonTableColumn<EventsTableRowItem, keyof EventsTableRowItem | undefined> => {
                     const defaultColumn = defaultColumns.find((d) => d.key === e)
@@ -308,9 +281,16 @@ export function EventsTable({
                             },
                         }
                     } else {
+                        // If the user has saved their columns for the new data exploration data table, make them work here
+                        // This entire file will be removed once we release the new events list feature.
+                        const key = e.startsWith('properties.')
+                            ? e.substring(11)
+                            : e.startsWith('person.properties.')
+                            ? e.substring(18)
+                            : e
                         return {
-                            title: keyMapping['event'][e] ? keyMapping['event'][e].label : e,
-                            key: e,
+                            title: keyMapping['event'][key] ? keyMapping['event'][key].label : key,
+                            key: key,
                             render: function render(_, item: EventsTableRowItem) {
                                 const { event } = item
                                 if (!event) {
@@ -324,13 +304,13 @@ export function EventsTable({
                                     return (
                                         <FilterPropertyLink
                                             className="ph-no-capture "
-                                            property={e}
-                                            value={event.properties[e] as string}
+                                            property={key}
+                                            value={event.properties[key] as string}
                                             filters={{ properties }}
                                         />
                                     )
                                 }
-                                return <Property value={event.properties[e]} />
+                                return <Property value={event.properties[key]} />
                             },
                         }
                     }
@@ -357,7 +337,7 @@ export function EventsTable({
                         return { props: { colSpan: 0 } }
                     }
 
-                    let insightParams: Partial<FilterType> | undefined
+                    let insightParams: Partial<TrendsFilterType> | undefined
                     if (event.event === '$pageview') {
                         insightParams = {
                             insight: InsightType.TRENDS,
@@ -467,11 +447,11 @@ export function EventsTable({
             person: ['person.distinct_ids.0', 'person.properties.email'],
         }
 
-        return (selectedColumns === 'DEFAULT' ? defaultColumns.map((e) => e.key || '') : selectedColumns).flatMap(
-            (x) => {
+        return (selectedColumns === 'DEFAULT' ? defaultColumns.map((e) => e.key || '') : selectedColumns)
+            .flatMap((x) => {
                 return columnMapping[x] || `properties.${x}`
-            }
-        )
+            })
+            .filter((c) => !c.startsWith('custom.'))
     }, [defaultColumns, selectedColumns])
 
     return (
@@ -524,7 +504,7 @@ export function EventsTable({
                                     defaultColumns={defaultColumns.map((e) => e.key || '')}
                                 />
                             )}
-                            {showExport && allowColumnChoice ? (
+                            {showExport && (
                                 <LemonButtonWithPopup
                                     popup={{
                                         sameWidth: false,
@@ -536,6 +516,8 @@ export function EventsTable({
                                                 onConfirm={() => {
                                                     startDownload(exportColumns)
                                                 }}
+                                                actor={'events'}
+                                                limit={3500}
                                             >
                                                 <LemonButton fullWidth={true} status="stealth">
                                                     Export current columns
@@ -545,6 +527,8 @@ export function EventsTable({
                                                 key={0}
                                                 placement={'bottomRight'}
                                                 onConfirm={() => startDownload()}
+                                                actor={'events'}
+                                                limit={3500}
                                             >
                                                 <LemonButton fullWidth={true} status="stealth">
                                                     Export all columns
@@ -557,27 +541,6 @@ export function EventsTable({
                                 >
                                     Export
                                 </LemonButtonWithPopup>
-                            ) : (
-                                <Popconfirm
-                                    placement="topRight"
-                                    title={
-                                        <>
-                                            Exporting by csv is limited to 3,500 events.
-                                            <br />
-                                            To return more, please use{' '}
-                                            <a href="https://posthog.com/docs/api/events">the API</a>. Do you want to
-                                            export by CSV?
-                                        </>
-                                    }
-                                    onConfirm={() => startDownload()}
-                                >
-                                    <LemonButton
-                                        type="secondary"
-                                        icon={<IconExport style={{ color: 'var(--primary)' }} />}
-                                    >
-                                        Export
-                                    </LemonButton>
-                                </Popconfirm>
                             )}
                         </div>
                     </div>
@@ -644,7 +607,7 @@ export function EventsTable({
                     </LemonButton>
                 ) : null}
             </div>
-            <SessionPlayerDrawer />
+            <SessionPlayerModal />
         </>
     )
 }

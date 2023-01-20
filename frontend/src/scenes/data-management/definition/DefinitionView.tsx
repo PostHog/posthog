@@ -1,5 +1,4 @@
 import './Definition.scss'
-import React from 'react'
 import clsx from 'clsx'
 import { Divider } from 'antd'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -28,6 +27,11 @@ import { NotFound } from 'lib/components/NotFound'
 import { IconPlayCircle } from 'lib/components/icons'
 import { combineUrl } from 'kea-router/lib/utils'
 import { urls } from 'scenes/urls'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { NodeKind } from '~/queries/schema'
+import { Query } from '~/queries/Query/Query'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 
 export const scene: SceneExport = {
     component: DefinitionView,
@@ -51,6 +55,8 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     } = useValues(logic)
     const { setPageMode } = useActions(logic)
     const { hasAvailableFeature } = useValues(userLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (definitionLoading) {
         return <SpinnerOverlay />
@@ -59,6 +65,7 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
     if (definitionMissing) {
         return <NotFound object="event" />
     }
+
     return (
         <div className={clsx('definition-page', `definition-${mode}-page`)}>
             {mode === DefinitionPageMode.Edit ? (
@@ -115,27 +122,29 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                         }
                         buttons={
                             <>
-                                <LemonButton
-                                    type="secondary"
-                                    to={
-                                        combineUrl(urls.sessionRecordings(), {
-                                            filters: {
-                                                events: [
-                                                    {
-                                                        id: definition.name,
-                                                        type: 'events',
-                                                        order: 0,
-                                                        name: definition.name,
-                                                    },
-                                                ],
-                                            },
-                                        }).url
-                                    }
-                                    sideIcon={<IconPlayCircle />}
-                                    data-attr="event-definition-view-recordings"
-                                >
-                                    View recordings
-                                </LemonButton>
+                                {isEvent && (
+                                    <LemonButton
+                                        type="secondary"
+                                        to={
+                                            combineUrl(urls.sessionRecordings(), {
+                                                filters: {
+                                                    events: [
+                                                        {
+                                                            id: definition.name,
+                                                            type: 'events',
+                                                            order: 0,
+                                                            name: definition.name,
+                                                        },
+                                                    ],
+                                                },
+                                            }).url
+                                        }
+                                        sideIcon={<IconPlayCircle />}
+                                        data-attr="event-definition-view-recordings"
+                                    >
+                                        View recordings
+                                    </LemonButton>
+                                )}
 
                                 {hasTaxonomyFeatures && (
                                     <LemonButton
@@ -200,15 +209,30 @@ export function DefinitionView(props: DefinitionLogicProps = {}): JSX.Element {
                                     This is the list of recent events that match this definition.
                                 </p>
                                 <div className="pt-4 border-t" />
-                                <EventsTable
-                                    sceneUrl={backDetailUrl}
-                                    pageKey={`definition-page-${definition.id}`}
-                                    showEventFilter={false}
-                                    fetchMonths={3}
-                                    fixedFilters={{
-                                        event_filter: definition.name,
-                                    }}
-                                />
+                                {featureDataExploration ? (
+                                    <Query
+                                        query={{
+                                            kind: NodeKind.DataTableNode,
+                                            source: {
+                                                kind: NodeKind.EventsQuery,
+                                                select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                                event: definition.name,
+                                            },
+                                            full: true,
+                                            showEventFilter: false,
+                                        }}
+                                    />
+                                ) : (
+                                    <EventsTable
+                                        sceneUrl={backDetailUrl}
+                                        pageKey={`definition-page-${definition.id}`}
+                                        showEventFilter={false}
+                                        fetchMonths={3}
+                                        fixedFilters={{
+                                            event_filter: definition.name,
+                                        }}
+                                    />
+                                )}
                             </div>
                         </>
                     )}

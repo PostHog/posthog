@@ -1,32 +1,39 @@
 import datetime
 import re
-from typing import Any, Callable, Dict, List, Union, cast
+from typing import Any, Callable, Dict, List, TypeVar, Union, cast
 
 from dateutil import parser
-from dateutil.relativedelta import relativedelta
 from django.db.models import Exists, OuterRef, Q
 from rest_framework.exceptions import ValidationError
 
 from posthog.models.cohort import Cohort
 from posthog.models.filters.filter import Filter
+from posthog.models.filters.path_filter import PathFilter
 from posthog.models.person import Person
 from posthog.models.property import Property
 from posthog.models.team import Team
 from posthog.queries.util import convert_to_datetime_aware
 from posthog.utils import get_compare_period_dates
 
+F = TypeVar("F", Filter, PathFilter)
 
-def determine_compared_filter(filter) -> Filter:
+
+def determine_compared_filter(filter: F) -> F:
     if not filter.date_to or not filter.date_from:
         raise ValidationError("You need date_from and date_to to compare")
-    date_from, date_to = get_compare_period_dates(filter.date_from, filter.date_to)
+    date_from, date_to = get_compare_period_dates(
+        filter.date_from,
+        filter.date_to,
+        filter.date_from_delta_mapping,
+        filter.date_to_delta_mapping,
+        filter.interval,
+    )
 
-    date_from += relativedelta(days=1)
-    return filter.with_data({"date_from": date_from.date().isoformat(), "date_to": date_to.date().isoformat()})
+    return filter.with_data({"date_from": date_from.isoformat(), "date_to": date_to.isoformat()})
 
 
-def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
-    for entity in trend_entity:
+def convert_to_comparison(trend_entities: List[Dict[str, Any]], filter, label: str) -> List[Dict[str, Any]]:
+    for entity in trend_entities:
         labels = [
             "{} {}".format(filter.interval if filter.interval is not None else "day", i)
             for i in range(len(entity["labels"]))
@@ -40,7 +47,7 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
                 "compare": True,
             }
         )
-    return trend_entity
+    return trend_entities
 
 
 """
@@ -51,20 +58,19 @@ def convert_to_comparison(trend_entity: List[Dict[str, Any]], filter, label: str
 
 
 def handle_compare(filter, func: Callable, team: Team, **kwargs) -> List:
-    entities_list = []
-    trend_entity = func(filter=filter, team=team, **kwargs)
+    all_entities = []
+    base_entitites = func(filter=filter, team=team, **kwargs)
     if filter.compare:
-        trend_entity = convert_to_comparison(trend_entity, filter, "current")
-        entities_list.extend(trend_entity)
+        base_entitites = convert_to_comparison(base_entitites, filter, "current")
+        all_entities.extend(base_entitites)
 
         compared_filter = determine_compared_filter(filter)
-        compared_trend_entity = func(filter=compared_filter, team=team, **kwargs)
-
-        compared_trend_entity = convert_to_comparison(compared_trend_entity, compared_filter, "previous")
-        entities_list.extend(compared_trend_entity)
+        comparison_entities = func(filter=compared_filter, team=team, **kwargs)
+        comparison_entities = convert_to_comparison(comparison_entities, compared_filter, "previous")
+        all_entities.extend(comparison_entities)
     else:
-        entities_list.extend(trend_entity)
-    return entities_list
+        all_entities.extend(base_entitites)
+    return all_entities
 
 
 def match_property(property: Property, override_property_values: Dict[str, Any]) -> bool:

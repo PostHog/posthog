@@ -1,6 +1,6 @@
 import { kea, connect, path, key, props, reducers, actions, selectors, listeners, afterMount } from 'kea'
 import api from 'lib/api'
-import { ActorType } from '~/types'
+import { ActorType, BreakdownType, ChartDisplayType, IntervalType, PropertiesTimelineFilterType } from '~/types'
 import { loaders } from 'kea-loaders'
 import { cohortsModel } from '~/models/cohortsModel'
 import { lemonToast } from '@posthog/lemon-ui'
@@ -11,6 +11,7 @@ import type { personsModalLogicType } from './personsModalLogicType'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { fromParamsGivenUrl, isGroupType } from 'lib/utils'
 import { groupsModel } from '~/models/groupsModel'
+import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 
 export interface PersonModalLogicProps {
     url: string
@@ -140,6 +141,32 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     return { singular: 'result', plural: 'results' }
                 }
                 return aggregationLabel(isGroupType(firstResult) ? firstResult.group_type_index : undefined)
+            },
+        ],
+        propertiesTimelineFilterFromUrl: [
+            (_, p) => [p.url],
+            (url): PropertiesTimelineFilterType => {
+                // PersonsModal only gets an persons URL and not its underlying filters, so we need to extract those
+                const params = new URLSearchParams(url.split('?')[1])
+                const eventsString = params.get('events')
+                const actionsString = params.get('actions')
+                const propertiesString = params.get('properties')
+                const aggregationGroupTypeIndexString = params.get('aggregation_group_type_index')
+                const filter: PropertiesTimelineFilterType = {
+                    date_from: params.get('date_from') || undefined,
+                    date_to: params.get('date_to') || undefined,
+                    interval: (params.get('interval') || undefined) as IntervalType | undefined,
+                    events: eventsString ? JSON.parse(eventsString) : undefined,
+                    actions: actionsString ? JSON.parse(actionsString) : undefined,
+                    properties: propertiesString ? JSON.parse(propertiesString) : undefined,
+                    aggregation_group_type_index: aggregationGroupTypeIndexString
+                        ? parseInt(aggregationGroupTypeIndexString)
+                        : undefined,
+                    display: (params.get('display') || undefined) as ChartDisplayType | undefined,
+                    breakdown: params.get('breakdown') || undefined,
+                    breakdown_type: (params.get('breakdown_type') || undefined) as BreakdownType | undefined,
+                }
+                return cleanFilters(filter)
             },
         ],
     }),

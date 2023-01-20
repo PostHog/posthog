@@ -1,6 +1,6 @@
 import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
-import React, { ReactNode, RefObject, useMemo, useRef } from 'react'
+import { ReactNode, RefObject, useMemo, useRef } from 'react'
 import { InsightType } from '~/types'
 import { insightLogic } from './insightLogic'
 import { Tooltip } from 'lib/components/Tooltip'

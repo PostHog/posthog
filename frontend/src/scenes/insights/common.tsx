@@ -1,8 +1,7 @@
-import React from 'react'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
 import clsx from 'clsx'
 import '../../lib/components/PropertyGroupFilters/PropertyGroupFilters.scss'
+import { IconInfo } from 'lib/components/icons'
 
 export function GlobalFiltersTitle({
     unit = 'series',
@@ -24,7 +23,7 @@ export function GlobalFiltersTitle({
                         </>
                     }
                 >
-                    <InfoCircleOutlined className="info-indicator" />
+                    <IconInfo className="ml-1" />
                 </Tooltip>
             )}
         </h4>

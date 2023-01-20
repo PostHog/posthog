@@ -1,5 +1,3 @@
-import React from 'react'
-
 interface HeatmapElementProps {
     rect?: DOMRect
     style: Record<string, any>

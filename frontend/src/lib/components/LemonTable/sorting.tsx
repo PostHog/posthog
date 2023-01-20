@@ -1,5 +1,4 @@
-import React from 'react'
-import { ArrowDownOutlined, ArrowUpOutlined, MenuOutlined } from '@ant-design/icons'
+import { IconArrowDown, IconArrowUp, IconSort } from '../icons'
 
 /** Sorting state. */
 export interface Sorting {
@@ -28,18 +27,9 @@ export function getNextSorting(
 
 export function SortingIndicator({ order }: { order: Sorting['order'] | null }): JSX.Element {
     return (
-        <div
-            style={{
-                fontSize: 10,
-                marginLeft: 8,
-                whiteSpace: 'nowrap',
-                width: 20,
-                display: 'flex',
-                justifyContent: 'center',
-            }}
-        >
-            {order === -1 ? <ArrowDownOutlined /> : order === 1 ? <ArrowUpOutlined /> : null}
-            <MenuOutlined />
+        <div className="flex items-center text-base ml-2 whitespace-nowrap">
+            <IconSort />
+            {order === -1 ? <IconArrowDown /> : order === 1 ? <IconArrowUp /> : null}
         </div>
     )
 }

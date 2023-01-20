@@ -1,4 +1,4 @@
-import React, { CSSProperties } from 'react'
+import { CSSProperties } from 'react'
 
 export function HogIcon({ style }: { style?: CSSProperties }): JSX.Element {
     return (

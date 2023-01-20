@@ -1,16 +1,15 @@
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Button, Checkbox, Collapse, Table } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
-import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
-import { DashboardPlacement, QuerySummary } from '~/types'
+import { QuerySummary } from '~/types'
 import { ColumnsType } from 'antd/lib/table'
 import { AnalyzeQueryModal } from 'scenes/instance/SystemStatus/AnalyzeQueryModal'
 import { Link } from 'lib/components/Link'
 
 export function InternalMetricsTab(): JSX.Element {
-    const { openSections, systemStatus, queries, queriesLoading, showAnalyzeQueryButton } = useValues(systemStatusLogic)
+    const { openSections, queries, queriesLoading, showAnalyzeQueryButton } = useValues(systemStatusLogic)
     const { setOpenSections, loadQueries } = useActions(systemStatusLogic)
 
     const [showIdle, setShowIdle] = useState(false)
@@ -18,8 +17,6 @@ export function InternalMetricsTab(): JSX.Element {
         () => queries?.postgres_running?.filter(({ state }) => showIdle || state !== 'idle'),
         [showIdle, queries]
     )
-
-    const dashboard = systemStatus?.internal_metrics.clickhouse
 
     const reloadQueries = (e: React.MouseEvent): void => {
         e.stopPropagation()
@@ -29,15 +26,6 @@ export function InternalMetricsTab(): JSX.Element {
     return (
         <>
             <Collapse activeKey={openSections} onChange={(keys) => setOpenSections(keys as string[])}>
-                {dashboard ? (
-                    <Collapse.Panel header="Dashboards" key="0">
-                        <Dashboard
-                            id={dashboard.id.toString()}
-                            dashboard={dashboard}
-                            placement={DashboardPlacement.InternalMetrics}
-                        />
-                    </Collapse.Panel>
-                ) : null}
                 <Collapse.Panel header="PostgreSQL - currently running queries" key="1">
                     <div className="mb-4 float-right">
                         <Checkbox

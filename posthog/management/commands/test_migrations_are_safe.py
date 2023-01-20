@@ -19,17 +19,17 @@ class Command(BaseCommand):
                     and "-- not-null-ignore" not in sql
                 ):
                     print(
-                        f"\n\n\033[91mFound a non-null field added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field"
+                        f"\n\n\033[91mFound a non-null field or default added to an existing model. This will lock up the table while migrating. Please add 'null=True, blank=True' to the field"
                     )
                     sys.exit(1)
 
-                if "RENAME" in sql:
+                if "RENAME" in sql and "-- rename-ignore" not in sql:
                     print(
                         f"\n\n\033[91mFound a rename command. This will lock up the table while migrating. Please create a new column and provide alternative method for swapping columns"
                     )
                     sys.exit(1)
 
-                if "DROP COLUMN" in sql:
+                if "DROP COLUMN" in sql and "-- drop-column-ignore" not in sql:
                     print(
                         f"\n\n\033[91mFound a drop command. This could lead to unsafe states for the app. Please avoid dropping columns"
                     )

@@ -16,9 +16,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 
 
@@ -77,7 +77,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response_data[1]["name"], "$browser")
         self.assertEqual(response_data[1]["count"], 1)
 
-    @test_with_materialized_columns(person_properties=["random_prop"])
+    @also_test_with_materialized_columns(person_properties=["random_prop"])
     @snapshot_clickhouse_queries
     def test_person_property_values(self):
         _create_person(
@@ -104,7 +104,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json()[0]["name"], "qwerty")
         self.assertEqual(response.json()[0]["count"], 1)
 
-    @test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
+    @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
     def test_filter_person_email(self):
 
@@ -250,7 +250,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                     "detail": {
                         "changes": None,
                         "trigger": None,
-                        "name": str(person.pk),
+                        "name": str(person.uuid),
                         "short_id": None,
                     },
                     "created_at": "2021-08-25T22:09:14.252000Z",
@@ -264,7 +264,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual([(100, 1, "{}")], ch_persons)
         # No async deletion is scheduled
-        self.assertEqual(AsyncDeletion.objects.filter(team=self.team).count(), 0)
+        self.assertEqual(AsyncDeletion.objects.filter(team_id=self.team.id).count(), 0)
         ch_events = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
             0
         ][0]
@@ -291,7 +291,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([(100, 1, "{}")], ch_persons)
 
         # async deletion scheduled and executed
-        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team=self.team).first())
+        async_deletion = cast(AsyncDeletion, AsyncDeletion.objects.filter(team_id=self.team.id).first())
         self.assertEqual(async_deletion.deletion_type, DeletionType.Person)
         self.assertEqual(async_deletion.key, str(person.uuid))
         self.assertIsNone(async_deletion.delete_verified_at)
@@ -330,7 +330,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
                                 "after": {"distinct_ids": ["1", "2", "3"]},
                             }
                         ],
-                        "name": None,
+                        "name": str(person1.uuid),
                         "trigger": None,
                         "short_id": None,
                     },
@@ -366,7 +366,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             immediate=True,
         )
 
-        self.client.patch(f"/api/person/{person.uuid}", {"properties": {"foo": "bar"}})
+        self.client.post(f"/api/person/{person.uuid}/update_property", {"key": "foo", "value": "bar"})
 
         mock_capture.assert_called_once_with(
             distinct_id="some_distinct_id",
@@ -579,7 +579,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         created_ids.reverse()  # ids are returned in desc order
         self.assertEqual(returned_ids, created_ids, returned_ids)
 
-    def _get_person_activity(self, person_id: Optional[str] = None, expected_status: int = status.HTTP_200_OK):
+    def _get_person_activity(self, person_id: Optional[str] = None, *, expected_status: int = status.HTTP_200_OK):
         if person_id:
             url = f"/api/person/{person_id}/activity"
         else:

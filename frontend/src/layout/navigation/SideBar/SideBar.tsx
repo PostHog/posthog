@@ -1,8 +1,8 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { Link } from 'lib/components/Link'
-import React, { useState } from 'react'
-import { ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
+import { useState } from 'react'
+import { ProjectName, ProjectSwitcherOverlay } from '~/layout/navigation/ProjectSwitcher'
 import {
     IconApps,
     IconBarChart,
@@ -15,12 +15,12 @@ import {
     IconLive,
     IconOpenInApp,
     IconPerson,
-    IconPin,
+    IconPinOutline,
     IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
-    UnverifiedEvent,
+    IconUnverifiedEvent,
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -47,6 +47,7 @@ import { Tooltip } from 'lib/components/Tooltip'
 import Typography from 'antd/lib/typography'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { DebugNotice } from 'lib/components/DebugNotice'
+import ActivationSidebar from 'lib/components/ActivationSidebar/ActivationSidebar'
 
 function Pages(): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
@@ -67,7 +68,17 @@ function Pages(): JSX.Element {
         <ul>
             <div className="SideBar__heading">Project</div>
             <PageButton
-                title={currentTeam?.name ?? 'Choose project'}
+                title={
+                    currentTeam?.name ? (
+                        <>
+                            <span>
+                                <ProjectName team={currentTeam} />
+                            </span>
+                        </>
+                    ) : (
+                        'Choose project'
+                    )
+                }
                 icon={<Lettermark name={currentOrganization?.name} />}
                 identifier={Scene.ProjectHomepage}
                 to={urls.projectHomepage()}
@@ -116,7 +127,7 @@ function Pages(): JSX.Element {
                                         ) : (
                                             <>
                                                 <div className="flex items-center gap-2">
-                                                    <IconPin className="text-2xl text-muted-alt" />
+                                                    <IconPinOutline className="text-2xl text-muted-alt" />
                                                     <div>
                                                         <Link
                                                             onClick={() => setArePinnedDashboardsShown(false)}
@@ -164,15 +175,11 @@ function Pages(): JSX.Element {
                             to={urls.webPerformance()}
                         />
                     )}
-                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
-                        <div className="SideBar__heading">Data</div>
-                    ) : (
-                        <LemonDivider />
-                    )}
+                    <div className="SideBar__heading">Data</div>
 
                     <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
-                        icon={<UnverifiedEvent />}
+                        icon={<IconUnverifiedEvent />}
                         identifier={Scene.DataManagement}
                         to={urls.eventDefinitions()}
                     />
@@ -184,32 +191,21 @@ function Pages(): JSX.Element {
                     />
                     <PageButton icon={<IconCohort />} identifier={Scene.Cohorts} to={urls.cohorts()} />
                     <PageButton icon={<IconComment />} identifier={Scene.Annotations} to={urls.annotations()} />
-                    {featureFlags[FEATURE_FLAGS.FRONTEND_APPS] ? (
+                    {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
                         <>
-                            {canViewPlugins(currentOrganization) || Object.keys(frontendApps).length > 0 ? (
-                                <>
-                                    <div className="SideBar__heading">Apps</div>
-                                    {canViewPlugins(currentOrganization) && (
-                                        <PageButton
-                                            title="Browse Apps"
-                                            icon={<IconApps />}
-                                            identifier={Scene.Plugins}
-                                            to={urls.projectApps()}
-                                        />
-                                    )}
-                                    {Object.keys(frontendApps).length > 0 && <SideBarApps />}
-                                </>
-                            ) : null}
-                            <div className="SideBar__heading">Configuration</div>
-                        </>
-                    ) : (
-                        <>
-                            <LemonDivider />
+                            <div className="SideBar__heading">Apps</div>
                             {canViewPlugins(currentOrganization) && (
-                                <PageButton icon={<IconApps />} identifier={Scene.Plugins} to={urls.projectApps()} />
+                                <PageButton
+                                    title="Browse Apps"
+                                    icon={<IconApps />}
+                                    identifier={Scene.Plugins}
+                                    to={urls.projectApps()}
+                                />
                             )}
+                            {Object.keys(frontendApps).length > 0 && <SideBarApps />}
                         </>
-                    )}
+                    ) : null}
+                    <div className="SideBar__heading">Configuration</div>
 
                     <PageButton
                         icon={<IconTools />}
@@ -252,6 +248,7 @@ export function SideBar({ children }: { children: React.ReactNode }): JSX.Elemen
             </div>
             <div className="SideBar__overlay" onClick={hideSideBarMobile} />
             {children}
+            <ActivationSidebar />
         </div>
     )
 }

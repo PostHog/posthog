@@ -1,4 +1,3 @@
-import React from 'react'
 import { IconArrowDropDown, IconInfo, IconNotification, IconWithCount } from 'lib/components/icons'
 import { notificationsLogic } from '~/layout/navigation/TopBar/notificationsLogic'
 import { useActions, useValues } from 'kea'
@@ -40,7 +39,9 @@ export function NotificationBell(): JSX.Element {
                     </p>
                     <LemonDivider />
                     {hasImportantChanges ? (
-                        importantChanges.map((logItem, index) => <ActivityLogRow logItem={logItem} key={index} />)
+                        importantChanges.map((logItem, index) => (
+                            <ActivityLogRow logItem={logItem} key={index} showExtendedDescription={false} />
+                        ))
                     ) : (
                         <h5>You're all caught up</h5>
                     )}
@@ -49,7 +50,7 @@ export function NotificationBell(): JSX.Element {
             className="NotificationsBell-Popup"
         >
             <div
-                className={clsx('h-10 items-center cursor-pointer flex color-primary-alt text-2xl')}
+                className={clsx('h-10 items-center cursor-pointer flex text-primary-alt text-2xl')}
                 onClick={toggleNotificationsPopover}
                 data-attr="notifications-button"
             >

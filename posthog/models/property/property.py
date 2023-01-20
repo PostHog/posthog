@@ -41,6 +41,7 @@ PropertyType = Literal[
     "recording",
     "behavioral",
     "session",
+    "hogql",
 ]
 
 PropertyName = str
@@ -92,6 +93,7 @@ VALIDATE_PROP_TYPES = {
     "recording": ["key", "value"],
     "behavioral": ["key", "value"],
     "session": ["key", "value"],
+    "hogql": ["key"],
 }
 
 VALIDATE_BEHAVIORAL_PROP_TYPES = {
@@ -224,6 +226,8 @@ class Property:
 
         if value is None and self.operator in ["is_set", "is_not_set"]:
             self.value = self.operator
+        elif self.type == "hogql":
+            pass  # keep value as None
         elif value is None:
             raise ValueError(f"Value must be set for property type {self.type} & operator {self.operator}")
         else:
@@ -257,6 +261,17 @@ class Property:
             return False
         if isinstance(value, int):
             return value
+
+        # `json.loads()` converts strings to numbers if possible
+        # and we don't want this behavior, as if we wanted a number
+        # we would have passed it as a number
+        try:
+            # tests if string is a number & returns string if it is a number
+            float(value)
+            return value
+        except (ValueError, TypeError):
+            pass
+
         try:
             return json.loads(value)
         except (json.JSONDecodeError, TypeError):
@@ -365,9 +380,8 @@ class PropertyGroup:
         return PropertyGroup(operator, [self, property_group])
 
     def to_dict(self):
-        result: Dict = {}
         if not self.values:
-            return result
+            return {}
 
         return {"type": self.type.value, "values": [prop.to_dict() for prop in self.values]}
 

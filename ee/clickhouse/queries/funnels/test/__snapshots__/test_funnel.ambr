@@ -6,12 +6,19 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
-       AND e.person_id != toUUIDOrZero('')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -105,7 +112,7 @@
                                  if(step_1 = 1, timestamp, null) as latest_1,
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
-                                 replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS prop_basic,
+                                 replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM
@@ -116,23 +123,30 @@
                                     e."$group_0" as aggregation_target,
                                     e."$group_0" as "$group_0",
                                     e.person_id as person_id,
-                                    e."group0_properties" as "group0_properties"
+                                    groups_0.group_properties_0 as group_properties_0
                              FROM events e
+                             INNER JOIN
+                               (SELECT group_key,
+                                       argMax(group_properties, _timestamp) AS group_properties_0
+                                FROM groups
+                                WHERE team_id = 2
+                                  AND group_type_index = 0
+                                GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
-                               AND e.person_id != toUUIDOrZero('') ) events
+                               AND notEmpty(e.person_id) ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_materialized
@@ -145,8 +159,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
@@ -257,8 +271,8 @@
                              FROM events e
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
                                AND e.person_id != toUUIDOrZero('') ) events
                           WHERE (step_0 = 1
@@ -289,8 +303,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -412,17 +426,17 @@
                                 GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -442,8 +456,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -558,21 +572,21 @@
                                 GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -592,8 +606,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -708,21 +722,21 @@
                                 GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -742,8 +756,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -858,21 +872,21 @@
                                 GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [1, 2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestFunnelGroupBreakdown.test_funnel_breakdown_group.8
@@ -892,8 +906,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1008,21 +1022,21 @@
                                 GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
+     HAVING steps = max_steps)
   WHERE steps IN [2, 3]
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1033,12 +1047,19 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
-       AND e.person_id != toUUIDOrZero('')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1132,7 +1153,7 @@
                                  if(step_1 = 1, timestamp, null) as latest_1,
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
-                                 replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS prop_basic,
+                                 replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM
@@ -1143,23 +1164,30 @@
                                     e."$group_0" as aggregation_target,
                                     e."$group_0" as "$group_0",
                                     e.person_id as person_id,
-                                    e."group0_properties" as "group0_properties"
+                                    groups_0.group_properties_0 as group_properties_0
                              FROM events e
+                             INNER JOIN
+                               (SELECT group_key,
+                                       argMax(group_properties, _timestamp) AS group_properties_0
+                                FROM groups
+                                WHERE team_id = 2
+                                  AND group_type_index = 0
+                                GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
-                               AND e.person_id != toUUIDOrZero('') ) events
+                               AND notEmpty(e.person_id) ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_materialized
@@ -1172,8 +1200,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
@@ -1284,8 +1312,8 @@
                              FROM events e
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
                                AND e.person_id != toUUIDOrZero('') ) events
                           WHERE (step_0 = 1
@@ -1316,8 +1344,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1439,17 +1467,17 @@
                                 GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -1469,8 +1497,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1561,8 +1589,8 @@
                             AND group_type_index = 0
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -1573,7 +1601,7 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.4
@@ -1593,8 +1621,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1685,8 +1713,8 @@
                             AND group_type_index = 0
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -1697,7 +1725,7 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -1717,8 +1745,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1809,8 +1837,8 @@
                             AND group_type_index = 0
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -1821,7 +1849,7 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestStrictFunnelGroupBreakdown.test_funnel_breakdown_group.8
@@ -1841,8 +1869,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -1933,8 +1961,8 @@
                             AND group_type_index = 0
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (1=1) )))
            WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
@@ -1945,7 +1973,7 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events
@@ -1956,12 +1984,19 @@
     (SELECT replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS value,
             count(*) as count
      FROM events e
+     INNER JOIN
+       (SELECT group_key,
+               argMax(group_properties, _timestamp) AS group_properties_0
+        FROM groups
+        WHERE team_id = 2
+          AND group_type_index = 0
+        GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
-       AND e.person_id != toUUIDOrZero('')
+       AND notEmpty(e.person_id)
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2055,7 +2090,7 @@
                                  if(step_1 = 1, timestamp, null) as latest_1,
                                  if(event = 'buy', 1, 0) as step_2,
                                  if(step_2 = 1, timestamp, null) as latest_2,
-                                 replaceRegexpAll(JSONExtractRaw(group0_properties, 'industry'), '^"|"$', '') AS prop_basic,
+                                 replaceRegexpAll(JSONExtractRaw(group_properties_0, 'industry'), '^"|"$', '') AS prop_basic,
                                  prop_basic as prop,
                                  argMinIf(prop, timestamp, isNotNull(prop)) over (PARTITION by aggregation_target) as prop_vals
                           FROM
@@ -2066,23 +2101,30 @@
                                     e."$group_0" as aggregation_target,
                                     e."$group_0" as "$group_0",
                                     e.person_id as person_id,
-                                    e."group0_properties" as "group0_properties"
+                                    groups_0.group_properties_0 as group_properties_0
                              FROM events e
+                             INNER JOIN
+                               (SELECT group_key,
+                                       argMax(group_properties, _timestamp) AS group_properties_0
+                                FROM groups
+                                WHERE team_id = 2
+                                  AND group_type_index = 0
+                                GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
-                               AND e.person_id != toUUIDOrZero('') ) events
+                               AND notEmpty(e.person_id) ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_aggregate_by_groups_breakdown_group_person_on_events_materialized
@@ -2095,8 +2137,8 @@
      FROM events e
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0"))
        AND e.person_id != toUUIDOrZero('')
      GROUP BY value
@@ -2207,8 +2249,8 @@
                              FROM events e
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59')
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
                                AND (NOT has([''], "$group_0"))
                                AND e.person_id != toUUIDOrZero('') ) events
                           WHERE (step_0 = 1
@@ -2239,8 +2281,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2362,17 +2404,17 @@
                                 GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                              WHERE team_id = 2
                                AND event IN ['buy', 'play movie', 'sign up']
-                               AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                               AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                               AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                               AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                           WHERE (step_0 = 1
                                  OR step_1 = 1
                                  OR step_2 = 1) )))))
-           WHERE step_0 = 1 SETTINGS allow_experimental_window_functions = 1 ))
+           WHERE step_0 = 1 ))
      GROUP BY aggregation_target,
               steps,
               prop
-     HAVING steps = max_steps SETTINGS allow_experimental_window_functions = 1)
-  GROUP BY prop SETTINGS allow_experimental_window_functions = 1
+     HAVING steps = max_steps)
+  GROUP BY prop
   '
 ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.10
@@ -2392,8 +2434,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2417,8 +2459,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2442,8 +2484,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2533,8 +2575,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -2601,8 +2643,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -2669,8 +2711,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -2683,7 +2725,7 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.14
@@ -2703,8 +2745,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2728,8 +2770,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2753,8 +2795,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -2844,8 +2886,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -2912,8 +2954,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -2980,8 +3022,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -2994,7 +3036,7 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('technology'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.2
@@ -3014,8 +3056,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3039,8 +3081,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3064,8 +3106,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3155,8 +3197,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -3223,8 +3265,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -3291,8 +3333,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -3305,7 +3347,7 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---
 # name: TestUnorderedFunnelGroupBreakdown.test_funnel_breakdown_group.6
@@ -3325,8 +3367,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3350,8 +3392,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3375,8 +3417,8 @@
         GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
      WHERE team_id = 2
        AND event IN ['buy', 'play movie', 'sign up']
-       AND timestamp >= toDateTime('2020-01-01 00:00:00')
-       AND timestamp <= toDateTime('2020-01-08 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -3466,8 +3508,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -3534,8 +3576,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -3602,8 +3644,8 @@
                           GROUP BY group_key) groups_0 ON "$group_0" == groups_0.group_key
                        WHERE team_id = 2
                          AND event IN ['buy', 'play movie', 'sign up']
-                         AND timestamp >= toDateTime('2020-01-01 00:00:00')
-                         AND timestamp <= toDateTime('2020-01-08 23:59:59') ) events
+                         AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-01 00:00:00', 'UTC')
+                         AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-08 23:59:59', 'UTC') ) events
                     WHERE (step_0 = 1
                            OR step_1 = 1
                            OR step_2 = 1) )))
@@ -3616,6 +3658,6 @@
     AND arrayFlatten(array(prop)) = arrayFlatten(array('finance'))
   ORDER BY aggregation_target
   LIMIT 100
-  OFFSET 0 SETTINGS allow_experimental_window_functions = 1
+  OFFSET 0
   '
 ---

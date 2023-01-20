@@ -3,18 +3,6 @@
 <head>
     <title>Hogflix</title>
     <script src="/static/array.js"></script>
-    <script>
-        posthog.init('{{api_token}}', {
-            api_host: window.location.origin,
-            loaded: (posthog) => {
-                posthog.onFeatureFlags(() => {
-                    if (posthog.isFeatureEnabled('sign-up-cta') && document.getElementById('sign-up-cta')) {
-                        document.getElementById('sign-up-cta').innerText = 'Get started now'
-                    }
-                })
-            },
-        })
-    </script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.css" />
     <script src="https://cdn.jsdelivr.net/npm/rrweb@latest/dist/rrweb.min.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/mvp.css">
@@ -47,16 +35,25 @@
 </head>
 
 <body>
-
+    <script>
+        posthog.init('{{api_token}}', {
+            api_host: window.location.origin,
+            loaded: (posthog) => {
+                posthog.onFeatureFlags(() => {
+                    if (posthog.isFeatureEnabled('sign-up-cta') && document.getElementById('sign-up-cta')) {
+                        document.getElementById('sign-up-cta').innerText = 'Get started now'
+                    }
+                })
+            },
+        })
+    </script>
     <main>
         <header>
             <article>
                 <aside>
                     <p>Welcome to the PostHog demo environment!</p>
                     <small>
-                        By going through this demo you can simulate a user going through a signup funnel. <a
-                            href='/'>You can
-                            explore the data in PostHog within project "Hogflix Demo App".</a>
+                        By going through this demo you can simulate a user going through a signup funnel.
                     </small>
                     <p> </p>
                 </aside>

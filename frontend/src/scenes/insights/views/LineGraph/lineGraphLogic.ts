@@ -30,9 +30,9 @@ export const lineGraphLogic = kea<lineGraphLogicType>({
                                     undefined,
                                 action: pointDataset?.action ?? pointDataset?.actions?.[dp.dataIndex] ?? undefined,
                                 label: pointDataset?.label ?? undefined,
-                                color: Array.isArray(pointDataset.backgroundColor)
-                                    ? pointDataset.backgroundColor?.[dp.dataIndex]
-                                    : pointDataset.backgroundColor,
+                                color: Array.isArray(pointDataset.borderColor)
+                                    ? pointDataset.borderColor?.[dp.dataIndex]
+                                    : pointDataset.borderColor,
                                 count: pointDataset?.data?.[dp.dataIndex] || 0,
                                 filter: pointDataset?.filter ?? {},
                             }

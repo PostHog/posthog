@@ -1,10 +1,10 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { LockOutlined } from '@ant-design/icons'
 import Select from 'rc-select'
 import { Link } from 'lib/components/Link'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 
+// TODO: Remove, but de-ant FeatureFlagReleaseConditions first
 export function GroupsIntroductionOption({ value }: { value: any }): JSX.Element | null {
     const { groupsAccessStatus } = useValues(groupsAccessLogic)
 

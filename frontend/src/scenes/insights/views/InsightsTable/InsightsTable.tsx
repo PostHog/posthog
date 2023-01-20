@@ -1,4 +1,3 @@
-import React from 'react'
 import { Dropdown, Menu } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
@@ -29,6 +28,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { formatAggregationValue, formatBreakdownLabel } from 'scenes/insights/utils'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
+import { isFilterWithDisplay, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -103,7 +103,7 @@ export function InsightsTable({
     }
 
     const isDisplayModeNonTimeSeries: boolean =
-        !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
+        isFilterWithDisplay(filters) && !!filters.display && NON_TIME_SERIES_DISPLAY_TYPES.includes(filters.display)
 
     const calcColumnMenu = isDisplayModeNonTimeSeries ? null : (
         <Menu>
@@ -124,6 +124,7 @@ export function InsightsTable({
 
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
+    const compare = isTrendsFilter(filters) && !!filters.compare
 
     if (isLegend) {
         const isAnySeriesChecked = indexedResults.some((series) => !hiddenLegendKeys[series.id])
@@ -147,7 +148,7 @@ export function InsightsTable({
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <LemonCheckbox
-                        color={getSeriesColor(item.id, !!filters.compare)}
+                        color={getSeriesColor(item.seriesIndex, compare)}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={!canCheckUncheckSeries}
@@ -164,7 +165,7 @@ export function InsightsTable({
             return (
                 <div className="series-name-wrapper-col">
                     <InsightLabel
-                        seriesColor={getSeriesColor(item.id, !!filters.compare)}
+                        seriesColor={getSeriesColor(item.seriesIndex, compare)}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}
@@ -176,7 +177,7 @@ export function InsightsTable({
                             editable: canEditSeriesNameInline,
                         })}
                         pillMaxWidth={165}
-                        compareValue={filters.compare ? formatCompareLabel(item) : undefined}
+                        compareValue={compare ? formatCompareLabel(item) : undefined}
                         onLabelClick={canEditSeriesNameInline ? () => handleEditClick(item) : undefined}
                     />
                     {canEditSeriesNameInline && (
@@ -209,7 +210,9 @@ export function InsightsTable({
                     item.breakdown_value,
                     item.filter?.breakdown,
                     item.filter?.breakdown_type,
-                    item.filter?.breakdown_histogram_bin_count !== undefined
+                    item.filter &&
+                        isTrendsFilter(item.filter) &&
+                        item.filter?.breakdown_histogram_bin_count !== undefined
                 )
                 return (
                     <SeriesToggleWrapper
@@ -228,7 +231,7 @@ export function InsightsTable({
                     a.breakdown_value,
                     a.filter?.breakdown,
                     a.filter?.breakdown_type,
-                    a.filter?.breakdown_histogram_bin_count !== undefined
+                    a.filter && isTrendsFilter(a.filter) && a.filter?.breakdown_histogram_bin_count !== undefined
                 )
                 const labelB = formatBreakdownLabel(
                     cohorts,
@@ -236,12 +239,12 @@ export function InsightsTable({
                     b.breakdown_value,
                     b.filter?.breakdown,
                     b.filter?.breakdown_type,
-                    a.filter?.breakdown_histogram_bin_count !== undefined
+                    a.filter && isTrendsFilter(a.filter) && a.filter?.breakdown_histogram_bin_count !== undefined
                 )
                 return labelA.localeCompare(labelB)
             },
         })
-        if (filters.display === ChartDisplayType.WorldMap) {
+        if (isTrendsFilter(filters) && filters.display === ChartDisplayType.WorldMap) {
             columns.push({
                 title: <PropertyKeyInfo disableIcon disablePopover value="$geoip_country_name" />,
                 render: (_, item: IndexedTrendResult) => countryCodeToName[item.breakdown_value as string],
@@ -282,7 +285,7 @@ export function InsightsTable({
                     ? formatAggregationValue(
                           item.action?.math_property,
                           value,
-                          (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
+                          (value) => formatAggregationAxisValue(filters, value),
                           formatPropertyValueForDisplay
                       )
                     : 'Unknown'
@@ -294,9 +297,7 @@ export function InsightsTable({
     }
 
     if (indexedResults?.length > 0 && indexedResults[0].data) {
-        const previousResult = !!filters.compare
-            ? indexedResults.find((r) => r.compare_label === 'previous')
-            : undefined
+        const previousResult = compare ? indexedResults.find((r) => r.compare_label === 'previous') : undefined
         const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = indexedResults[0].data.map(
             (__, index: number) => ({
                 title: (
@@ -313,7 +314,7 @@ export function InsightsTable({
                     return formatAggregationValue(
                         item.action?.math_property,
                         item.data[index],
-                        (value) => formatAggregationAxisValue(filters.aggregation_axis_format || 'numeric', value),
+                        (value) => formatAggregationAxisValue(filters, value),
                         formatPropertyValueForDisplay
                     )
                 },
@@ -331,7 +332,9 @@ export function InsightsTable({
     return (
         <LemonTable
             id={isInDashboardContext ? insight.short_id : undefined}
-            dataSource={isLegend ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])}
+            dataSource={
+                isLegend || isMainInsightView ? indexedResults : indexedResults.filter((r) => !hiddenLegendKeys?.[r.id])
+            }
             embedded={embedded}
             columns={columns}
             rowKey="id"

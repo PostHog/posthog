@@ -2,7 +2,7 @@
 Module to centralize event reporting on the server-side.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 import posthoganalytics
 
@@ -21,6 +21,7 @@ def report_user_signed_up(
     social_provider: str = "",  # which third-party provider processed the login (empty = no third-party)
     user_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the User object
     org_analytics_metadata: Optional[dict] = None,  # analytics metadata taken from the Organization object
+    role_at_organization: str = "",  # select input to ask what the user role is at the org
     referral_source: str = "",  # free text input to ask users where did they hear about us
 ) -> None:
     """
@@ -35,6 +36,7 @@ def report_user_signed_up(
         "signup_backend_processor": backend_processor,
         "signup_social_provider": social_provider,
         "realm": get_instance_realm(),
+        "role_at_organization": role_at_organization,
         "referral_source": referral_source,
     }
     if user_analytics_metadata is not None:
@@ -177,28 +179,6 @@ def report_bulk_invited(
     )
 
 
-def report_org_usage(organization_id: str, distinct_id: str, properties: Dict[str, Any]) -> None:
-    """
-    Triggered daily by Celery scheduler.
-    """
-    posthoganalytics.capture(
-        distinct_id,
-        "organization usage report",
-        properties,
-        groups={"organization": organization_id, "instance": SITE_URL},
-    )
-    posthoganalytics.group_identify("organization", organization_id, properties)
-
-
-def report_org_usage_failure(organization_id: str, distinct_id: str, err: str) -> None:
-    posthoganalytics.capture(
-        distinct_id,
-        "organization usage report failure",
-        properties={"error": err},
-        groups={"organization": organization_id, "instance": SITE_URL},
-    )
-
-
 def report_user_action(user: User, event: str, properties: Dict = {}):
     posthoganalytics.capture(
         user.distinct_id, event, properties=properties, groups=groups(user.current_organization, user.current_team)
@@ -211,26 +191,22 @@ def report_organization_deleted(user: User, organization: Organization):
     )
 
 
-def report_first_ingestion_reminder_email_sent(user: User):
-    posthoganalytics.capture(
-        user.distinct_id,
-        "first ingestion reminder email sent",
-        groups=groups(user.current_organization, user.current_team),
-    )
-
-
-def report_second_ingestion_reminder_email_sent(user: User):
-    posthoganalytics.capture(
-        user.distinct_id,
-        "second ingestion reminder email sent",
-        groups=groups(user.current_organization, user.current_team),
-    )
-
-
 def groups(organization: Optional[Organization] = None, team: Optional[Team] = None):
     result = {"instance": SITE_URL}
     if organization is not None:
         result["organization"] = str(organization.pk)
+        if organization.customer_id:
+            result["customer"] = organization.customer_id
+    elif team is not None and team.organization_id:
+        result["organization"] = str(team.organization_id)
+
     if team is not None:
         result["project"] = str(team.uuid)
     return result
+
+
+def report_team_action(team: Team, event: str, properties: Dict = {}):
+    """
+    For capturing events where it is unclear which user was the core actor we can use the team instead
+    """
+    posthoganalytics.capture(str(team.uuid), event, properties=properties, groups=groups(team=team))

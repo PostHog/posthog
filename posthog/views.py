@@ -12,6 +12,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect
 from django.views.decorators.cache import never_cache
 
+from posthog.cloud_utils import is_cloud
 from posthog.email import is_email_available
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.models import Organization, User
@@ -76,9 +77,7 @@ def stats(request):
 
 
 def robots_txt(request):
-    ROBOTS_TXT_CONTENT = (
-        "User-agent: *\nDisallow: /shared_dashboard/" if settings.MULTI_TENANCY else "User-agent: *\nDisallow: /"
-    )
+    ROBOTS_TXT_CONTENT = "User-agent: *\nDisallow: /shared_dashboard/" if is_cloud() else "User-agent: *\nDisallow: /"
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
@@ -97,22 +96,22 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
 
     response = {
         "django": True,
-        "redis": is_redis_alive() or settings.TEST,
-        "plugins": is_plugin_server_alive() or settings.TEST,
-        "celery": is_celery_alive() or settings.TEST,
-        "clickhouse": is_clickhouse_connected() or settings.TEST,
-        "kafka": is_kafka_connected() or settings.TEST,
-        "db": is_postgres_alive(),
-        "initiated": Organization.objects.exists(),
-        "cloud": settings.MULTI_TENANCY,
+        "redis": is_cloud() or is_redis_alive() or settings.TEST,
+        "plugins": is_cloud() or is_plugin_server_alive() or settings.TEST,
+        "celery": is_cloud() or is_celery_alive() or settings.TEST,
+        "clickhouse": is_cloud() or is_clickhouse_connected() or settings.TEST,
+        "kafka": is_cloud() or is_kafka_connected() or settings.TEST,
+        "db": is_cloud() or is_postgres_alive(),
+        "initiated": is_cloud() or Organization.objects.exists(),
+        "cloud": is_cloud(),
         "demo": settings.DEMO,
         "realm": get_instance_realm(),
         "region": get_instance_region(),
         "available_social_auth_providers": get_instance_available_sso_providers(),
         "can_create_org": get_can_create_org(request.user),
-        "email_service_available": is_email_available(with_absolute_urls=True),
+        "email_service_available": is_cloud() or is_email_available(with_absolute_urls=True),
         "slack_service": {"available": bool(slack_client_id), "client_id": slack_client_id or None},
-        "object_storage": is_object_storage_available(),
+        "object_storage": is_cloud() or is_object_storage_available(),
     }
 
     if request.user.is_authenticated:
@@ -123,7 +122,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "posthog_version": VERSION,
             "is_debug": settings.DEBUG or settings.E2E_TESTING,
             "is_event_property_usage_enabled": settings.ASYNC_EVENT_PROPERTY_USAGE,
-            "licensed_users_available": get_licensed_users_available(),
+            "licensed_users_available": get_licensed_users_available() if not is_cloud() else None,
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,

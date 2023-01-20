@@ -1,14 +1,14 @@
-import React from 'react'
 import { LemonButtonWithPopup } from '.'
 import { IconEllipsis } from '../icons'
 import { PopupProps } from '../Popup/Popup'
 
 export interface MoreProps extends Partial<Pick<PopupProps, 'overlay' | 'placement'>> {
     style?: React.CSSProperties
+    className?: string
     'data-attr'?: string
 }
 
-export function More({ overlay, placement = 'bottom-end', 'data-attr': dataAttr }: MoreProps): JSX.Element {
+export function More({ overlay, placement = 'bottom-end', className, 'data-attr': dataAttr }: MoreProps): JSX.Element {
     return (
         <LemonButtonWithPopup
             aria-label="more"
@@ -21,6 +21,7 @@ export function More({ overlay, placement = 'bottom-end', 'data-attr': dataAttr 
                 overlay,
             }}
             size="small"
+            className={className}
             disabled={!overlay}
         />
     )

@@ -16,10 +16,14 @@ Create a component like: `frontend/src/scenes/dashboard/Dashboards.tsx`
 
 ```ts
 import './Dashboards.scss'
-import { dashboardsLogic } './dashboardsLogic.ts'
+import { dashboardsLogic } from './dashboardsLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { useValues } from 'kea'
 
 export function Dashboards (): JSX.Element {
-    const { dashboards } = useValues(dashboardsLogic)
+    const {
+        allItems: dashboard // dashboard but directly on dashboardLogic not via dashboardsModel
+    } = useValues(dashboardLogic)
 
     return (
         // TODO: consolidate on a recommended naming convention
@@ -59,7 +63,9 @@ Create a component like: `frontend/src/scenes/dashboard/Dashboard.tsx`
 
 ```ts
 import './Dashboard.scss'
-import { dashboardLogic } './dashboardLogic.ts'
+import { dashboardLogic } from './dashboardLogic'
+import { SceneExport } from 'scenes/sceneTypes'
+import { useActions, useValues } from 'kea'
 
 export const scene: SceneExport = {
     component: Dashboard,
@@ -164,7 +170,7 @@ In the same folder as your component, create a file like `frontend/src/scenes/da
 If you need a lot of `.json` files for mocked data, create a `__mocks__` subdirectory for those files, just like you would with `jest`.
 
 ```tsx
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { Meta } from '@storybook/react'
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import { App } from 'scenes/App'

@@ -1,122 +1,116 @@
-import React from 'react'
-import { useActions, useValues } from 'kea'
-import { sessionRecordingsTableLogic } from '../sessionRecordingsTableLogic'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { SessionRecordingFilterType } from 'lib/utils/eventUsageLogic'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 
-import { IconFilter, IconWithCount } from 'lib/components/icons'
-import { LemonButton } from 'lib/components/LemonButton'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { EntityTypes, FilterType, LocalRecordingFilters, RecordingFilters } from '~/types'
+import { useEffect, useState } from 'react'
+import equal from 'fast-deep-equal'
 
 interface SessionRecordingsFiltersProps {
-    personUUID?: string
-    isPersonPage?: boolean
+    filters: RecordingFilters
+    setFilters: (filters: RecordingFilters) => void
+    showPropertyFilters?: boolean
+}
+
+const filtersToLocalFilters = (filters: RecordingFilters): LocalRecordingFilters => {
+    if (filters.actions?.length || filters.events?.length) {
+        return {
+            actions: filters.actions,
+            events: filters.events,
+        }
+    }
+
+    return {
+        actions: [],
+        events: [],
+        new_entity: [
+            {
+                id: 'empty',
+                type: EntityTypes.NEW_ENTITY,
+                order: 0,
+                name: 'empty',
+            },
+        ],
+    }
 }
 
 export function SessionRecordingsFilters({
-    personUUID,
-    isPersonPage = false,
+    filters,
+    setFilters,
+    showPropertyFilters,
 }: SessionRecordingsFiltersProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
-    const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsTableLogicInstance)
+    const [localFilters, setLocalFilters] = useState<FilterType>(filtersToLocalFilters(filters))
 
-    const { setEntityFilters, setPropertyFilters, reportRecordingsListFilterAdded } = useActions(
-        sessionRecordingsTableLogicInstance
-    )
+    // We have a copy of the filters as local state as it stores more properties than we want for playlists
+    useEffect(() => {
+        if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
+            setFilters({
+                actions: localFilters.actions,
+                events: localFilters.events,
+            })
+        }
+    }, [localFilters])
+
+    useEffect(() => {
+        // We have a copy of the filters as local state as it stores more properties than we want for playlists
+        // if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
+        if (!equal(filters.actions, localFilters.actions) || !equal(filters.events, localFilters.events)) {
+            setLocalFilters(filtersToLocalFilters(filters))
+        }
+    }, [filters])
 
     return (
         <>
-            {filtersEnabled ? (
-                <div className="flex-1 border rounded p-4">
-                    <div className="space-y-2">
-                        <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
-                            Filter by events and actions
+            <div className="border rounded p-4">
+                <div className="space-y-2">
+                    <LemonLabel info="Show recordings where all of the events or actions listed below happen.">
+                        Filter by events and actions
+                    </LemonLabel>
+                    <ActionFilter
+                        bordered
+                        filters={localFilters}
+                        setFilters={(payload) => {
+                            // reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
+                            setLocalFilters(payload)
+                        }}
+                        typeKey={'session-recordings'}
+                        mathAvailability={MathAvailability.None}
+                        buttonCopy="Add filter"
+                        hideRename
+                        hideDuplicate
+                        showNestedArrow={false}
+                        actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Actions, TaxonomicFilterGroupType.Events]}
+                        propertiesTaxonomicGroupTypes={[
+                            TaxonomicFilterGroupType.EventProperties,
+                            TaxonomicFilterGroupType.EventFeatureFlags,
+                            TaxonomicFilterGroupType.Elements,
+                        ]}
+                        propertyFiltersPopover
+                    />
+                </div>
+                {showPropertyFilters && (
+                    <div className="mt-4 space-y-2">
+                        <LemonLabel info="Show recordings by persons who match the set criteria">
+                            Filter by persons and cohorts
                         </LemonLabel>
-                        <ActionFilter
-                            bordered
-                            filters={entityFilters}
-                            setFilters={(payload) => {
-                                reportRecordingsListFilterAdded(SessionRecordingFilterType.EventAndAction)
-                                setEntityFilters(payload)
+
+                        <PropertyFilters
+                            pageKey={'session-recordings'}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.PersonProperties,
+                                TaxonomicFilterGroupType.Cohorts,
+                            ]}
+                            propertyFilters={filters.properties}
+                            onChange={(properties) => {
+                                // reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
+                                setFilters({ properties })
                             }}
-                            typeKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
-                            mathAvailability={MathAvailability.None}
-                            buttonCopy="Add filter"
-                            hideRename
-                            hideDuplicate
-                            showNestedArrow={false}
-                            actionsTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.Actions,
-                                TaxonomicFilterGroupType.Events,
-                            ]}
-                            propertiesTaxonomicGroupTypes={[
-                                TaxonomicFilterGroupType.EventProperties,
-                                TaxonomicFilterGroupType.EventFeatureFlags,
-                                TaxonomicFilterGroupType.Elements,
-                            ]}
-                            propertyFiltersPopover
                         />
                     </div>
-                    {!isPersonPage && (
-                        <div className="mt-8 space-y-2">
-                            <LemonLabel info="Show recordings by persons who match the set criteria">
-                                Filter by persons and cohorts
-                            </LemonLabel>
-
-                            <PropertyFilters
-                                pageKey={isPersonPage ? `person-${personUUID}` : 'session-recordings'}
-                                taxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                ]}
-                                propertyFilters={propertyFilters}
-                                onChange={(properties) => {
-                                    reportRecordingsListFilterAdded(SessionRecordingFilterType.PersonAndCohort)
-                                    setPropertyFilters(properties)
-                                }}
-                            />
-                        </div>
-                    )}
-                </div>
-            ) : undefined}
+                )}
+            </div>
         </>
-    )
-}
-
-export function SessionRecordingsFiltersToggle({
-    personUUID,
-    isPersonPage,
-}: SessionRecordingsFiltersProps): JSX.Element {
-    const sessionRecordingsTableLogicInstance = sessionRecordingsTableLogic({ personUUID })
-    const { entityFilters, propertyFilters, filtersEnabled } = useValues(sessionRecordingsTableLogicInstance)
-    const { setFiltersEnabled } = useActions(sessionRecordingsTableLogicInstance)
-
-    const totalFiltersCount =
-        (entityFilters.actions?.length || 0) + (entityFilters.events?.length || 0) + (propertyFilters?.length || 0)
-
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={
-                <IconWithCount count={totalFiltersCount}>
-                    <IconFilter />
-                </IconWithCount>
-            }
-            onClick={() => {
-                setFiltersEnabled(!filtersEnabled)
-                if (isPersonPage) {
-                    const entityFilterButtons = document.querySelectorAll('.entity-filter-row button')
-                    if (entityFilterButtons.length > 0) {
-                        ;(entityFilterButtons[0] as HTMLElement).click()
-                    }
-                }
-            }}
-        >
-            {filtersEnabled ? 'Hide filters' : 'Filter recordings'}
-        </LemonButton>
     )
 }

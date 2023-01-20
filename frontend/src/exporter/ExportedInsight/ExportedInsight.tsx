@@ -1,5 +1,4 @@
 import { ChartDisplayType, InsightLogicProps, InsightModel, InsightType } from '~/types'
-import React from 'react'
 import { BindLogic } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightViz } from 'lib/components/Cards/InsightCard/InsightCard'
@@ -11,6 +10,7 @@ import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
 import { ExportOptions, ExportType } from '~/exporter/types'
 import clsx from 'clsx'
 import { SINGLE_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export function ExportedInsight({
     insight,
@@ -21,6 +21,11 @@ export function ExportedInsight({
     exportOptions: ExportOptions
     type: ExportType
 }): JSX.Element {
+    if (isTrendsFilter(insight.filters) && insight.filters.show_legend) {
+        // legend is always shown so don't show it alongside the insight
+        insight.filters.show_legend = false
+    }
+
     const insightLogicProps: InsightLogicProps = {
         dashboardItemId: insight.short_id,
         cachedInsight: insight,
@@ -31,7 +36,7 @@ export function ExportedInsight({
 
     const showLegend =
         legend &&
-        filters.insight === InsightType.TRENDS &&
+        isTrendsFilter(filters) &&
         (!filters.display ||
             (!SINGLE_SERIES_DISPLAY_TYPES.includes(filters.display) &&
                 filters.display !== ChartDisplayType.ActionsTable))
@@ -76,7 +81,7 @@ export function ExportedInsight({
                         'ExportedInsight__content--with-watermark': showWatermark,
                     })}
                 >
-                    <InsightViz insight={insight as any} style={{ top: 0, left: 0, position: 'relative' }} />
+                    <InsightViz insight={insight as any} style={{ top: 0, left: 0 }} />
                     {showLegend ? (
                         <div className="p-4">
                             <InsightLegend horizontal readOnly />

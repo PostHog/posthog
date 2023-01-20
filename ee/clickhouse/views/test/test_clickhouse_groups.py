@@ -102,6 +102,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "name": "1",
                     "properties": {},
                     "type": "person",
+                    "matched_recordings": [],
+                    "value_at_data_point": None,
                 },
                 {
                     "created_at": "2021-05-10T00:00:00Z",
@@ -110,6 +112,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "id": "1::2",
                     "properties": {},
                     "type": "group",
+                    "matched_recordings": [],
+                    "value_at_data_point": None,
                 },
                 {
                     "created_at": "2021-05-10T00:00:00Z",
@@ -118,6 +122,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "id": "1::3",
                     "properties": {},
                     "type": "group",
+                    "matched_recordings": [],
+                    "value_at_data_point": None,
                 },
             ],
         )
@@ -138,6 +144,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "id": "0::0",
                     "properties": {},
                     "type": "group",
+                    "matched_recordings": [],
+                    "value_at_data_point": None,
                 },
                 {
                     "created_at": "2021-05-10T00:00:00Z",
@@ -146,6 +154,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "id": "0::1",
                     "properties": {},
                     "type": "group",
+                    "matched_recordings": [],
+                    "value_at_data_point": None,
                 },
                 {
                     "created_at": "2021-05-10T00:00:00Z",
@@ -154,6 +164,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "id": "1::2",
                     "properties": {},
                     "type": "group",
+                    "matched_recordings": [],
+                    "value_at_data_point": None,
                 },
                 {
                     "created_at": "2021-05-10T00:00:00Z",
@@ -162,6 +174,8 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "id": "1::3",
                     "properties": {},
                     "type": "group",
+                    "matched_recordings": [],
+                    "value_at_data_point": None,
                 },
             ],
         )

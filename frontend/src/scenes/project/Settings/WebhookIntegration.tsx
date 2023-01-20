@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { webhookIntegrationLogic } from './webhookIntegrationLogic'

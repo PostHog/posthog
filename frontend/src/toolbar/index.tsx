@@ -1,15 +1,14 @@
 import '~/styles'
 import './styles.scss'
 
-import React from 'react'
 import ReactDOM from 'react-dom'
 import Simmer from '@posthog/simmerjs'
 import { initKea } from '~/initKea'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
-import { EditorProps } from '~/types'
+import { ToolbarParams } from '~/types'
 import { PostHog } from 'posthog-js'
 ;(window as any)['simmer'] = new Simmer(window, { depth: 8 })
-;(window as any)['ph_load_editor'] = function (editorParams: EditorProps, posthog: PostHog) {
+;(window as any)['ph_load_toolbar'] = function (toolbarParams: ToolbarParams, posthog: PostHog) {
     initKea()
     const container = document.createElement('div')
     document.body.appendChild(container)
@@ -22,11 +21,13 @@ import { PostHog } from 'posthog-js'
 
     ReactDOM.render(
         <ToolbarApp
-            {...editorParams}
-            actionId={parseInt(String(editorParams.actionId))}
-            jsURL={editorParams.jsURL || editorParams.apiURL}
+            {...toolbarParams}
+            actionId={parseInt(String(toolbarParams.actionId))}
+            jsURL={toolbarParams.jsURL || toolbarParams.apiURL}
             posthog={posthog}
         />,
         container
     )
 }
+/** @deprecated, use "ph_load_toolbar" instead */
+;(window as any)['ph_load_editor'] = (window as any)['ph_load_toolbar']

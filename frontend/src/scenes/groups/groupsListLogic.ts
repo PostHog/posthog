@@ -4,7 +4,7 @@ import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { groupsModel } from '~/models/groupsModel'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { Breadcrumb, Group } from '~/types'
 import type { groupsListLogicType } from './groupsListLogicType'
 
@@ -64,7 +64,7 @@ export const groupsListLogic = kea<groupsListLogicType>({
         ],
         groupName: [
             (s) => [s.currentTab, s.aggregationLabel],
-            (currentTab, aggregationLabel): { singular: string; plural: string } =>
+            (currentTab, aggregationLabel): Noun =>
                 currentTab === '-1'
                     ? { singular: 'person', plural: 'persons' }
                     : aggregationLabel(parseInt(currentTab)),

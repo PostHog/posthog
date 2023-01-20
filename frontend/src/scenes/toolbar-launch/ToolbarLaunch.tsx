@@ -1,11 +1,9 @@
 import { PageHeader } from 'lib/components/PageHeader'
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import './ToolbarLaunch.scss'
-import { SearchOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
-import { IconFlag, IconGroupedEvents, IconHeatmap } from 'lib/components/icons'
+import { IconFlag, IconGroupedEvents, IconHeatmap, IconMagnifier } from 'lib/components/icons'
 import { AuthorizedUrlList } from '../../lib/components/AuthorizedUrlList/AuthorizedUrlList'
 import { AuthorizedUrlListType } from '../../lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { LemonDivider } from 'lib/components/LemonDivider'
@@ -40,7 +38,7 @@ function ToolbarLaunch(): JSX.Element {
         {
             title: 'Inspect',
             caption: 'Inspect clickable elements on your website.',
-            icon: <SearchOutlined />,
+            icon: <IconMagnifier />,
         },
     ]
 

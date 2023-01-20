@@ -2,12 +2,29 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { dayjs } from 'lib/dayjs'
 import api from 'lib/api'
 import { insightLogic } from '../insights/insightLogic'
-import { InsightLogicProps, FilterType, InsightType, TrendResult, ActionFilter, ChartDisplayType } from '~/types'
+import {
+    InsightLogicProps,
+    FilterType,
+    TrendResult,
+    ActionFilter,
+    ChartDisplayType,
+    TrendsFilterType,
+    LifecycleFilterType,
+    StickinessFilterType,
+    LifecycleToggle,
+} from '~/types'
 import type { trendsLogicType } from './trendsLogicType'
 import { IndexedTrendResult } from 'scenes/trends/types'
-import { isTrendsInsight, keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
-import { groupsModel } from '~/models/groupsModel'
+import {
+    isFilterWithDisplay,
+    isLifecycleFilter,
+    isStickinessFilter,
+    isTrendsInsight,
+    keyForInsightLogicProps,
+} from 'scenes/insights/sharedUtils'
+import { Noun, groupsModel } from '~/models/groupsModel'
 import { subscriptions } from 'kea-subscriptions'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 export const trendsLogic = kea<trendsLogicType>([
     props({} as InsightLogicProps),
@@ -17,7 +34,7 @@ export const trendsLogic = kea<trendsLogicType>([
     connect((props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
+            ['filters as inflightFilters', 'insight', 'insightLoading', 'hiddenLegendKeys', 'localFilters'],
             groupsModel,
             ['aggregationLabel'],
         ],
@@ -25,13 +42,14 @@ export const trendsLogic = kea<trendsLogicType>([
     })),
 
     actions(() => ({
-        setFilters: (filters: Partial<FilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
+        setFilters: (filters: Partial<TrendsFilterType>, mergeFilters = true) => ({ filters, mergeFilters }),
         setDisplay: (display) => ({ display }),
         loadMoreBreakdownValues: true,
         setBreakdownValuesLoading: (loading: boolean) => ({ loading }),
-        toggleLifecycle: (lifecycleName: string) => ({ lifecycleName }),
+        toggleLifecycle: (lifecycleName: LifecycleToggle) => ({ lifecycleName }),
         setTargetAction: (action: ActionFilter) => ({ action }),
         setIsFormulaOn: (enabled: boolean) => ({ enabled }),
+        setLifecycles: (lifecycles: LifecycleToggle[]) => ({ lifecycles }),
     })),
 
     reducers(({ props }) => ({
@@ -44,6 +62,7 @@ export const trendsLogic = kea<trendsLogicType>([
                     }
                     return [...state, lifecycleName]
                 },
+                setLifecycles: (_, { lifecycles }) => lifecycles,
             },
         ],
         targetAction: [
@@ -59,7 +78,7 @@ export const trendsLogic = kea<trendsLogicType>([
             },
         ],
         isFormulaOn: [
-            () => !!props.cachedInsight?.filters?.formula,
+            () => isTrendsFilter(props.cachedInsight?.filters) && !!props.cachedInsight?.filters?.formula,
             {
                 setIsFormulaOn: (_, { enabled }) => enabled,
             },
@@ -67,9 +86,22 @@ export const trendsLogic = kea<trendsLogicType>([
     })),
 
     selectors({
+        filters: [
+            (s) => [s.inflightFilters],
+            (
+                inflightFilters
+            ): Partial<TrendsFilterType> | Partial<StickinessFilterType> | Partial<LifecycleFilterType> =>
+                inflightFilters &&
+                (isTrendsFilter(inflightFilters) ||
+                    isStickinessFilter(inflightFilters) ||
+                    isLifecycleFilter(inflightFilters))
+                    ? inflightFilters
+                    : {},
+        ],
         loadedFilters: [
             (s) => [s.insight],
-            ({ filters }): Partial<FilterType> => (isTrendsInsight(filters?.insight) ? filters ?? {} : {}),
+            ({ filters }): Partial<TrendsFilterType> =>
+                filters && (isFilterWithDisplay(filters) || isLifecycleFilter(filters)) ? filters : {},
         ],
         results: [
             (s) => [s.insight],
@@ -89,24 +121,22 @@ export const trendsLogic = kea<trendsLogicType>([
             (s) => [s.filters, s.results, s.toggledLifecycles],
             (filters, _results, toggledLifecycles): IndexedTrendResult[] => {
                 let results = _results || []
-                if (filters.insight === InsightType.LIFECYCLE) {
+                results = results.map((result, index) => ({ ...result, seriesIndex: index }))
+                if (
+                    isFilterWithDisplay(filters) &&
+                    (filters.display === ChartDisplayType.ActionsBarValue ||
+                        filters.display === ChartDisplayType.ActionsPie)
+                ) {
+                    results.sort((a, b) => b.aggregated_value - a.aggregated_value)
+                } else if (isLifecycleFilter(filters)) {
                     results = results.filter((result) => toggledLifecycles.includes(String(result.status)))
                 }
-                if (filters.display === ChartDisplayType.ActionsBarValue) {
-                    results.sort((a, b) => b.aggregated_value - a.aggregated_value)
-                }
-                return results.map((result, index) => ({ ...result, id: index }))
+                return results.map((result, index) => ({ ...result, id: index } as IndexedTrendResult))
             },
         ],
         aggregationTargetLabel: [
             (s) => [s.aggregationLabel, s.targetAction],
-            (
-                aggregationLabel,
-                targetAction
-            ): {
-                singular: string
-                plural: string
-            } => {
+            (aggregationLabel, targetAction): Noun => {
                 return aggregationLabel(targetAction.math_group_type_index)
             },
         ],
@@ -145,7 +175,7 @@ export const trendsLogic = kea<trendsLogicType>([
             insightLogic(props).actions.setFilters(mergeFilters ? { ...values.filters, ...filters } : filters)
         },
         setDisplay: async ({ display }) => {
-            insightLogic(props).actions.setFilters({ ...values.filters, display })
+            actions.setFilters({ display }, true)
         },
         loadMoreBreakdownValues: async () => {
             if (!values.loadMoreBreakdownUrl) {
@@ -171,7 +201,7 @@ export const trendsLogic = kea<trendsLogicType>([
     })),
     subscriptions(({ values, actions }) => ({
         filters: (filters: Partial<FilterType>) => {
-            const shouldFormulaBeOn = !!filters.formula
+            const shouldFormulaBeOn = isTrendsFilter(filters) && !!filters.formula
             // Prevent too many renders by only firing the action if needed
             if (values.isFormulaOn !== shouldFormulaBeOn) {
                 actions.setIsFormulaOn(shouldFormulaBeOn)

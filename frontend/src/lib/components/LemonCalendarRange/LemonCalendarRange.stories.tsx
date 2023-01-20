@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonCalendarRange, LemonCalendarRangeProps } from 'lib/components/LemonCalendarRange/LemonCalendarRange'
 import { Popup } from 'lib/components/Popup/Popup'
@@ -9,10 +9,11 @@ import { formatDateRange } from 'lib/utils'
 export default {
     title: 'Lemon UI/Lemon Calendar/Lemon Calendar Range',
     component: LemonCalendarRange,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof LemonCalendarRange>
 
 const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCalendarRangeProps) => {
-    const [value, setValue] = useState(['2022-08-11', '2022-08-26'] as [string, string] | null)
+    const [value, setValue] = useState([dayjs('2022-08-11'), dayjs('2022-08-26')] as LemonCalendarRangeProps['value'])
     const [visible, setVisible] = useState(true)
 
     return (
@@ -35,7 +36,7 @@ const BasicTemplate: ComponentStory<typeof LemonCalendarRange> = (props: LemonCa
                 onClickOutside={() => setVisible(false)}
             >
                 <LemonButton type="secondary" onClick={() => setVisible(!visible)}>
-                    {value ? formatDateRange(dayjs(value[0]), dayjs(value[1])) : ''}
+                    {value ? formatDateRange(...value) : ''}
                 </LemonButton>
             </Popup>
         </div>

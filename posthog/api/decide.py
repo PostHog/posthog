@@ -1,5 +1,5 @@
 import re
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urlparse
 
 import structlog
@@ -14,7 +14,7 @@ from posthog.api.utils import get_project_id, get_token
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.logging.timing import timed
 from posthog.models import Team, User
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_all_feature_flags
 from posthog.plugins.site import get_decide_site_apps
 from posthog.utils import cors_response, get_ip_address, load_data_from_request
 
@@ -62,7 +62,7 @@ def get_decide(request: HttpRequest):
 
     response = {
         "config": {"enable_collect_everything": True},
-        "editorParams": {},
+        "toolbarParams": {},
         "isAuthenticated": False,
         "supportedCompression": ["gzip", "gzip-js", "lz64"],
     }
@@ -95,7 +95,7 @@ def get_decide(request: HttpRequest):
             )
 
         token = get_token(data, request)
-        team = Team.objects.get_team_from_token(token)
+        team = Team.objects.get_team_from_cache_or_token(token)
         if team is None and token:
             project_id = get_project_id(data, request)
 
@@ -142,9 +142,12 @@ def get_decide(request: HttpRequest):
                 )
 
             property_overrides = get_geoip_properties(get_ip_address(request))
-            all_property_overrides = {**property_overrides, **(data.get("person_properties") or {})}
+            all_property_overrides: Dict[str, Union[str, int]] = {
+                **property_overrides,
+                **(data.get("person_properties") or {}),
+            }
 
-            feature_flags, _ = get_active_feature_flags(
+            feature_flags, _, feature_flag_payloads, errors = get_all_feature_flags(
                 team.pk,
                 data["distinct_id"],
                 data.get("groups") or {},
@@ -152,15 +155,43 @@ def get_decide(request: HttpRequest):
                 property_value_overrides=all_property_overrides,
                 group_property_value_overrides=(data.get("group_properties") or {}),
             )
-            response["featureFlags"] = feature_flags if api_version >= 2 else list(feature_flags.keys())
+
+            active_flags = {key: value for key, value in feature_flags.items() if value}
+
+            if api_version == 2:
+                response["featureFlags"] = active_flags
+            elif api_version == 3:
+                # v3 returns all flags, not just active ones, as well as if there was an error computing all flags
+                response["featureFlags"] = feature_flags
+                response["errorsWhileComputingFlags"] = errors
+                response["featureFlagPayloads"] = feature_flag_payloads
+            else:
+                # default v1
+                response["featureFlags"] = list(active_flags.keys())
+
+            response["capturePerformance"] = True if team.capture_performance_opt_in else False
 
             if team.session_recording_opt_in and (
                 on_permitted_recording_domain(team, request) or not team.recording_domains
             ):
                 capture_console_logs = True if team.capture_console_log_opt_in else False
-                response["sessionRecording"] = {"endpoint": "/s/", "consoleLogRecordingEnabled": capture_console_logs}
+                response["sessionRecording"] = {
+                    "endpoint": "/s/",
+                    "consoleLogRecordingEnabled": capture_console_logs,
+                }
 
-            response["siteApps"] = get_decide_site_apps(team) if team.inject_web_apps else []
+            site_apps = []
+            if team.inject_web_apps:
+                try:
+                    site_apps = get_decide_site_apps(team)
+                except Exception:
+                    pass
+
+            response["siteApps"] = site_apps
+
+            # NOTE: Whenever you add something to decide response, update this test:
+            # `test_decide_doesnt_error_out_when_database_is_down`
+            # which ensures that decide doesn't error out when the database is down
 
     statsd.incr(f"posthog_cloud_raw_endpoint_success", tags={"endpoint": "decide"})
     return cors_response(request, JsonResponse(response))

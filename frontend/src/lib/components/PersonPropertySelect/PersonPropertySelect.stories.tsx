@@ -1,12 +1,13 @@
 import { Meta } from '@storybook/react'
 import { useMountedLogic } from 'kea'
-import React from 'react'
+import { useState } from 'react'
 import { mswDecorator } from '~/mocks/browser'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { PersonPropertySelect } from './PersonPropertySelect'
 
 export default {
     title: 'Filters',
+    parameters: { chromatic: { disableSnapshot: false } },
     decorators: [
         mswDecorator({
             get: {
@@ -30,7 +31,7 @@ export default {
 
 export function PersonPropertySelect_(): JSX.Element {
     useMountedLogic(personPropertiesModel)
-    const [selectedProperties, setSelectProperties] = React.useState<string[]>([
+    const [selectedProperties, setSelectProperties] = useState<string[]>([
         '$initial_geoip_postal_code',
         '$initial_geoip_latitude',
         '$initial_geoip_longitude',

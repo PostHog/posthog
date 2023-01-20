@@ -1,7 +1,6 @@
 import { Alert } from 'antd'
 import { PluginTab } from 'scenes/plugins/types'
 import { Subtitle } from 'lib/components/PageHeader'
-import React from 'react'
 import { SourcePlugin } from 'scenes/plugins/tabs/advanced/SourcePlugin'
 import { CustomPlugin } from 'scenes/plugins/tabs/advanced/CustomPlugin'
 import { LocalPlugin } from 'scenes/plugins/tabs/advanced/LocalPlugin'

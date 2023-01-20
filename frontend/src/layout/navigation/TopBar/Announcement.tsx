@@ -1,13 +1,12 @@
-import React from 'react'
 import ReactMarkdown from 'react-markdown'
 import clsx from 'clsx'
-import { CloseOutlined } from '@ant-design/icons'
 import { MOCK_NODE_PROCESS } from 'lib/constants'
 import { announcementLogic, AnnouncementType } from '~/layout/navigation/TopBar/announcementLogic'
 import { useActions, useValues } from 'kea'
 import { NewFeatureBanner } from 'lib/introductions/NewFeatureBanner'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { IconClose } from 'lib/components/icons'
 
 window.process = MOCK_NODE_PROCESS
 
@@ -21,9 +20,9 @@ export function Announcement(): JSX.Element | null {
         message = (
             <b>
                 Welcome to PostHog's demo environment. To level up,{' '}
-                <a href="https://posthog.com/signup" target="_blank" rel="noopener">
+                <Link to="https://posthog.com/signup" target="_blank">
                     deploy your own PostHog instance, or sign up for PostHog Cloud
-                </a>
+                </Link>
                 .
             </b>
         )
@@ -51,10 +50,9 @@ export function Announcement(): JSX.Element | null {
         <div className={clsx('Announcement', !shownAnnouncementType && 'Announcement--hidden')}>
             {message}
             {closable && (
-                <CloseOutlined
-                    className="Announcement__close"
-                    onClick={() => hideAnnouncement(shownAnnouncementType)}
-                />
+                <div className="Announcement__close" onClick={() => hideAnnouncement(shownAnnouncementType)}>
+                    <IconClose />
+                </div>
             )}
         </div>
     )

@@ -1,0 +1,118 @@
+@import '../../../styles/mixins';
+
+.SessionRecordingPlayer {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+
+    &--no-border {
+        border: none;
+        border-radius: 0px;
+    }
+
+    .SessionRecordingPlayer__body {
+        position: relative;
+        z-index: 0;
+        background-color: var(--bg-light);
+        min-width: 1px;
+        height: 500px;
+        min-height: 500px;
+        margin: 0.5rem;
+        overflow: hidden;
+        border-radius: var(--radius);
+    }
+
+    &--fullscreen {
+        position: fixed;
+        left: 0px;
+        top: 0px;
+        right: 0px;
+        bottom: 0px;
+        overflow-y: auto;
+        background-color: var(--white);
+        z-index: var(--z-modal);
+
+        .SessionRecordingPlayer__main {
+            flex: 1;
+        }
+
+        .SessionRecordingPlayer__body {
+            height: 100%;
+            min-height: auto;
+            margin: 0rem;
+            border-radius: 0;
+        }
+    }
+
+    .SessionRecordingPlayer__main,
+    .SessionRecordingPlayer__inspector {
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+    }
+
+    .SessionRecordingPlayer__inspector {
+        border-top: 1px solid var(--border);
+        min-height: 50rem;
+    }
+
+    &--widescreen {
+        flex-direction: row;
+        overflow: hidden;
+
+        .SessionRecordingPlayer__main {
+            flex: 2;
+        }
+
+        .SessionRecordingPlayer__inspector {
+            min-width: 450px;
+            flex: 1;
+            border-left: 1px solid var(--border);
+            border-top: none;
+            min-height: auto;
+        }
+
+        .SessionRecordingPlayer__body {
+            // Rough aproximation of the parent elements
+            height: calc(100vh - 20rem);
+            min-height: calc(100vh - 20rem);
+        }
+
+        .LemonModal & {
+            .SessionRecordingPlayer__body {
+                height: calc(90vh - 15rem);
+                min-height: auto;
+            }
+        }
+    }
+}
+
+.PlayerControlSeekIcon {
+    position: relative;
+    display: flex;
+
+    .PlayerControlSeekIcon__seconds {
+        position: absolute;
+        font-size: 6px;
+        font-weight: bold;
+        text-align: center;
+        left: 0;
+        right: 0;
+        top: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .PlayerControlSeekIcon__icon {
+        font-size: 1.3rem;
+
+        &--forward {
+            transform: rotateY(180deg);
+        }
+    }
+}

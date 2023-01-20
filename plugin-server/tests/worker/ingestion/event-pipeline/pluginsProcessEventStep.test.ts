@@ -1,6 +1,6 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 
-import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/2-pluginsProcessEventStep'
+import { pluginsProcessEventStep } from '../../../../src/worker/ingestion/event-pipeline/3-pluginsProcessEventStep'
 import { LazyPersonContainer } from '../../../../src/worker/ingestion/lazy-person-container'
 import { runProcessEvent } from '../../../../src/worker/plugins/run'
 
@@ -46,6 +46,15 @@ describe('pluginsProcessEventStep()', () => {
 
     it('automatically forwards `$snapshot` events', async () => {
         const event = { ...pluginEvent, event: '$snapshot' }
+
+        const response = await pluginsProcessEventStep(runner, event, personContainer)
+
+        expect(runProcessEvent).not.toHaveBeenCalled()
+        expect(response).toEqual(['processPersonsStep', event, personContainer])
+    })
+
+    it('automatically forwards `$performance_event` events', async () => {
+        const event = { ...pluginEvent, event: '$performance_event' }
 
         const response = await pluginsProcessEventStep(runner, event, personContainer)
 

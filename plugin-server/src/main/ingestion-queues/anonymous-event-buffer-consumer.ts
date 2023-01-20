@@ -1,23 +1,26 @@
+import Piscina from '@posthog/piscina'
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { StatsD } from 'hot-shots'
 import { EachBatchHandler, Kafka } from 'kafkajs'
-import { KafkaProducerWrapper } from 'utils/db/kafka-producer-wrapper'
 
 import { KAFKA_BUFFER, KAFKA_EVENTS_DEAD_LETTER_QUEUE } from '../../config/kafka-topics'
-import { JobName } from '../../types'
+import { runBufferEventPipeline } from '../../main/graphile-worker/buffer'
+import { Hub } from '../../types'
+import { KafkaProducerWrapper } from '../../utils/db/kafka-producer-wrapper'
 import { status } from '../../utils/status'
-import { GraphileWorker } from '../jobs/graphile-worker'
 import { instrumentEachBatch, setupEventHandlers } from './kafka-queue'
 
 export const startAnonymousEventBufferConsumer = async ({
+    hub, // TODO: remove needing to pass in the whole hub and be more selective on dependency injection.
+    piscina,
     kafka,
     producer,
-    graphileWorker,
     statsd,
 }: {
+    hub: Hub
+    piscina: Piscina
     kafka: Kafka
     producer: KafkaProducerWrapper
-    graphileWorker: GraphileWorker
     statsd?: StatsD
 }) => {
     /*
@@ -44,8 +47,8 @@ export const startAnonymousEventBufferConsumer = async ({
 
     status.info('🔁', 'Starting anonymous event buffer consumer')
 
-    const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat }) => {
-        status.info('🔁', 'Processing batch', { size: batch.messages.length })
+    const eachBatch: EachBatchHandler = async ({ batch, resolveOffset, heartbeat, pause }) => {
+        status.debug('🔁', 'Processing batch', { size: batch.messages.length })
         for (const message of batch.messages) {
             if (!message.value || !message.headers?.processEventAt || !message.headers?.eventId) {
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
@@ -53,9 +56,35 @@ export const startAnonymousEventBufferConsumer = async ({
                     processEventAt: message.headers?.processEventAt,
                     eventId: message.headers?.eventId,
                 })
-                producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
+                await producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
                 resolveOffset(message.offset)
                 continue
+            }
+
+            const processEventAt = Number.parseInt(message.headers.processEventAt.toString())
+            const now = Date.now()
+            if (processEventAt > now) {
+                const eventId = message.headers.eventId.toString()
+                status.info('🔁', 'Delaying event processing', {
+                    topic: batch.topic,
+                    partition: batch.partition,
+                    eventId: eventId,
+                    delayMs: processEventAt - now,
+                    processEventAt,
+                    now,
+                })
+                const resume = pause()
+                setTimeout(() => {
+                    status.info('🔁', 'Resuming event processing', {
+                        topic: batch.topic,
+                        partition: batch.partition,
+                        eventId: eventId,
+                        delayMs: processEventAt - now,
+                    })
+                    resume()
+                }, processEventAt - now)
+
+                return
             }
 
             let eventPayload: PluginEvent
@@ -66,30 +95,13 @@ export const startAnonymousEventBufferConsumer = async ({
                 status.warn('⚠️', `Invalid message for partition ${batch.partition} offset ${message.offset}.`, {
                     error,
                 })
-                producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
+                await producer.queueMessage({ topic: KAFKA_EVENTS_DEAD_LETTER_QUEUE, messages: [message] })
                 resolveOffset(message.offset)
                 continue
             }
 
-            const job = {
-                eventPayload: eventPayload,
-                timestamp: Number.parseInt(message.headers.processEventAt.toString()),
-                jobKey: message.headers.eventId.toString(), // Ensure we don't create duplicates
-            }
-
-            status.debug('⬆️', 'Enqueuing anonymous event for processing', { job })
-            try {
-                await graphileWorker.enqueue(JobName.BUFFER_JOB, job, {
-                    key: 'team_id',
-                    tag: eventPayload.team_id.toString(),
-                })
-                statsd?.increment('anonymous_event_buffer_consumer.enqueued')
-            } catch (error) {
-                status.error('⚠️', 'Failed to enqueue anonymous event for processing', { error })
-                statsd?.increment('anonymous_event_buffer_consumer.enqueue_error')
-                throw error
-            }
-
+            status.debug('⬆️', 'Processing anonymous event', { eventId: message.headers.eventId.toString() })
+            await runBufferEventPipeline(hub, piscina, eventPayload)
             resolveOffset(message.offset)
 
             // After processing each message, we need to heartbeat to ensure
@@ -105,6 +117,7 @@ export const startAnonymousEventBufferConsumer = async ({
     await consumer.connect()
     await consumer.subscribe({ topic: KAFKA_BUFFER })
     await consumer.run({
+        eachBatchAutoResolve: false,
         eachBatch: async (payload) => {
             return await instrumentEachBatch(KAFKA_BUFFER, eachBatch, payload, statsd)
         },

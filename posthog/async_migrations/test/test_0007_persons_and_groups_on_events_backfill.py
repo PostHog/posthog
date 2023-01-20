@@ -16,6 +16,8 @@ from posthog.models.person.util import create_person, create_person_distinct_id,
 from posthog.models.utils import UUIDT
 from posthog.test.base import ClickhouseTestMixin, run_clickhouse_statement_in_parallel
 
+pytestmark = pytest.mark.async_migrations
+
 MIGRATION_NAME = "0007_persons_and_groups_on_events_backfill"
 
 uuid1, uuid2, uuid3 = [UUIDT() for _ in range(3)]
@@ -62,8 +64,7 @@ def query_events() -> List[Dict]:
     )
 
 
-@pytest.mark.async_migrations
-class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
+class Test0007PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
         MIGRATION_DEFINITION.parameters["TEAM_ID"] = (None, "", int)
 
@@ -80,9 +81,9 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
                 "TRUNCATE TABLE sharded_events",
                 "TRUNCATE TABLE person",
                 "TRUNCATE TABLE person_distinct_id",
-                "DROP TABLE IF EXISTS tmp_person_0006",
-                "DROP TABLE IF EXISTS tmp_person_distinct_id2_0006",
-                "DROP TABLE IF EXISTS tmp_groups_0006",
+                "DROP TABLE IF EXISTS tmp_person_0007",
+                "DROP TABLE IF EXISTS tmp_person_distinct_id2_0007",
+                "DROP TABLE IF EXISTS tmp_groups_0007",
                 "DROP DICTIONARY IF EXISTS person_dict",
                 "DROP DICTIONARY IF EXISTS person_distinct_id2_dict",
                 "DROP DICTIONARY IF EXISTS groups_dict",
@@ -207,13 +208,14 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         )
 
     def test_deleted_data_persons(self):
-        create_event(event_uuid=uuid1, team=self.team, distinct_id="1", event="$pageview")
+        distinct_id = "not-reused-id"  # distinct ID re-use isn't supported after person deletion
+        create_event(event_uuid=uuid1, team=self.team, distinct_id=distinct_id, event="$pageview")
         person = Person.objects.create(
             team_id=self.team.pk,
-            distinct_ids=["1"],
+            distinct_ids=[distinct_id],
             properties={"$some_prop": "something", "$another_prop": "something"},
         )
-        create_person_distinct_id(self.team.pk, "1", str(person.uuid))
+        create_person_distinct_id(self.team.pk, distinct_id, str(person.uuid))
         delete_person(person)
 
         # the mutation will run as noted by person_properties becoming '{}' instead of ''
@@ -223,7 +225,12 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
         events = query_events()
         self.assertEqual(len(events), 1)
         self.assertDictContainsSubset(
-            {"distinct_id": "1", "person_id": ZERO_UUID, "person_properties": "{}", "person_created_at": ZERO_DATE},
+            {
+                "distinct_id": distinct_id,
+                "person_id": ZERO_UUID,
+                "person_properties": "{}",
+                "person_created_at": ZERO_DATE,
+            },
             events[0],
         )
 
@@ -509,14 +516,15 @@ class Test0006PersonsAndGroupsOnEventsBackfill(AsyncMigrationBaseTest, Clickhous
             )
             create_person_distinct_id(self.team.pk, str(i), str(_uuid))
 
-        # missing person_properties + backfill will not fix, since it has no associated person record
+        # missing person_id + backfill will not fix, since it has no associated person record
         create_event(
             event_uuid=UUIDT(),
             team=self.team,
             distinct_id="no_data_1",
             event="$pageview",
-            person_id=uuid4(),
+            person_id=ZERO_UUID,
             person_created_at="2022-01-02T00:00:00Z",
+            person_properties={},
         )
 
         self.assertTrue(run_migration())

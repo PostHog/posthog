@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Col, Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
@@ -23,7 +23,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const {
-        stepsWithCount,
+        steps,
         propertyCorrelationValues,
         propertyCorrelationTypes,
         excludedPropertyNames,
@@ -129,7 +129,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
         )
     }
 
-    return stepsWithCount.length > 1 ? (
+    return steps.length > 1 ? (
         <VisibilitySensor offset={150} id={`${correlationPropKey}-properties`}>
             <div className="funnel-correlation-table">
                 <Row className="funnel-correlation-header">
@@ -192,7 +192,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Dropoff
+                                    Drop-off
                                 </Checkbox>
                             </div>
                         </Row>
@@ -306,10 +306,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 }
             >
                 <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined
-                        style={{ color: 'var(--primary)', fontSize: 24 }}
-                        className="insight-dropdown-actions"
-                    />
+                    <EllipsisOutlined className="insight-dropdown-actions" />
                 </LemonButton>
             </Popup>
         </Row>

@@ -633,7 +633,7 @@ class TestUserAPI(APIBaseTest):
 
     def test_user_cannot_update_password_with_incorrect_current_password_and_ratelimit_to_prevent_attacks(self):
 
-        for i in range(7):
+        for _ in range(7):
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         self.assertDictContainsSubset({"attr": None, "code": "throttled", "type": "throttled_error"}, response.json())
@@ -644,20 +644,20 @@ class TestUserAPI(APIBaseTest):
 
     def test_no_ratelimit_for_get_requests_for_users(self):
 
-        for i in range(6):
+        for _ in range(6):
             response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        for i in range(4):
+        for _ in range(4):
             # below rate limit, so shouldn't be throttled
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        for i in range(2):
+        for _ in range(2):
             response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        for i in range(2):
+        for _ in range(2):
             # finally above rate limit, so should be throttled
             response = self.client.patch("/api/users/@me/", {"current_password": "wrong", "password": "12345678"})
         self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)

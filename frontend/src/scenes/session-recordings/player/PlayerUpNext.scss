@@ -1,0 +1,74 @@
+.PlayerUpNext {
+    transition: 250ms transform ease-out;
+    position: absolute;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 11;
+
+    &--enter {
+        transform: translateY(200%);
+    }
+
+    &--enter-active,
+    &--enter-done {
+        transform: translateY(0%);
+    }
+
+    &--exit {
+        transform: translateY(0%);
+    }
+
+    &--exit-active {
+        transform: translateY(200%);
+    }
+}
+
+.PlayerUpNextButton {
+    position: relative;
+    display: flex;
+    align-items: center;
+    line-height: 1.5rem;
+    min-height: 2.5rem;
+    padding: 0.25rem 0.75rem;
+
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-elevation);
+    background-color: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(5px);
+    font-weight: 600;
+    cursor: pointer;
+    overflow: hidden;
+    border: 1px solid rgba(0, 0, 0, 0.5);
+
+    .PlayerUpNextButtonBackground {
+        position: absolute;
+        left: 0px;
+        top: 0px;
+        bottom: 0px;
+        width: 0;
+        background-color: var(--white);
+        color: var(--primary-alt);
+    }
+
+    &.PlayerUpNextButton--animating {
+        .PlayerUpNextButtonBackground {
+            animation: PlayerUpNextButtonBackgroundAnimation 3s linear forwards;
+        }
+    }
+
+    &:hover {
+        .PlayerUpNextButtonBackground {
+            animation: none;
+            width: 100%;
+        }
+    }
+}
+
+@keyframes PlayerUpNextButtonBackgroundAnimation {
+    0% {
+        width: 0;
+    }
+    100% {
+        width: 100%;
+    }
+}

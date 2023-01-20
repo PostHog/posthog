@@ -261,17 +261,13 @@ describe('eventDefinitionsTableLogic', () => {
                         [propertiesStartingUrl]: partial({
                             count: 5,
                         }),
-                        [`api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1&orderBy=%5B%22-timestamp%22%5D`]:
-                            partial(mockEvent.properties),
+                        [`api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`]: partial(mockEvent.properties),
                     }),
                 })
 
             expect(api.get).toBeCalledTimes(3)
             expect(api.get).toHaveBeenNthCalledWith(1, propertiesStartingUrl)
-            expect(api.get).toHaveBeenNthCalledWith(
-                2,
-                `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1&orderBy=%5B%22-timestamp%22%5D`
-            )
+            expect(api.get).toHaveBeenNthCalledWith(2, `api/projects/${MOCK_TEAM_ID}/events?event=event1&limit=1`)
             expect(api.get).toHaveBeenNthCalledWith(3, startingUrl)
 
             await expectLogic(logic, () => {

@@ -1,6 +1,6 @@
 import { InsightModel } from '~/types'
 import { useStorybookMocks } from '~/mocks/browser'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { App } from 'scenes/App'
 
@@ -10,7 +10,7 @@ export function createInsightScene(insight: Partial<InsightModel>): () => JSX.El
     return function InsightStorybookScene() {
         useStorybookMocks({
             get: {
-                '/api/projects/:projectId/insights/': (_, __, ctx) => [
+                '/api/projects/:team_id/insights/': (_, __, ctx) => [
                     ctx.delay(100),
                     ctx.status(200),
                     ctx.json({

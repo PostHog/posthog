@@ -1,6 +1,5 @@
 from datetime import datetime
 from unittest.case import skip
-from unittest.mock import patch
 
 from freezegun import freeze_time
 from rest_framework.exceptions import ValidationError
@@ -13,14 +12,13 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.queries.funnels import ClickhouseFunnel, ClickhouseFunnelActors
 from posthog.queries.funnels.test.breakdown_cases import assert_funnel_results_equal, funnel_breakdown_test_factory
 from posthog.queries.funnels.test.conversion_time_cases import funnel_conversion_time_test_factory
-from posthog.tasks.update_cache import update_cache_item
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -45,7 +43,6 @@ class TestFunnelConversionTime(ClickhouseTestMixin, funnel_conversion_time_test_
 
 
 def funnel_test_factory(Funnel, event_factory, person_factory):
-    @patch("posthog.celery.update_cache_item_task.delay", update_cache_item)
     class TestGetFunnel(ClickhouseTestMixin, APIBaseTest):
         def _get_actor_ids_at_step(self, filter, funnel_step, breakdown_value=None):
             person_filter = filter.with_data({"funnel_step": funnel_step, "funnel_step_breakdown": breakdown_value})
@@ -267,7 +264,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 0)
             self.assertEqual(result[2]["count"], 0)
 
-        @test_with_materialized_columns(["$browser"])
+        @also_test_with_materialized_columns(["$browser"])
         def test_funnel_prop_filters(self):
             funnel = self._basic_funnel(properties={"$browser": "Safari"})
 
@@ -290,7 +287,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[0]["count"], 2)
             self.assertEqual(result[1]["count"], 1)
 
-        @test_with_materialized_columns(["$browser"])
+        @also_test_with_materialized_columns(["$browser"])
         def test_funnel_prop_filters_per_entity(self):
             action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
             ActionStep.objects.create(
@@ -351,7 +348,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
 
-        @test_with_materialized_columns(person_properties=["email"])
+        @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_person_prop(self):
             action_credit_card = Action.objects.create(team_id=self.team.pk, name="paid")
             ActionStep.objects.create(
@@ -389,7 +386,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 1)
 
-        @test_with_materialized_columns(["test_propX"])
+        @also_test_with_materialized_columns(["test_propX"])
         def test_funnel_multiple_actions(self):
             # we had an issue on clickhouse where multiple actions with different property filters would incorrectly grab only the last
             # properties.
@@ -418,7 +415,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
             self.assertEqual(result[2]["count"], 0)
 
-        @test_with_materialized_columns(person_properties=["email"])
+        @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_filter_test_accounts(self):
             person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
             person_factory(distinct_ids=["person2"], team_id=self.team.pk)
@@ -438,7 +435,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             ).run()
             self.assertEqual(result[0]["count"], 1)
 
-        @test_with_materialized_columns(person_properties=["email"])
+        @also_test_with_materialized_columns(person_properties=["email"])
         def test_funnel_with_entity_person_property_filters(self):
             person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
             person_factory(distinct_ids=["person2"], team_id=self.team.pk, properties={"email": "another@example.com"})
@@ -467,7 +464,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             ).run()
             self.assertEqual(result[0]["count"], 2)
 
-        @test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
+        @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)
         def test_funnel_filter_by_action_with_person_properties(self):
             person_factory(distinct_ids=["person1"], team_id=self.team.pk, properties={"email": "test@posthog.com"})
             person_factory(distinct_ids=["person2"], team_id=self.team.pk, properties={"email": "another@example.com"})
@@ -561,7 +558,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid])
 
-        @test_with_materialized_columns(["key"])
+        @also_test_with_materialized_columns(["key"])
         def test_basic_funnel_with_derivative_steps(self):
             filters = {
                 "events": [
@@ -1063,7 +1060,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 5), [person5_stopped_after_many_pageview.uuid])
 
-        @test_with_materialized_columns(["key"])
+        @also_test_with_materialized_columns(["key"])
         def test_funnel_with_actions(self):
 
             sign_up_action = _create_action(
@@ -1289,7 +1286,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1_stopped_after_two_signups.uuid])
 
-        @test_with_materialized_columns(["key"])
+        @also_test_with_materialized_columns(["key"])
         @skip("Flaky funnel test")
         def test_funnel_with_actions_and_events(self):
 
@@ -1439,7 +1436,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
 
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 4), [person1_stopped_after_two_signups.uuid])
 
-        @test_with_materialized_columns(["$current_url"])
+        @also_test_with_materialized_columns(["$current_url"])
         def test_funnel_with_matching_properties(self):
             filters = {
                 "events": [
@@ -1670,7 +1667,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person4.uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid])
 
-        @test_with_materialized_columns(["key"])
+        @also_test_with_materialized_columns(["key"])
         def test_funnel_exclusions_with_actions(self):
 
             sign_up_action = _create_action(
@@ -1734,7 +1731,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 1), [person1.uuid, person3.uuid])
             self.assertCountEqual(self._get_actor_ids_at_step(filter, 2), [person1.uuid, person3.uuid])
 
-        @test_with_materialized_columns(["test_prop"])
+        @also_test_with_materialized_columns(["test_prop"])
         def test_funnel_with_denormalised_properties(self):
             filters = {
                 "events": [
@@ -2107,7 +2104,7 @@ def funnel_test_factory(Funnel, event_factory, person_factory):
             self.assertEqual(result[1]["count"], 1)
 
         @snapshot_clickhouse_queries
-        @test_with_materialized_columns(["$current_url"], person_properties=["email", "age"])
+        @also_test_with_materialized_columns(["$current_url"], person_properties=["email", "age"])
         def test_funnel_with_property_groups(self):
             filters = {
                 "date_from": "2020-01-01 00:00:00",

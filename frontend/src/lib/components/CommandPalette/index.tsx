@@ -1,4 +1,4 @@
-import React, { useRef, useMemo } from 'react'
+import { useRef, useMemo } from 'react'
 import { useOutsideClickHandler } from 'lib/hooks/useOutsideClickHandler'
 import { useMountedLogic, useValues, useActions } from 'kea'
 import { commandPaletteLogic } from './commandPaletteLogic'

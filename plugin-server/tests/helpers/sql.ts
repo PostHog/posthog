@@ -27,39 +27,14 @@ export interface ExtraDatabaseRows {
     pluginAttachments?: Omit<PluginAttachmentDB, 'id'>[]
 }
 
-export const POSTGRES_TRUNCATE_TABLES_QUERY = `
-TRUNCATE TABLE
-    posthog_personalapikey,
-    posthog_featureflag,
-    posthog_featureflaghashkeyoverride,
-    posthog_annotation,
-    posthog_activitylog,
-    posthog_dashboarditem,
-    posthog_dashboard,
-    posthog_cohortpeople,
-    posthog_cohort,
-    posthog_actionstep,
-    posthog_action_events,
-    posthog_action,
-    posthog_instancesetting,
-    posthog_sessionrecordingevent,
-    posthog_persondistinctid,
-    posthog_person,
-    posthog_event,
-    posthog_pluginstorage,
-    posthog_pluginattachment,
-    posthog_pluginconfig,
-    posthog_pluginsourcefile,
-    posthog_plugin,
-    posthog_eventdefinition,
-    posthog_propertydefinition,
-    posthog_grouptypemapping,
-    posthog_team,
-    posthog_organizationmembership,
-    posthog_organization,
-    posthog_user,
-    posthog_eventbuffer
-CASCADE
+export const POSTGRES_DELETE_TABLES_QUERY = `
+DO $$ DECLARE
+  r RECORD;
+BEGIN
+  FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = current_schema()) LOOP
+    EXECUTE 'DELETE FROM ' || quote_ident(r.tablename);
+  END LOOP;
+END $$;
 `
 
 export async function resetTestDatabase(
@@ -69,12 +44,9 @@ export async function resetTestDatabase(
     { withExtendedTestData = true }: { withExtendedTestData?: boolean } = {}
 ): Promise<void> {
     const config = { ...defaultConfig, ...extraServerConfig }
-    const db = new Pool({ connectionString: config.DATABASE_URL! })
-    try {
-        await db.query('TRUNCATE TABLE ee_hook CASCADE')
-    } catch {}
+    const db = new Pool({ connectionString: config.DATABASE_URL!, max: 1 })
 
-    await db.query(POSTGRES_TRUNCATE_TABLES_QUERY)
+    await db.query(POSTGRES_DELETE_TABLES_QUERY)
     const mocks = makePluginObjects(code)
     const teamIds = mocks.pluginConfigRows.map((c) => c.team_id)
     const teamIdToCreate = teamIds[0]
@@ -120,7 +92,7 @@ export async function resetTestDatabase(
     await db.end()
 }
 
-export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>): Promise<void> {
+export async function insertRow(db: Pool, table: string, objectProvided: Record<string, any>) {
     // Handling of related fields
     const { source__plugin_json, source__index_ts, source__frontend_tsx, source__site_ts, ...object } = objectProvided
 
@@ -191,6 +163,7 @@ export async function insertRow(db: Pool, table: string, objectProvided: Record<
             )
         }
         await Promise.all(dependentQueries)
+        return rowSaved
     } catch (error) {
         console.error(`Error on table ${table} when inserting object:\n`, object, '\n', error)
         throw error
@@ -314,4 +287,82 @@ export async function getErrorForPluginConfig(id: number): Promise<any> {
 
     await db.end()
     return error
+}
+
+export const createPlugin = async (pgClient: Pool, plugin: Omit<Plugin, 'id'>) => {
+    return await insertRow(pgClient, 'posthog_plugin', {
+        ...plugin,
+        config_schema: {},
+        from_json: false,
+        from_web: false,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        is_preinstalled: false,
+        capabilities: {},
+    })
+}
+
+export const createPluginConfig = async (
+    pgClient: Pool,
+    pluginConfig: Omit<PluginConfig, 'id' | 'created_at' | 'enabled' | 'order' | 'config' | 'has_error'>
+) => {
+    return await insertRow(pgClient, 'posthog_pluginconfig', {
+        ...pluginConfig,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        enabled: true,
+        order: 0,
+        config: {},
+    })
+}
+
+export const createOrganization = async (pgClient: Pool) => {
+    const organizationId = new UUIDT().toString()
+    await insertRow(pgClient, 'posthog_organization', {
+        id: organizationId,
+        name: 'TEST ORG',
+        plugins_access_level: 9,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        personalization: '{}', // DEPRECATED
+        setup_section_2_completed: true, // DEPRECATED
+        for_internal_metrics: false,
+        available_features: [],
+        domain_whitelist: [],
+        is_member_join_email_enabled: false,
+        slug: Math.round(Math.random() * 20000),
+    })
+    return organizationId
+}
+
+export const createTeam = async (pgClient: Pool, organizationId: string, token?: string) => {
+    const team = await insertRow(pgClient, 'posthog_team', {
+        // KLUDGE: auto increment IDs can be racy in tests so we ensure IDs don't clash
+        id: Math.round(Math.random() * 1000000000),
+        organization_id: organizationId,
+        app_urls: [],
+        name: 'TEST PROJECT',
+        event_names: [],
+        event_names_with_usage: [],
+        event_properties: [],
+        event_properties_with_usage: [],
+        event_properties_numerical: [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        anonymize_ips: false,
+        completed_snippet_onboarding: true,
+        ingested_event: true,
+        uuid: new UUIDT().toString(),
+        session_recording_opt_in: true,
+        plugins_opt_in: false,
+        opt_out_capture: false,
+        is_demo: false,
+        api_token: token ?? new UUIDT().toString(),
+        test_account_filters: [],
+        timezone: 'UTC',
+        data_attributes: ['data-attr'],
+        person_display_name_properties: [],
+        access_control: false,
+    })
+    return team.id
 }

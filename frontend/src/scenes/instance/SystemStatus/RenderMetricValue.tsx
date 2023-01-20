@@ -1,6 +1,5 @@
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'
 import { humanFriendlyDetailedTime } from 'lib/utils'
-import React from 'react'
 import { InstanceSetting, SystemStatusRow } from '~/types'
 import { IconLock } from 'lib/components/icons'
 

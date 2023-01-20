@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactDOM from 'react-dom'
 
 import { ChartParams, TrendResult } from '~/types'
@@ -20,6 +20,7 @@ import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import './BoldNumber.scss'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 /** The tooltip is offset by a few pixels from the cursor to give it some breathing room. */
 const BOLD_NUMBER_TOOLTIP_OFFSET_PX = 8
@@ -45,9 +46,7 @@ function useBoldNumberTooltip({
 
         ReactDOM.render(
             <InsightTooltip
-                renderCount={(value: number) => (
-                    <>{formatAggregationAxisValue(filters.aggregation_axis_format, value)}</>
-                )}
+                renderCount={(value: number) => <>{formatAggregationAxisValue(filters, value)}</>}
                 seriesData={[
                     {
                         dataIndex: 1,
@@ -85,7 +84,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
     const [isTooltipShown, setIsTooltipShown] = useState(false)
     const valueRef = useBoldNumberTooltip({ showPersonsModal, isTooltipShown })
 
-    const showComparison = filters.compare && insight.result?.length > 1
+    const showComparison = isTrendsFilter(filters) && filters.compare && insight.result?.length > 1
     const resultSeries = insight?.result?.[0] as TrendResult | undefined
 
     return resultSeries ? (
@@ -110,7 +109,7 @@ export function BoldNumber({ showPersonsModal = true }: ChartParams): JSX.Elemen
                     ref={valueRef}
                     onMouseEnter={() => setIsTooltipShown(true)}
                 >
-                    {formatAggregationAxisValue(filters.aggregation_axis_format, resultSeries.aggregated_value)}
+                    {formatAggregationAxisValue(filters, resultSeries.aggregated_value)}
                 </div>
             </Textfit>
             {showComparison && <BoldNumberComparison showPersonsModal={showPersonsModal} />}

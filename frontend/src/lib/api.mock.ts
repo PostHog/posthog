@@ -8,12 +8,13 @@ import {
     OrganizationMemberType,
     OrganizationType,
     PersonProperty,
+    PropertyFilterType,
     PropertyOperator,
     TeamType,
     UserBasicType,
     UserType,
 } from '~/types'
-import { FEATURE_FLAGS, OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
+import { OrganizationMembershipLevel, PluginsAccessLevel } from './constants'
 import apiReal from 'lib/api'
 
 export const MOCK_USER_UUID: UserType['uuid'] = 'USER_UUID'
@@ -22,10 +23,10 @@ export const MOCK_TEAM_UUID: TeamType['uuid'] = 'TEAM_UUID'
 export const MOCK_ORGANIZATION_ID: OrganizationType['id'] = 'ABCD'
 
 type APIMockReturnType = {
-    [K in keyof Pick<typeof apiReal, 'create' | 'get' | 'update' | 'delete'>]: jest.Mock<
-        ReturnType<typeof apiReal[K]>,
-        Parameters<typeof apiReal[K]>
-    >
+    [K in keyof Pick<
+        typeof apiReal,
+        'create' | 'createResponse' | 'get' | 'getResponse' | 'update' | 'delete'
+    >]: jest.Mock<ReturnType<typeof apiReal[K]>, Parameters<typeof apiReal[K]>>
 }
 
 export const api = apiReal as any as APIMockReturnType
@@ -45,7 +46,12 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     completed_snippet_onboarding: true,
     ingested_event: true,
     test_account_filters: [
-        { key: 'email', type: 'person', value: 'posthog.com', operator: PropertyOperator.NotIContains },
+        {
+            key: 'email',
+            type: PropertyFilterType.Person,
+            value: 'posthog.com',
+            operator: PropertyOperator.NotIContains,
+        },
     ],
     test_account_filters_default_checked: false,
     path_cleaning_filters: [],
@@ -60,14 +66,18 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
     },
     session_recording_opt_in: true,
     capture_console_log_opt_in: true,
+    capture_performance_opt_in: true,
     effective_membership_level: OrganizationMembershipLevel.Admin,
     access_control: true,
     has_group_types: true,
     primary_dashboard: 1,
-    live_events_columns: ['event', 'person'],
+    live_events_columns: null,
+    person_on_events_querying_enabled: true,
+    groups_on_events_querying_enabled: true,
 }
 
 export const MOCK_DEFAULT_ORGANIZATION: OrganizationType = {
+    customer_id: null,
     id: MOCK_ORGANIZATION_ID,
     name: 'MockHog',
     slug: 'mockhog-fstn',
@@ -139,10 +149,8 @@ export const MOCK_DEFAULT_ORGANIZATION_INVITE: OrganizationInviteType = {
 
 export const MOCK_DEFAULT_LICENSE: LicenseType = {
     id: 1,
-    key: 'license-key',
     plan: LicensePlan.Scale,
     valid_until: '2025-03-11T14:05:45.338000Z',
-    max_users: 21312,
     created_at: '2022-03-11T14:05:36.107000Z',
 }
 
@@ -186,9 +194,3 @@ export const MOCK_GROUP_TYPES: GroupType[] = [
         name_plural: 'projects',
     },
 ]
-
-export const MOCK_DECIDE = {
-    featureFlags: {
-        [FEATURE_FLAGS.IN_APP_PROMPTS_EXPERIMENT]: 'test',
-    },
-}

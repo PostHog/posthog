@@ -8,7 +8,7 @@ from rest_framework import exceptions, viewsets
 from rest_framework.response import Response
 
 from posthog.client import sync_execute
-from posthog.settings import MULTI_TENANCY
+from posthog.cloud_utils import is_cloud
 from posthog.settings.base_variables import DEBUG
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
@@ -25,7 +25,7 @@ class DebugCHQueries(viewsets.ViewSet):
             return None
 
     def list(self, request):
-        if not (request.user.is_staff or DEBUG or is_impersonated_session(request) or not MULTI_TENANCY):
+        if not (request.user.is_staff or DEBUG or is_impersonated_session(request) or not is_cloud()):
             raise exceptions.PermissionDenied("You're not allowed to see queries.")
 
         response = sync_execute(

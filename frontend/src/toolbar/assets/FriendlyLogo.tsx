@@ -1,5 +1,3 @@
-import React from 'react'
-
 export function FriendlyLogo({ style }: React.PropsWithoutRef<JSX.IntrinsicElements['svg']>): JSX.Element {
     return (
         <svg

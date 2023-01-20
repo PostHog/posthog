@@ -1,6 +1,5 @@
 import '~/styles'
 
-import React from 'react'
 import ReactDOM from 'react-dom'
 import { getContext } from 'kea'
 

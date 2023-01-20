@@ -170,7 +170,7 @@ class TestPasswordResetAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(response.content.decode(), "")
 
-        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, set([self.CONFIG_EMAIL]))
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
         self.assertEqual(mail.outbox[0].subject, "Reset your PostHog password")
         self.assertEqual(mail.outbox[0].body, "")  # no plain-text version support yet
@@ -211,7 +211,7 @@ class TestPasswordResetAPI(APIBaseTest):
             response = self.client.post("/api/reset/", {"email": self.CONFIG_EMAIL})
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
-        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, set([self.CONFIG_EMAIL]))
+        self.assertSetEqual({",".join(outmail.to) for outmail in mail.outbox}, {self.CONFIG_EMAIL})
 
         html_message = mail.outbox[0].alternatives[0][0]  # type: ignore
         self.validate_basic_html(

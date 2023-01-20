@@ -1,4 +1,3 @@
-import React from 'react'
 import './CompactList.scss'
 import { LemonDivider } from '../LemonDivider'
 import { LemonButton } from '../LemonButton'

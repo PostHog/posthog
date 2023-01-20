@@ -1,31 +1,31 @@
 from typing import Any, Dict, List, Optional, Type, cast
 
-from dateutil.relativedelta import relativedelta
 from django.core.cache import cache
-from django.db import transaction
 from django.shortcuts import get_object_or_404
-from django.utils.timezone import now
 from rest_framework import exceptions, permissions, request, response, serializers, viewsets
 from rest_framework.decorators import action
 
 from posthog.api.shared import TeamBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.mixins import AnalyticsDestroyModelMixin
-from posthog.models import Insight, Organization, Team, User
+from posthog.models import InsightCachingState, Organization, Team, User
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.organization import OrganizationMembership
 from posthog.models.signals import mute_selected_signals
+from posthog.models.team.team import groups_on_events_querying_enabled, set_team_in_cache
 from posthog.models.team.util import delete_bulky_postgres_data
 from posthog.models.utils import generate_random_token_project
 from posthog.permissions import (
     CREATE_METHODS,
     OrganizationAdminAnyPermissions,
     OrganizationAdminWritePermissions,
+    OrganizationMemberPermissions,
     ProjectMembershipNecessaryPermissions,
     TeamMemberLightManagementPermission,
     TeamMemberStrictManagementPermission,
 )
+from posthog.tasks.demo_create_data import create_data_for_demo_team
 
 
 class PremiumMultiprojectPermissions(permissions.BasePermission):
@@ -35,20 +35,62 @@ class PremiumMultiprojectPermissions(permissions.BasePermission):
 
     def has_permission(self, request: request.Request, view) -> bool:
         user = cast(User, request.user)
-        if request.method in CREATE_METHODS and (
-            (user.organization is None)
-            or (
-                user.organization.teams.exclude(is_demo=True).count() >= 1
+        if request.method in CREATE_METHODS:
+
+            if user.organization is None:
+                return False
+
+            # if we're not requesting to make a demo project
+            # and if the org already has more than 1 non-demo project (need to be able to make the initial project)
+            # and the org isn't allowed to make multiple projects
+            if (
+                ("is_demo" not in request.data or not request.data["is_demo"])
+                and user.organization.teams.exclude(is_demo=True).count() >= 1
                 and not user.organization.is_feature_available(AvailableFeature.ORGANIZATIONS_PROJECTS)
-            )
-        ):
-            return False
-        return True
+            ):
+                return False
+
+            # if we ARE requesting to make a demo project
+            # but the org already has a demo project
+            if (
+                "is_demo" in request.data
+                and request.data["is_demo"]
+                and user.organization.teams.exclude(is_demo=False).count() > 0
+            ):
+                return False
+
+            # in any other case, we're good to go
+            return True
+        else:
+            return True
+
+
+class CachingTeamSerializer(serializers.ModelSerializer):
+    """
+    This serializer is used for caching teams.
+    Currently used only in `/decide` endpoint.
+    Has all parameters needed for a successful decide request.
+    """
+
+    class Meta:
+        model = Team
+        fields = [
+            "id",
+            "uuid",
+            "name",
+            "api_token",
+            "capture_performance_opt_in",
+            "capture_console_log_opt_in",
+            "session_recording_opt_in",
+            "recording_domains",
+            "inject_web_apps",
+        ]
 
 
 class TeamSerializer(serializers.ModelSerializer):
     effective_membership_level = serializers.SerializerMethodField()
     has_group_types = serializers.SerializerMethodField()
+    groups_on_events_querying_enabled = serializers.SerializerMethodField()
 
     class Meta:
         model = Team
@@ -75,24 +117,29 @@ class TeamSerializer(serializers.ModelSerializer):
             "correlation_config",
             "session_recording_opt_in",
             "capture_console_log_opt_in",
+            "capture_performance_opt_in",
             "effective_membership_level",
             "access_control",
             "has_group_types",
             "primary_dashboard",
             "live_events_columns",
             "recording_domains",
+            "person_on_events_querying_enabled",
+            "groups_on_events_querying_enabled",
+            "inject_web_apps",
         )
         read_only_fields = (
             "id",
             "uuid",
             "organization",
             "api_token",
-            "is_demo",
             "created_at",
             "updated_at",
             "ingested_event",
             "effective_membership_level",
             "has_group_types",
+            "person_on_events_querying_enabled",
+            "groups_on_events_querying_enabled",
         )
 
     def get_effective_membership_level(self, team: Team) -> Optional[OrganizationMembership.Level]:
@@ -100,6 +147,9 @@ class TeamSerializer(serializers.ModelSerializer):
 
     def get_has_group_types(self, team: Team) -> bool:
         return GroupTypeMapping.objects.filter(team=team).exists()
+
+    def get_groups_on_events_querying_enabled(self, team: Team) -> bool:
+        return groups_on_events_querying_enabled()
 
     def validate(self, attrs: Any) -> Any:
         if "primary_dashboard" in attrs and attrs["primary_dashboard"].team != self.instance:
@@ -125,27 +175,30 @@ class TeamSerializer(serializers.ModelSerializer):
         serializers.raise_errors_on_nested_writes("create", self, validated_data)
         request = self.context["request"]
         organization = self.context["view"].organization  # Use the org we used to validate permissions
-        with transaction.atomic():
+        if validated_data.get("is_demo", False):
+            team = Team.objects.create(**validated_data, organization=organization)
+            cache_key = f"is_generating_demo_data_{team.pk}"
+            cache.set(cache_key, "True")  # create an item in the cache that we can use to see if the demo data is ready
+            create_data_for_demo_team.delay(team.pk, request.user.pk, cache_key)
+        else:
             team = Team.objects.create_with_data(**validated_data, organization=organization)
-            request.user.current_team = team
-            request.user.save()
+        request.user.current_team = team
+        request.user.save()
+        set_team_in_cache(team.api_token, team)
         return team
 
-    def _handle_timezone_update(self, team: Team, new_timezone: str) -> None:
-        hashes = (
-            Insight.objects.filter(team=team, last_refresh__gt=now() - relativedelta(days=7))
-            .exclude(filters_hash=None)
-            .values_list("filters_hash", flat=True)
-        )
+    def _handle_timezone_update(self, team: Team) -> None:
+        # :KLUDGE: This is incorrect as it doesn't wipe caches not currently linked to insights. Fix this some day!
+        hashes = InsightCachingState.objects.filter(team=team).values_list("cache_key", flat=True)
         cache.delete_many(hashes)
-
-        return
 
     def update(self, instance: Team, validated_data: Dict[str, Any]) -> Team:
         if "timezone" in validated_data and validated_data["timezone"] != instance.timezone:
-            self._handle_timezone_update(instance, validated_data["timezone"])
+            self._handle_timezone_update(instance)
 
-        return super().update(instance, validated_data)
+        updated_team = super().update(instance, validated_data)
+        set_team_in_cache(updated_team.api_token, updated_team)
+        return updated_team
 
 
 class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
@@ -195,7 +248,10 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
                     raise exceptions.ValidationError("You need to belong to an organization.")
                 # To be used later by OrganizationAdminWritePermissions and TeamSerializer
                 self.organization = organization
-                base_permissions.append(OrganizationAdminWritePermissions())
+                if "is_demo" not in self.request.data or not self.request.data["is_demo"]:
+                    base_permissions.append(OrganizationAdminWritePermissions())
+                elif "is_demo" in self.request.data:
+                    base_permissions.append(OrganizationMemberPermissions())
             elif self.action != "list":
                 # Skip TeamMemberAccessPermission for list action, as list is serialized with limited TeamBasicSerializer
                 base_permissions.append(TeamMemberLightManagementPermission())
@@ -225,11 +281,20 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     def perform_destroy(self, team: Team):
         team_id = team.pk
         delete_bulky_postgres_data(team_ids=[team_id])
-        AsyncDeletion.objects.create(
-            deletion_type=DeletionType.Team, team_id=team_id, key=str(team_id), created_by=cast(User, self.request.user)
-        )
         with mute_selected_signals():
             super().perform_destroy(team)
+        # Once the project is deleted, queue deletion of associated data
+        AsyncDeletion.objects.bulk_create(
+            [
+                AsyncDeletion(
+                    deletion_type=DeletionType.Team,
+                    team_id=team_id,
+                    key=str(team_id),
+                    created_by=cast(User, self.request.user),
+                )
+            ],
+            ignore_conflicts=True,
+        )
 
     @action(
         methods=["PATCH"],
@@ -243,6 +308,22 @@ class TeamViewSet(AnalyticsDestroyModelMixin, viewsets.ModelViewSet):
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
+        old_token = team.api_token
         team.api_token = generate_random_token_project()
         team.save()
+        set_team_in_cache(old_token, None)
+        set_team_in_cache(team.api_token, team)
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
+
+    @action(
+        methods=["GET"],
+        detail=True,
+        permission_classes=[
+            permissions.IsAuthenticated,
+            ProjectMembershipNecessaryPermissions,
+        ],
+    )
+    def is_generating_demo_data(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        team = self.get_object()
+        cache_key = f"is_generating_demo_data_{team.pk}"
+        return response.Response({"is_generating_demo_data": cache.get(cache_key) == "True"})

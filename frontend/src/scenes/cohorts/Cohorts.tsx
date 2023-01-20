@@ -1,5 +1,4 @@
-import React, { useState } from 'react'
-import { InfoCircleOutlined } from '@ant-design/icons'
+import { useState } from 'react'
 import { cohortsModel } from '../../models/cohortsModel'
 import { useValues, useActions } from 'kea'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -7,7 +6,6 @@ import { AvailableFeature, CohortType } from '~/types'
 import './Cohorts.scss'
 import Fuse from 'fuse.js'
 import { createdAtColumn, createdByColumn } from 'lib/components/LemonTable/columnUtils'
-import { Tooltip } from 'lib/components/Tooltip'
 import { Link } from 'lib/components/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
@@ -19,9 +17,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { combineUrl, router } from 'kea-router'
-import { LemonInput, LemonTag } from '@posthog/lemon-ui'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { LemonInput } from '@posthog/lemon-ui'
 
 const searchCohorts = (sources: CohortType[], search: string): CohortType[] => {
     return new Fuse(sources, {
@@ -38,9 +34,6 @@ export function Cohorts(): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const { searchParams } = useValues(router)
     const [searchTerm, setSearchTerm] = useState<string>('')
-
-    const { featureFlags } = useValues(featureFlagLogic)
-    const allowColumnChoice = featureFlags[FEATURE_FLAGS.ALLOW_CSV_EXPORT_COLUMN_CHOICE]
 
     const columns: LemonTableColumns<CohortType> = [
         {
@@ -74,14 +67,9 @@ export function Cohorts(): JSX.Element {
         createdByColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         createdAtColumn<CohortType>() as LemonTableColumn<CohortType, keyof CohortType | undefined>,
         {
-            title: (
-                <span>
-                    <Tooltip title="PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 15 minutes, or whenever a cohort is updated.">
-                        Last calculated
-                        <InfoCircleOutlined style={{ marginLeft: 6 }} />
-                    </Tooltip>
-                </span>
-            ),
+            title: 'Last calculated',
+            tooltip:
+                'PostHog calculates what users belong to each cohort. This is then used when filtering on cohorts in the Trends page etc. Calculating happens every 15 minutes, or whenever a cohort is updated',
             render: function RenderCalculation(_: any, cohort: CohortType) {
                 if (cohort.is_static) {
                     return <>N/A</>
@@ -125,33 +113,28 @@ export function Cohorts(): JSX.Element {
                                 >
                                     View session recordings
                                 </LemonButton>
-                                {allowColumnChoice && (
-                                    <LemonButton
-                                        status="stealth"
-                                        onClick={() =>
-                                            exportCohortPersons(cohort.id, [
-                                                'distinct_ids.0',
-                                                'id',
-                                                'name',
-                                                'properties.email',
-                                            ])
-                                        }
-                                        tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
-                                        fullWidth
-                                    >
-                                        Export important columns for users&nbsp;
-                                        <LemonTag type="warning" className="uppercase">
-                                            Beta
-                                        </LemonTag>
-                                    </LemonButton>
-                                )}
+                                <LemonButton
+                                    status="stealth"
+                                    onClick={() =>
+                                        exportCohortPersons(cohort.id, [
+                                            'distinct_ids.0',
+                                            'id',
+                                            'name',
+                                            'properties.email',
+                                        ])
+                                    }
+                                    tooltip="Export specific columns for users belonging to this cohort in CSV format. Includes distinct id, internal id, email, and name"
+                                    fullWidth
+                                >
+                                    Export important columns for users
+                                </LemonButton>
                                 <LemonButton
                                     status="stealth"
                                     onClick={() => exportCohortPersons(cohort.id)}
                                     tooltip="Export all users belonging to this cohort in CSV format."
                                     fullWidth
                                 >
-                                    Export {allowColumnChoice ? ' all columns for ' : ''}users
+                                    Export all columns for users
                                 </LemonButton>
                                 <LemonDivider />
                                 <LemonButton status="danger" onClick={() => deleteCohort(cohort)} fullWidth>

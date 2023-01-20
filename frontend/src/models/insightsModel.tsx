@@ -1,7 +1,6 @@
-import React from 'react'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { prompt } from 'lib/logic/prompt'
+import { promptLogic } from 'lib/logic/promptLogic'
 import { InsightModel } from '~/types'
 import { teamLogic } from 'scenes/teamLogic'
 import type { insightsModelType } from './insightsModelType'
@@ -9,7 +8,7 @@ import { lemonToast } from 'lib/components/lemonToast'
 
 export const insightsModel = kea<insightsModelType>({
     path: ['models', 'insightsModel'],
-    connect: [prompt({ key: 'rename-insight' }), teamLogic],
+    connect: [promptLogic({ key: 'rename-insight' }), teamLogic],
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
@@ -19,10 +18,14 @@ export const insightsModel = kea<insightsModelType>({
             dashboardId,
         }),
         duplicateInsightSuccess: (item: InsightModel) => ({ item }),
+        insightsAddedToDashboard: ({ dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }) => ({
+            dashboardId,
+            insightIds,
+        }),
     }),
     listeners: ({ actions }) => ({
         renameInsight: async ({ item }) => {
-            prompt({ key: 'rename-insight' }).actions.prompt({
+            promptLogic({ key: 'rename-insight' }).actions.prompt({
                 title: 'Rename insight',
                 placeholder: 'Please enter the new name',
                 value: item.name,

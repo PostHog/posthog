@@ -1,5 +1,5 @@
 import './Plugins.scss'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { PluginDrawer } from 'scenes/plugins/edit/PluginDrawer'
 import { RepositoryTab } from 'scenes/plugins/tabs/repository/RepositoryTab'
 import { InstalledTab } from 'scenes/plugins/tabs/installed/InstalledTab'

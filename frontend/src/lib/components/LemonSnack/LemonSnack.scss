@@ -1,6 +1,5 @@
 .LemonSnack {
     display: inline-flex;
-    background: var(--primary-bg-hover);
     border-radius: var(--radius);
     color: var(--primary-alt);
     max-width: 100%;
@@ -22,12 +21,20 @@
         .LemonButton {
             &:hover {
                 // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
-                background: var(--primary-button-nested-hover);
+                background: var(--primary-extralight);
             }
         }
     }
 
     &.LemonSnack--wrap {
         white-space: initial;
+    }
+}
+
+.LemonButton--tertiary:hover,
+.LemonButton--secondary:hover {
+    .LemonSnack.bg-primary-highlight {
+        background: var(--primary-extralight);
+        transition: background-color 0.4s ease;
     }
 }

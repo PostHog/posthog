@@ -1,118 +1,122 @@
 {
-    "session_recording": {
-        "segments": [
-            {
-                "start_time": "2021-12-09T19:36:59.223000Z",
-                "end_time": "2021-12-09T19:37:00.895000Z",
-                "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
-                "is_active": false
-            },
-            {
-                "start_time": "2021-12-09T19:37:00.896000Z",
-                "end_time": "2021-12-09T19:37:16.023000Z",
-                "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
-                "is_active": true
-            },
-            {
-                "start_time": "2021-12-09T19:37:16.024000Z",
-                "end_time": "2021-12-09T19:37:43.802000Z",
-                "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
-                "is_active": false
-            },
-            {
-                "start_time": "2021-12-09T19:37:43.803000Z",
-                "end_time": "2021-12-09T19:37:43.803000Z",
-                "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
-                "is_active": true
-            },
-            {
-                "start_time": "2021-12-09T19:37:43.804000Z",
-                "end_time": "2021-12-09T19:39:10.435000Z",
-                "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
-                "is_active": false
-            },
-            {
-                "start_time": "2021-12-09T19:39:10.436000Z",
-                "end_time": "2021-12-09T19:41:30.377000Z",
-                "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
-                "is_active": true
-            },
-            {
-                "start_time": "2021-12-09T19:41:30.378000Z",
-                "end_time": "2021-12-09T19:46:40.151000Z",
-                "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
-                "is_active": false
-            },
-            {
-                "start_time": "2021-12-09T19:46:40.152000Z",
-                "end_time": "2021-12-09T19:47:33.384000Z",
-                "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
-                "is_active": true
-            },
-            {
-                "start_time": "2021-12-09T19:47:33.385000Z",
-                "end_time": "2021-12-09T19:49:06.226000Z",
-                "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
-                "is_active": false
-            },
-            {
-                "start_time": "2021-12-09T19:49:06.227000Z",
-                "end_time": "2021-12-09T19:50:33.351000Z",
-                "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
-                "is_active": true
-            },
-            {
-                "start_time": "2021-12-09T19:50:33.352000Z",
-                "end_time": "2021-12-09T19:51:35.766000Z",
-                "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
-                "is_active": false
-            },
-            {
-                "start_time": "2021-12-09T19:51:35.767000Z",
-                "end_time": "2021-12-09T19:52:33.837000Z",
-                "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
-                "is_active": true
-            },
-            {
-                "start_time": "2021-12-09T19:52:33.838000Z",
-                "end_time": "2021-12-09T20:22:24.719000Z",
-                "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
-                "is_active": false
-            },
-            {
-                "start_time": "2021-12-09T19:35:39.223000Z",
-                "end_time": "2021-12-09T20:22:24.719000Z",
-                "window_id": "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841",
-                "is_active": false
-            }
-        ],
-        "start_and_end_times_by_window_id": {
-            "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f": {
-                "start_time": "2021-12-09T19:36:59.223000Z",
-                "end_time": "2021-12-09T19:52:33.837000Z"
-            },
-            "17da0b3828b785-04444c83ca4c03-1c306851-13c680-17da0b3828c96a": {
-                "start_time": "2021-12-09T19:37:40.056000Z",
-                "end_time": "2021-12-09T19:47:35.383000Z"
-            },
-            "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b": {
-                "start_time": "2021-12-09T19:37:40.140000Z",
-                "end_time": "2021-12-09T20:22:24.719000Z"
-            },
-            "17da0b34bfedd5-0f90c2afd00098-1c306851-1fa400-17da0b34bffc85": {
-                "start_time": "2021-12-09T19:37:40.585000Z",
-                "end_time": "2021-12-09T19:47:38.564000Z"
-            },
-            "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841": {
-                "start_time": "2021-12-09T19:36:59.223000Z",
-                "end_time": "2021-12-09T19:47:38.564000Z"
-            }
+    "id": "17da0b29e1f8c-0aad69e462590c-1c306851-1fa400-17da0b29e20e22",
+    "segments": [
+        {
+            "start_time": "2021-12-09T19:36:59.223000Z",
+            "end_time": "2021-12-09T19:37:00.895000Z",
+            "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "is_active": false
         },
-        "session_id": "17da0b29e1f8c-0aad69e462590c-1c306851-1fa400-17da0b29e20e22",
-        "viewed": true
+        {
+            "start_time": "2021-12-09T19:37:00.896000Z",
+            "end_time": "2021-12-09T19:37:16.023000Z",
+            "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "is_active": true
+        },
+        {
+            "start_time": "2021-12-09T19:37:16.024000Z",
+            "end_time": "2021-12-09T19:37:43.802000Z",
+            "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "is_active": false
+        },
+        {
+            "start_time": "2021-12-09T19:37:43.803000Z",
+            "end_time": "2021-12-09T19:37:43.803000Z",
+            "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
+            "is_active": true
+        },
+        {
+            "start_time": "2021-12-09T19:37:43.804000Z",
+            "end_time": "2021-12-09T19:39:10.435000Z",
+            "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
+            "is_active": false
+        },
+        {
+            "start_time": "2021-12-09T19:39:10.436000Z",
+            "end_time": "2021-12-09T19:41:30.377000Z",
+            "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "is_active": true
+        },
+        {
+            "start_time": "2021-12-09T19:41:30.378000Z",
+            "end_time": "2021-12-09T19:46:40.151000Z",
+            "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "is_active": false
+        },
+        {
+            "start_time": "2021-12-09T19:46:40.152000Z",
+            "end_time": "2021-12-09T19:47:33.384000Z",
+            "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
+            "is_active": true
+        },
+        {
+            "start_time": "2021-12-09T19:47:33.385000Z",
+            "end_time": "2021-12-09T19:49:06.226000Z",
+            "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
+            "is_active": false
+        },
+        {
+            "start_time": "2021-12-09T19:49:06.227000Z",
+            "end_time": "2021-12-09T19:50:33.351000Z",
+            "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "is_active": true
+        },
+        {
+            "start_time": "2021-12-09T19:50:33.352000Z",
+            "end_time": "2021-12-09T19:51:35.766000Z",
+            "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "is_active": false
+        },
+        {
+            "start_time": "2021-12-09T19:51:35.767000Z",
+            "end_time": "2021-12-09T19:52:33.837000Z",
+            "window_id": "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f",
+            "is_active": true
+        },
+        {
+            "start_time": "2021-12-09T19:52:33.838000Z",
+            "end_time": "2021-12-09T20:22:24.719000Z",
+            "window_id": "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b",
+            "is_active": false
+        },
+        {
+            "start_time": "2021-12-09T19:35:39.223000Z",
+            "end_time": "2021-12-09T20:22:24.719000Z",
+            "window_id": "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841",
+            "is_active": false
+        }
+    ],
+    "recording_duration": 159,
+    "start_time": "2021-12-09T19:36:59.223000Z",
+    "end_time": "2021-12-09T19:47:38.564000Z",
+    "click_count": 58,
+    "keypress_count": 2,
+    "start_and_end_times_by_window_id": {
+        "17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f": {
+            "start_time": "2021-12-09T19:36:59.223000Z",
+            "end_time": "2021-12-09T19:52:33.837000Z"
+        },
+        "17da0b3828b785-04444c83ca4c03-1c306851-13c680-17da0b3828c96a": {
+            "start_time": "2021-12-09T19:37:40.056000Z",
+            "end_time": "2021-12-09T19:47:35.383000Z"
+        },
+        "17da0b382b1165-00c767cd61e6e3-1c306851-13c680-17da0b382b210b": {
+            "start_time": "2021-12-09T19:37:40.140000Z",
+            "end_time": "2021-12-09T20:22:24.719000Z"
+        },
+        "17da0b34bfedd5-0f90c2afd00098-1c306851-1fa400-17da0b34bffc85": {
+            "start_time": "2021-12-09T19:37:40.585000Z",
+            "end_time": "2021-12-09T19:47:38.564000Z"
+        },
+        "182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841": {
+            "start_time": "2021-12-09T19:36:59.223000Z",
+            "end_time": "2021-12-09T19:47:38.564000Z"
+        }
     },
+    "session_id": "17da0b29e1f8c-0aad69e462590c-1c306851-1fa400-17da0b29e20e22",
+    "viewed": true,
     "person": {
-        "id": 1,
+        "id": "1",
         "name": "alex@posthog.com",
         "distinct_ids": [
             "qajhF5PVpNmK4N8etdbXjpduRR076loSNxcNh68jPVV",

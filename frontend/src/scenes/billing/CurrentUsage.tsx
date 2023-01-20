@@ -1,7 +1,6 @@
 import { Progress } from 'antd'
 import { useActions, useValues } from 'kea'
 import { compactNumber } from 'lib/utils'
-import React from 'react'
 import { billingLogic } from './billingLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
@@ -10,12 +9,13 @@ import { dayjs } from 'lib/dayjs'
 import { LemonButton, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useState } from 'react'
 
 export function CurrentUsage(): JSX.Element | null {
     const { eventAllocation, percentage, strokeColor, showUsageTiers, billing } = useValues(billingLogic)
     const { toggleUsageTiers, setBillingLimit } = useActions(billingLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const [billingLimitValue, setbillingLimitValue] = React.useState(billing?.billing_limit || 0)
+    const [billingLimitValue, setbillingLimitValue] = useState(billing?.billing_limit || 0)
     const plan = billing?.plan
 
     if (!billing) {
@@ -150,7 +150,7 @@ export function CurrentUsage(): JSX.Element | null {
                             <LemonInput
                                 type="number"
                                 onChange={(value): void => {
-                                    setbillingLimitValue(value)
+                                    setbillingLimitValue(value || 0)
                                 }}
                                 value={billingLimitValue}
                                 min={0}

@@ -1,6 +1,6 @@
 import './DashboardItems.scss'
 
-import React, { useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { Responsive as ReactGridLayout } from 'react-grid-layout'
 
@@ -16,7 +16,8 @@ import { TextCard } from 'lib/components/Cards/TextCard/TextCard'
 
 export function DashboardItems(): JSX.Element {
     const {
-        dashboard,
+        // dashboard but directly on dashboardLogic not via dashboardsModel
+        allItems: dashboard,
         tiles,
         layouts,
         dashboardMode,
@@ -113,7 +114,7 @@ export function DashboardItems(): JSX.Element {
                                 updateColor={(color) => updateTileColor(tile.id, color)}
                                 ribbonColor={tile.color}
                                 removeFromDashboard={() => removeTile(tile)}
-                                refresh={() => refreshAllDashboardItems([tile])}
+                                refresh={() => refreshAllDashboardItems({ tiles: [tile], action: 'refresh_manual' })}
                                 rename={() => renameInsight(insight)}
                                 duplicate={() => duplicateInsight(insight)}
                                 moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {

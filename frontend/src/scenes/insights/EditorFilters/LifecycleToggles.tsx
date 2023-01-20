@@ -1,13 +1,12 @@
-import React from 'react'
 import { useActions } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
-import { EditorFilterProps } from '~/types'
+import { EditorFilterProps, LifecycleToggle } from '~/types'
 import { Checkbox } from 'antd'
 import { Tooltip } from 'lib/components/Tooltip'
 import { InfoCircleOutlined } from '@ant-design/icons'
 import './LifecycleToggles.scss'
 
-const lifecycles = [
+const lifecycles: { name: LifecycleToggle; tooltip: string }[] = [
     { name: 'new', tooltip: 'Users who were first seen on this period and did the activity during the period.' },
     { name: 'returning', tooltip: 'Users who did activity both this and previous period.' },
     {

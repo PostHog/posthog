@@ -6,6 +6,7 @@ import {
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_GROUPS,
+    KAFKA_PERFORMANCE_EVENTS,
     KAFKA_PERSON,
     KAFKA_PERSON_DISTINCT_ID,
     KAFKA_PERSON_UNIQUE_ID,
@@ -31,6 +32,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
         KAFKA_BUFFER,
         KAFKA_GROUPS,
         KAFKA_SESSION_RECORDING_EVENTS,
+        KAFKA_PERFORMANCE_EVENTS,
         KAFKA_PERSON,
         KAFKA_PERSON_UNIQUE_ID,
         KAFKA_PERSON_DISTINCT_ID,
@@ -41,7 +43,7 @@ export async function resetKafka(extraServerConfig?: Partial<PluginsServerConfig
     return kafka
 }
 
-async function createTopics(kafka: Kafka, topics: string[]) {
+export async function createTopics(kafka: Kafka, topics: string[]) {
     const admin = kafka.admin()
     await admin.connect()
 

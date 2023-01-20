@@ -1,12 +1,15 @@
 import json
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.cache import cache
 from rest_framework import status
 
-from posthog.demo import create_demo_team
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.dashboard import Dashboard
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.team.team import get_team_in_cache
 from posthog.test.base import APIBaseTest
 
 
@@ -39,6 +42,12 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["is_demo"], False)
         self.assertEqual(response_data["slack_incoming_webhook"], self.team.slack_incoming_webhook)
         self.assertEqual(response_data["has_group_types"], False)
+        self.assertEqual(
+            response_data["person_on_events_querying_enabled"], get_instance_setting("PERSON_ON_EVENTS_ENABLED")
+        )
+        self.assertEqual(
+            response_data["groups_on_events_querying_enabled"], get_instance_setting("GROUPS_ON_EVENTS_ENABLED")
+        )
 
         # TODO: These assertions will no longer make sense when we fully remove these attributes from the model
         self.assertNotIn("event_names", response_data)
@@ -56,12 +65,43 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response.json(), self.not_found_response())
 
     def test_cant_create_team_without_license_on_selfhosted(self):
-        with self.settings(MULTI_TENANCY=False):
+        with self.is_cloud(False):
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.count(), 1)
             response = self.client.post("/api/projects/", {"name": "Test"})
             self.assertEqual(Team.objects.count(), 1)
+
+    def test_cant_create_a_second_project_without_license(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": False})
+
+        self.assertEqual(Team.objects.count(), 1)
+        self.assertEqual(response.status_code, 403)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects.",
+            },
+            response_data,
+        )
+
+        # another request without the is_demo parameter
+        response = self.client.post("/api/projects/", {"name": "Hedgebox"})
+        self.assertEqual(Team.objects.count(), 1)
+        self.assertEqual(response.status_code, 403)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects.",
+            },
+            response_data,
+        )
 
     def test_update_project_timezone(self):
 
@@ -123,11 +163,13 @@ class TestTeamAPI(APIBaseTest):
         self.assertEqual(response_data["name"], self.team.name)
         self.assertEqual(response_data["test_account_filters"], [{"key": "$current_url", "value": "test"}])
 
-    def test_delete_team_own_second(self):
+    @patch("posthog.api.team.delete_bulky_postgres_data")
+    @patch("posthoganalytics.capture")
+    def test_delete_team_own_second(self, mock_capture: MagicMock, mock_delete_bulky_postgres_data: MagicMock):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        team = create_demo_team(organization=self.organization)
+        team: Team = Team.objects.create_with_data(organization=self.organization)
 
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
@@ -135,6 +177,16 @@ class TestTeamAPI(APIBaseTest):
 
         self.assertEqual(response.status_code, 204)
         self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
+        self.assertEqual(
+            AsyncDeletion.objects.filter(team_id=team.id, deletion_type=DeletionType.Team, key=str(team.id)).count(), 1
+        )
+        mock_capture.assert_called_once_with(
+            self.user.distinct_id,
+            "team deleted",
+            properties={},
+            groups={"instance": ANY, "organization": str(self.organization.id), "project": str(self.team.uuid)},
+        )
+        mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.pk])
 
     def test_reset_token(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -201,6 +253,72 @@ class TestTeamAPI(APIBaseTest):
         self.client.patch(f"/api/projects/{self.team.id}/", {"timezone": "US/Pacific"})
         # Verify cache was deleted
         self.assertEqual(cache.get(response["filters_hash"]), None)
+
+    def test_is_generating_demo_data(self):
+        cache_key = f"is_generating_demo_data_{self.team.pk}"
+        cache.set(cache_key, "True")
+        response = self.client.get(f"/api/projects/{self.team.id}/is_generating_demo_data/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"is_generating_demo_data": True})
+        cache.delete(cache_key)
+        response = self.client.get(f"/api/projects/{self.team.id}/is_generating_demo_data/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"is_generating_demo_data": False})
+
+    @patch("posthog.api.team.create_data_for_demo_team.delay")
+    def test_org_member_can_create_demo_project(self, mock_create_data_for_demo_team: MagicMock):
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
+        mock_create_data_for_demo_team.assert_called_once()
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_team_is_cached_on_create_and_update(self):
+        Team.objects.all().delete()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.post("/api/projects/", {"name": "Test", "is_demo": False})
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["name"], "Test")
+
+        token = response.json()["api_token"]
+        team_id = response.json()["id"]
+
+        cached_team = get_team_in_cache(token)
+
+        assert cached_team is not None
+        self.assertEqual(cached_team.name, "Test")
+        self.assertEqual(cached_team.uuid, response.json()["uuid"])
+        self.assertEqual(cached_team.id, response.json()["id"])
+
+        response = self.client.patch(
+            f"/api/projects/{team_id}/", {"timezone": "Europe/Istanbul", "session_recording_opt_in": True}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        cached_team = get_team_in_cache(token)
+        assert cached_team is not None
+
+        self.assertEqual(cached_team.name, "Test")
+        self.assertEqual(cached_team.uuid, response.json()["uuid"])
+        self.assertEqual(cached_team.session_recording_opt_in, True)
+
+        # only things in CachedTeamSerializer are cached!
+        self.assertEqual(cached_team.timezone, "UTC")
+
+        # reset token should update cache as well
+        response = self.client.patch(f"/api/projects/{team_id}/reset_token/")
+        response_data = response.json()
+
+        cached_team = get_team_in_cache(token)
+        assert cached_team is None
+
+        cached_team = get_team_in_cache(response_data["api_token"])
+        assert cached_team is not None
+        self.assertEqual(cached_team.name, "Test")
+        self.assertEqual(cached_team.uuid, response.json()["uuid"])
+        self.assertEqual(cached_team.session_recording_opt_in, True)
 
 
 def create_team(organization: Organization, name: str = "Test team") -> Team:

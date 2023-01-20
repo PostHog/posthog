@@ -323,6 +323,9 @@ export function stepToDatabaseFormat(step: ActionStepForm): ActionStepType {
 }
 
 export function clearSessionToolbarToken(): void {
+    window.sessionStorage?.removeItem('_postHogToolbarParams')
+    window.localStorage?.removeItem('_postHogToolbarParams')
+    // keeping these around for compatibility, should be eventually removed
     window.sessionStorage?.removeItem('_postHogEditorParams')
     window.localStorage?.removeItem('_postHogEditorParams')
 }
@@ -368,11 +371,12 @@ export function getHeatMapHue(count: number, maxCount: number): number {
 export async function toolbarFetch(
     url: string,
     method: string = 'GET',
-    payload?: Record<string, any>
+    payload?: Record<string, any>,
+    useProvidedURL?: boolean
 ): Promise<Response> {
     const { pathname, searchParams } = combineUrl(url)
     const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
-    const fullUrl = `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
+    const fullUrl = useProvidedURL ? url : `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
 
     const payloadData = payload
         ? {

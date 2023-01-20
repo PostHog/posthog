@@ -1,80 +1,81 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`verifiedDomainsLogic values has proper defaults 1`] = `
-Object {
+{
   "addModalShown": false,
   "configureSAMLModalId": null,
-  "currentOrganization": Object {
-    "available_features": Array [
+  "currentOrganization": {
+    "available_features": [
       "sso_enforcement",
       "saml",
     ],
     "created_at": "2020-09-24T15:05:01.254111Z",
+    "customer_id": null,
     "id": "ABCD",
     "is_member_join_email_enabled": true,
     "membership_level": 8,
-    "metadata": Object {
+    "metadata": {
       "taxonomy_set_events_count": 60,
       "taxonomy_set_properties_count": 17,
     },
     "name": "MockHog",
     "plugins_access_level": 9,
     "slug": "mockhog-fstn",
-    "teams": Array [
-      Object {
+    "teams": [
+      {
         "access_control": true,
         "anonymize_ips": false,
         "api_token": "default-team-api-token",
-        "app_urls": Array [
+        "app_urls": [
           "https://posthog.com/",
           "https://app.posthog.com",
         ],
         "capture_console_log_opt_in": true,
+        "capture_performance_opt_in": true,
         "completed_snippet_onboarding": true,
-        "correlation_config": Object {
-          "excluded_event_names": Array [
+        "correlation_config": {
+          "excluded_event_names": [
             "$autocapture",
             "$capture_metrics",
             "$feature_flag_called",
             "$groupidentify",
           ],
-          "excluded_event_property_names": Array [
+          "excluded_event_property_names": [
             "$plugins_deferred",
             "$geoip_time_zone",
           ],
-          "excluded_person_property_names": Array [
+          "excluded_person_property_names": [
             "$browser_version",
           ],
         },
         "created_at": "2020-06-30T09:53:35.932534Z",
-        "data_attributes": Array [
+        "data_attributes": [
           "data-attr",
         ],
         "effective_membership_level": 8,
+        "groups_on_events_querying_enabled": true,
         "has_group_types": true,
         "id": 997,
         "ingested_event": true,
         "is_demo": false,
-        "live_events_columns": Array [
-          "event",
-          "person",
-        ],
+        "live_events_columns": null,
         "name": "MockHog App + Marketing",
         "organization": "ABCD",
-        "path_cleaning_filters": Array [],
-        "person_display_name_properties": Array [
+        "path_cleaning_filters": [],
+        "person_display_name_properties": [
           "email",
           "name",
           "username",
         ],
+        "person_on_events_querying_enabled": true,
         "primary_dashboard": 1,
-        "recording_domains": Array [
+        "recording_domains": [
           "https://recordings.posthog.com/",
         ],
         "session_recording_opt_in": true,
         "slack_incoming_webhook": "",
-        "test_account_filters": Array [
-          Object {
+        "test_account_filters": [
+          {
             "key": "email",
             "operator": "not_icontains",
             "type": "person",
@@ -94,24 +95,24 @@ Object {
   "isSSOEnforcementAvailable": true,
   "isSamlConfigSubmitting": false,
   "isSamlConfigValid": true,
-  "samlConfig": Object {},
-  "samlConfigAllErrors": Object {
+  "samlConfig": {},
+  "samlConfigAllErrors": {
     "saml_acs_url": undefined,
   },
   "samlConfigChanged": false,
-  "samlConfigErrors": Object {},
+  "samlConfigErrors": {},
   "samlConfigHasErrors": false,
-  "samlConfigManualErrors": Object {},
+  "samlConfigManualErrors": {},
   "samlConfigTouched": false,
-  "samlConfigTouches": Object {},
-  "samlConfigValidationErrors": Object {
+  "samlConfigTouches": {},
+  "samlConfigValidationErrors": {
     "saml_acs_url": undefined,
   },
   "showSamlConfigErrors": false,
   "updatingDomain": false,
   "updatingDomainLoading": false,
-  "verifiedDomains": Array [
-    Object {
+  "verifiedDomains": [
+    {
       "domain": "my.posthog.com",
       "id": "8db3b0c2-a0ab-490a-9037-14f3358a81bc",
       "is_verified": true,
@@ -119,7 +120,7 @@ Object {
       "sso_enforcement": "google-oauth2",
       "verified_at": "2022-01-01T23:59:59",
     },
-    Object {
+    {
       "domain": "temp.posthog.com",
       "id": "id_will_be_deleted",
       "is_verified": false,

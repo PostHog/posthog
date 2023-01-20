@@ -2,7 +2,6 @@ import { Tabs } from 'antd'
 import { useActions, useValues } from 'kea'
 import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
 import { capitalizeFirstLetter } from 'lib/utils'
-import React from 'react'
 import { groupsModel } from '~/models/groupsModel'
 import { groupsListLogic } from './groupsListLogic'
 
@@ -23,7 +22,7 @@ export function GroupsTabs(): JSX.Element {
             <Tabs.TabPane tab="Persons" key="-1" />
 
             {showGroupsIntroductionPage ? (
-                <Tabs.TabPane tab="Introducing Group Analytics" key="0" />
+                <Tabs.TabPane tab="Groups" key="0" />
             ) : (
                 groupTypes.map((groupType) => (
                     <Tabs.TabPane

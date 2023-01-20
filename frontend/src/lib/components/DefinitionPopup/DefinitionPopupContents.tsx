@@ -6,12 +6,11 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { useActions, useValues } from 'kea'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { isPostHogProp, keyMapping, PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { DefinitionPopup } from 'lib/components/DefinitionPopup/DefinitionPopup'
-import { InfoCircleOutlined, LockOutlined } from '@ant-design/icons'
 import { Link } from 'lib/components/Link'
-import { IconInfo, IconOpenInNew } from 'lib/components/icons'
+import { IconInfo, IconLock, IconOpenInNew } from 'lib/components/icons'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { ActionType, CohortType, EventDefinition, PropertyDefinition } from '~/types'
 import { ActionPopupInfo } from 'lib/components/DefinitionPopup/ActionPopupInfo'
@@ -61,17 +60,9 @@ export const ThirtyDayQueryCountTitle = ({
 
 function TaxonomyIntroductionSection(): JSX.Element {
     const Lock = (): JSX.Element => (
-        <div
-            style={{
-                height: '100%',
-                width: '100%',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                color: 'var(--muted)',
-            }}
-        >
+        <div className="h-full w-full overflow-hidden text-ellipsis text-muted">
             <Tooltip title="Viewing ingestion data requires a premium license">
-                <LockOutlined style={{ marginRight: 6, color: 'var(--warning)' }} />
+                <IconLock className="mr-1 text-warning text-xl shrink-0" />
             </Tooltip>
         </div>
     )
@@ -112,26 +103,22 @@ export function VerifiedEventCheckbox({
         'Verified events are prioritized in filters and other selection components. Verifying an event is a signal to collaborators that this event should be used in favor of similar events.'
 
     return (
-        <div style={{ border: '1px solid var(--border)', padding: '0.5rem', borderRadius: 'var(--radius)' }}>
+        <div className="border p-2 rounded">
             <Checkbox
                 checked={verified}
                 onChange={() => {
                     onChange(!verified)
                 }}
             >
-                <span style={{ fontWeight: 600 }}>
+                <span className="font-semibold">
                     Verified event
                     {compact && (
                         <Tooltip title={copy}>
-                            <InfoCircleOutlined style={{ marginLeft: '0.5rem', color: 'var(--muted)' }} />
+                            <IconInfo className="ml-1 text-muted text-xl shrink-0" />
                         </Tooltip>
                     )}
                 </span>
-                {!compact && (
-                    <div className="text-muted" style={{ marginTop: '0.25rem' }}>
-                        {copy}
-                    </div>
-                )}
+                {!compact && <div className="text-muted mt-1">{copy}</div>}
             </Checkbox>
         </div>
     )
@@ -158,7 +145,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
             {isElement && definition?.name && (
                 <DefinitionPopup.Description description={keyMapping.element[definition.name].description} />
             )}
-            <DefinitionPopup.Example value={group?.getValue(definition)?.toString()} />
+            <DefinitionPopup.Example value={group?.getValue?.(definition)?.toString()} />
             {hasTaxonomyFeatures && definition && 'tags' in definition && !!definition.tags?.length && (
                 <ObjectTags
                     className="definition-popup-tags"
@@ -316,7 +303,7 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                 <DefinitionPopup.Section>
                     <DefinitionPopup.Card
                         title="Sent as"
-                        value={<span style={{ fontFamily: 'monaco', fontSize: 12 }}>{_definition.name}</span>}
+                        value={<span className="text-xs font-mono">{_definition.name}</span>}
                     />
                 </DefinitionPopup.Section>
             </>
@@ -406,7 +393,7 @@ function DefinitionEdit(): JSX.Element {
                             </Button>
                         </Link>
                     ) : (
-                        <div style={{ flex: 1 }} />
+                        <div className="flex-1" />
                     )}
                     <div>
                         <Button
@@ -479,18 +466,13 @@ export function ControlledDefinitionPopupContents({
 
     return (
         <>
-            <CSSTransition
-                in={state === DefinitionPopupState.Edit}
-                timeout={150}
-                classNames="definition-popup-overlay-"
-                mountOnEnter
-                unmountOnExit
-            >
+            <CSSTransition timeout={150} classNames="definition-popup-overlay-" mountOnEnter unmountOnExit>
                 <div
                     className="definition-popup-overlay click-outside-block hotkey-block"
                     // zIndex: 1062 ensures definition popup overlay is between infinite list (1061) and definition popup (1063)
                     // If not in edit mode, bury it.
-                    style={{ zIndex: 1062 }}
+                    /* eslint-disable-next-line react/forbid-dom-props */
+                    style={{ zIndex: 'var(--z-definition-popup-overlay)' }}
                     onClick={() => {
                         floatingRef.current?.focus()
                     }}
@@ -500,13 +482,13 @@ export function ControlledDefinitionPopupContents({
                 className="popper-tooltip click-outside-block hotkey-block Popup Popup__box"
                 tabIndex={-1} // Only programmatically focusable
                 ref={setFloatingRef}
-                // zIndex: 1063 ensures it opens above the overlay which is 1062
+                /* eslint-disable-next-line react/forbid-dom-props */
                 style={{
                     position: strategy,
                     top: y ?? 0,
                     left: x ?? 0,
                     transition: 'none',
-                    zIndex: 1063,
+                    zIndex: 'var(--z-definition-popup)',
                 }}
                 onMouseLeave={() => {
                     if (state !== DefinitionPopupState.Edit) {

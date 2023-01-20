@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { FilterLogicalOperator, FilterType, PropertyFilter, PropertyGroupFilter, PropertyOperator } from '~/types'
 import { useMountedLogic } from 'kea'
@@ -10,6 +10,7 @@ import { cohortsModel } from '~/models/cohortsModel'
 export default {
     title: 'Filters/PropertyGroupFilters',
     component: PropertyGroupFilters,
+    parameters: { chromatic: { disableSnapshot: false } },
 } as ComponentMeta<typeof PropertyGroupFilters>
 
 const propertyFilters = [

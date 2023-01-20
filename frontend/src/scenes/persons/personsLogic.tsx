@@ -1,4 +1,3 @@
-import React from 'react'
 import { kea } from 'kea'
 import { router } from 'kea-router'
 import api from 'lib/api'
@@ -48,8 +47,7 @@ export const personsLogic = kea<personsLogicType>({
         navigateToCohort: (cohort: CohortType) => ({ cohort }),
         navigateToTab: (tab: PersonsTabType) => ({ tab }),
         setSplitMergeModalShown: (shown: boolean) => ({ shown }),
-        showPersonDeleteModal: (person: PersonType | null) => ({ person }),
-        deletePerson: (payload: { person: PersonType; deleteEvents: boolean }) => payload,
+        setDistinctId: (distinctId: string) => ({ distinctId }),
     },
     reducers: {
         listFilters: [
@@ -91,10 +89,10 @@ export const personsLogic = kea<personsLogicType>({
             loadPerson: () => null,
             setPerson: (_, { person }): PersonType | null => person,
         },
-        personDeleteModal: [
-            null as PersonType | null,
+        distinctId: [
+            null as string | null,
             {
-                showPersonDeleteModal: (_, { person }) => person,
+                setDistinctId: (_, { distinctId }) => distinctId,
             },
         ],
     },
@@ -149,20 +147,6 @@ export const personsLogic = kea<personsLogicType>({
         urlId: [() => [(_, props) => props.urlId], (urlId) => urlId],
     }),
     listeners: ({ actions, values }) => ({
-        deletePersonSuccess: ({ deletedPerson }) => {
-            // The deleted person's distinct IDs won't be usable until the person disappears from PersonManager's LRU.
-            // This can take up to an hour. Until then, the plugin server won't know to regenerate the person.
-            lemonToast.success(
-                <>
-                    The person <strong>{asDisplay(deletedPerson.person)}</strong> was removed from the project.
-                    {deletedPerson.deleteEvents
-                        ? ' Corresponding events will be deleted on a set schedule during non-peak usage times.'
-                        : ' Their ID(s) will be usable again in an hour or so.'}
-                </>
-            )
-            actions.loadPersons()
-            router.actions.push(urls.persons())
-        },
         editProperty: async ({ key, newValue }) => {
             const person = values.person
 
@@ -170,7 +154,7 @@ export const personsLogic = kea<personsLogicType>({
                 let parsedValue = newValue
 
                 // Instrumentation stuff
-                let action: 'added' | 'updated' | 'removed'
+                let action: 'added' | 'updated'
                 const oldPropertyType = person.properties[key] === null ? 'null' : typeof person.properties[key]
                 let newPropertyType: string = typeof newValue
 
@@ -196,9 +180,9 @@ export const personsLogic = kea<personsLogicType>({
                 }
 
                 actions.setPerson({ ...person }) // To update the UI immediately while the request is being processed
-                // :KLUDGE: Person properties are updated asynchronosly in the plugin server - the response won't reflect
-                //      the 'updated' properties yet.
-                await api.persons.update(person.id, person)
+                // :KLUDGE: Person properties are updated asynchronously in the plugin server - the response won't reflect
+                //      the _updated_ properties yet.
+                await api.persons.updateProperty(person.id, key, parsedValue)
                 lemonToast.success(`Person property ${action}`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated(
@@ -212,12 +196,13 @@ export const personsLogic = kea<personsLogicType>({
         deleteProperty: async ({ key }) => {
             const person = values.person
 
-            if (person) {
+            if (person && person.id) {
                 const updatedProperties = { ...person.properties }
                 delete updatedProperties[key]
 
-                actions.setPerson({ ...person, properties: updatedProperties })
-                await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                actions.setPerson({ ...person, properties: updatedProperties }) // To update the UI immediately
+                // await api.create(`api/person/${person.id}/delete_property`, { $unset: key })
+                await api.persons.deleteProperty(person.id, key)
                 lemonToast.success(`Person property deleted`)
 
                 eventUsageLogic.actions.reportPersonPropertyUpdated('removed', 1, undefined, undefined)
@@ -265,16 +250,6 @@ export const personsLogic = kea<personsLogicType>({
                     }
                     const response = await api.get(`api/person/cohorts/?person_id=${values.person?.id}`)
                     return response.results
-                },
-            },
-        ],
-        deletedPerson: [
-            {} as { person?: PersonType; deleteEvents?: boolean },
-            {
-                deletePerson: async ({ person, deleteEvents }) => {
-                    const params = deleteEvents ? { delete_events: true } : {}
-                    await api.delete(`api/person/${person.id}?${toParams(params)}`)
-                    return { person, deleteEvents }
                 },
             },
         ],

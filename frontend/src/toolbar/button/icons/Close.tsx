@@ -1,5 +1,3 @@
-import React from 'react'
-
 export function Close(props: React.PropsWithoutRef<JSX.IntrinsicElements['svg']>): JSX.Element {
     return (
         <svg width="79" height="79" viewBox="0 0 79 79" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>

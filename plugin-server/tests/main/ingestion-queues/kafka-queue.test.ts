@@ -25,7 +25,7 @@ const extraServerConfig: Partial<PluginsServerConfig> = {
 }
 
 // TODO: merge these tests with postgres/e2e.test.ts
-describe.skip('KafkaQueue', () => {
+describe.skip('IngestionConsumer', () => {
     let hub: Hub
     let stopServer: () => Promise<void>
     let posthog: DummyPostHog

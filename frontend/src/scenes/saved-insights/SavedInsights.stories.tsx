@@ -3,7 +3,7 @@ import { Meta } from '@storybook/react'
 import { App } from 'scenes/App'
 import insightsJson from './__mocks__/insights.json'
 
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { router } from 'kea-router'
 import { mswDecorator } from '~/mocks/browser'
 
@@ -19,7 +19,7 @@ export default {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:projectId/insights': {
+                '/api/projects/:team_id/insights': {
                     ...insightsJson,
                     results: insightsJson.results.map((result, i) => ({
                         ...result,

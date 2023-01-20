@@ -1,5 +1,5 @@
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import React, { CSSProperties } from 'react'
+import { CSSProperties } from 'react'
 import { UserBasicType } from '~/types'
 
 export function Owner({ user, style = {} }: { user?: UserBasicType | null; style?: CSSProperties }): JSX.Element {

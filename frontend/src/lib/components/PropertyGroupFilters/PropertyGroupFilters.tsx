@@ -1,7 +1,12 @@
-import React from 'react'
 import { useValues, BindLogic, useActions } from 'kea'
 import '../../../scenes/actions/Actions.scss'
-import { PropertyGroupFilter, FilterLogicalOperator, PropertyGroupFilterValue, FilterType } from '~/types'
+import {
+    PropertyGroupFilter,
+    FilterLogicalOperator,
+    PropertyGroupFilterValue,
+    FilterType,
+    AnyPropertyFilter,
+} from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { Col, Row, Select } from 'antd'
 import './PropertyGroupFilters.scss'
@@ -12,6 +17,8 @@ import { IconCopy, IconDelete, IconPlusMini } from '../icons'
 import { LemonButton } from '../LemonButton'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { LemonDivider } from '../LemonDivider'
+import React from 'react'
+import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 
 interface PropertyGroupFilters {
     value: PropertyGroupFilter
@@ -51,6 +58,7 @@ export function PropertyGroupFilters({
         <div className="space-y-2 property-group-filters">
             {propertyGroupFilter.values && (
                 <BindLogic logic={propertyGroupFilterLogic} props={logicProps}>
+                    <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
                     {showHeader ? (
                         <>
                             <div className="flex items-center justify-between">
@@ -60,13 +68,13 @@ export function PropertyGroupFilters({
                                         value={propertyGroupFilter.type}
                                         onChange={(value) => setOuterPropertyGroupsType(value)}
                                         topLevelFilter={true}
+                                        suffix="groups"
                                     />
                                 )}
                             </div>
                             <LemonDivider className="my-4" />
                         </>
                     ) : null}
-                    <TestAccountFilter filters={filters} onChange={(testFilters) => setTestFilters(testFilters)} />
                     {propertyGroupFilter.values?.length ? (
                         <div>
                             {propertyGroupFilter.values?.map(
@@ -111,7 +119,11 @@ export function PropertyGroupFilters({
                                                             Add filter
                                                         </LemonButton>
                                                     }
-                                                    propertyFilters={group.values}
+                                                    propertyFilters={
+                                                        isPropertyGroupFilterLike(group)
+                                                            ? (group.values as AnyPropertyFilter[])
+                                                            : null
+                                                    }
                                                     style={{ marginBottom: 0 }}
                                                     onChange={(properties) => {
                                                         setPropertyFilters(properties, propertyGroupIndex)

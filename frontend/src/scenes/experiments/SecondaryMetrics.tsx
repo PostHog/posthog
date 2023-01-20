@@ -1,259 +1,277 @@
-import { Col, Input, Modal, Row, Form, Select } from 'antd'
-import { BindLogic, useActions, useValues } from 'kea'
+import { Col, Row } from 'antd'
+import { useActions, useValues } from 'kea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import React from 'react'
-import { funnelLogic } from 'scenes/funnels/funnelLogic'
+import { Form } from 'kea-forms'
 import { ActionFilter } from 'scenes/insights/filters/ActionFilter/ActionFilter'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightShortId, InsightType } from '~/types'
+import { InsightType } from '~/types'
 import './Experiment.scss'
-import { InsightContainer } from 'scenes/insights/InsightContainer'
-import { CaretDownOutlined } from '@ant-design/icons'
 import { secondaryMetricsLogic, SecondaryMetricsProps } from './secondaryMetricsLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
-import { IconDelete } from 'lib/components/icons'
+import { IconDelete, IconEdit } from 'lib/components/icons'
+import { LemonInput, LemonModal, LemonTable } from '@posthog/lemon-ui'
+import { Field } from 'lib/forms/Field'
+import { MetricSelector } from './MetricSelector'
+import { experimentLogic, TabularSecondaryMetricResults } from './experimentLogic'
+import { getSeriesColor } from 'lib/colors'
+import { capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
+import { LemonTableColumns } from 'lib/components/LemonTable'
 
-export function SecondaryMetrics({ onMetricsChange, initialMetrics }: SecondaryMetricsProps): JSX.Element {
-    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics })
-    const { previewInsightId, metrics, modalVisible, currentMetric } = useValues(logic)
+export function SecondaryMetrics({
+    onMetricsChange,
+    initialMetrics,
+    experimentId,
+}: SecondaryMetricsProps): JSX.Element {
+    const logic = secondaryMetricsLogic({ onMetricsChange, initialMetrics, experimentId })
+    const {
+        previewInsightId,
+        metrics,
+        isModalOpen,
+        isSecondaryMetricModalSubmitting,
+        existingModalSecondaryMetric,
+        metricId,
+    } = useValues(logic)
 
     const {
-        createNewMetric,
-        updateMetricFilters,
         setFilters,
-        showModal,
-        hideModal,
-        changeInsightType,
-        setCurrentMetricName,
         deleteMetric,
+        openModalToCreateSecondaryMetric,
+        openModalToEditSecondaryMetric,
+        closeModal,
+        saveSecondaryMetric,
+        createPreviewInsight,
     } = useActions(logic)
 
-    const { insightProps } = useValues(
-        insightLogic({
-            dashboardItemId: previewInsightId as InsightShortId,
-            syncWithUrl: false,
-        })
-    )
+    const {
+        secondaryMetricResultsLoading,
+        isExperimentRunning,
+        getIndexForVariant,
+        experiment,
+        editingExistingExperiment,
+        tabularSecondaryMetricResults,
+    } = useValues(experimentLogic({ experimentId }))
 
-    const { isStepsEmpty, filterSteps } = useValues(funnelLogic(insightProps))
+    const columns: LemonTableColumns<TabularSecondaryMetricResults> = [
+        {
+            key: 'variant',
+            title: 'Variant',
+            render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                return (
+                    <div
+                        style={{
+                            color: getSeriesColor(
+                                getIndexForVariant(item.variant, experiment.filters?.insight || InsightType.TRENDS)
+                            ),
+                        }}
+                    >
+                        <span className="text-sm">{capitalizeFirstLetter(item.variant)}</span>
+                    </div>
+                )
+            },
+            sorter: (a, b) => String(a.variant).localeCompare(String(b.variant)),
+        },
+    ]
+
+    experiment.secondary_metrics?.forEach((metric, idx) => {
+        columns.push({
+            key: `results_${idx}`,
+            title: (
+                <>
+                    <div>
+                        <b>{capitalizeFirstLetter(metric.name)}</b>
+                    </div>
+                    <div className="flex" onClick={(event) => event.stopPropagation()}>
+                        <LemonButton
+                            icon={<IconEdit />}
+                            size="small"
+                            status="muted"
+                            onClick={() => openModalToEditSecondaryMetric(metric, idx)}
+                        />
+                    </div>
+                </>
+            ),
+            align: 'right',
+            render: function Key(_, item: TabularSecondaryMetricResults): JSX.Element {
+                return (
+                    <div>
+                        {item.results?.[idx].result ? (
+                            item.results[idx].insightType === InsightType.FUNNELS ? (
+                                <>{(item.results[idx].result * 100).toFixed(1)}%</>
+                            ) : (
+                                <>{humanFriendlyNumber(item.results[idx].result)}</>
+                            )
+                        ) : (
+                            <>--</>
+                        )}
+                    </div>
+                )
+            },
+            sorter: (a, b) => (a.results?.[idx].result ?? 0) - (b.results?.[idx].result ?? 0),
+        })
+    })
+
     return (
         <>
-            <Modal
-                title="Add secondary metric"
-                visible={modalVisible}
-                destroyOnClose={true}
-                onCancel={hideModal}
-                footer={null}
-                style={{ minWidth: 600 }}
+            <LemonModal
+                isOpen={isModalOpen}
+                onClose={closeModal}
+                width={650}
+                title={existingModalSecondaryMetric ? 'Edit secondary metric' : 'New secondary metric'}
+                footer={
+                    <>
+                        {existingModalSecondaryMetric && (
+                            <LemonButton
+                                className="mr-auto"
+                                form="secondary-metric-modal-form"
+                                type="secondary"
+                                status="danger"
+                                onClick={() => deleteMetric(metricId)}
+                            >
+                                Delete
+                            </LemonButton>
+                        )}
+                        <div className="flex items-center gap-2">
+                            <LemonButton form="secondary-metric-modal-form" type="secondary" onClick={closeModal}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                form="secondary-metric-modal-form"
+                                onClick={saveSecondaryMetric}
+                                type="primary"
+                                loading={isSecondaryMetricModalSubmitting}
+                                data-attr="create-annotation-submit"
+                            >
+                                {existingModalSecondaryMetric ? 'Save' : 'Create'}
+                            </LemonButton>
+                        </div>
+                    </>
+                }
             >
                 <Form
-                    layout="vertical"
-                    initialValues={{ type: InsightType.TRENDS }}
-                    onValuesChange={(values) => {
-                        if (values.name) {
-                            setCurrentMetricName(values.name)
-                        }
-                    }}
-                    onFinish={() => {
-                        createNewMetric()
-                        hideModal()
-                    }}
-                    scrollToFirstError
-                    requiredMark={false}
+                    logic={secondaryMetricsLogic}
+                    props={{ onMetricsChange, initialMetrics, experimentId }}
+                    formKey="secondaryMetricModal"
+                    id="secondary-metric-modal-form"
+                    className="space-y-4"
                 >
-                    <Form.Item
-                        name="name"
-                        label="Name"
-                        rules={[{ required: true, message: 'You have to enter a name.' }]}
-                    >
-                        <Input />
-                    </Form.Item>
-                    <Form.Item name="type" label="Type">
-                        <Select
-                            style={{ display: 'flex' }}
-                            value={currentMetric.filters.insight}
-                            onChange={() => {
-                                changeInsightType()
-                            }}
-                            suffixIcon={<CaretDownOutlined />}
-                            dropdownMatchSelectWidth={false}
-                        >
-                            <Select.Option value={InsightType.TRENDS}>
-                                <Col>
-                                    <span>
-                                        <b>Trend</b>
-                                    </span>
-                                </Col>
-                            </Select.Option>
-                            <Select.Option value={InsightType.FUNNELS}>
-                                <Col>
-                                    <span>
-                                        <b>Conversion funnel</b>
-                                    </span>
-                                </Col>
-                            </Select.Option>
-                        </Select>
-                    </Form.Item>
-                    <Form.Item name="query" label="Query">
-                        {currentMetric.filters.insight === InsightType.FUNNELS && (
-                            <ActionFilter
-                                bordered
-                                filters={currentMetric.filters}
+                    <Field name="name" label="Name">
+                        <LemonInput />
+                    </Field>
+                    <Field name="filters" label="Query">
+                        {({ value, onChange }) => (
+                            <MetricSelector
+                                createPreviewInsight={createPreviewInsight}
                                 setFilters={(payload) => {
-                                    const newFilters = {
-                                        ...currentMetric.filters,
-                                        insight: InsightType.FUNNELS,
-                                        ...payload,
-                                    }
-                                    updateMetricFilters(newFilters)
-                                    setFilters(newFilters)
+                                    setFilters(payload)
+                                    onChange(payload)
                                 }}
-                                typeKey={'funnel-preview-metric'}
-                                mathAvailability={MathAvailability.None}
-                                hideDeleteBtn={filterSteps.length === 1}
-                                buttonCopy="Add funnel step"
-                                showSeriesIndicator={!isStepsEmpty}
-                                seriesIndicatorType="numeric"
-                                sortable
-                                showNestedArrow={true}
-                                propertiesTaxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
+                                previewInsightId={previewInsightId}
+                                filters={value}
                             />
                         )}
-                        {currentMetric.filters.insight === InsightType.TRENDS && (
-                            <ActionFilter
-                                bordered
-                                entitiesLimit={1}
-                                filters={currentMetric.filters}
-                                setFilters={(payload) => {
-                                    const newFilters = {
-                                        ...currentMetric.filters,
-                                        insight: InsightType.TRENDS,
-                                        ...payload,
-                                    }
-                                    updateMetricFilters(newFilters)
-                                    setFilters(newFilters)
-                                }}
-                                typeKey={'trend-preview-metric'}
-                                buttonCopy="Add graph series"
-                                showSeriesIndicator
-                                propertiesTaxonomicGroupTypes={[
-                                    TaxonomicFilterGroupType.EventProperties,
-                                    TaxonomicFilterGroupType.PersonProperties,
-                                    TaxonomicFilterGroupType.EventFeatureFlags,
-                                    TaxonomicFilterGroupType.Cohorts,
-                                    TaxonomicFilterGroupType.Elements,
-                                ]}
-                            />
-                        )}
-                    </Form.Item>
-                    <Form.Item name="metric-preview" label="Metric preview">
-                        <BindLogic logic={insightLogic} props={insightProps}>
-                            <InsightContainer disableHeader={true} disableTable={true} disableCorrelationTable={true} />
-                        </BindLogic>
-                    </Form.Item>
-                    <Row justify="end">
-                        <LemonButton type="secondary" className="mr-2" onClick={() => hideModal()}>
-                            Cancel
-                        </LemonButton>
-                        <LemonButton type="primary" htmlType="submit">
-                            Save
-                        </LemonButton>
-                    </Row>
+                    </Field>
                 </Form>
-            </Modal>
-            <Row>
-                <Col>
-                    {metrics.map((metric, idx) => (
-                        <Row key={idx} className="mt-4 border rounded p-4">
-                            <Row align="middle" justify="space-between" className="w-full mb-3 pb-2 border-b">
-                                <div>
-                                    <b>{metric.name}</b>
-                                </div>
-                                <LemonButton
-                                    icon={<IconDelete />}
-                                    size="small"
-                                    status="muted"
-                                    onClick={() => deleteMetric(idx)}
-                                />
+            </LemonModal>
+            {experimentId == 'new' || editingExistingExperiment ? (
+                <Row>
+                    <Col>
+                        {metrics.map((metric, idx) => (
+                            <Row key={idx} className="mt-4 border rounded p-4">
+                                <Row align="middle" justify="space-between" className="w-full mb-3 pb-2 border-b">
+                                    <div>
+                                        <b>{metric.name}</b>
+                                    </div>
+                                    <div className="flex">
+                                        <LemonButton
+                                            icon={<IconEdit />}
+                                            size="small"
+                                            status="muted"
+                                            onClick={() => openModalToEditSecondaryMetric(metric, idx)}
+                                        />
+                                        <LemonButton
+                                            icon={<IconDelete />}
+                                            size="small"
+                                            status="muted"
+                                            onClick={() => deleteMetric(idx)}
+                                        />
+                                    </div>
+                                </Row>
+                                {metric.filters.insight === InsightType.FUNNELS && (
+                                    <ActionFilter
+                                        bordered
+                                        filters={metric.filters}
+                                        setFilters={() => {}}
+                                        typeKey={`funnel-preview-${idx}`}
+                                        mathAvailability={MathAvailability.None}
+                                        buttonCopy="Add funnel step"
+                                        seriesIndicatorType="numeric"
+                                        sortable
+                                        showNestedArrow={true}
+                                        propertiesTaxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                            TaxonomicFilterGroupType.Cohorts,
+                                            TaxonomicFilterGroupType.Elements,
+                                        ]}
+                                        readOnly={true}
+                                    />
+                                )}
+                                {metric.filters.insight === InsightType.TRENDS && (
+                                    <ActionFilter
+                                        bordered
+                                        filters={metric.filters}
+                                        setFilters={() => {}}
+                                        typeKey={`trend-preview-${idx}`}
+                                        buttonCopy="Add graph series"
+                                        showSeriesIndicator
+                                        entitiesLimit={1}
+                                        propertiesTaxonomicGroupTypes={[
+                                            TaxonomicFilterGroupType.EventProperties,
+                                            TaxonomicFilterGroupType.PersonProperties,
+                                            TaxonomicFilterGroupType.EventFeatureFlags,
+                                            TaxonomicFilterGroupType.Cohorts,
+                                            TaxonomicFilterGroupType.Elements,
+                                        ]}
+                                        readOnly={true}
+                                    />
+                                )}
                             </Row>
-                            {metric.filters.insight === InsightType.FUNNELS && (
-                                <ActionFilter
-                                    bordered
-                                    filters={metric.filters}
-                                    setFilters={(payload) => {
-                                        const newFilters = {
-                                            ...metric.filters,
-                                            insight: InsightType.FUNNELS,
-                                            ...payload,
-                                        }
-                                        updateMetricFilters(newFilters)
-                                        setFilters(newFilters)
-                                    }}
-                                    typeKey={`funnel-preview-${idx}`}
-                                    mathAvailability={MathAvailability.None}
-                                    hideDeleteBtn={filterSteps.length === 1}
-                                    buttonCopy="Add funnel step"
-                                    showSeriesIndicator={!isStepsEmpty}
-                                    seriesIndicatorType="numeric"
-                                    sortable
-                                    showNestedArrow={true}
-                                    propertiesTaxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.EventFeatureFlags,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                        TaxonomicFilterGroupType.Elements,
-                                    ]}
-                                    readOnly={true}
-                                />
-                            )}
-                            {metric.filters.insight === InsightType.TRENDS && (
-                                <ActionFilter
-                                    bordered
-                                    filters={metric.filters}
-                                    setFilters={(payload) => {
-                                        const newFilters = {
-                                            ...metric.filters,
-                                            insight: InsightType.TRENDS,
-                                            ...payload,
-                                        }
-                                        updateMetricFilters(newFilters)
-                                        setFilters(newFilters)
-                                    }}
-                                    typeKey={`trend-preview-${idx}`}
-                                    buttonCopy="Add graph series"
-                                    showSeriesIndicator
-                                    entitiesLimit={1}
-                                    propertiesTaxonomicGroupTypes={[
-                                        TaxonomicFilterGroupType.EventProperties,
-                                        TaxonomicFilterGroupType.PersonProperties,
-                                        TaxonomicFilterGroupType.EventFeatureFlags,
-                                        TaxonomicFilterGroupType.Cohorts,
-                                        TaxonomicFilterGroupType.Elements,
-                                    ]}
-                                    readOnly={true}
-                                />
-                            )}
-                        </Row>
-                    ))}
-                    {metrics && !(metrics.length > 2) && (
-                        <Col>
-                            <div className="mb-2 mt-4">
-                                <LemonButton type="secondary" onClick={showModal}>
-                                    Add metric
-                                </LemonButton>
-                            </div>
-                        </Col>
+                        ))}
+                        {metrics && !(metrics.length > 2) && (
+                            <Col>
+                                <div className="mb-2 mt-4">
+                                    <LemonButton type="secondary" onClick={openModalToCreateSecondaryMetric}>
+                                        Add metric
+                                    </LemonButton>
+                                </div>
+                            </Col>
+                        )}
+                    </Col>
+                </Row>
+            ) : (
+                <>
+                    <div className="card-secondary mt-4 mb-1">Secondary metrics</div>
+                    {metrics && metrics.length > 0 ? (
+                        <LemonTable
+                            loading={secondaryMetricResultsLoading}
+                            columns={columns}
+                            dataSource={tabularSecondaryMetricResults}
+                        />
+                    ) : !isExperimentRunning ? (
+                        <>--</>
+                    ) : (
+                        <></>
                     )}
-                </Col>
-            </Row>
+                    {metrics && !(metrics.length > 2) && isExperimentRunning && (
+                        <div className="mb-2 mt-4 justify-end">
+                            <LemonButton type="secondary" size="small" onClick={openModalToCreateSecondaryMetric}>
+                                Add metric
+                            </LemonButton>
+                        </div>
+                    )}
+                </>
+            )}
         </>
     )
 }

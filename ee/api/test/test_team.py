@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from rest_framework.status import (
     HTTP_200_OK,
     HTTP_204_NO_CONTENT,
@@ -26,7 +28,11 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(Team.objects.count(), 2)
         response_data = response.json()
         self.assertDictContainsSubset(
-            {"name": "Test", "access_control": False, "effective_membership_level": OrganizationMembership.Level.ADMIN},
+            {
+                "name": "Test",
+                "access_control": False,
+                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+            },
             response_data,
         )
         self.assertEqual(self.organization.teams.count(), 2)
@@ -41,6 +47,55 @@ class TestProjectEnterpriseAPI(APILicensedTest):
         self.assertEqual(
             response.json(), self.permission_denied_response("Your organization access level is insufficient.")
         )
+
+    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
+    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
+    def test_create_demo_project(self, *args):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
+        self.assertEqual(Team.objects.count(), 3)
+        self.assertEqual(response.status_code, 201)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "name": "Hedgebox",
+                "access_control": False,
+                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+            },
+            response_data,
+        )
+        self.assertEqual(self.organization.teams.count(), 2)
+
+    @patch("posthog.demo.matrix.manager.bulk_queue_graphile_worker_jobs")
+    @patch("posthog.demo.matrix.manager.copy_graphile_worker_jobs_between_teams")
+    def test_create_two_demo_projects(self, *args):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        response = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
+        self.assertEqual(Team.objects.count(), 3)
+        self.assertEqual(response.status_code, 201)
+        response_data = response.json()
+        self.assertDictContainsSubset(
+            {
+                "name": "Hedgebox",
+                "access_control": False,
+                "effective_membership_level": OrganizationMembership.Level.ADMIN,
+            },
+            response_data,
+        )
+        response_2 = self.client.post("/api/projects/", {"name": "Hedgebox", "is_demo": True})
+        self.assertEqual(Team.objects.count(), 3)
+        response_2_data = response_2.json()
+        self.assertDictContainsSubset(
+            {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "You must upgrade your PostHog plan to be able to create and manage multiple projects.",
+            },
+            response_2_data,
+        )
+        self.assertEqual(self.organization.teams.count(), 2)
 
     def test_user_that_does_not_belong_to_an_org_cannot_create_a_project(self):
         user = User.objects.create(email="no_org@posthog.com")

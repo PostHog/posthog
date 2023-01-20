@@ -14,6 +14,8 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
     @patch("posthoganalytics.capture")
     @patch("requests.post")
     def test_send_license_usage(self, mock_post, mock_capture):
+        self.license.key = "legacy-key"
+        self.license.save()
         team2 = Team.objects.create(organization=self.organization)
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
@@ -40,7 +42,7 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "send license usage data",
-            {"date": "2021-10-09", "events_count": 3, "license_keys": ["enterprise"], "organization_name": "Test"},
+            {"date": "2021-10-09", "events_count": 3, "license_keys": [self.license.key], "organization_name": "Test"},
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
         self.assertEqual(License.objects.get().valid_until.isoformat(), "2021-11-10T23:01:00+00:00")
@@ -49,6 +51,9 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
     @patch("posthoganalytics.capture")
     @patch("ee.tasks.send_license_usage.sync_execute", side_effect=Exception())
     def test_send_license_error(self, mock_post, mock_capture):
+        self.license.key = "legacy-key"
+        self.license.save()
+
         team2 = Team.objects.create(organization=self.organization)
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
@@ -62,7 +67,8 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
         _create_event(event="$pageview", team=team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
         flush_persons_and_events()
-        send_license_usage()
+        with self.assertRaises(Exception):
+            send_license_usage()
         mock_capture.assert_called_once_with(
             self.user.distinct_id,
             "send license usage data error",
@@ -73,7 +79,41 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
     @freeze_time("2021-10-10T23:01:00Z")
     @patch("posthoganalytics.capture")
     @patch("requests.post")
+    def test_send_license_usage_already_sent(self, mock_post, mock_capture):
+        self.license.key = "legacy-key"
+        self.license.save()
+
+        team2 = Team.objects.create(organization=self.organization)
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T13:01:01Z")
+        _create_event(
+            event="$$internal_metrics_shouldnt_be_billed",
+            team=self.team,
+            distinct_id=1,
+            timestamp="2021-10-09T13:01:01Z",
+        )
+        _create_event(event="$pageview", team=team2, distinct_id=1, timestamp="2021-10-09T14:01:01Z")
+        _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-10T14:01:01Z")
+        mockresponse = Mock()
+        mock_post.return_value = mockresponse
+        mockresponse.ok = False
+        mockresponse.status_code = 400
+        mockresponse.json = lambda: {
+            "code": "already_sent",
+            "error": "Usage data for this period has already been sent.",
+        }
+        flush_persons_and_events()
+        send_license_usage()
+        mock_capture.assert_not_called()
+
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthoganalytics.capture")
+    @patch("requests.post")
     def test_send_license_not_found(self, mock_post, mock_capture):
+        self.license.key = "legacy-key"
+        self.license.save()
+
         team2 = Team.objects.create(organization=self.organization)
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-08T14:01:01Z")
         _create_event(event="$pageview", team=self.team, distinct_id=1, timestamp="2021-10-09T12:01:01Z")
@@ -105,6 +145,17 @@ class SendLicenseUsageTest(LicensedTestMixin, ClickhouseDestroyTablesMixin, APIB
             groups={"instance": ANY, "organization": str(self.organization.id)},
         )
         self.assertEqual(License.objects.get().valid_until.isoformat(), "2021-10-10T22:01:00+00:00")
+
+    @freeze_time("2021-10-10T23:01:00Z")
+    @patch("posthoganalytics.capture")
+    @patch("requests.post")
+    def test_send_license_not_triggered_for_v2_licenses(self, mock_post, mock_capture):
+        self.license.key = "billing-service::v2-key"
+        self.license.save()
+
+        send_license_usage()
+
+        assert mock_capture.call_count == 0
 
 
 class SendLicenseUsageNoLicenseTest(APIBaseTest):

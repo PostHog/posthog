@@ -37,7 +37,7 @@ class TestEventDefinitionAPI(APIBaseTest):
         cls.user = create_user("user", "pass", cls.organization)
 
         for event_definition in cls.EXPECTED_EVENT_DEFINITIONS:
-            create_event_definitions(event_definition["name"], team_id=cls.demo_team.pk)
+            create_event_definitions(event_definition, team_id=cls.demo_team.pk)
             for _ in range(event_definition["volume_30_day"]):
                 capture_event(
                     event=EventData(
@@ -73,6 +73,12 @@ class TestEventDefinitionAPI(APIBaseTest):
                 (dateutil.parser.isoparse(response_item["created_at"]) - timezone.now()).total_seconds(), 0
             )
 
+        # Test ordering
+        response = self.client.get("/api/projects/@current/event_definitions/?ordering=volume_30_day")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["volume_30_day"], 1)
+
     def test_pagination_of_event_definitions(self):
         EventDefinition.objects.bulk_create(
             [EventDefinition(team=self.demo_team, name=f"z_event_{i}") for i in range(1, 301)]
@@ -82,8 +88,8 @@ class TestEventDefinitionAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["count"], 306)
         self.assertEqual(len(response.json()["results"]), 100)  # Default page size
-        self.assertEqual(response.json()["results"][0]["name"], "$pageview")  # Order by name (ascending)
-        self.assertEqual(response.json()["results"][1]["name"], "entered_free_trial")  # Order by name (ascending)
+        self.assertEqual(response.json()["results"][0]["name"], "$pageview")  # Order by volume (desc)
+        self.assertEqual(response.json()["results"][1]["name"], "watched_movie")  # Order by volume (desc)
 
         event_checkpoints = [
             184,
@@ -204,8 +210,10 @@ def capture_event(event: EventData):
     )
 
 
-def create_event_definitions(name: str, team_id: int) -> EventDefinition:
+def create_event_definitions(event_definition: Dict, team_id: int) -> EventDefinition:
     """
     Create event definition for a team.
     """
-    return EventDefinition.objects.create(name=name, team_id=team_id)
+    created_definition = EventDefinition.objects.create(name=event_definition["name"], team_id=team_id)
+
+    return created_definition

@@ -17,9 +17,9 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     flush_persons_and_events,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -46,11 +46,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         _create_event(event="$pageview", team=self.team, distinct_id="some-other-one", properties={"$ip": "8.8.8.8"})
         flush_persons_and_events()
 
-        expected_queries = (
-            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
-        )
-
-        with self.assertNumQueries(expected_queries):
+        with self.assertNumQueries(6):
             response = self.client.get(f"/api/projects/{self.team.id}/events/?distinct_id=2").json()
         self.assertEqual(
             response["results"][0]["person"],
@@ -67,7 +63,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         expected_queries = (
-            8  # Django session, PostHog user, PostHog team, PostHog org membership, 2x team(?), person and distinct id
+            6  # Django session, PostHog user, PostHog team, PostHog org membership, person and distinct id
         )
 
         with self.assertNumQueries(expected_queries):
@@ -166,7 +162,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=custom_event").json()
         self.assertListEqual(sorted(events), sorted(event["name"] for event in response))
 
-    @test_with_materialized_columns(["random_prop"])
+    @also_test_with_materialized_columns(["random_prop"])
     @snapshot_clickhouse_queries
     def test_event_property_values(self):
 
@@ -236,6 +232,21 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             response = self.client.get(f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6").json()
             self.assertEqual(response[0]["name"], "565")
 
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6&event_name=random event"
+            ).json()
+            self.assertEqual(response[0]["name"], "565")
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=6&event_name=foo&event_name=random event"
+            ).json()
+            self.assertEqual(response[0]["name"], "565")
+
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/values/?key=random_prop&value=qw&event_name=404_i_dont_exist"
+            ).json()
+            self.assertEqual(response, [])
+
     def test_before_and_after(self):
         user = self._create_user("tim")
         self.client.force_login(user)
@@ -247,6 +258,17 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
             event2_uuid = _create_event(team=self.team, event="sign up", distinct_id="2")
         with freeze_time("2020-01-7"):
             event3_uuid = _create_event(team=self.team, event="random other event", distinct_id="2")
+
+        # with relative values
+        with freeze_time("2020-01-11T12:03:03.829294Z"):
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?after=5d&before=1d").json()
+            self.assertEqual(len(response["results"]), 2)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?after=6d&before=2h").json()
+            self.assertEqual(len(response["results"]), 3)
+
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?before=3d").json()
+            self.assertEqual(len(response["results"]), 1)
 
         action = Action.objects.create(team=self.team)
         ActionStep.objects.create(action=action, event="sign up")
@@ -526,7 +548,7 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response_invalid_token = self.client.get(f"/api/projects/{self.team.id}/events?token=invalid")
         self.assertEqual(response_invalid_token.status_code, 401)
 
-    @patch("posthog.models.event.query_event_list.query_with_columns")
+    @patch("posthog.models.event.query_event_list.insight_query_with_columns")
     def test_optimize_query(self, patch_query_with_columns):
         #  For ClickHouse we normally only query the last day,
         # but if a user doesn't have many events we still want to return events that are older
@@ -684,3 +706,119 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(response["results"]), 1)
         self.assertEqual([r["event"] for r in response["results"]], ["should_be_included"])
+
+    @snapshot_clickhouse_queries
+    def test_select_hogql_expressions(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            select = ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"]
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
+            self.assertEqual(
+                response,
+                {
+                    "columns": ["event", "distinct_id", "properties.key", "concat(event, ' ', properties.key)"],
+                    "hasMore": False,
+                    "types": ["String", "String", "String", "String"],
+                    "results": [
+                        ["sign out", "4", "test_val3", "sign out test_val3"],
+                        ["sign out", "3", "test_val2", "sign out test_val2"],
+                        ["sign out", "2", "test_val2", "sign out test_val2"],
+                        ["sign up", "2", "test_val1", "sign up test_val1"],
+                    ],
+                },
+            )
+
+            select = ["*", "event"]
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
+            self.assertEqual(response["columns"], ["*", "event"])
+            self.assertIn("Tuple(", response["types"][0])
+            self.assertEqual(response["types"][1], "String")
+            self.assertEqual(len(response["results"]), 4)
+            self.assertIsInstance(response["results"][0][0], dict)
+            self.assertIsInstance(response["results"][0][1], str)
+
+            select = ["count()", "event"]
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
+            self.assertEqual(
+                response,
+                {
+                    "columns": ["count()", "event"],
+                    "hasMore": False,
+                    "types": ["UInt64", "String"],
+                    "results": [[3, "sign out"], [1, "sign up"]],
+                },
+            )
+
+            select = ["count()", "event"]
+            where = ['event == "sign up" or like(properties.key, "%val2")']
+            orderBy = ["-count()", "event"]
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&where={json.dumps(where)}&orderBy={json.dumps(orderBy)}"
+            ).json()
+            self.assertEqual(
+                response,
+                {
+                    "columns": ["count()", "event"],
+                    "hasMore": False,
+                    "types": ["UInt64", "String"],
+                    "results": [[2, "sign out"], [1, "sign up"]],
+                },
+            )
+
+    @also_test_with_materialized_columns(["key"])
+    @snapshot_clickhouse_queries
+    def test_hogql_property_filter(self):
+        with freeze_time("2020-01-10 12:00:00"):
+            _create_person(
+                properties={"email": "tom@posthog.com"},
+                distinct_ids=["2", "some-random-uid"],
+                team=self.team,
+                immediate=True,
+            )
+            _create_event(team=self.team, event="sign up", distinct_id="2", properties={"key": "test_val1"})
+        with freeze_time("2020-01-10 12:11:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="2", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:12:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="3", properties={"key": "test_val2"})
+        with freeze_time("2020-01-10 12:13:00"):
+            _create_event(team=self.team, event="sign out", distinct_id="4", properties={"key": "test_val3"})
+        flush_persons_and_events()
+
+        with freeze_time("2020-01-10 12:14:00"):
+            select = ["event", "distinct_id", "properties.key", "'a%sd'", "concat(event, ' ', properties.key)"]
+
+            response = self.client.get(f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}").json()
+            self.assertEqual(len(response["results"]), 4)
+
+            properties = [{"type": "hogql", "key": "'a%sd' == 'foo'"}]
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&properties={json.dumps(properties)}"
+            ).json()
+            self.assertEqual(len(response["results"]), 0)
+
+            properties = [{"type": "hogql", "key": "'a%sd' == 'a%sd'"}]
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&properties={json.dumps(properties)}"
+            ).json()
+            self.assertEqual(len(response["results"]), 4)
+
+            properties = [{"type": "hogql", "key": "properties.key == 'test_val2'"}]
+            response = self.client.get(
+                f"/api/projects/{self.team.id}/events/?select={json.dumps(select)}&properties={json.dumps(properties)}"
+            ).json()
+            self.assertEqual(len(response["results"]), 2)

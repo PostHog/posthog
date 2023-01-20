@@ -1,3 +1,4 @@
+import hashlib
 import json
 from typing import Any
 from unittest.mock import patch
@@ -180,3 +181,39 @@ class TestCaptureAPI(APIBaseTest):
                 "attr": None,
             },
         )
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_partition_key_override(self, kafka_produce):
+        default_partition_key = f"{self.team.pk}:id1"
+
+        response = self.client.post(
+            "/capture/",
+            {
+                "data": json.dumps(
+                    [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}}]
+                ),
+                "api_key": self.team.api_token,
+            },
+        )
+
+        # By default we use (the hash of) <team_id:distinct_id> as the partition key
+        kafka_produce_call = kafka_produce.call_args_list[0].kwargs
+        self.assertEqual(kafka_produce_call["key"], hashlib.sha256(default_partition_key.encode()).hexdigest())
+
+        # Setting up an override via EVENT_PARTITION_KEYS_TO_OVERRIDE should cause us to pass None
+        # as the key when producing to Kafka, leading to random partitioning
+        with self.settings(EVENT_PARTITION_KEYS_TO_OVERRIDE=[default_partition_key]):
+            response = self.client.post(
+                "/capture/",
+                {
+                    "data": json.dumps(
+                        [{"event": "event1", "properties": {"distinct_id": "id1", "token": self.team.api_token}}]
+                    ),
+                    "api_key": self.team.api_token,
+                },
+            )
+
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+            kafka_produce_call = kafka_produce.call_args_list[1].kwargs
+            self.assertEqual(kafka_produce_call["key"], None)

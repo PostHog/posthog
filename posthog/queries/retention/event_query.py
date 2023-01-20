@@ -14,7 +14,7 @@ from posthog.models.property.util import get_single_or_multi_property_string_exp
 from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.event_query import EventQuery
-from posthog.queries.util import format_ch_timestamp, get_trunc_func_ch
+from posthog.queries.util import get_trunc_func_ch, start_of_week_fix
 
 
 class RetentionEventsQuery(EventQuery):
@@ -87,14 +87,16 @@ class RetentionEventsQuery(EventQuery):
             # NOTE: we use the datediff rather than the date to make our
             # lives easier when zero filling the response. We could however
             # handle this WITH FILL within the query.
+
+            start_of_week_day = start_of_week_fix(self._filter.period)
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
                 _fields += [
                     f"""
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s)),
-                            {self._trunc_func}(min(e.timestamp))
+                            {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
+                            {self._trunc_func}(min(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s)) {start_of_week_day})
                         )
                     ] as breakdown_values
                     """
@@ -105,8 +107,8 @@ class RetentionEventsQuery(EventQuery):
                     [
                         dateDiff(
                             %(period)s,
-                            {self._trunc_func}(toDateTime(%(start_date)s)),
-                            {self._trunc_func}(e.timestamp)
+                            {self._trunc_func}(toDateTime(%(start_date)s {start_of_week_day}, %(timezone)s)),
+                            {self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s) {start_of_week_day})
                         )
                     ] as breakdown_values
                     """
@@ -140,9 +142,7 @@ class RetentionEventsQuery(EventQuery):
         groups_query, groups_params = self._get_groups_query()
         self.params.update(groups_params)
 
-        null_person_filter = (
-            f"AND {self.EVENT_TABLE_ALIAS}.person_id != toUUIDOrZero('')" if self._using_person_on_events else ""
-        )
+        null_person_filter = f"AND notEmpty({self.EVENT_TABLE_ALIAS}.person_id)" if self._using_person_on_events else ""
 
         query = f"""
             SELECT {','.join(_fields)} FROM events {self.EVENT_TABLE_ALIAS}
@@ -169,12 +169,13 @@ class RetentionEventsQuery(EventQuery):
             )
 
     def get_timestamp_field(self) -> str:
+        start_of_week_day = start_of_week_fix(self._filter.period)
         if self._event_query_type == RetentionQueryType.TARGET:
-            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, %(timezone)s)) AS event_date"
+            return f"DISTINCT {self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) {start_of_week_day}, %(timezone)s) AS event_date"
         elif self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME:
-            return f"min({self._trunc_func}(toDateTime(e.timestamp, %(timezone)s))) as event_date"
+            return f"min({self._trunc_func}(toTimeZone(toDateTime(e.timestamp, 'UTC'), %(timezone)s) {start_of_week_day})) as event_date"
         else:
-            return f"{self._trunc_func}(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, %(timezone)s)) AS event_date"
+            return f"{self._trunc_func}(toTimeZone(toDateTime({self.EVENT_TABLE_ALIAS}.timestamp, 'UTC'), %(timezone)s) {start_of_week_day}) AS event_date"
 
     def _determine_should_join_distinct_ids(self) -> None:
         if (
@@ -215,9 +216,9 @@ class RetentionEventsQuery(EventQuery):
 
     def _get_date_filter(self):
         query = (
-            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s)"
+            f"event_date >= toDateTime(%({self._event_query_type}_start_date)s, %(timezone)s) AND event_date <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
             if self._event_query_type == RetentionQueryType.TARGET_FIRST_TIME
-            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s)"
+            else f"toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) >= toDateTime(%({self._event_query_type}_start_date)s,  %(timezone)s) AND toDateTime({self.EVENT_TABLE_ALIAS}.timestamp) <= toDateTime(%({self._event_query_type}_end_date)s, %(timezone)s)"
         )
         start_date = self._filter.date_from
         end_date = (
@@ -229,11 +230,7 @@ class RetentionEventsQuery(EventQuery):
             start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
             end_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
         params = {
-            f"{self._event_query_type}_start_date": format_ch_timestamp(
-                start_date, convert_to_timezone=self._team.timezone
-            ),
-            f"{self._event_query_type}_end_date": format_ch_timestamp(
-                end_date, convert_to_timezone=self._team.timezone
-            ),
+            f"{self._event_query_type}_start_date": start_date.strftime("%Y-%m-%d %H:%M:%S"),
+            f"{self._event_query_type}_end_date": end_date.strftime("%Y-%m-%d %H:%M:%S"),
         }
         return query, params

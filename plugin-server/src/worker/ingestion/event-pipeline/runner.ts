@@ -2,17 +2,19 @@ import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 import * as Sentry from '@sentry/node'
 
 import { runInSpan } from '../../../sentry'
-import { Hub, PostIngestionEvent } from '../../../types'
+import { Hub, PipelineEvent, PostIngestionEvent } from '../../../types'
+import { DependencyUnavailableError } from '../../../utils/db/error'
 import { timeoutGuard } from '../../../utils/db/utils'
 import { status } from '../../../utils/status'
 import { LazyPersonContainer } from '../lazy-person-container'
 import { generateEventDeadLetterQueueMessage } from '../utils'
-import { emitToBufferStep } from './1-emitToBufferStep'
-import { pluginsProcessEventStep } from './2-pluginsProcessEventStep'
-import { processPersonsStep } from './3-processPersonsStep'
-import { prepareEventStep } from './4-prepareEventStep'
-import { createEventStep } from './5-createEventStep'
-import { runAsyncHandlersStep } from './6-runAsyncHandlersStep'
+import { populateTeamDataStep } from './1-populateTeamDataStep'
+import { emitToBufferStep } from './2-emitToBufferStep'
+import { pluginsProcessEventStep } from './3-pluginsProcessEventStep'
+import { processPersonsStep } from './4-processPersonsStep'
+import { prepareEventStep } from './5-prepareEventStep'
+import { createEventStep } from './6-createEventStep'
+import { runAsyncHandlersStep } from './7-runAsyncHandlersStep'
 
 export type StepParameters<T extends (...args: any[]) => any> = T extends (
     runner: EventPipelineRunner,
@@ -22,6 +24,7 @@ export type StepParameters<T extends (...args: any[]) => any> = T extends (
     : never
 
 const EVENT_PIPELINE_STEPS = {
+    populateTeamDataStep,
     emitToBufferStep,
     pluginsProcessEventStep,
     processPersonsStep,
@@ -36,6 +39,7 @@ export type NextStep<Step extends StepType> = [StepType, StepParameters<EventPip
 
 export type StepResult =
     | null
+    | NextStep<'populateTeamDataStep'>
     | NextStep<'emitToBufferStep'>
     | NextStep<'pluginsProcessEventStep'>
     | NextStep<'processPersonsStep'>
@@ -51,6 +55,7 @@ export type EventPipelineResult = {
 }
 
 const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
+    'populateTeamDataStep',
     'emitToBufferStep',
     'pluginsProcessEventStep',
     'processPersonsStep',
@@ -60,11 +65,28 @@ const STEPS_TO_EMIT_TO_DLQ_ON_FAILURE: Array<StepType> = [
 
 export class EventPipelineRunner {
     hub: Hub
-    originalEvent: PluginEvent | ProcessedPluginEvent
+    originalEvent: PipelineEvent | ProcessedPluginEvent
 
-    constructor(hub: Hub, originalEvent: PluginEvent | ProcessedPluginEvent) {
+    // See https://github.com/PostHog/product-internal/pull/405 for an overview
+    // of the implementation.
+    onlyUpdatePersonIdAssociations: boolean
+
+    constructor(hub: Hub, originalEvent: PipelineEvent | ProcessedPluginEvent, onlyUpdatePersonIdAssociations = false) {
         this.hub = hub
         this.originalEvent = originalEvent
+        this.onlyUpdatePersonIdAssociations = onlyUpdatePersonIdAssociations
+    }
+
+    // KLUDGE: This is a temporary entry point for the pipeline while we transition away from
+    // hitting Postgres in the capture endpoint. Eventually the entire pipeline should
+    // follow this route and we can rename it to just be `runEventPipeline`.
+    async runLightweightCaptureEndpointEventPipeline(event: PipelineEvent): Promise<EventPipelineResult> {
+        this.hub.statsd?.increment('kafka_queue.lightweight_capture_endpoint_event_pipeline.start', {
+            pipeline: 'lightweight_capture',
+        })
+        const result = await this.runPipeline('populateTeamDataStep', event)
+        this.hub.statsd?.increment('kafka_queue.single_event.processed_and_ingested')
+        return result
     }
 
     async runEventPipeline(event: PluginEvent): Promise<EventPipelineResult> {
@@ -171,6 +193,13 @@ export class EventPipelineRunner {
         status.info('🔔', err)
         Sentry.captureException(err, { extra: { currentStepName, serializedArgs, originalEvent: this.originalEvent } })
         this.hub.statsd?.increment('kafka_queue.event_pipeline.step.error', { step: currentStepName })
+
+        if (err instanceof DependencyUnavailableError) {
+            // If this is an error with a dependency that we control, we want to
+            // ensure that the caller knows that the event was not processed,
+            // for a reason that we control and that is transient.
+            throw err
+        }
 
         if (STEPS_TO_EMIT_TO_DLQ_ON_FAILURE.includes(currentStepName)) {
             try {

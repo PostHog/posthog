@@ -1,4 +1,3 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { useValues } from 'kea'

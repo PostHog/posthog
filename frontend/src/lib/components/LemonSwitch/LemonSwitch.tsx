@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import './LemonSwitch.scss'
 
 export interface LemonSwitchProps {
@@ -7,6 +7,7 @@ export interface LemonSwitchProps {
     onChange?: (newChecked: boolean) => void
     checked: boolean
     label?: string | JSX.Element
+    labelClassName?: string
     id?: string
     fullWidth?: boolean
     bordered?: boolean
@@ -28,6 +29,7 @@ export function LemonSwitch({
     bordered,
     disabled,
     label,
+    labelClassName,
     icon,
     'data-attr': dataAttr,
 }: LemonSwitchProps): JSX.Element {
@@ -45,7 +47,11 @@ export function LemonSwitch({
             })}
         >
             {icon}
-            {label && <label htmlFor={id}>{label}</label>}
+            {label && (
+                <label htmlFor={id} className={labelClassName}>
+                    {label}
+                </label>
+            )}
             <button
                 id={id}
                 className="LemonSwitch__button"

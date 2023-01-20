@@ -47,7 +47,7 @@ jobs:
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
 
             - uses: dorny/paths-filter@v2
               id: filter
@@ -60,6 +60,7 @@ jobs:
                         # code completely
                         - 'ee/**/*'
                         - 'posthog/**/*'
+                        - 'bin/*.py'
                         - requirements.txt
                         - requirements-dev.txt
                         - mypy.ini
@@ -67,7 +68,7 @@ jobs:
                         # Make sure we run if someone is explicitly change the workflow
                         - .github/workflows/ci-backend.yml
                         - .github/workflows/backend-tests-action/action.yml
-                        # We use docker-compose for tests, make sure we rerun on
+                        # We use docker compose for tests, make sure we rerun on
                         # changes to docker-compose.dev.yml e.g. dependency
                         # version changes
                         - docker-compose.dev.yml
@@ -82,21 +83,21 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -138,19 +139,19 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f docker-compose.dev.yml down
-                  docker-compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
               with:
                   custom_cache_key_element: v1-
@@ -169,6 +170,16 @@ jobs:
                   python -m pip install -r requirements-dev.txt
                   python -m pip install -r requirements.txt
 
+            - uses: actions/checkout@v3
+              with:
+                  ref: master
+
+            - name: Run migrations up to master
+              run: |
+                  python manage.py migrate
+
+            - uses: actions/checkout@v3
+
             - name: Check migrations
               run: |
                   python manage.py makemigrations --check --dry-run
@@ -183,75 +194,22 @@ jobs:
         timeout-minutes: 30
         if: ${{ needs.changes.outputs.backend == 'true' && github.repository == 'PostHog/posthog' || github.event_name == 'workflow_dispatch' }}
 
-        name: Django tests – Py ${{ matrix.python-version }} ${{ matrix.name }}, CH ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         runs-on: ubuntu-latest
 
         strategy:
             fail-fast: false
             matrix:
                 python-version: ['3.8.14']
-                clickhouse-server-image: ['clickhouse/clickhouse-server:22.3']
-                ee: [true]
-                foss: [false]
-                name: ['']
-                person-on-events: [false]
-                # :NOTE: Keep concurrency and group's in sync
+                clickhouse-server-image: ['clickhouse/clickhouse-server:22.8']
+                segment: ['FOSS', 'EE']
+                person-on-events: [false, true]
+                # :NOTE: Keep concurrency and groups in sync
                 concurrency: [5]
                 group: [1, 2, 3, 4, 5]
-                include:
-                    # :TRICKY: Run FOSS tests in a separate container
-                    - python-version: '3.8.14'
-                      ee: false
-                      foss: true
-                      name: 'FOSS'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 1
-                      group: 1
-                    # :TRICKY: Run person-on-events tests only for one CH instance
-                    # But still run in parallel
-                    - python-version: '3.8.14'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 1
-                    - python-version: '3.8.14'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 2
-                    - python-version: '3.8.14'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 3
-                    - python-version: '3.8.14'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 4
-                    - python-version: '3.8.14'
-                      ee: true
-                      foss: false
-                      person-on-events: true
-                      name: 'Person on Events'
-                      clickhouse-server-image: 'clickhouse/clickhouse-server:22.3'
-                      concurrency: 5
-                      group: 5
 
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
               with:
                   fetch-depth: 1
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
@@ -261,14 +219,12 @@ jobs:
 
             - uses: ./.github/actions/run-backend-tests
               with:
-                  cache-id: ${{ matrix.name }}
+                  segment: ${{ matrix.segment }}
+                  person-on-events: ${{ matrix.person-on-events }}
                   python-version: ${{ matrix.python-version }}
-                  ee: ${{ matrix.ee }}
-                  foss: ${{ matrix.foss }}
                   clickhouse-server-image: ${{ matrix.clickhouse-server-image }}
                   concurrency: ${{ matrix.concurrency }}
                   group: ${{ matrix.group }}
-                  person-on-events: ${{ matrix.person-on-events }}
 
             - uses: EndBug/add-and-commit@v9
               # Skip on forks
@@ -285,10 +241,10 @@ jobs:
               run: |
                   if [[ -z $(git status -s | grep -v ".test_durations" | tr -d "\n") ]]
                   then
-                    echo '::set-output name=files_found::false'
+                    echo 'files_found=false' >> $GITHUB_OUTPUT
                   else
-                    echo '::set-output name=diff::$(git status --porcelain)'
-                    echo '::set-output name=files_found::true'
+                    echo 'diff=$(git status --porcelain)' >> $GITHUB_OUTPUT
+                    echo 'files_found=true' >> $GITHUB_OUTPUT
                   fi
 
             - name: Fail CI if some snapshots have been updated but not committed
@@ -317,7 +273,7 @@ jobs:
                   curl -u posthog-bot:${{ secrets.POSTHOG_BOT_GITHUB_TOKEN }} -L https://github.com/posthog/posthog-cloud/tarball/master | tar --strip-components=1 -xz --
 
             - name: Checkout master
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
               with:
                   ref: 'master'
                   path: 'master/'
@@ -331,15 +287,15 @@ jobs:
 
             - name: Stop/Start stack with Docker Compose
               run: |
-                  docker-compose -f master/docker-compose.dev.yml down
-                  docker-compose -f master/docker-compose.dev.yml up -d
+                  docker compose -f master/docker-compose.dev.yml down
+                  docker compose -f master/docker-compose.dev.yml up -d
 
             - name: Set up Python
-              uses: actions/setup-python@v2
+              uses: actions/setup-python@v4
               with:
                   python-version: 3.8.14
 
-            - uses: syphar/restore-virtualenv@v1.2
+            - uses: syphar/restore-virtualenv@v1
               id: cache-backend-tests
 
             - uses: syphar/restore-pip-download-cache@v1
@@ -366,7 +322,7 @@ jobs:
                   python master/manage.py migrate
 
             - name: Checkout current branch
-              uses: actions/checkout@v2
+              uses: actions/checkout@v3
               with:
                   path: 'current/'
 
@@ -406,3 +362,66 @@ jobs:
                   source .env.template
                   cd current
                   pytest multi_tenancy messaging -m "not skip_on_multitenancy and not async_migrations" --durations=100 --durations-min=1.0
+
+    async-migrations:
+        name: Async migrations tests
+        runs-on: ubuntu-latest
+        steps:
+            - name: 'Checkout repo'
+              uses: actions/checkout@v3
+              with:
+                  fetch-depth: 1
+
+            - name: Start stack with Docker Compose
+              shell: bash
+              run: |
+                  export CLICKHOUSE_SERVER_IMAGE_VERSION=${{ inputs.clickhouse-server-image-version }}
+                  docker compose -f docker-compose.dev.yml down
+                  docker compose -f docker-compose.dev.yml up -d
+
+            - name: Set up Python
+              uses: actions/setup-python@v4
+              with:
+                  python-version: 3.8.14
+
+            - name: Install SAML (python3-saml) dependencies
+              shell: bash
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - uses: syphar/restore-virtualenv@v1
+              id: cache-async-migrations-tests
+              with:
+                  custom_cache_key_element: v1-${{ inputs.cache-id }}
+
+            - uses: syphar/restore-pip-download-cache@v1
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+
+            - name: Install python dependencies
+              if: steps.cache-backend-tests.outputs.cache-hit != 'true'
+              shell: bash
+              run: |
+                  python -m pip install -r requirements-dev.txt
+                  python -m pip install -r requirements.txt
+
+            - name: Add kafka host to /etc/hosts for kafka connectivity
+              shell: bash
+              run: sudo echo "127.0.0.1 kafka" | sudo tee -a /etc/hosts
+
+            - name: Set up needed files
+              shell: bash
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/exporter.html
+
+            - name: Wait for Clickhouse & Kafka
+              shell: bash
+              run: bin/check_kafka_clickhouse_up
+
+            - name: Run async migrations tests
+              shell: bash
+              run: |
+                  pytest -m "async_migrations"

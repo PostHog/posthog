@@ -1,4 +1,4 @@
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from dateutil.relativedelta import relativedelta
 from django.utils import timezone
@@ -8,8 +8,8 @@ from posthog.models.entity import Entity
 from posthog.models.filters import Filter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.trends.trends_actors import TrendsActors
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -17,18 +17,6 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
-
-
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
-    create_session_recording_event(
-        uuid=uuid4(),
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        session_id=session_id,
-        window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
-    )
 
 
 class TestPerson(ClickhouseTestMixin, APIBaseTest):
@@ -48,7 +36,8 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
             timestamp=timezone.now(),
             properties={"$session_id": "s2", "$window_id": "w2"},
         )  # No associated recording, so not included
-        _create_session_recording_event(self.team.pk, "u1", "s1", timestamp=timezone.now())
+        create_session_recording_events(self.team.pk, timezone.now(), "u1", "s1")
+
         _create_event(
             event="pageview",
             distinct_id="u1",
@@ -69,7 +58,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "date_from": "2021-01-21T00:00:00Z",
-                "date_to": "2021-01-22T00:00:00Z",
+                "date_to": "2021-01-21T23:59:59Z",
                 "events": [event],
                 "include_recordings": "true",
             }
@@ -104,19 +93,20 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
 
         event = {"id": "pageview", "name": "pageview", "type": "events", "order": 0}
         filter = Filter(
-            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-22T00:00:00Z", "events": [event]}
+            data={"date_from": "2021-01-21T00:00:00Z", "date_to": "2021-01-21T23:59:59Z", "events": [event]}
         )
         entity = Entity(event)
         _, serialized_actors, _ = TrendsActors(self.team, entity, filter).get_actors()
 
-        self.assertEqual(serialized_actors[0].get("matched_recordings"), None)
+        self.assertEqual(serialized_actors[0].get("matched_recordings"), [])
 
     @snapshot_clickhouse_queries
     @freeze_time("2021-01-21T20:00:00.000Z")
     def test_group_query_includes_recording_events(self):
         GroupTypeMapping.objects.create(team=self.team, group_type="organization", group_type_index=0)
         create_group(team_id=self.team.pk, group_type_index=0, group_key="bla", properties={})
-        _create_session_recording_event(self.team.pk, "u1", "s1", timestamp=timezone.now())
+        create_session_recording_events(self.team.pk, timezone.now(), "u1", "s1")
+
         _create_event(
             event="pageview", distinct_id="u1", team=self.team, timestamp=timezone.now(), properties={"$group_0": "bla"}
         )
@@ -141,7 +131,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest):
         filter = Filter(
             data={
                 "date_from": "2021-01-21T00:00:00Z",
-                "date_to": "2021-01-22T00:00:00Z",
+                "date_to": "2021-01-21T23:59:59Z",
                 "events": [event],
                 "include_recordings": "true",
             }

@@ -8,7 +8,6 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { urls } from 'scenes/urls'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 
 /** Manages the loading and lifecycle of frontend apps. */
 export const frontendAppsLogic = kea<frontendAppsLogicType>([
@@ -30,10 +29,6 @@ export const frontendAppsLogic = kea<frontendAppsLogicType>([
     loaders(({ actions, values }) => ({
         frontendApps: {
             loadFrontendApp: async ({ id, pluginId, reload, attempt }) => {
-                // Do not load any app if the flag is off.
-                if (!values.featureFlags[FEATURE_FLAGS.FRONTEND_APPS]) {
-                    return values.frontendApps
-                }
                 if (!values.appConfigs[id]) {
                     if (pluginsLogic.findMounted()) {
                         const pluginConfig = Object.values(pluginsLogic.values.pluginConfigs).find((c) => c.id === id)

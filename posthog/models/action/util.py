@@ -1,4 +1,6 @@
-from typing import Counter, Dict, List, Tuple
+from collections import Counter
+from typing import Counter as TCounter
+from typing import Dict, List, Tuple
 
 from django.forms.models import model_to_dict
 
@@ -118,10 +120,10 @@ def format_entity_filter(
     return entity_filter, params
 
 
-def get_action_tables_and_properties(action: Action) -> Counter[PropertyIdentifier]:
+def get_action_tables_and_properties(action: Action) -> TCounter[PropertyIdentifier]:
     from posthog.models.property.util import extract_tables_and_properties
 
-    result: Counter[PropertyIdentifier] = Counter()
+    result: TCounter[PropertyIdentifier] = Counter()
 
     for action_step in action.steps.all():
         if action_step.url:

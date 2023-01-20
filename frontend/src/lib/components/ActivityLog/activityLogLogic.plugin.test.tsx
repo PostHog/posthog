@@ -1,7 +1,6 @@
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { render } from '@testing-library/react'
 import '@testing-library/jest-dom'
-import React from 'react'
 import { makeTestSetup } from 'lib/components/ActivityLog/activityLogLogic.test.setup'
 
 describe('the activity log logic', () => {
@@ -176,6 +175,74 @@ describe('the activity log logic', () => {
 
             expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
                 'Fatal error exporting historical events between 2021-10-29 and 2021-11-04 (inclusive). Check logs for more details.'
+            )
+        })
+
+        it('can handle new plugin attachments', async () => {
+            const logic = await pluginTestSetup('the changed plugin', 'attachment_created', [
+                {
+                    type: 'PluginConfig',
+                    action: 'created',
+                    field: undefined,
+                    before: undefined,
+                    after: 'attachment.txt',
+                },
+            ])
+            const actual = logic.values.humanizedActivity
+
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter attached a file attachment.txt on app: the changed plugin with config ID 7'
+            )
+        })
+
+        it('can handle updated plugin attachments', async () => {
+            const logic = await pluginTestSetup('the changed plugin', 'attachment_updated', [
+                {
+                    type: 'PluginConfig',
+                    action: 'changed',
+                    field: undefined,
+                    before: 'attachment.txt',
+                    after: 'attachment.txt',
+                },
+            ])
+            const actual = logic.values.humanizedActivity
+
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter updated attached file attachment.txt on app: the changed plugin with config ID 7'
+            )
+        })
+
+        it('can handle renamed plugin attachments', async () => {
+            const logic = await pluginTestSetup('the changed plugin', 'attachment_updated', [
+                {
+                    type: 'PluginConfig',
+                    action: 'changed',
+                    field: undefined,
+                    before: 'attachment1.txt',
+                    after: 'attachment2.txt',
+                },
+            ])
+            const actual = logic.values.humanizedActivity
+
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter updated attached file from attachment1.txt to attachment2.txt on app: the changed plugin with config ID 7'
+            )
+        })
+
+        it('can handle deleted plugin attachments', async () => {
+            const logic = await pluginTestSetup('the changed plugin', 'attachment_deleted', [
+                {
+                    type: 'PluginConfig',
+                    action: 'deleted',
+                    field: undefined,
+                    before: 'attachment.txt',
+                    after: undefined,
+                },
+            ])
+            const actual = logic.values.humanizedActivity
+
+            expect(render(<>{actual[0].description}</>).container).toHaveTextContent(
+                'peter deleted attached file attachment.txt on app: the changed plugin with config ID 7'
             )
         })
     })

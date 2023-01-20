@@ -1,19 +1,35 @@
+import time
 from ipaddress import ip_address, ip_network
 from typing import List, Optional, cast
 
 from django.conf import settings
 from django.core.exceptions import MiddlewareNotUsed
+from django.db import connection
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import CsrfViewMiddleware
 from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
+from statshog.defaults.django import statsd
 
 from posthog.api.decide import get_decide
-from posthog.internal_metrics import incr
+from posthog.clickhouse.client.execute import clickhouse_query_counter
+from posthog.clickhouse.query_tagging import QueryCounter, reset_query_tags, tag_queries
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 
 from .auth import PersonalAPIKeyAuthentication
+
+ALWAYS_ALLOWED_ENDPOINTS = [
+    "decide",
+    "engage",
+    "track",
+    "capture",
+    "batch",
+    "e",
+    "s",
+    "static",
+    "_health",
+]
 
 
 class AllowIPMiddleware:
@@ -53,7 +69,7 @@ class AllowIPMiddleware:
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
-        if request.path.split("/")[1] in ["decide", "engage", "track", "capture", "batch", "e", "static", "_health"]:
+        if request.path.split("/")[1] in ALWAYS_ALLOWED_ENDPOINTS:
             return response
         ip = self.extract_client_ip(request)
         if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
@@ -147,7 +163,7 @@ class AutoProjectMiddleware:
                     user.current_organization_id = actual_item_team.organization_id
                     user.save()
                     # Information for POSTHOG_APP_CONTEXT
-                    setattr(request, "switched_team", current_team.id)
+                    request.switched_team = current_team.id  # type: ignore
 
 
 class CHQueries:
@@ -159,20 +175,70 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        from posthog import client
-
         route = resolve(request.path)
         route_id = f"{route.route} ({route.func.__name__})"
-        client._request_information = {"user_id": request.user.pk, "kind": "request", "id": request.path}
 
-        response: HttpResponse = self.get_response(request)
+        user = cast(User, request.user)
 
-        if "api/" in request.path and "capture" not in request.path:
-            incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
+        tag_queries(
+            user_id=user.pk,
+            kind="request",
+            id=request.path,
+            route_id=route.route,
+            client_query_id=self._get_param(request, "client_query_id"),
+            session_id=self._get_param(request, "session_id"),
+            container_hostname=settings.CONTAINER_HOSTNAME,
+        )
 
-        client._request_information = None
+        if hasattr(user, "current_team_id") and user.current_team_id:
+            tag_queries(team_id=user.current_team_id)
 
+        try:
+            response: HttpResponse = self.get_response(request)
+
+            if "api/" in request.path and "capture" not in request.path:
+                statsd.incr("http_api_request_response", tags={"id": route_id, "status_code": response.status_code})
+
+            return response
+        finally:
+            reset_query_tags()
+
+    def _get_param(self, request: HttpRequest, name: str):
+        if name in request.GET:
+            return request.GET[name]
+        if name in request.POST:
+            return request.POST[name]
+        return None
+
+
+class QueryTimeCountingMiddleware:
+    ALLOW_LIST_ROUTES = ["dashboard", "insight", "property_definitions", "properties"]
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if not (
+            settings.CAPTURE_TIME_TO_SEE_DATA
+            and "api" in request.path
+            and any(key in request.path for key in self.ALLOW_LIST_ROUTES)
+        ):
+            return self.get_response(request)
+
+        pg_query_counter, ch_query_counter = QueryCounter(), QueryCounter()
+        start_time = time.perf_counter()
+        with connection.execute_wrapper(pg_query_counter), clickhouse_query_counter(ch_query_counter):
+            response: HttpResponse = self.get_response(request)
+
+        response.headers["Server-Timing"] = self._construct_header(
+            django=time.perf_counter() - start_time,
+            pg=pg_query_counter.query_time_ms,
+            ch=ch_query_counter.query_time_ms,
+        )
         return response
+
+    def _construct_header(self, **kwargs):
+        return ", ".join(f"{key};dur={round(duration)}" for key, duration in kwargs.items())
 
 
 def shortcircuitmiddleware(f):
@@ -191,6 +257,16 @@ class ShortCircuitMiddleware:
 
     def __call__(self, request: HttpRequest):
         if request.path == "/decide/" or request.path == "/decide":
-            return get_decide(request)
+            try:
+                # :KLUDGE: Manually tag ClickHouse queries as CHMiddleware is skipped
+                tag_queries(
+                    kind="request",
+                    id=request.path,
+                    route_id=resolve(request.path).route,
+                    container_hostname=settings.CONTAINER_HOSTNAME,
+                )
+                return get_decide(request)
+            finally:
+                reset_query_tags()
         response: HttpResponse = self.get_response(request)
         return response

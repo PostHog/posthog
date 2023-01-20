@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { TaxonomicPopup, TaxonomicStringPopup } from './TaxonomicPopup'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -11,6 +11,7 @@ import { ComponentMeta } from '@storybook/react'
 export default {
     title: 'Filters/TaxonomicPopup',
     component: TaxonomicPopup,
+    parameters: { chromatic: { disableSnapshot: false } },
     decorators: [taxonomicFilterMocksDecorator],
 } as ComponentMeta<typeof TaxonomicPopup>
 

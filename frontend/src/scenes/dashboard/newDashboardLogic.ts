@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { actions, connect, isBreakpoint, kea, listeners, path, reducers } from 'kea'
 import type { newDashboardLogicType } from './newDashboardLogicType'
 import { DashboardRestrictionLevel } from 'lib/constants'
 import { DashboardType } from '~/types'
@@ -8,6 +8,7 @@ import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { forms } from 'kea-forms'
+import { lemonToast } from 'lib/components/lemonToast'
 
 export interface NewDashboardForm {
     name: string
@@ -51,21 +52,28 @@ export const newDashboardLogic = kea<newDashboardLogicType>([
                 restrictionLevel: !restrictionLevel ? 'Restriction level needs to be specified.' : null,
             }),
             submit: async ({ name, description, useTemplate, restrictionLevel, show }, breakpoint) => {
-                const result: DashboardType = await api.create(
-                    `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
-                    {
-                        name: name,
-                        description: description,
-                        use_template: useTemplate,
-                        restriction_level: restrictionLevel,
-                    } as Partial<DashboardType>
-                )
-                actions.hideNewDashboardModal()
-                actions.resetNewDashboard()
-                dashboardsModel.actions.addDashboardSuccess(result)
-                if (show) {
-                    breakpoint()
-                    router.actions.push(urls.dashboard(result.id))
+                try {
+                    const result: DashboardType = await api.create(
+                        `api/projects/${teamLogic.values.currentTeamId}/dashboards/`,
+                        {
+                            name: name,
+                            description: description,
+                            use_template: useTemplate,
+                            restriction_level: restrictionLevel,
+                        } as Partial<DashboardType>
+                    )
+                    actions.hideNewDashboardModal()
+                    actions.resetNewDashboard()
+                    dashboardsModel.actions.addDashboardSuccess(result)
+                    if (show) {
+                        breakpoint()
+                        router.actions.push(urls.dashboard(result.id))
+                    }
+                } catch (e: any) {
+                    if (!isBreakpoint(e)) {
+                        const message = e.code && e.detail ? `${e.code}: ${e.detail}` : e
+                        lemonToast.error(`Could not create dashboard: ${message}`)
+                    }
                 }
             },
         },

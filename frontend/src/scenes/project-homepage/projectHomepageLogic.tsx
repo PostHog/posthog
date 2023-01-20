@@ -1,13 +1,11 @@
-import { afterMount, BuiltLogic, connect, kea, path, selectors } from 'kea'
+import { afterMount, connect, kea, path, selectors } from 'kea'
 
 import type { projectHomepageLogicType } from './projectHomepageLogicType'
 import { teamLogic } from 'scenes/teamLogic'
-import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLogicProps } from 'scenes/dashboard/dashboardLogic'
 import { DashboardPlacement, InsightModel, PersonType } from '~/types'
 import api from 'lib/api'
-import { subscriptions } from 'kea-subscriptions'
 import { loaders } from 'kea-loaders'
-import { dashboardLogicType } from 'scenes/dashboard/dashboardLogicType'
 
 export const projectHomepageLogic = kea<projectHomepageLogicType>([
     path(['scenes', 'project-homepage', 'projectHomepageLogic']),
@@ -17,13 +15,12 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
 
     selectors({
         primaryDashboardId: [() => [teamLogic.selectors.currentTeam], (currentTeam) => currentTeam?.primary_dashboard],
-        dashboardLogic: [
+        dashboardLogicProps: [
             (s) => [s.primaryDashboardId],
-            (primaryDashboardId): BuiltLogic<dashboardLogicType> =>
-                dashboardLogic({
-                    id: primaryDashboardId ?? undefined,
-                    placement: DashboardPlacement.ProjectHomepage,
-                }),
+            (primaryDashboardId): DashboardLogicProps => ({
+                id: primaryDashboardId ?? undefined,
+                placement: DashboardPlacement.ProjectHomepage,
+            }),
         ],
     }),
 
@@ -32,10 +29,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
             [] as InsightModel[],
             {
                 loadRecentInsights: async () => {
-                    const response = await api.get(
-                        `api/projects/${values.currentTeamId}/insights/?my_last_viewed=true&order=-my_last_viewed_at`
-                    )
-                    return response.results
+                    return await api.get(`api/projects/${values.currentTeamId}/insights/my_last_viewed`)
                 },
             },
         ],
@@ -50,16 +44,7 @@ export const projectHomepageLogic = kea<projectHomepageLogicType>([
         ],
     })),
 
-    subscriptions(({ cache }: projectHomepageLogicType) => ({
-        dashboardLogic: (logic: ReturnType<typeof dashboardLogic.build>) => {
-            cache.unmount?.()
-            cache.unmount = logic ? logic.mount() : null
-        },
-    })),
-
-    afterMount(({ cache, actions }) => {
-        cache.unmount?.()
-        actions.loadRecentInsights()
+    afterMount(({ actions }) => {
         actions.loadPersons()
     }),
 ])

@@ -1,8 +1,9 @@
 import hashlib
 import json
 import re
+import time
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 import structlog
 from dateutil import parser
@@ -10,9 +11,11 @@ from django.conf import settings
 from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
+from kafka.errors import KafkaError
+from kafka.producer.future import FutureRecordMetadata
 from rest_framework import status
 from sentry_sdk import configure_scope
-from sentry_sdk.api import capture_exception
+from sentry_sdk.api import capture_exception, start_span
 from statshog.defaults.django import statsd
 
 from posthog.api.utils import (
@@ -23,16 +26,22 @@ from posthog.api.utils import (
     safe_clickhouse_string,
 )
 from posthog.exceptions import generate_exception_response
-from posthog.helpers.session_recording import preprocess_session_recording_events_for_clickhouse
 from posthog.kafka_client.client import KafkaProducer
-from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE
+from posthog.kafka_client.topics import KAFKA_DEAD_LETTER_QUEUE, KAFKA_SESSION_RECORDING_EVENTS
 from posthog.logging.timing import timed
-from posthog.models.feature_flag import get_active_feature_flags
+from posthog.models.feature_flag import get_all_feature_flags
 from posthog.models.utils import UUIDT
+from posthog.session_recordings.session_recording_helpers import preprocess_session_recording_events_for_clickhouse
 from posthog.settings import KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
 from posthog.utils import cors_response, get_ip_address
 
 logger = structlog.get_logger(__name__)
+
+
+# These event names are reserved for internal use and refer to non-analytics
+# events that are ingested via a separate path than analytics events. They have
+# fewer restrictions on e.g. the order they need to be processed in.
+SESSION_RECORDING_EVENT_NAMES = ("$snapshot", "$performance_event")
 
 
 def parse_kafka_event_data(
@@ -44,7 +53,9 @@ def parse_kafka_event_data(
     now: datetime,
     sent_at: Optional[datetime],
     event_uuid: UUIDT,
+    token: str,
 ) -> Dict:
+    logger.debug("parse_kafka_event_data", token=token, team_id=team_id)
     return {
         "uuid": str(event_uuid),
         "distinct_id": safe_clickhouse_string(distinct_id),
@@ -54,20 +65,30 @@ def parse_kafka_event_data(
         "team_id": team_id,
         "now": now.isoformat(),
         "sent_at": sent_at.isoformat() if sent_at else "",
+        "token": token,
     }
 
 
-def log_event(data: Dict, event_name: str, partition_key: str) -> None:
-    if settings.DEBUG:
-        print(f"Logging event {event_name} to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC}")
+def log_event(data: Dict, event_name: str, partition_key: Optional[str]):
+    # To allow for different quality of service on session recordings and
+    # `$performance_event` and other events, we push to a different topic.
+    # TODO: split `$performance_event` out to it's own topic.
+    kafka_topic = (
+        KAFKA_SESSION_RECORDING_EVENTS
+        if event_name in SESSION_RECORDING_EVENT_NAMES
+        else KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+    )
+
+    logger.debug("logging_event", event_name=event_name, kafka_topic=kafka_topic)
 
     # TODO: Handle Kafka being unavailable with exponential backoff retries
     try:
-        KafkaProducer().produce(topic=KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, data=data, key=partition_key)
+        future = KafkaProducer().produce(topic=kafka_topic, data=data, key=partition_key)
         statsd.incr("posthog_cloud_plugin_server_ingestion")
+        return future
     except Exception as e:
         statsd.incr("capture_endpoint_log_event_error")
-        print(f"Failed to produce event to Kafka topic {KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC} with error:", e)
+        logger.exception("Failed to produce event to Kafka topic %s with error", kafka_topic)
         raise e
 
 
@@ -168,10 +189,17 @@ def _ensure_web_feature_flags_in_properties(
 ):
     """If the event comes from web, ensure that it contains property $active_feature_flags."""
     if event["properties"].get("$lib") == "web" and "$active_feature_flags" not in event["properties"]:
-        flags, _ = get_active_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
-        event["properties"]["$active_feature_flags"] = list(flags.keys())
-        for k, v in flags.items():
-            event["properties"][f"$feature/{k}"] = v
+        statsd.incr("active_feature_flags_missing")
+        all_flags, _, _, _ = get_all_feature_flags(team_id=ingestion_context.team_id, distinct_id=distinct_id)
+        active_flags = {key: value for key, value in all_flags.items() if value}
+        flag_keys = list(active_flags.keys())
+        event["properties"]["$active_feature_flags"] = flag_keys
+
+        if len(flag_keys) > 0:
+            statsd.incr("active_feature_flags_added")
+
+            for k, v in active_flags.items():
+                event["properties"][f"$feature/{k}"] = v
 
 
 @csrf_exempt
@@ -193,102 +221,147 @@ def get_event(request):
     if error_response:
         return error_response
 
-    token = get_token(data, request)
+    with start_span(op="request.authenticate"):
+        token = get_token(data, request)
 
-    if not token:
-        return cors_response(
-            request,
-            generate_exception_response(
-                "capture",
-                "API key not provided. You can find your project API key in PostHog project settings.",
-                type="authentication_error",
-                code="missing_api_key",
-                status_code=status.HTTP_401_UNAUTHORIZED,
-            ),
-        )
-
-    ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
-
-    if error_response:
-        return error_response
-
-    send_events_to_dead_letter_queue = False
-    if db_error:
-        send_events_to_dead_letter_queue = True
-
-    if isinstance(data, dict):
-        if data.get("batch"):  # posthog-python and posthog-ruby
-            data = data["batch"]
-            assert data is not None
-        elif "engage" in request.path_info:  # JS identify call
-            data["event"] = "$identify"  # make sure it has an event name
-
-    if isinstance(data, list):
-        events = data
-    else:
-        events = [data]
-
-    try:
-        events = preprocess_session_recording_events_for_clickhouse(events)
-    except ValueError as e:
-        return cors_response(
-            request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
-        )
-
-    site_url = request.build_absolute_uri("/")[:-1]
-
-    ip = None if not ingestion_context or ingestion_context.anonymize_ips else get_ip_address(request)
-
-    try:
-        processed_events = list(validate_events(events, ingestion_context))
-    except ValueError as e:
-        return cors_response(
-            request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
-        )
-
-    for event, event_uuid, distinct_id in processed_events:
-        if send_events_to_dead_letter_queue:
-            kafka_event = parse_kafka_event_data(
-                distinct_id=distinct_id,
-                ip=None,
-                site_url=site_url,
-                team_id=None,
-                now=now,
-                event_uuid=event_uuid,
-                data=event,
-                sent_at=sent_at,
-            )
-
-            log_event_to_dead_letter_queue(
-                data,
-                event["event"],
-                kafka_event,
-                f"Unable to fetch team from Postgres. Error: {db_error}",
-                "django_server_capture_endpoint",
-            )
-            continue
-
-        try:
-            capture_internal(event, distinct_id, ip, site_url, now, sent_at, ingestion_context.team_id, event_uuid)  # type: ignore
-        except Exception as e:
-            capture_exception(e, {"data": data})
-            statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
+        if not token:
             return cors_response(
                 request,
                 generate_exception_response(
                     "capture",
-                    "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
-                    code="server_error",
-                    type="server_error",
-                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    "API key not provided. You can find your project API key in PostHog project settings.",
+                    type="authentication_error",
+                    code="missing_api_key",
+                    status_code=status.HTTP_401_UNAUTHORIZED,
                 ),
             )
+
+        ingestion_context = None
+        send_events_to_dead_letter_queue = False
+
+        if token in settings.LIGHTWEIGHT_CAPTURE_ENDPOINT_ENABLED_TOKENS:
+            logger.debug("lightweight_capture_endpoint_hit", token=token)
+            statsd.incr("lightweight_capture_endpoint_hit")
+        else:
+            ingestion_context, db_error, error_response = get_event_ingestion_context(request, data, token)
+
+            if error_response:
+                return error_response
+
+            if db_error:
+                send_events_to_dead_letter_queue = True
+
+    with start_span(op="request.process"):
+        if isinstance(data, dict):
+            if data.get("batch"):  # posthog-python and posthog-ruby
+                data = data["batch"]
+                assert data is not None
+            elif "engage" in request.path_info:  # JS identify call
+                data["event"] = "$identify"  # make sure it has an event name
+
+        if isinstance(data, list):
+            events = data
+        else:
+            events = [data]
+
+        try:
+            events = preprocess_session_recording_events_for_clickhouse(events)
+        except ValueError as e:
+            return cors_response(
+                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+            )
+
+        site_url = request.build_absolute_uri("/")[:-1]
+
+        ip = None if ingestion_context and ingestion_context.anonymize_ips else get_ip_address(request)
+
+        try:
+            processed_events = list(validate_events(events, ingestion_context))
+        except ValueError as e:
+            return cors_response(
+                request, generate_exception_response("capture", f"Invalid payload: {e}", code="invalid_payload")
+            )
+
+    futures: List[FutureRecordMetadata] = []
+
+    with start_span(op="kafka.produce") as span:
+        span.set_tag("event.count", len(processed_events))
+        for event, event_uuid, distinct_id in processed_events:
+            if send_events_to_dead_letter_queue:
+                kafka_event = parse_kafka_event_data(
+                    distinct_id=distinct_id,
+                    ip=None,
+                    site_url=site_url,
+                    team_id=None,
+                    now=now,
+                    event_uuid=event_uuid,
+                    data=event,
+                    sent_at=sent_at,
+                    token=token,
+                )
+
+                log_event_to_dead_letter_queue(
+                    data,
+                    event["event"],
+                    kafka_event,
+                    f"Unable to fetch team from Postgres. Error: {db_error}",
+                    "django_server_capture_endpoint",
+                )
+                continue
+
+            team_id = ingestion_context.team_id if ingestion_context else None
+            try:
+                futures.append(
+                    capture_internal(
+                        event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid, token
+                    )  # type: ignore
+                )
+            except Exception as exc:
+                capture_exception(exc, {"data": data})
+                statsd.incr("posthog_cloud_raw_endpoint_failure", tags={"endpoint": "capture"})
+                logger.error("kafka_produce_failure", exc_info=exc)
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        "Unable to store event. Please try again. If you are the owner of this app you can check the logs for further details.",
+                        code="server_error",
+                        type="server_error",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    ),
+                )
+
+    with start_span(op="kafka.wait"):
+        span.set_tag("future.count", len(futures))
+        start_time = time.monotonic()
+        for future in futures:
+            try:
+                future.get(timeout=settings.KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS - (time.monotonic() - start_time))
+            except KafkaError as exc:
+                # TODO: distinguish between retriable errors and non-retriable
+                # errors, and set Retry-After header accordingly.
+                # TODO: return 400 error for non-retriable errors that require the
+                # client to change their request.
+                logger.error("kafka_produce_failure", exc_info=exc)
+                return cors_response(
+                    request,
+                    generate_exception_response(
+                        "capture",
+                        "Unable to store some events. Please try again. If you are the owner of this app you can check the logs for further details.",
+                        code="server_error",
+                        type="server_error",
+                        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    ),
+                )
 
     statsd.incr("posthog_cloud_raw_endpoint_success", tags={"endpoint": "capture"})
     return cors_response(request, JsonResponse({"status": 1}))
 
 
-def validate_events(events, ingestion_context):
+# TODO: Rename this function - it doesn't just validate events, it also processes them
+def validate_events(
+    events: List[Dict[str, Any]], ingestion_context: Optional[EventIngestionContext]
+) -> Iterator[Tuple[Dict[str, Any], UUIDT, str]]:
     for event in events:
         event_uuid = UUIDT()
         distinct_id = get_distinct_id(event)
@@ -300,14 +373,18 @@ def validate_events(events, ingestion_context):
                 statsd.incr("invalid_event_uuid")
                 raise ValueError('Event field "uuid" is not a valid UUID!')
 
-        event = parse_event(event, distinct_id, ingestion_context)
+        event = parse_event(event)
         if not event:
             continue
+
+        if ingestion_context:
+            # TODO: Get rid of this code path after informing users about bootstrapping feature flags
+            _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
 
         yield event, event_uuid, distinct_id
 
 
-def parse_event(event, distinct_id, ingestion_context):
+def parse_event(event):
     if not event.get("event"):
         statsd.incr("invalid_event", tags={"error": "missing_event_name"})
         return
@@ -319,13 +396,10 @@ def parse_event(event, distinct_id, ingestion_context):
         scope.set_tag("library", event["properties"].get("$lib", "unknown"))
         scope.set_tag("library.version", event["properties"].get("$lib_version", "unknown"))
 
-    if ingestion_context:
-        _ensure_web_feature_flags_in_properties(event, ingestion_context, distinct_id)
-
     return event
 
 
-def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=None) -> None:
+def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, event_uuid=None, token=None) -> None:
     if event_uuid is None:
         event_uuid = UUIDT()
 
@@ -338,6 +412,20 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
         now=now,
         sent_at=sent_at,
         event_uuid=event_uuid,
+        token=token,
     )
-    partition_key = hashlib.sha256(f"{team_id}:{distinct_id}".encode()).hexdigest()
-    log_event(parsed_event, event["event"], partition_key=partition_key)
+
+    # We aim to always partition by {team_id}:{distinct_id} but allow
+    # overriding this to deal with hot partitions in specific cases.
+    # Setting the partition key to None means using random partitioning.
+    kafka_partition_key = None
+
+    if event["event"] in ("$snapshot", "$performance_event"):
+        kafka_partition_key = None
+    else:
+        candidate_partition_key = f"{team_id}:{distinct_id}"
+
+        if candidate_partition_key not in settings.EVENT_PARTITION_KEYS_TO_OVERRIDE:
+            kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
+
+    return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)

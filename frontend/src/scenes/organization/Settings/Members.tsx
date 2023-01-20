@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { membersLogic } from './membersLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -12,7 +11,7 @@ import {
     membershipLevelToName,
 } from 'lib/utils/permissioning'
 import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/components/LemonButton'
 import { More } from 'lib/components/LemonButton/More'
 import { LemonTag } from 'lib/components/LemonTag/LemonTag'

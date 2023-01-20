@@ -1,9 +1,9 @@
 from uuid import uuid4
 
 from posthog.client import sync_execute
-from posthog.models import Person
+from posthog.models import Person, PersonDistinctId
 from posthog.models.event.util import create_event
-from posthog.models.person.util import delete_ch_distinct_ids, delete_person
+from posthog.models.person.util import delete_person
 from posthog.test.base import BaseTest
 
 
@@ -21,26 +21,29 @@ class TestPerson(BaseTest):
         self.assertEqual(person_anonymous.is_identified, False)
 
     def test_delete_person(self):
-        person = Person.objects.create(team=self.team)
-        delete_person(person)
+        person = Person.objects.create(
+            team=self.team, version=15
+        )  # version be > 0 to check that we don't just assume 0 in deletes
+        delete_person(person, sync=True)
         ch_persons = sync_execute(
             "SELECT toString(id), version, is_deleted, properties FROM person FINAL WHERE team_id = %(team_id)s and id = %(uuid)s",
             {"team_id": self.team.pk, "uuid": person.uuid},
         )
-        self.assertEqual(ch_persons, [(str(person.uuid), 100, 1, "{}")])
+        self.assertEqual(ch_persons, [(str(person.uuid), 115, 1, "{}")])
 
     def test_delete_ch_distinct_ids(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["distinct_id1"])
+        person = Person.objects.create(team=self.team)
+        PersonDistinctId.objects.create(team=self.team, person=person, distinct_id="distinct_id1", version=15)
 
         ch_distinct_ids = sync_execute(
-            "SELECT version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
+            "SELECT is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
             {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
         )
-        self.assertEqual(ch_distinct_ids, [(0, 0)])
+        self.assertEqual(ch_distinct_ids, [(0,)])
 
-        delete_ch_distinct_ids(person)
+        delete_person(person, sync=True)
         ch_distinct_ids = sync_execute(
             "SELECT toString(person_id), version, is_deleted FROM person_distinct_id2 FINAL WHERE team_id = %(team_id)s and distinct_id = %(distinct_id)s",
             {"team_id": self.team.pk, "distinct_id": "distinct_id1"},
         )
-        self.assertEqual(ch_distinct_ids, [(str(person.uuid), 0, 1)])
+        self.assertEqual(ch_distinct_ids, [(str(person.uuid), 115, 1)])

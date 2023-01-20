@@ -6,11 +6,9 @@ import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightType, ItemMode 
 import { TrendInsight } from 'scenes/trends/Trends'
 import { RetentionContainer } from 'scenes/retention/RetentionContainer'
 import { Paths } from 'scenes/paths/Paths'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { BindLogic, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { InsightsTable } from 'scenes/insights/views/InsightsTable'
-import React from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import {
     FunnelInvalidExclusionState,
@@ -21,10 +19,8 @@ import {
 } from 'scenes/insights/EmptyStates'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import clsx from 'clsx'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { PathCanvasLabel } from 'scenes/paths/PathsLabel'
 import { InsightLegend, InsightLegendButton } from 'lib/components/InsightLegend/InsightLegend'
-import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { FunnelStepsTable } from './views/Funnels/FunnelStepsTable'
 import { Animation } from 'lib/components/Animation/Animation'
@@ -33,6 +29,7 @@ import { FunnelCorrelation } from './views/Funnels/FunnelCorrelation'
 import { FunnelInsight } from './views/Funnels/FunnelInsight'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { isFilterWithDisplay, isFunnelsFilter, isPathsFilter, isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 const VIEW_MAP = {
     [`${InsightType.TRENDS}`]: <TrendInsight view={InsightType.TRENDS} />,
@@ -43,26 +40,19 @@ const VIEW_MAP = {
     [`${InsightType.PATHS}`]: <Paths />,
 }
 
-export function InsightContainer(
-    {
-        disableHeader,
-        disableTable,
-        disableCorrelationTable,
-        disableLastComputation,
-    }: {
-        disableHeader?: boolean
-        disableTable?: boolean
-        disableCorrelationTable?: boolean
-        disableLastComputation?: boolean
-    } = {
-        disableHeader: false,
-        disableTable: false,
-        disableCorrelationTable: false,
-        disableLastComputation: false,
-    }
-): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const { insightMode } = useValues(insightSceneLogic)
+export function InsightContainer({
+    disableHeader,
+    disableTable,
+    disableCorrelationTable,
+    disableLastComputation,
+    insightMode,
+}: {
+    disableHeader?: boolean
+    disableTable?: boolean
+    disableCorrelationTable?: boolean
+    disableLastComputation?: boolean
+    insightMode?: ItemMode
+}): JSX.Element {
     const {
         insightProps,
         canEditInsight,
@@ -70,18 +60,16 @@ export function InsightContainer(
         activeView,
         loadedView,
         filters,
-        showTimeoutMessage,
-        showErrorMessage,
+        timedOutQueryId,
+        erroredQueryId,
         exporterResourceParams,
         isUsingSessionAnalysis,
     } = useValues(insightLogic)
-    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid, correlationAnalysisAvailable } = useValues(
-        funnelLogic(insightProps)
-    )
+    const { areFiltersValid, isValidFunnel, areExclusionFiltersValid } = useValues(funnelLogic(insightProps))
 
     // Empty states that completely replace the graph
     const BlockingEmptyState = (() => {
-        if (activeView !== loadedView || (insightLoading && !showTimeoutMessage)) {
+        if (activeView !== loadedView || (insightLoading && timedOutQueryId === null)) {
             return (
                 <div className="text-center">
                     <Animation type={AnimationType.LaptopHog} />
@@ -102,11 +90,11 @@ export function InsightContainer(
         }
 
         // Insight agnostic empty states
-        if (showErrorMessage) {
-            return <InsightErrorState />
+        if (!!erroredQueryId) {
+            return <InsightErrorState queryId={erroredQueryId} />
         }
-        if (showTimeoutMessage) {
-            return <InsightTimeoutState isLoading={insightLoading} />
+        if (!!timedOutQueryId) {
+            return <InsightTimeoutState isLoading={insightLoading} queryId={timedOutQueryId} />
         }
 
         return null
@@ -114,9 +102,9 @@ export function InsightContainer(
 
     function renderTable(): JSX.Element | null {
         if (
-            activeView === InsightType.FUNNELS &&
-            !showErrorMessage &&
-            !showTimeoutMessage &&
+            isFunnelsFilter(filters) &&
+            erroredQueryId === null &&
+            timedOutQueryId === null &&
             areFiltersValid &&
             isValidFunnel &&
             filters.funnel_viz_type === FunnelVizType.Steps &&
@@ -132,13 +120,13 @@ export function InsightContainer(
 
         // InsightsTable is loaded for all trend views (except below), plus the sessions view.
         // Exclusions:
-        // 1. Table view. Because table is already loaded anyways in `Trends.tsx` as the main component.
+        // 1. Table view. Because table is already loaded anyway in `Trends.tsx` as the main component.
         // 2. Bar value chart. Because this view displays data in completely different dimensions.
         if (
+            isTrendsFilter(filters) &&
             (!filters.display ||
                 (filters?.display !== ChartDisplayType.ActionsTable &&
                     filters?.display !== ChartDisplayType.ActionsBarValue)) &&
-            activeView === InsightType.TRENDS &&
             !disableTable
         ) {
             return (
@@ -163,8 +151,10 @@ export function InsightContainer(
                     <BindLogic logic={trendsLogic} props={insightProps}>
                         <InsightsTable
                             isLegend
-                            filterKey={activeView === InsightType.TRENDS ? `trends_${activeView}` : ''}
-                            canEditSeriesNameInline={activeView === InsightType.TRENDS && insightMode === ItemMode.Edit}
+                            filterKey={isTrendsFilter(filters) ? `trends_${activeView}` : ''}
+                            canEditSeriesNameInline={
+                                isTrendsFilter(filters) && !filters.formula && insightMode === ItemMode.Edit
+                            }
                             canCheckUncheckSeries={canEditInsight}
                         />
                     </BindLogic>
@@ -192,7 +182,7 @@ export function InsightContainer(
                     disableHeader ? null : (
                         <InsightDisplayConfig
                             activeView={activeView as InsightType}
-                            insightMode={insightMode}
+                            insightMode={insightMode || ItemMode.View}
                             filters={filters}
                             disableTable={!!disableTable}
                         />
@@ -204,7 +194,7 @@ export function InsightContainer(
                 <div>
                     <Row
                         className={clsx('insights-graph-header', {
-                            funnels: activeView === InsightType.FUNNELS,
+                            funnels: isFunnelsFilter(filters),
                         })}
                         align="middle"
                         justify="space-between"
@@ -216,16 +206,14 @@ export function InsightContainer(
                             </Col>
                         )}
                         <Col>
-                            {activeView === InsightType.FUNNELS ? <FunnelCanvasLabel /> : null}
-                            {activeView === InsightType.PATHS ? <PathCanvasLabel /> : null}
+                            {isFunnelsFilter(filters) ? <FunnelCanvasLabel /> : null}
+                            {isPathsFilter(filters) ? <PathCanvasLabel /> : null}
                             <InsightLegendButton />
                         </Col>
                     </Row>
                     {!!BlockingEmptyState ? (
                         BlockingEmptyState
-                    ) : featureFlags[FEATURE_FLAGS.INSIGHT_LEGENDS] &&
-                      (activeView === InsightType.TRENDS || activeView === InsightType.STICKINESS) &&
-                      filters.show_legend ? (
+                    ) : isFilterWithDisplay(filters) && filters.show_legend ? (
                         <Row className="insights-graph-container-row" wrap={false}>
                             <Col className="insights-graph-container-row-left">{VIEW_MAP[activeView]}</Col>
                             <Col className="insights-graph-container-row-right">
@@ -238,9 +226,7 @@ export function InsightContainer(
                 </div>
             </Card>
             {renderTable()}
-            {!disableCorrelationTable && correlationAnalysisAvailable && activeView === InsightType.FUNNELS && (
-                <FunnelCorrelation />
-            )}
+            {!disableCorrelationTable && activeView === InsightType.FUNNELS && <FunnelCorrelation />}
         </>
     )
 }

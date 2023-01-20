@@ -2,19 +2,18 @@
   '
   /* user_id:0 request:_snapshot_ */
   SELECT count(*) as data
-  FROM
-    (SELECT e.timestamp as timestamp
-     FROM events e
-     WHERE team_id = 2
-       AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59') ) events
+  FROM events e
+  WHERE team_id = 2
+    AND event = '$pageview'
+    AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+    AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_aggregate.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -30,9 +29,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -45,38 +46,36 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_basic.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -92,9 +91,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-14 00:00:00')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -107,32 +108,30 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e."properties" as "properties"
-           FROM events e
-           WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59')
-             AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+          AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', '')))
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_clean_arg.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -149,10 +148,12 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-14 00:00:00')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -165,30 +166,29 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(*) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp
-           FROM events e
-           WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -204,9 +204,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -221,8 +223,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-01 00:00:00')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -257,7 +259,7 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(DISTINCT pdi.person_id) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             breakdown_value
            FROM
              (SELECT person_id,
@@ -277,8 +279,8 @@
                     HAVING argMax(is_deleted, version) = 0) as pdi ON events.distinct_id = pdi.distinct_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
-                   AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-                   AND timestamp <= toDateTime('2012-01-15 23:59:59')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                    AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval']) )
               GROUP BY person_id,
                        breakdown_value) AS pdi
@@ -295,7 +297,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.12
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -312,10 +315,12 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -328,42 +333,40 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT COUNT(DISTINCT actor_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(first_seen_timestamp, 'UTC'), 'UTC')) as date
         FROM
-          (SELECT person_id,
-                  min(timestamp) as timestamp
-           FROM
-             (SELECT e.timestamp as timestamp,
-                     pdi.person_id as person_id
-              FROM events e
-              INNER JOIN
-                (SELECT distinct_id,
-                        argMax(person_id, version) as person_id
-                 FROM person_distinct_id2
-                 WHERE team_id = 2
-                 GROUP BY distinct_id
-                 HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+          (SELECT pdi.person_id AS actor_id,
+                  min(timestamp) AS first_seen_timestamp
+           FROM events e
+           INNER JOIN
+             (SELECT distinct_id,
+                     argMax(person_id, version) as person_id
+              FROM person_distinct_id2
               WHERE team_id = 2
-                AND event = '$pageview'
-                AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-                AND timestamp <= toDateTime('2012-01-15 23:59:59') )
-           GROUP BY person_id)
+              GROUP BY distinct_id
+              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+           WHERE team_id = 2
+             AND event = '$pageview'
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
+           GROUP BY actor_id)
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.3
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             pdi.person_id as person_id,
@@ -379,9 +382,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -396,8 +401,8 @@
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-01 00:00:00')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -432,13 +437,13 @@
            ORDER BY breakdown_value,
                     day_start
            UNION ALL SELECT count(*) as total,
-                            toStartOfDay(timestamp, 'UTC') as day_start,
+                            toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as day_start,
                             replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
            FROM events e
            WHERE e.team_id = 2
              AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59')
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
              AND replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') in (['val', 'notval'])
            GROUP BY day_start,
                     breakdown_value))
@@ -453,7 +458,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.6
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -470,10 +476,12 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -484,7 +492,7 @@
   SELECT groupArray(value)
   FROM
     (SELECT replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS value,
-            count(*) as count
+            count(DISTINCT pdi.person_id) as count
      FROM events e
      INNER JOIN
        (SELECT distinct_id,
@@ -505,12 +513,12 @@
                     AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
+        AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON pdi.person_id = person.id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2012-01-01 00:00:00')
-       AND timestamp <= toDateTime('2012-01-15 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-01 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
      GROUP BY value
      ORDER BY count DESC, value DESC
      LIMIT 25
@@ -544,24 +552,24 @@
               JOIN breakdown_value) as sec
            ORDER BY breakdown_value,
                     day_start
-           UNION ALL SELECT counts as total,
-                            timestamp as day_start,
+           UNION ALL SELECT counts AS total,
+                            timestamp AS day_start,
                                          breakdown_value
            FROM
              (SELECT d.timestamp,
                      COUNT(DISTINCT person_id) counts,
                      breakdown_value
               FROM
-                (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp
                  FROM events e
                  WHERE team_id = 2
-                   AND timestamp >= '2011-12-25 00:00:00'
-                   AND timestamp <= toDateTime('2012-01-15 23:59:59')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                  GROUP BY timestamp) d
               CROSS JOIN
-                (SELECT toStartOfDay(toDateTime(timestamp), 'UTC') as timestamp,
+                (SELECT toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) AS timestamp,
                         pdi.person_id AS person_id,
-                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') as breakdown_value
+                        replaceRegexpAll(JSONExtractRaw(properties, 'key'), '^"|"$', '') AS breakdown_value
                  FROM events e
                  INNER JOIN
                    (SELECT distinct_id,
@@ -582,23 +590,23 @@
                                 AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
                     GROUP BY id
                     HAVING max(is_deleted) = 0
-                    AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', '')))
-                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+                    AND ((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', '')))
+                         AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
                  WHERE e.team_id = 2
                    AND event = '$pageview'
-                   AND timestamp >= '2011-12-25 00:00:00'
-                   AND timestamp <= toDateTime('2012-01-15 23:59:59')
+                   AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
+                   AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
                  GROUP BY timestamp,
                           person_id,
                           breakdown_value) e
               WHERE e.timestamp <= d.timestamp
-                AND e.timestamp > d.timestamp - INTERVAL 7 DAY
+                AND e.timestamp > d.timestamp - INTERVAL 6 DAY
               GROUP BY d.timestamp,
                        breakdown_value
               ORDER BY d.timestamp)
            WHERE 11111 = 11111
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') ))
+             AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+             AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC') ))
      GROUP BY day_start,
               breakdown_value
      ORDER BY breakdown_value,
@@ -610,7 +618,8 @@
 # name: ClickhouseTestTrends.test_insight_trends_cumulative.9
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."properties" as "properties",
@@ -637,14 +646,16 @@
                     AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(person.properties, 'key'), '^"|"$', '')))) )
         GROUP BY id
         HAVING max(is_deleted) = 0
-        AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))
-             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
+        AND (((has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))
+             AND (has(['some_val'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'key'), '^"|"$', ''))))) person ON person.id = pdi.person_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= '2011-12-25 00:00:00'
-       AND timestamp <= toDateTime('2012-01-14 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2011-12-25 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
        AND (((has(['val'], replaceRegexpAll(JSONExtractRaw(e.properties, 'key'), '^"|"$', ''))))) )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -657,32 +668,29 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                         toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging.1
@@ -693,32 +701,29 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-15 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-14 00:00:00'), 'UTC'), toDateTime('2012-01-15 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-15 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-14 00:00:00', 'UTC')), toDateTime('2012-01-15 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-14 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                         toStartOfDay(toDateTime('2012-01-14 00:00:00', 'UTC'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toDateTime('2012-01-14 00:00:00')
-             AND timestamp <= toDateTime('2012-01-15 23:59:59') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime('2012-01-14 00:00:00', 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-15 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval
@@ -729,32 +734,29 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-14 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00'), 'UTC'), toDateTime('2012-01-14 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-14 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), toDateTime('2012-01-14 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2011-12-31 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                         toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-14 23:59:59') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2011-12-31 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-14 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsCaching.test_insight_trends_merging_skipped_interval.1
@@ -765,32 +767,29 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2012-01-16 23:59:59') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-02 00:00:00'), 'UTC'), toDateTime('2012-01-16 23:59:59'), 'UTC'))
+               toStartOfDay(toDateTime('2012-01-16 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), toDateTime('2012-01-16 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2012-01-02 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT person_id) as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  pdi.person_id as person_id
-           FROM events e
-           INNER JOIN
-             (SELECT distinct_id,
-                     argMax(person_id, version) as person_id
-              FROM person_distinct_id2
-              WHERE team_id = 2
-              GROUP BY distinct_id
-              HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+                         toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC'))
+        UNION ALL SELECT count(DISTINCT pdi.person_id) as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        INNER JOIN
+          (SELECT distinct_id,
+                  argMax(person_id, version) as person_id
+           FROM person_distinct_id2
            WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2012-01-16 23:59:59') )
+           GROUP BY distinct_id
+           HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2012-01-02 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2012-01-16 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group
@@ -801,43 +800,45 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 00:00:00') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 00:00:00'), 'UTC'))
+               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
         UNION ALL SELECT count(DISTINCT "$group_0") as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e."$group_0" as "$group_0"
-           FROM events e
-           WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-12 00:00:00')
-             AND (NOT has([''], "$group_0")) )
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
+          AND (NOT has([''], "$group_0"))
+          AND "$group_0" != ''
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_group.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT $group_0 AS actor_id
+  SELECT $group_0 AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."$group_0" as "$group_0"
      FROM events e
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-02 00:00:00')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59')
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC')
        AND (NOT has([''], "$group_0")
-            AND NOT has([''], "$group_0")) )
+            AND NOT has([''], "$group_0"))
+       AND "$group_0" != '' )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '
@@ -850,31 +851,29 @@
   FROM
     (SELECT SUM(total) AS count,
             day_start
-     from
+     FROM
        (SELECT toUInt16(0) AS total,
-               toStartOfDay(toDateTime('2020-01-12 00:00:00') - toIntervalDay(number), 'UTC') AS day_start
-        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC'), toDateTime('2020-01-12 00:00:00'), 'UTC'))
+               toStartOfDay(toDateTime('2020-01-12 23:59:59', 'UTC') - toIntervalDay(number)) AS day_start
+        FROM numbers(dateDiff('day', toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), toDateTime('2020-01-12 23:59:59', 'UTC')))
         UNION ALL SELECT toUInt16(0) AS total,
-                         toStartOfDay(toDateTime('2020-01-01 00:00:00'), 'UTC')
-        UNION ALL SELECT count(DISTINCT "$session_id") as data,
-                         toStartOfDay(toDateTime(timestamp), 'UTC') as date
-        FROM
-          (SELECT e.timestamp as timestamp,
-                  e."$session_id" as "$session_id"
-           FROM events e
-           WHERE team_id = 2
-             AND event = '$pageview'
-             AND timestamp >= toTimezone(toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00')), 'UTC'), 'UTC')
-             AND timestamp <= toDateTime('2020-01-12 00:00:00') )
+                         toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC'))
+        UNION ALL SELECT count(DISTINCT e."$session_id") as data,
+                         toStartOfDay(toTimeZone(toDateTime(timestamp, 'UTC'), 'UTC')) as date
+        FROM events e
+        WHERE team_id = 2
+          AND event = '$pageview'
+          AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2020-01-01 00:00:00', 'UTC')), 'UTC')
+          AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-12 23:59:59', 'UTC')
         GROUP BY date)
-     group by day_start
-     order by day_start SETTINGS allow_experimental_window_functions = 1) SETTINGS timeout_before_checking_execution_speed = 60
+     GROUP BY day_start
+     ORDER BY day_start) SETTINGS timeout_before_checking_execution_speed = 60
   '
 ---
 # name: ClickhouseTestTrendsGroups.test_aggregating_by_session.1
   '
   /* user_id:0 request:_snapshot_ */
-  SELECT person_id AS actor_id
+  SELECT person_id AS actor_id,
+         count() AS actor_value
   FROM
     (SELECT e.timestamp as timestamp,
             e."$session_id" as "$session_id",
@@ -891,9 +890,11 @@
         HAVING argMax(is_deleted, version) = 0) AS pdi ON e.distinct_id = pdi.distinct_id
      WHERE team_id = 2
        AND event = '$pageview'
-       AND timestamp >= toDateTime('2020-01-02 00:00:00')
-       AND timestamp <= toDateTime('2020-01-02 23:59:59') )
+       AND toDateTime(timestamp, 'UTC') >= toDateTime('2020-01-02 00:00:00', 'UTC')
+       AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-02 23:59:59', 'UTC') )
   GROUP BY actor_id
+  ORDER BY actor_value DESC,
+           actor_id DESC
   LIMIT 100
   OFFSET 0
   '

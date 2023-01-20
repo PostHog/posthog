@@ -1,4 +1,3 @@
-import React from 'react'
 import { kea, useActions, useValues } from 'kea'
 import { Tabs } from 'antd'
 import { urls } from 'scenes/urls'

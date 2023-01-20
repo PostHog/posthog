@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions, useMountedLogic } from 'kea'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'

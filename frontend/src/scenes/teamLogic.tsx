@@ -1,8 +1,7 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
-import React from 'react'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
-import { TeamType } from '~/types'
+import { CorrelationConfigType, PropertyOperator, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
@@ -11,6 +10,8 @@ import { lemonToast } from 'lib/components/lemonToast'
 import { IconSwapHoriz } from 'lib/components/icons'
 import { loaders } from 'kea-loaders'
 import { OrganizationMembershipLevel } from '../lib/constants'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getPropertyLabel } from 'lib/components/PropertyKeyInfo'
 
 const parseUpdatedAttributeName = (attr: string | null): string => {
     if (attr === 'slack_incoming_webhook') {
@@ -74,8 +75,15 @@ export const teamLogic = kea<teamLogicType>([
                                   payload.slack_incoming_webhook
                               )}`
                             : 'Webhook integration disabled'
+                    } else if (updatedAttribute === 'completed_snippet_onboarding') {
+                        message = "Congrats! You're now ready to use PostHog."
                     } else {
                         message = `${parseUpdatedAttributeName(updatedAttribute)} updated successfully!`
+                    }
+
+                    if (updatedAttribute) {
+                        const updatedValue = Object.values(payload).length === 1 ? Object.values(payload)[0] : null
+                        eventUsageLogic.findMounted()?.actions?.reportTeamSettingChange(updatedAttribute, updatedValue)
                     }
 
                     lemonToast.dismiss('updateCurrentTeam')
@@ -85,7 +93,8 @@ export const teamLogic = kea<teamLogicType>([
 
                     return patchedTeam
                 },
-                createTeam: async (name: string): Promise<TeamType> => await api.create('api/projects/', { name }),
+                createTeam: async ({ name, is_demo }: { name: string; is_demo: boolean }): Promise<TeamType> =>
+                    await api.create('api/projects/', { name, is_demo }),
                 resetToken: async () => await api.update(`api/projects/${values.currentTeamId}/reset_token`, {}),
             },
         ],
@@ -114,7 +123,7 @@ export const teamLogic = kea<teamLogicType>([
         ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
-            (currentTeam): Partial<TeamType['correlation_config']> => {
+            (currentTeam): CorrelationConfigType => {
                 return currentTeam?.correlation_config || {}
             },
         ],
@@ -124,6 +133,44 @@ export const teamLogic = kea<teamLogicType>([
             (currentTeam): boolean =>
                 !!currentTeam?.effective_membership_level &&
                 currentTeam.effective_membership_level >= OrganizationMembershipLevel.Admin,
+        ],
+        testAccountFilterWarningLabels: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam) => {
+                if (!currentTeam) {
+                    return null
+                }
+                const positiveFilterOperators = [
+                    PropertyOperator.Exact,
+                    PropertyOperator.IContains,
+                    PropertyOperator.Regex,
+                    PropertyOperator.IsSet,
+                ]
+                const positiveFilters = []
+                for (const filter of currentTeam.test_account_filters) {
+                    if (
+                        'operator' in filter &&
+                        !!filter.operator &&
+                        positiveFilterOperators.includes(filter.operator)
+                    ) {
+                        positiveFilters.push(filter)
+                    }
+                }
+
+                return positiveFilters.map((filter) => {
+                    if (!!filter.type && !!filter.key) {
+                        // person properties can be checked for a label as if they were event properties
+                        // so, we can check each acceptable type and see if it returns a value
+                        return (
+                            getPropertyLabel(filter.key, 'event') ||
+                            getPropertyLabel(filter.key, 'element') ||
+                            filter.key
+                        )
+                    } else {
+                        return filter.key
+                    }
+                })
+            },
         ],
     }),
     listeners(({ actions }) => ({
@@ -138,9 +185,6 @@ export const teamLogic = kea<teamLogicType>([
         },
         deleteTeamSuccess: () => {
             lemonToast.success('Project has been deleted')
-        },
-        createTeamSuccess: () => {
-            window.location.href = '/ingestion'
         },
     })),
     events(({ actions }) => ({

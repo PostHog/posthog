@@ -6,10 +6,11 @@ import { range, toParams } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
+import { isRetentionFilter } from 'scenes/insights/sharedUtils'
 import { RetentionTablePayload, RetentionTablePeoplePayload, RetentionTrendPayload } from 'scenes/retention/types'
 import { actionsModel } from '~/models/actionsModel'
-import { groupsModel } from '~/models/groupsModel'
-import { ActionType, FilterType, InsightLogicProps, InsightType } from '~/types'
+import { Noun, groupsModel } from '~/models/groupsModel'
+import { ActionType, InsightLogicProps, InsightType, RetentionFilterType } from '~/types'
 import type { retentionTableLogicType } from './retentionTableLogicType'
 
 export const dateOptions = ['Hour', 'Day', 'Week', 'Month']
@@ -49,7 +50,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
     connect: (props: InsightLogicProps) => ({
         values: [
             insightLogic(props),
-            ['filters', 'insight', 'insightLoading'],
+            ['filters as inflightFilters', 'insight', 'insightLoading'],
             actionsModel,
             ['actions'],
             groupsModel,
@@ -58,8 +59,10 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         actions: [insightLogic(props), ['loadResultsSuccess']],
     }),
     actions: () => ({
-        setFilters: (filters: Partial<FilterType>) => ({ filters }),
-        setRetentionReference: (retentionReference: FilterType['retention_reference']) => ({ retentionReference }),
+        setFilters: (filters: Partial<RetentionFilterType>) => ({ filters }),
+        setRetentionReference: (retentionReference: RetentionFilterType['retention_reference']) => ({
+            retentionReference,
+        }),
         loadMorePeople: true,
         updatePeople: (people: RetentionTablePeoplePayload) => ({ people }),
         clearPeople: true,
@@ -87,9 +90,14 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
     },
     selectors: {
+        filters: [
+            (s) => [s.inflightFilters],
+            (inflightFilters): Partial<RetentionFilterType> =>
+                inflightFilters && isRetentionFilter(inflightFilters) ? inflightFilters : {},
+        ],
         loadedFilters: [
             (s) => [s.insight],
-            ({ filters }): Partial<FilterType> => (filters?.insight === InsightType.RETENTION ? filters ?? {} : {}),
+            ({ filters }): Partial<RetentionFilterType> => (filters && isRetentionFilter(filters) ? filters : {}),
         ],
         results: [
             // Take the insight result, and cast it to `RetentionTablePayload[]`
@@ -170,13 +178,7 @@ export const retentionTableLogic = kea<retentionTableLogicType>({
         ],
         aggregationTargetLabel: [
             (s) => [s.filters, s.aggregationLabel],
-            (
-                filters,
-                aggregationLabel
-            ): {
-                singular: string
-                plural: string
-            } => {
+            (filters, aggregationLabel): Noun => {
                 return aggregationLabel(filters.aggregation_group_type_index)
             },
         ],

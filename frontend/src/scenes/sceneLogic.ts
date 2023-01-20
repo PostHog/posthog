@@ -9,11 +9,11 @@ import { userLogic } from './userLogic'
 import { handleLoginRedirect } from './authentication/loginLogic'
 import { teamLogic } from './teamLogic'
 import { urls } from 'scenes/urls'
-import { SceneExport, Params, Scene, SceneConfig, SceneParams, LoadedScene } from 'scenes/sceneTypes'
+import { LoadedScene, Params, Scene, SceneConfig, SceneExport, SceneParams } from 'scenes/sceneTypes'
 import { emptySceneParams, preloadedScenes, redirects, routes, sceneConfigurations } from 'scenes/scenes'
 import { organizationLogic } from './organizationLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { UPGRADE_LINK } from 'lib/constants'
+import { appContextLogic } from './appContextLogic'
 
 /** Mapping of some scenes that aren't directly accessible from the sidebar to ones that are - for the sidebar. */
 const sceneNavAlias: Partial<Record<Scene, Scene>> = {
@@ -31,6 +31,9 @@ const sceneNavAlias: Partial<Record<Scene, Scene>> = {
     [Scene.Group]: Scene.Persons,
     [Scene.Dashboard]: Scene.Dashboards,
     [Scene.FeatureFlag]: Scene.FeatureFlags,
+    [Scene.AppMetrics]: Scene.Plugins,
+    [Scene.SessionRecording]: Scene.SessionRecordings,
+    [Scene.SessionRecordingPlaylist]: Scene.SessionRecordingPlaylist,
 }
 
 export const sceneLogic = kea<sceneLogicType>({
@@ -38,7 +41,7 @@ export const sceneLogic = kea<sceneLogicType>({
         scenes?: Record<Scene, () => any>
     },
     connect: () => ({
-        logic: [router, userLogic, preflightLogic],
+        logic: [router, userLogic, preflightLogic, appContextLogic],
         values: [featureFlagLogic, ['featureFlags']],
         actions: [router, ['locationChanged']],
     }),
@@ -69,7 +72,6 @@ export const sceneLogic = kea<sceneLogicType>({
             }
         ) => ({ featureKey, featureName, featureCaption, featureAvailableCallback, guardOn }),
         hideUpgradeModal: true,
-        takeToPricing: true,
         reloadBrowserDueToImportError: true,
     },
     reducers: {
@@ -107,7 +109,6 @@ export const sceneLogic = kea<sceneLogicType>({
             {
                 showUpgradeModal: (_, { featureName, featureCaption }) => [featureName, featureCaption],
                 hideUpgradeModal: () => null,
-                takeToPricing: () => null,
             },
         ],
         lastReloadAt: [
@@ -171,9 +172,11 @@ export const sceneLogic = kea<sceneLogicType>({
         > = {}
 
         for (const path of Object.keys(redirects)) {
-            mapping[path] = (params) => {
+            mapping[path] = (params, searchParams, hashParams) => {
                 const redirect = redirects[path]
-                router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
+                router.actions.replace(
+                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+                )
             }
         }
         for (const [path, scene] of Object.entries(routes)) {
@@ -205,15 +208,6 @@ export const sceneLogic = kea<sceneLogicType>({
                 featureAvailableCallback?.()
             } else {
                 actions.showUpgradeModal(featureName, featureCaption)
-            }
-        },
-        takeToPricing: () => {
-            posthog.capture('upgrade modal pricing interaction')
-            const link = UPGRADE_LINK(preflightLogic.values.preflight?.cloud)
-            if (link.target) {
-                window.open(link.url, link.target)
-            } else {
-                router.actions.push(link.url)
             }
         },
         setScene: ({ scene, scrollToTop }, _, __, previousState) => {
@@ -269,6 +263,7 @@ export const sceneLogic = kea<sceneLogicType>({
                         }
                     } else if (
                         teamLogic.values.currentTeam &&
+                        !teamLogic.values.currentTeam.is_demo &&
                         !teamLogic.values.currentTeam.completed_snippet_onboarding &&
                         !location.pathname.startsWith('/ingestion')
                     ) {

@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 import { Field, PureField } from './Field'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
@@ -11,6 +10,7 @@ export default {
     title: 'Lemon UI/Forms and Fields',
     component: PureField,
     parameters: {
+        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component: `

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
@@ -6,24 +6,23 @@ import { formatDate, formatDateRange } from 'lib/utils'
 import { LemonCalendarRangeInline } from './LemonCalendarRangeInline'
 
 export interface LemonCalendarRangeProps {
-    value?: [string, string] | null
-    onChange: (date: [string, string]) => void
+    value?: [dayjs.Dayjs, dayjs.Dayjs] | null
+    onChange: (range: [dayjs.Dayjs, dayjs.Dayjs]) => void
     months?: number
     onClose?: () => void
 }
 
 export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCalendarRangeProps): JSX.Element {
     // Keep a sanitised and cached copy of the selected range
-    const [valueStart, valueEnd] = [
-        value?.[0] ? dayjs(value[0]).format('YYYY-MM-DD') : null,
-        value?.[1] ? dayjs(value[1]).format('YYYY-MM-DD') : null,
-    ]
-    const [[rangeStart, rangeEnd], setRange] = useState([valueStart, valueEnd])
+    const [[rangeStart, rangeEnd], setRange] = useState([
+        value?.[0] ? value[0].startOf('day') : null,
+        value?.[1] ? value[1].startOf('day') : null,
+    ])
 
     return (
         <div className="LemonCalendarRange" data-attr="lemon-calendar-range">
             <div className="flex justify-between border-b p-2 pb-4">
-                <h3 className="mb-0">Select a fixed time period</h3>
+                <h3 className="text-base mb-0">Select a date range</h3>
                 {onClose && (
                     <LemonButton
                         icon={<IconClose />}
@@ -42,9 +41,9 @@ export function LemonCalendarRange({ value, onChange, onClose, months }: LemonCa
                     <div className="flex-1">
                         <span className="text-muted">Selected period:</span>{' '}
                         <span>
-                            {rangeStart === rangeEnd
-                                ? formatDate(dayjs(rangeStart))
-                                : formatDateRange(dayjs(rangeStart), dayjs(rangeEnd))}
+                            {rangeStart.isSame(rangeEnd, 'd')
+                                ? formatDate(rangeStart)
+                                : formatDateRange(rangeStart, rangeEnd)}
                         </span>
                     </div>
                 )}

@@ -1,4 +1,3 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'

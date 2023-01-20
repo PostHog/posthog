@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import React from 'react'
 import { IconSpinner } from '../icons'
 import './Spinner.scss'
 

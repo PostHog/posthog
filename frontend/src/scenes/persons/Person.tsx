@@ -1,8 +1,6 @@
-import React from 'react'
 import { Dropdown, Menu, Tabs, Tag } from 'antd'
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { DownOutlined } from '@ant-design/icons'
 import { EventsTable } from 'scenes/events'
-import { SessionRecordingsTable } from 'scenes/session-recordings/SessionRecordingsTable'
 import { useActions, useValues } from 'kea'
 import { personsLogic } from './personsLogic'
 import { asDisplay } from './PersonHeader'
@@ -11,7 +9,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MergeSplitPerson } from './MergeSplitPerson'
 import { PersonCohorts } from './PersonCohorts'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { Tooltip } from 'lib/components/Tooltip'
 import { PersonsTabType, PersonType } from '~/types'
 import { PageHeader } from 'lib/components/PageHeader'
@@ -21,16 +19,22 @@ import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSelect, Link } from '@posthog/lemon-ui'
 import { teamLogic } from 'scenes/teamLogic'
 import { AlertMessage } from 'lib/components/AlertMessage'
 import { PersonDeleteModal } from 'scenes/persons/PersonDeleteModal'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { SessionRecordingsPlaylist } from 'scenes/session-recordings/SessionRecordingsPlaylist'
+import { SessionRecordingsPlaylist } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylist'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from './RelatedFeatureFlags'
+import { Query } from '~/queries/Query/Query'
+import { NodeKind } from '~/queries/schema'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { personDeleteModalLogic } from 'scenes/persons/personDeleteModalLogic'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DEFAULT_PERSON_RECORDING_FILTERS } from 'scenes/session-recordings/playlist/sessionRecordingsListLogic'
+import { IconInfo } from 'lib/components/icons'
 
 const { TabPane } = Tabs
 
@@ -89,13 +93,15 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
 }
 
 export function Person(): JSX.Element | null {
-    const { person, personLoading, deletedPersonLoading, currentTab, splitMergeModalShown, urlId } =
-        useValues(personsLogic)
-    const { editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, showPersonDeleteModal } =
+    const { person, personLoading, currentTab, splitMergeModalShown, urlId, distinctId } = useValues(personsLogic)
+    const { loadPersons, editProperty, deleteProperty, navigateToTab, setSplitMergeModalShown, setDistinctId } =
         useActions(personsLogic)
+    const { showPersonDeleteModal } = useActions(personDeleteModalLogic)
+    const { deletedPersonLoading } = useValues(personDeleteModalLogic)
     const { groupsEnabled } = useValues(groupsAccessLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (!person) {
         return personLoading ? <SpinnerOverlay /> : <NotFound object="Person" />
@@ -109,7 +115,7 @@ export function Person(): JSX.Element | null {
                 buttons={
                     <div className="flex gap-2">
                         <LemonButton
-                            onClick={() => showPersonDeleteModal(person)}
+                            onClick={() => showPersonDeleteModal(person, () => loadPersons())}
                             disabled={deletedPersonLoading}
                             loading={deletedPersonLoading}
                             type="secondary"
@@ -156,12 +162,27 @@ export function Person(): JSX.Element | null {
                     />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    <EventsTable
-                        pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
-                        fixedFilters={{ person_id: person.id }}
-                        showPersonColumn={false}
-                        sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
-                    />
+                    {featureDataExploration ? (
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                full: true,
+                                hiddenColumns: ['person'],
+                                source: {
+                                    kind: NodeKind.EventsQuery,
+                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                    personId: person.id,
+                                },
+                            }}
+                        />
+                    ) : (
+                        <EventsTable
+                            pageKey={person.distinct_ids.join('__')} // force refresh if distinct_ids change
+                            fixedFilters={{ person_id: person.id }}
+                            showPersonColumn={false}
+                            sceneUrl={urls.person(urlId || person.distinct_ids[0] || String(person.id))}
+                        />
+                    )}
                 </TabPane>
                 <TabPane
                     tab={<span data-attr="person-session-recordings-tab">Recordings</span>}
@@ -176,19 +197,11 @@ export function Person(): JSX.Element | null {
                             </AlertMessage>
                         </div>
                     ) : null}
-                    {featureFlags[FEATURE_FLAGS.SESSION_RECORDINGS_PLAYER_V3] ? (
-                        <SessionRecordingsPlaylist
-                            key={person.uuid} // force refresh if user changes
-                            personUUID={person.uuid}
-                            isPersonPage
-                        />
-                    ) : (
-                        <SessionRecordingsTable
-                            key={person.uuid} // force refresh if user changes
-                            personUUID={person.uuid}
-                            isPersonPage
-                        />
-                    )}
+                    <SessionRecordingsPlaylist
+                        personUUID={person.uuid}
+                        updateSearchParams
+                        filters={DEFAULT_PERSON_RECORDING_FILTERS}
+                    />
                 </TabPane>
 
                 <TabPane tab={<span data-attr="persons-cohorts-tab">Cohorts</span>} key={PersonsTabType.COHORTS}>
@@ -197,10 +210,10 @@ export function Person(): JSX.Element | null {
                 {groupsEnabled && person.uuid && (
                     <TabPane
                         tab={
-                            <span data-attr="persons-related-tab">
+                            <span className="flex items-center" data-attr="persons-related-tab">
                                 Related groups
                                 <Tooltip title="People and groups that have shared events with this person in the last 90 days.">
-                                    <InfoCircleOutlined style={{ marginLeft: 6, marginRight: 0 }} />
+                                    <IconInfo className="ml-1 text-base shrink-0" />
                                 </Tooltip>
                             </span>
                         }
@@ -214,7 +227,25 @@ export function Person(): JSX.Element | null {
                         tab={<span data-attr="persons-related-flags-tab">Feature flags</span>}
                         key={PersonsTabType.FEATURE_FLAGS}
                     >
-                        <RelatedFeatureFlags distinctId={person.distinct_ids[0]} />
+                        <div className="flex space-x-2 items-center mb-2">
+                            <div className="flex items-center">
+                                Choose ID:
+                                <Tooltip title="Feature flags values can depend on person distincts IDs. Turn on persistence in feature flag settings if you'd like these to be constant always.">
+                                    <IconInfo className="ml-1 text-base" />
+                                </Tooltip>
+                            </div>
+                            <LemonSelect
+                                value={person.distinct_ids[0]}
+                                onChange={(value) => value && setDistinctId(value)}
+                                options={person.distinct_ids.map((distinct_id) => ({
+                                    label: distinct_id,
+                                    value: distinct_id,
+                                }))}
+                                data-attr="person-feature-flags-select"
+                            />
+                        </div>
+                        <LemonDivider className="mb-4" />
+                        <RelatedFeatureFlags distinctId={distinctId || person.distinct_ids[0]} />
                     </TabPane>
                 )}
 
@@ -223,13 +254,10 @@ export function Person(): JSX.Element | null {
                         scope={ActivityScope.PERSON}
                         id={person.id}
                         caption={
-                            <div>
-                                <InfoCircleOutlined style={{ marginRight: '.25rem' }} />
-                                <span>
-                                    This page only shows changes made by users in the PostHog site. Automatic changes
-                                    from the API aren't shown here.
-                                </span>
-                            </div>
+                            <AlertMessage type="info">
+                                This page only shows changes made by users in the PostHog site. Automatic changes from
+                                the API aren't shown here.
+                            </AlertMessage>
                         }
                     />
                 </TabPane>

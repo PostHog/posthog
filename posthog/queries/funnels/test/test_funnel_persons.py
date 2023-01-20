@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django.utils import timezone
 from freezegun import freeze_time
@@ -8,15 +8,15 @@ from posthog.constants import INSIGHT_FUNNELS
 from posthog.models import Cohort, Filter
 from posthog.models.event.util import bulk_create_events
 from posthog.models.person.util import bulk_create_persons
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.funnels.funnel_persons import ClickhouseFunnelActors
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 from posthog.test.test_journeys import journeys_for
 
@@ -24,18 +24,6 @@ FORMAT_TIME = "%Y-%m-%d 00:00:00"
 MAX_STEP_COLUMN = 0
 COUNT_COLUMN = 1
 PERSON_ID_COLUMN = 2
-
-
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
-    create_session_recording_event(
-        uuid=uuid4(),
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        session_id=session_id,
-        window_id=window_id,
-        snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
-    )
 
 
 class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
@@ -306,7 +294,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 5)
 
-    @test_with_materialized_columns(["$browser"])
+    @also_test_with_materialized_columns(["$browser"])
     def test_first_step_breakdowns(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
@@ -368,7 +356,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         ).get_actors()
         self.assertCountEqual([val["id"] for val in results], [person2.uuid])
 
-    @test_with_materialized_columns(person_properties=["$country"])
+    @also_test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
         person1, person2 = self._create_browser_breakdown_events()
         filter = Filter(
@@ -410,7 +398,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         ).get_actors()
         self.assertEqual(results, custom_step_results)
 
-    @test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
+    @also_test_with_materialized_columns(["$browser"], verify_no_jsonextract=False)
     def test_funnel_cohort_breakdown_persons(self):
         person = _create_person(distinct_ids=[f"person1"], team_id=self.team.pk, properties={"key": "value"})
         _create_event(
@@ -455,7 +443,7 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
             properties={"$session_id": "s2", "$window_id": "w2"},
             event_uuid="21111111-1111-1111-1111-111111111111",
         )
-        _create_session_recording_event(self.team.pk, "user_1", "s2", datetime(2021, 1, 3, 0, 0, 0))
+        create_session_recording_events(self.team.pk, datetime(2021, 1, 3, 0, 0, 0), "user_1", "s2")
 
         # First event, but no recording
         filter = Filter(

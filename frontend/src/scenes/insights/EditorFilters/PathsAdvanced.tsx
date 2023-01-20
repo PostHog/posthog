@@ -1,13 +1,13 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { EditorFilterProps, PathEdgeParameters } from '~/types'
-import { SettingOutlined } from '@ant-design/icons'
 
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { InputNumber } from 'antd'
 import { Link } from 'lib/components/Link'
 import { PathCleaningFilter } from '../filters/PathCleaningFilter'
 import { LemonLabel } from 'lib/components/LemonLabel/LemonLabel'
+import { IconSettings } from 'lib/components/icons'
 
 export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element {
     const { filter } = useValues(pathsLogic(insightProps))
@@ -92,7 +92,7 @@ export function PathsAdvanced({ insightProps }: EditorFilterProps): JSX.Element 
                         Path Cleaning Rules
                     </LemonLabel>
                     <Link className="grow-1 text-right" to="/project/settings#path_cleaning_filtering">
-                        <SettingOutlined /> Configure Project Rules
+                        <IconSettings /> Configure Project Rules
                     </Link>
                 </div>
                 <PathCleaningFilter />

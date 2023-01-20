@@ -3,12 +3,12 @@ from typing import Any, Dict, Optional, Tuple, Union
 
 from rest_framework import exceptions, mixins, permissions, serializers, viewsets
 
+from posthog.cloud_utils import is_cloud
 from posthog.models.instance_setting import get_instance_setting as get_instance_setting_raw
 from posthog.models.instance_setting import set_instance_setting as set_instance_setting_raw
 from posthog.permissions import IsStaffUser
 from posthog.settings import (
     CONSTANCE_CONFIG,
-    MULTI_TENANCY,
     SECRET_SETTINGS,
     SETTINGS_ALLOWING_API_OVERRIDE,
     SKIP_ASYNC_MIGRATIONS_SETUP,
@@ -76,11 +76,10 @@ class InstanceSettingsSerializer(serializers.Serializer):
             new_value_parsed = cast_str_to_desired_type(validated_data["value"], target_type)
 
         if instance.key == "RECORDINGS_TTL_WEEKS":
-
-            if MULTI_TENANCY:
+            if is_cloud():
                 # On cloud the TTL is set on the session_recording_events_sharded table,
                 # so this command should never be run
-                raise serializers.ValidationError("This setting cannot be updated on MULTI_TENANCY.")
+                raise serializers.ValidationError("This setting cannot be updated on cloud.")
 
             # TODO: Move to top-level imports once CH is moved out of `ee`
             from posthog.client import sync_execute

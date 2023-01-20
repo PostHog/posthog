@@ -1,8 +1,7 @@
 import clsx from 'clsx'
-import React from 'react'
 import { UserBasicType } from '~/types'
 import { ProfilePicture } from '../ProfilePicture'
-import { TZLabel } from '../TimezoneAware'
+import { TZLabel } from '../TZLabel'
 import './UserActivityIndicator.scss'
 
 export interface UserActivityIndicatorProps {

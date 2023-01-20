@@ -84,7 +84,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        with self.settings(MULTI_TENANCY=True):
+        with self.is_cloud(True):
             response = self.client.post(
                 "/api/organizations/@current/domains/",
                 {
@@ -211,7 +211,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         mock_dns_query.side_effect = dns.resolver.NoAnswer()
 
         with freeze_time("2021-10-10T10:10:10Z"):
-            with self.settings(MULTI_TENANCY=True):
+            with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -231,7 +231,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         mock_dns_query.side_effect = dns.resolver.NXDOMAIN()
 
         with freeze_time("2021-10-10T10:10:10Z"):
-            with self.settings(MULTI_TENANCY=True):
+            with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
@@ -253,7 +253,7 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         )
 
         with freeze_time("2021-10-10T10:10:10Z"):
-            with self.settings(MULTI_TENANCY=True):
+            with self.is_cloud(True):
                 response = self.client.post(f"/api/organizations/@current/domains/{self.domain.id}/verify")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()

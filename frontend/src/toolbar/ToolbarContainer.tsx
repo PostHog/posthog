@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { Elements } from '~/toolbar/elements/Elements'
 import { DraggableButton } from '~/toolbar/button/DraggableButton'

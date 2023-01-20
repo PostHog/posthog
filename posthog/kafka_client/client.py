@@ -5,12 +5,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import kafka.errors
 from kafka import KafkaConsumer as KC
 from kafka import KafkaProducer as KP
-from kafka.producer.future import FutureProduceResult, RecordMetadata
+from kafka.producer.future import FutureProduceResult, FutureRecordMetadata, RecordMetadata
 from kafka.structs import TopicPartition
 from statshog.defaults.django import statsd
 from structlog import get_logger
 
-from posthog.client import async_execute, sync_execute
+from posthog.client import sync_execute
 from posthog.kafka_client import helper
 from posthog.settings import (
     KAFKA_BASE64_KEYS,
@@ -28,18 +28,34 @@ KAFKA_PRODUCER_RETRIES = 5
 logger = get_logger(__name__)
 
 
-class TestKafkaProducer:
+class KafkaProducerForTests:
     def __init__(self):
         pass
 
     def send(self, topic: str, value: Any, key: Any = None, headers: Optional[List[Tuple[str, bytes]]] = None):
-        return FutureProduceResult(topic_partition=TopicPartition(topic, 1))
+        produce_future = FutureProduceResult(topic_partition=TopicPartition(topic, 1))
+        future = FutureRecordMetadata(
+            produce_future=produce_future,
+            relative_offset=0,
+            timestamp_ms=0,
+            checksum=0,
+            serialized_key_size=0,
+            serialized_value_size=0,
+            serialized_header_size=0,
+        )
+
+        # NOTE: this is probably not the right response, but should do for now
+        # until we actually start using the response. At the time of writing we
+        # only use the future to reraising on error.
+        produce_future.success(None)
+        future.success(None)
+        return future
 
     def flush(self):
         return
 
 
-class TestKafkaConsumer:
+class KafkaConsumerForTests:
     def __init__(self, topic="test", max=0, **kwargs):
         self.max = max
         self.n = 0
@@ -85,7 +101,7 @@ def _sasl_params():
 class _KafkaProducer:
     def __init__(self, test=TEST):
         if test:
-            self.producer = TestKafkaProducer()
+            self.producer = KafkaProducerForTests()
         elif KAFKA_BASE64_KEYS:
             self.producer = helper.get_kafka_producer(retries=KAFKA_PRODUCER_RETRIES, value_serializer=lambda d: d)
         else:
@@ -126,6 +142,7 @@ class _KafkaProducer:
         future = self.producer.send(topic, value=b, key=key, headers=encoded_headers)
         # Record if the send request was successful or not
         future.add_callback(self.on_send_success).add_errback(lambda exc: self.on_send_failure(topic=topic, exc=exc))
+        return future
 
     def close(self):
         self.producer.flush()
@@ -163,7 +180,7 @@ def build_kafka_consumer(
     consumer_timeout_ms=float("inf"),
 ):
     if test:
-        consumer = TestKafkaConsumer(
+        consumer = KafkaConsumerForTests(
             topic=topic, auto_offset_reset=auto_offset_reset, max=10, consumer_timeout_ms=consumer_timeout_ms
         )
     elif KAFKA_BASE64_KEYS:
@@ -199,7 +216,5 @@ class ClickhouseProducer:
     def produce(self, sql: str, topic: str, data: Dict[str, Any], sync: bool = True):
         if self.producer is not None:
             self.producer.produce(topic=topic, data=data)
-        elif sync:
-            sync_execute(sql, data)
         else:
-            async_execute(sql, data)
+            sync_execute(sql, data)

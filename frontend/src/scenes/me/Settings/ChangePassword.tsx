@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { Field } from 'lib/forms/Field'

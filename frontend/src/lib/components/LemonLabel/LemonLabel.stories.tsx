@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonLabel, LemonLabelProps } from './LemonLabel'
 import { LemonModal } from '@posthog/lemon-ui'
@@ -6,6 +6,7 @@ import { LemonModal } from '@posthog/lemon-ui'
 export default {
     title: 'Lemon UI/Lemon Label',
     component: LemonLabel,
+    parameters: { chromatic: { disableSnapshot: false } },
     docs: {
         description: {
             component: `

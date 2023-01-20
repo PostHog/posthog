@@ -19,27 +19,32 @@
     cursor: pointer;
     -webkit-appearance: none !important; // Important as this gets overridden by Ant styles...
 
-    &:disabled {
+    &.LemonButton--disabled {
         opacity: var(--opacity-disabled);
         cursor: not-allowed;
+    }
+
+    .LemonButton__content {
+        flex: 1;
+        line-height: initial;
     }
 
     &.LemonButton--full-width {
         width: 100%;
         padding-left: 0.5rem;
         padding-right: 0.5rem;
-    }
-
-    .LemonButton__content {
-        flex: 1;
         overflow: hidden;
-        line-height: initial;
+
+        .LemonButton__content {
+            overflow: hidden;
+        }
     }
 
     &.LemonButton--centered {
         justify-content: center;
         .LemonButton__content {
             flex: initial;
+            text-align: center;
         }
     }
 
@@ -89,6 +94,10 @@
         height: auto;
         width: auto;
         padding: 0;
+
+        &.LemonButton--full-width {
+            width: 100%;
+        }
     }
 
     .LemonButton__icon {
@@ -103,7 +112,7 @@
         font-weight: 400;
         color: var(--default);
 
-        &:not(:disabled):hover,
+        &:not(.LemonButton--disabled):hover,
         &.LemonButton--active {
             background: var(--primary-highlight);
         }
@@ -127,30 +136,30 @@
             background: var(--bg-light);
             border: 1px solid var(--border);
 
-            &:not(:disabled):hover,
+            &:not(.LemonButton--disabled):hover,
             &.LemonButton--active,
-            &:not(:disabled):active {
+            &:not(.LemonButton--disabled):active {
                 background: var(--primary-highlight);
                 border-color: var(--primary);
             }
 
-            &:not(:disabled):active {
+            &:not(.LemonButton--disabled):active {
                 border-color: var(--primary-dark);
             }
         }
     }
 
-    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted') {
+    @each $status in ('default', 'primary', 'danger', 'primary-alt', 'muted', 'muted-alt', 'orange') {
         &.LemonButton--status-#{$status} {
             color: var(--#{$status}, var(--primary));
 
-            &:not(:disabled):hover,
+            &:not(.LemonButton--disabled):hover,
             &.LemonButton--active {
                 background: var(--#{$status}-highlight, var(--primary-highlight));
             }
-            &:not(:disabled):active {
+            &:not(.LemonButton--disabled):active {
                 color: var(--#{$status}-dark, var(--primary-dark));
-                .LemonIcon {
+                .LemonButton__icon {
                     color: var(--#{$status}-dark, var(--primary-dark));
                 }
             }
@@ -167,7 +176,7 @@
                     color: var(--white);
                 }
 
-                &:not(:disabled):hover,
+                &:not(.LemonButton--disabled):hover,
                 &.LemonButton--active {
                     color: var(--white);
                     background: var(--#{$status}-light, var(--#{$status}));
@@ -175,7 +184,7 @@
                         color: var(--white);
                     }
                 }
-                &:not(:disabled):active {
+                &:not(.LemonButton--disabled):active {
                     background: var(--#{$status}-dark, var(--#{$status}));
                     color: var(--white);
                     .LemonButton__icon {
@@ -189,14 +198,14 @@
                 background: var(--bg-light);
                 border: 1px solid var(--border);
 
-                &:not(:disabled):hover,
+                &:not(.LemonButton--disabled):hover,
                 &.LemonButton--active,
-                &:not(:disabled):active {
+                &:not(.LemonButton--disabled):active {
                     background: var(--#{$status}-highlight, var(--primary-highlight));
                     border-color: var(--#{$status});
                 }
 
-                &:not(:disabled):active {
+                &:not(.LemonButton--disabled):active {
                     border-color: var(--#{$status}-dark, var(--status));
                 }
             }
@@ -229,7 +238,7 @@
         &.LemonButton--status-primary {
             &:hover {
                 // NOTE: this is a rare case where we specify a unique hover style. Only primary status is supported
-                background: var(--primary-button-nested-hover);
+                background: var(--primary-extralight);
             }
         }
     }

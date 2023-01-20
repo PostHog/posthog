@@ -2,15 +2,14 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-import posthoganalytics
 import structlog
 from django.conf import settings
 from django.contrib.auth.tokens import default_token_generator
 from django.utils import timezone
 
 from posthog.celery import app
+from posthog.cloud_utils import is_cloud
 from posthog.email import EmailMessage, is_email_available
-from posthog.event_usage import report_first_ingestion_reminder_email_sent, report_second_ingestion_reminder_email_sent
 from posthog.models import Organization, OrganizationInvite, OrganizationMembership, Plugin, PluginConfig, Team, User
 
 logger = structlog.get_logger(__name__)
@@ -65,15 +64,15 @@ def send_member_join(invitee_uuid: str, organization_id: str) -> None:
 @app.task(max_retries=1)
 def send_password_reset(user_id: int) -> None:
     user = User.objects.get(pk=user_id)
-    token = default_token_generator.make_token(user)
+    password_reset_token = default_token_generator.make_token(user)
     message = EmailMessage(
         campaign_key=f"password-reset-{user.uuid}-{timezone.now().timestamp()}",
         subject=f"Reset your PostHog password",
         template_name="password_reset",
         template_context={
             "preheader": "Please follow the link inside to reset your password.",
-            "link": f"/reset/{user.uuid}/{token}",
-            "cloud": settings.MULTI_TENANCY,
+            "link": f"/reset/{user.uuid}/{password_reset_token}",
+            "cloud": is_cloud(),
             "site_url": settings.SITE_URL,
             "social_providers": list(user.social_auth.values_list("provider", flat=True)),
         },
@@ -188,55 +187,3 @@ def get_users_for_orgs_with_no_ingested_events(org_created_from: datetime, org_c
         if not have_ingested:
             users.extend(organization.members.all())
     return users
-
-
-@app.task(max_retries=1)
-def send_first_ingestion_reminder_emails() -> None:
-    if is_email_available():
-        one_day_ago = timezone.now() - timezone.timedelta(days=1)
-        two_days_ago = timezone.now() - timezone.timedelta(days=2)
-        users_to_email = get_users_for_orgs_with_no_ingested_events(
-            org_created_from=two_days_ago, org_created_to=one_day_ago
-        )
-
-        campaign_key = "first_ingestion_reminder"
-
-        for user in users_to_email:
-            if posthoganalytics.feature_enabled("re-engagement-emails", user.distinct_id):
-                message = EmailMessage(
-                    campaign_key=campaign_key,
-                    subject="Get started: How to send events to PostHog",
-                    reply_to="hey@posthog.com",
-                    template_name="first_ingestion_reminder",
-                    template_context={"first_name": user.first_name},
-                )
-
-                message.add_recipient(user.email)
-                message.send()
-                report_first_ingestion_reminder_email_sent(user)
-
-
-@app.task(max_retries=1)
-def send_second_ingestion_reminder_emails() -> None:
-    if is_email_available():
-        four_days_ago = timezone.now() - timezone.timedelta(days=4)
-        five_days_ago = timezone.now() - timezone.timedelta(days=5)
-        users_to_email = get_users_for_orgs_with_no_ingested_events(
-            org_created_from=five_days_ago, org_created_to=four_days_ago
-        )
-
-        campaign_key = "second_ingestion_reminder"
-
-        for user in users_to_email:
-            if posthoganalytics.feature_enabled("re-engagement-emails", user.distinct_id):
-                message = EmailMessage(
-                    campaign_key=campaign_key,
-                    subject="Your PostHog project is waiting for events",
-                    reply_to="hey@posthog.com",
-                    template_name="second_ingestion_reminder",
-                    template_context={"first_name": user.first_name},
-                )
-
-                message.add_recipient(user.email)
-                message.send()
-                report_second_ingestion_reminder_email_sent(user)

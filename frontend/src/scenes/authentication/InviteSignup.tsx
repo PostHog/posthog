@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { inviteSignupLogic, ErrorCodes } from './inviteSignupLogic'
-import './InviteSignup.scss'
 import { userLogic } from 'scenes/userLogic'
 import { PrevalidatedInvite } from '~/types'
 import { Link } from 'lib/components/Link'
@@ -18,6 +16,7 @@ import PasswordStrength from 'lib/components/PasswordStrength'
 import clsx from 'clsx'
 import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 
 export const scene: SceneExport = {
     component: InviteSignup,
@@ -112,7 +111,7 @@ function ErrorView(): JSX.Element | null {
     }
 
     return (
-        <BridgePage view="signup-error" message="Oops!">
+        <BridgePage view="signup-error" hedgehog message="Oops!">
             <h2>{ErrorMessages[error.code].title}</h2>
             <div className="error-message">{ErrorMessages[error.code].detail}</div>
             <LemonDivider dashed className="my-4" />
@@ -127,7 +126,7 @@ function AuthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite }): 
     const { acceptedInviteLoading, acceptedInvite } = useValues(inviteSignupLogic)
 
     return (
-        <BridgePage view={'accept-invite'} message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}>
+        <BridgePage view={'accept-invite'} hedgehog message={user?.first_name ? `Hey ${user?.first_name}!` : 'Hello!'}>
             <div className="space-y-2">
                 <h2>You have been invited to join {invite.organization_name}</h2>
                 <div>
@@ -191,23 +190,25 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
     return (
         <BridgePage
             view={'invites-signup'}
+            hedgehog
             message={
                 <>
                     Welcome to
                     <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
                 </>
             }
-        >
-            <div className="InviteSignupSummary">
-                <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
-                    <span>You've been invited to join</span>
-                    <span className="text-4xl font-bold border-b border-dashed pb-2">
-                        {invite?.organization_name || 'us'}
-                    </span>
-                    <span>on PostHog</span>
+            leftContainerContent={
+                <div className="mb-8 text-muted">
+                    <div className="font-semibold flex flex-col gap-2 text-center items-center text-lg">
+                        <span>You've been invited to join</span>
+                        <span className="text-4xl font-bold border-b border-dashed pb-2">
+                            {invite?.organization_name || 'us'}
+                        </span>
+                        <span>on PostHog</span>
+                    </div>
                 </div>
-            </div>
-
+            }
+        >
             <h2 className="text-center">Create your PostHog account</h2>
             <Form logic={inviteSignupLogic} formKey="signup" className="space-y-4" enableFormOnSubmit>
                 <PureField label="Email">
@@ -244,6 +245,8 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 >
                     <LemonInput data-attr="first_name" placeholder="Jane" />
                 </Field>
+
+                <SignupRoleSelect />
 
                 <Field name="email_opt_in">
                     {({ value, onChange }) => {
@@ -287,6 +290,7 @@ function UnauthenticatedAcceptInvite({ invite }: { invite: PrevalidatedInvite })
                 className="mb-4"
                 title="Or sign in with"
                 caption={`Remember to log in with ${invite?.target_email}`}
+                captionLocation="bottom"
                 topDivider
                 queryString={invite ? `?invite_id=${invite.id}` : ''}
             />

@@ -25,6 +25,10 @@ Array [
       "pluginConfigId": 39,
       "teamId": 2,
     },
+    Object {
+      "error": [RetryError: Retry error],
+      "eventCount": 3,
+    },
   ],
 ]
 `;
@@ -38,6 +42,10 @@ Array [
       "jobId": "1",
       "pluginConfigId": 39,
       "teamId": 2,
+    },
+    Object {
+      "error": [Error: Unknown error],
+      "eventCount": 3,
     },
   ],
 ]

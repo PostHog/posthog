@@ -5,6 +5,8 @@ class DeletionType(models.IntegerChoices):
     Team = 0
     Person = 1
     Group = 2
+    Cohort_stale = 3
+    Cohort_full = 4
 
 
 # This model represents deletions that should delete (other, unrelated) data async
@@ -28,7 +30,9 @@ class AsyncDeletion(models.Model):
     # Should be one of the DeletionType enum
     deletion_type: models.PositiveSmallIntegerField = models.PositiveSmallIntegerField(null=False, blank=False)
 
-    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+    # Team whose data shall be deleted. This is not a foreign key, because we still need this value
+    # when the team is gone (we are talking about _async_ deletions after all)
+    team_id: models.IntegerField = models.IntegerField()
 
     # id for team (same as team_id column), uuid for person, key for group
     key: models.CharField = models.CharField(max_length=400, null=False, blank=False)

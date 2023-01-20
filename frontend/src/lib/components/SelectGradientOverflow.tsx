@@ -1,4 +1,4 @@
-import React, { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
+import { ReactElement, RefObject, useEffect, useRef, useState } from 'react'
 import { ConfigProvider, Empty, Select, Tag } from 'antd'
 import { RefSelectProps, SelectProps } from 'antd/lib/select'
 import { CloseButton } from './CloseButton'

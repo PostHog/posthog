@@ -9,6 +9,7 @@ from posthog.queries.funnels.sql import FUNNEL_PERSONS_BY_STEP_SQL
 
 class ClickhouseFunnelActors(ClickhouseFunnel, ActorBaseQuery):
     _filter: Filter
+    QUERY_TYPE = "funnel_actors"
 
     @cached_property
     def aggregation_group_type_index(self):

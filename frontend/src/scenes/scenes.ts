@@ -1,9 +1,9 @@
-import { Params, Scene, SceneConfig, LoadedScene } from 'scenes/sceneTypes'
+import { LoadedScene, Params, Scene, SceneConfig } from 'scenes/sceneTypes'
 import { Error404 as Error404Component } from '~/layout/Error404'
 import { ErrorNetwork as ErrorNetworkComponent } from '~/layout/ErrorNetwork'
 import { ErrorProjectUnavailable as ErrorProjectUnavailableComponent } from '~/layout/ErrorProjectUnavailable'
 import { urls } from 'scenes/urls'
-import { InsightShortId } from '~/types'
+import { InsightShortId, SessionRecordingsTabs } from '~/types'
 
 export const emptySceneParams = { params: {}, searchParams: {}, hashParams: {} }
 
@@ -86,6 +86,14 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
         projectBased: true,
         name: 'Recordings',
     },
+    [Scene.SessionRecording]: {
+        projectBased: true,
+        name: 'Recordings',
+    },
+    [Scene.SessionRecordingPlaylist]: {
+        projectBased: true,
+        name: 'Recordings Playlist',
+    },
     [Scene.Person]: {
         projectBased: true,
         name: 'Person',
@@ -132,6 +140,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.FrontendAppScene]: {
         projectBased: true,
         name: 'App',
+    },
+    [Scene.AppMetrics]: {
+        projectBased: true,
+        name: 'Apps',
     },
     [Scene.SavedInsights]: {
         projectBased: true,
@@ -226,9 +238,15 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     [Scene.Unsubscribe]: {
         allowUnauthenticated: true,
     },
+    [Scene.Query]: {
+        projectBased: true,
+    },
 }
 
-export const redirects: Record<string, string | ((params: Params) => string)> = {
+export const redirects: Record<
+    string,
+    string | ((params: Params, searchParams: Params, hashParams: Params) => string)
+> = {
     '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
@@ -244,6 +262,13 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     '/events/properties': urls.eventPropertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.eventPropertyDefinition(id),
+    '/recordings': (_params, _searchParams, hashParams) => {
+        if (hashParams.sessionRecordingId) {
+            // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
+            return urls.sessionRecording(hashParams.sessionRecordingId)
+        }
+        return urls.sessionRecordings()
+    },
 }
 
 export const routes: Record<string, Scene> = {
@@ -272,6 +297,13 @@ export const routes: Record<string, Scene> = {
     [urls.webPerformance()]: Scene.WebPerformance,
     [urls.webPerformance() + '/*']: Scene.WebPerformance,
     [urls.sessionRecordings()]: Scene.SessionRecordings,
+    // One entry for every available tab
+    ...Object.values(SessionRecordingsTabs).reduce((acc, tab) => {
+        acc[urls.sessionRecordings(tab)] = Scene.SessionRecordings
+        return acc
+    }, {} as Record<string, Scene>),
+    [urls.sessionRecording(':id')]: Scene.SessionRecording,
+    [urls.sessionRecordingPlaylist(':id')]: Scene.SessionRecordingPlaylist,
     [urls.person('*', false)]: Scene.Person,
     [urls.persons()]: Scene.Persons,
     [urls.groups(':groupTypeIndex')]: Scene.Groups,
@@ -286,7 +318,13 @@ export const routes: Record<string, Scene> = {
     [urls.projectHomepage()]: Scene.ProjectHomepage,
     [urls.projectSettings()]: Scene.ProjectSettings,
     [urls.projectApps()]: Scene.Plugins,
+    [urls.projectApp(':id')]: Scene.Plugins,
+    [urls.projectAppLogs(':id')]: Scene.Plugins,
+    [urls.projectAppSource(':id')]: Scene.Plugins,
     [urls.frontendApp(':id')]: Scene.FrontendAppScene,
+    [urls.appMetrics(':pluginConfigId')]: Scene.AppMetrics,
+    [urls.appHistoricalExports(':pluginConfigId')]: Scene.AppMetrics,
+    [urls.appHistory(':pluginConfigId')]: Scene.AppMetrics,
     [urls.projectCreateFirst()]: Scene.ProjectCreateFirst,
     [urls.organizationSettings()]: Scene.OrganizationSettings,
     [urls.organizationBilling()]: Scene.Billing,
@@ -317,4 +355,5 @@ export const routes: Record<string, Scene> = {
     [urls.ingestion() + '/*']: Scene.Ingestion,
     [urls.unsubscribe()]: Scene.Unsubscribe,
     [urls.integrationsRedirect(':kind')]: Scene.IntegrationsRedirect,
+    [urls.query()]: Scene.Query,
 }

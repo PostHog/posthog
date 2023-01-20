@@ -1,11 +1,11 @@
 import json
-from uuid import uuid4
+from datetime import datetime
 
 from freezegun import freeze_time
 
 from posthog.constants import ENTITY_ID, ENTITY_MATH, ENTITY_TYPE, TRENDS_CUMULATIVE
 from posthog.models import Action, ActionStep, Cohort, Organization
-from posthog.models.session_recording_event.util import create_session_recording_event
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -30,18 +30,6 @@ def _create_cohort(**kwargs):
     groups = kwargs.pop("groups")
     cohort = Cohort.objects.create(team=team, name=name, groups=groups)
     return cohort
-
-
-def _create_session_recording_event(team_id, distinct_id, session_id, timestamp, window_id="", has_full_snapshot=True):
-    create_session_recording_event(
-        uuid=uuid4(),
-        team_id=team_id,
-        distinct_id=distinct_id,
-        timestamp=timestamp,
-        session_id=session_id,
-        window_id=window_id,
-        snapshot_data={"has_full_snapshot": has_full_snapshot},
-    )
 
 
 class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
@@ -200,7 +188,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 14:00:00",
-                "date_to": "2020-01-04 14:00:00",
+                "date_to": "2020-01-04 14:59:59",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -210,7 +198,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 14:00:00",
-                "date_to": "2020-01-04 14:00:00",
+                "date_to": "2020-01-04 14:59:59",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
@@ -225,7 +213,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 16:00:00",
-                "date_to": "2020-01-04 16:00:00",
+                "date_to": "2020-01-04 16:59:59",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -235,7 +223,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "hour",
                 "date_from": "2020-01-04 16:00:00",
-                "date_to": "2020-01-04 16:00:00",
+                "date_to": "2020-01-04 16:59:59",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
@@ -262,7 +250,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-04",
-                "date_to": "2020-01-04",
+                "date_to": "2020-01-04 23:59:59",
                 ENTITY_TYPE: "actions",
                 "interval": "day",
                 ENTITY_ID: sign_up_action.id,
@@ -272,7 +260,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-04",
-                "date_to": "2020-01-04",
+                "date_to": "2020-01-04 23:59:59",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
                 "interval": "day",
@@ -298,7 +286,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-03",
-                "date_to": "2020-01-04",
+                "date_to": "2020-01-04 23:59:59",
                 ENTITY_TYPE: "actions",
                 "interval": "day",
                 ENTITY_ID: sign_up_action.id,
@@ -309,7 +297,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             f"/api/projects/{self.team.id}/persons/trends/",
             data={
                 "date_from": "2020-01-03",
-                "date_to": "2020-01-04",
+                "date_to": "2020-01-04 23:59:59",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
                 "interval": "day",
@@ -337,7 +325,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "week",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
+                "date_to": "2019-11-07",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -347,7 +335,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "week",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
+                "date_to": "2019-11-07",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
@@ -376,7 +364,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "month",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
+                "date_to": "2019-11-30",
                 ENTITY_TYPE: "actions",
                 ENTITY_ID: sign_up_action.id,
             },
@@ -386,7 +374,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             data={
                 "interval": "month",
                 "date_from": "2019-11-01",
-                "date_to": "2019-11-01",
+                "date_to": "2019-11-30",
                 ENTITY_TYPE: "events",
                 ENTITY_ID: "sign up",
             },
@@ -400,7 +388,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             month_group_action_response["results"], month_group_grevent_response["results"], remove=[]
         )
 
-    def test_interval_rounding(self):
+    def test_legacy_interval_rounding(self):
         pass
 
     def _create_multiple_people(self):
@@ -490,6 +478,27 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(resp), 6)  # header, 4 people, empty line
         self.assertEqual(resp[1], "Distinct ID,Email,Internal ID,Name,Properties.name")
         self.assertEqual(resp[2].split(",")[0], "person1")
+
+    def test_people_csv_returns_400_on_no_entity_id_provided(self):
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/actions/people",
+            data={
+                "date_from": "2020-01-01",
+                "date_to": "2020-01-07",
+                # Here we don't provide an entity_id or entity_type, which are
+                # required
+            },
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            json.loads(response.content),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "An entity id and the entity type must be provided to determine an entity",
+                "attr": None,
+            },
+        )
 
     def test_breakdown_by_cohort_people_endpoint(self):
         person1, _, _, _ = self._create_multiple_people()
@@ -807,7 +816,7 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
             timestamp="2020-01-09T12:00:00Z",
             properties={"$session_id": "s1", "$window_id": "w1"},
         )
-        _create_session_recording_event(self.team.pk, "u1", "s1", timestamp="2020-01-09T12:00:00Z")
+        create_session_recording_events(self.team.pk, datetime(2020, 1, 9, 12), "u1", "s1")
 
         people = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
@@ -867,7 +876,10 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
         people = self.client.get(f"/api/projects/{self.team.id}/persons/trends/", data=params).json()
         assert len(people["results"][0]["people"]) == 1
 
-    def _test_interval(self, date_from, interval, timestamps):
+    def _test_legacy_interval(self, date_from, interval, timestamps):
+        # Previously actors URLs for time series data points were sent with `date_from == date_to` and it was
+        # the persons/groups endpoint's responsibility to obtain `date_to` by offsetting `date_from` by `interval`.
+        # This is no longer the case, but retaining checks for backwards compatibility.
         for index, ts in enumerate(timestamps):
             _create_person(team_id=self.team.pk, distinct_ids=[f"person{index}"])
             _create_event(
@@ -880,36 +892,42 @@ class TestPersonTrends(ClickhouseTestMixin, APIBaseTest):
 
         people = self.client.get(
             f"/api/projects/{self.team.id}/persons/trends/",
-            data={"interval": interval, "date_from": date_from, ENTITY_TYPE: "events", ENTITY_ID: "watched movie"},
+            data={
+                "interval": interval,
+                "date_from": date_from,
+                "date_to": date_from,
+                ENTITY_TYPE: "events",
+                ENTITY_ID: "watched movie",
+            },
         ).json()
 
         self.assertCountEqual(
             [person["distinct_ids"][0] for person in people["results"][0]["people"]], ["person1", "person2"]
         )
 
-    def test_interval_month(self):
-        self._test_interval(
+    def test_legacy_interval_month(self):
+        self._test_legacy_interval(
             date_from="2021-08-01T00:00:00Z",
             interval="month",
             timestamps=["2021-07-31T23:45:00Z", "2021-08-01T00:12:00Z", "2021-08-31T22:40:00Z", "2021-09-01T00:00:10Z"],
         )
 
-    def test_interval_week(self):
-        self._test_interval(
+    def test_legacy_interval_week(self):
+        self._test_legacy_interval(
             date_from="2021-09-05T00:00:00Z",
             interval="week",
             timestamps=["2021-09-04T23:45:00Z", "2021-09-05T00:12:00Z", "2021-09-11T22:40:00Z", "2021-09-12T00:00:10Z"],
         )
 
-    def test_interval_day(self):
-        self._test_interval(
+    def test_legacy_interval_day(self):
+        self._test_legacy_interval(
             date_from="2021-09-05T00:00:00Z",
             interval="day",
             timestamps=["2021-09-04T23:45:00Z", "2021-09-05T00:12:00Z", "2021-09-05T22:40:00Z", "2021-09-06T00:00:10Z"],
         )
 
-    def test_interval_hour(self):
-        self._test_interval(
+    def test_legacy_interval_hour(self):
+        self._test_legacy_interval(
             date_from="2021-09-05T16:00:00Z",
             interval="hour",
             timestamps=["2021-09-05T15:45:00Z", "2021-09-05T16:01:12Z", "2021-09-05T16:58:00Z", "2021-09-05T17:00:10Z"],

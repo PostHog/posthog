@@ -1,6 +1,5 @@
 import { Button, Card, Col, Row, Space, Tag } from 'antd'
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import { pluginsLogic } from 'scenes/plugins/pluginsLogic'
 import { PluginConfigType, PluginErrorType } from '~/types'
 import {
@@ -14,22 +13,26 @@ import {
     DownOutlined,
     GlobalOutlined,
     ClockCircleOutlined,
+    LineChartOutlined,
 } from '@ant-design/icons'
 import { PluginImage } from './PluginImage'
 import { PluginError } from './PluginError'
 import { LocalPluginTag } from './LocalPluginTag'
 import { PluginInstallationType, PluginTypeWithConfig } from 'scenes/plugins/types'
 import { SourcePluginTag } from './SourcePluginTag'
-import { CommunityPluginTag } from './CommunityPluginTag'
 import { UpdateAvailable } from 'scenes/plugins/plugin/UpdateAvailable'
 import { userLogic } from 'scenes/userLogic'
-import { endWithPunctation } from '../../../lib/utils'
+import { endWithPunctation } from 'lib/utils'
 import { canInstallPlugins } from '../access'
 import { PluginUpdateButton } from './PluginUpdateButton'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { PluginsAccessLevel } from 'lib/constants'
+import { urls } from 'scenes/urls'
+import { SuccessRateBadge } from './SuccessRateBadge'
+import clsx from 'clsx'
+import { CommunityTag } from 'lib/CommunityTag'
 
 export function PluginAboutButton({ url, disabled = false }: { url: string; disabled?: boolean }): JSX.Element {
     return (
@@ -73,6 +76,7 @@ export function PluginCard({
         name,
         description,
         url,
+        icon,
         plugin_type: pluginType,
         pluginConfig,
         tag,
@@ -85,16 +89,10 @@ export function PluginCard({
         organization_name,
     } = plugin
 
-    const {
-        editPlugin,
-        toggleEnabled,
-        installPlugin,
-        resetPluginConfigError,
-        rearrange,
-        showPluginLogs,
-        showPluginHistory,
-    } = useActions(pluginsLogic)
-    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer } = useValues(pluginsLogic)
+    const { editPlugin, toggleEnabled, installPlugin, resetPluginConfigError, rearrange, showPluginLogs } =
+        useActions(pluginsLogic)
+    const { loading, installingPluginUrl, checkingForUpdates, pluginUrlToMaintainer, showAppMetricsForPlugin } =
+        useValues(pluginsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { user } = useValues(userLogic)
 
@@ -111,7 +109,7 @@ export function PluginCard({
                 <Row align="middle" className="plugin-card-row">
                     {typeof order === 'number' && typeof maxOrder === 'number' ? (
                         <DragColumn>
-                            <div className={`arrow${order === 1 ? ' hide' : ''}`}>
+                            <div className={clsx('arrow', order === 1 && 'invisible')}>
                                 <DownOutlined />
                             </div>
                             <div>
@@ -119,7 +117,7 @@ export function PluginCard({
                                     {order}
                                 </Tag>
                             </div>
-                            <div className={`arrow${order === maxOrder ? ' hide' : ''}`}>
+                            <div className={clsx('arrow', order === maxOrder && 'invisible')}>
                                 <DownOutlined />
                             </div>
                         </DragColumn>
@@ -149,14 +147,20 @@ export function PluginCard({
                         </Col>
                     )}
                     <Col className={pluginConfig ? 'hide-plugin-image-below-500' : ''}>
-                        <PluginImage pluginType={pluginType} url={url} />
+                        <PluginImage pluginType={pluginType} icon={icon} url={url} />
                     </Col>
                     <Col style={{ flex: 1 }}>
-                        <div>
-                            <strong style={{ marginRight: 8 }}>{name}</strong>
-                            {hasSpecifiedMaintainer && (
-                                <CommunityPluginTag isCommunity={pluginMaintainer === 'community'} />
-                            )}
+                        <div className="flex items-center">
+                            <strong className="flex items-center mr-2 gap-1">
+                                {showAppMetricsForPlugin(plugin) && pluginConfig?.id && (
+                                    <SuccessRateBadge
+                                        deliveryRate={pluginConfig.delivery_rate_24h ?? null}
+                                        pluginConfigId={pluginConfig.id}
+                                    />
+                                )}
+                                {name}
+                            </strong>
+                            {hasSpecifiedMaintainer && <CommunityTag isCommunity={pluginMaintainer === 'community'} />}
                             {pluginConfig?.error ? (
                                 <PluginError
                                     error={pluginConfig.error}
@@ -214,16 +218,32 @@ export function PluginCard({
                                 />
                             ) : pluginId ? (
                                 <>
-                                    <Tooltip title="Activity history">
-                                        <Button
-                                            className="padding-under-500"
-                                            disabled={rearranging}
-                                            onClick={() => showPluginHistory(pluginId)}
-                                            data-attr="plugin-history"
-                                        >
-                                            <ClockCircleOutlined />
-                                        </Button>
-                                    </Tooltip>
+                                    {showAppMetricsForPlugin(plugin) && pluginConfig?.id ? (
+                                        <Tooltip title="App metrics">
+                                            <Button
+                                                className="padding-under-500"
+                                                disabled={rearranging}
+                                                data-attr="app-metrics"
+                                            >
+                                                <Link to={urls.appMetrics(pluginConfig.id)}>
+                                                    <LineChartOutlined />
+                                                </Link>
+                                            </Button>
+                                        </Tooltip>
+                                    ) : null}
+                                    {pluginConfig?.id ? (
+                                        <Tooltip title="Activity history">
+                                            <Button
+                                                className="padding-under-500"
+                                                disabled={rearranging}
+                                                data-attr="plugin-history"
+                                            >
+                                                <Link to={urls.appHistory(pluginConfig.id)}>
+                                                    <ClockCircleOutlined />
+                                                </Link>
+                                            </Button>
+                                        </Tooltip>
+                                    ) : null}
                                     <Tooltip
                                         title={
                                             pluginConfig?.id

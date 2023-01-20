@@ -1,4 +1,3 @@
-import React from 'react'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { personPropertiesModel } from '~/models/personPropertiesModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -9,6 +8,7 @@ import { useMountedLogic } from 'kea'
 export default {
     title: 'Filters',
     decorators: [taxonomicFilterMocksDecorator],
+    parameters: { chromatic: { disableSnapshot: false } },
 }
 
 export function TaxonomicFilter_(): JSX.Element {

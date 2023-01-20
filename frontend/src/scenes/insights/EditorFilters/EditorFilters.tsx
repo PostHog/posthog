@@ -5,17 +5,15 @@ import {
     InsightEditorFilter,
     InsightEditorFilterGroup,
     InsightLogicProps,
-    InsightType,
 } from '~/types'
 import { CSSTransition } from 'react-transition-group'
 import { TrendsSeries, TrendsSeriesLabel } from 'scenes/insights/EditorFilters/TrendsSeries'
 import { FEATURE_FLAGS, NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { TrendsGlobalAndOrFilters } from 'scenes/insights/EditorFilters/TrendsGlobalAndOrFilters'
+import { GlobalAndOrFilters } from 'scenes/insights/EditorFilters/GlobalAndOrFilters'
 import { TrendsFormula, TrendsFormulaLabel } from 'scenes/insights/EditorFilters/TrendsFormula'
-import { TrendsBreakdown } from 'scenes/insights/EditorFilters/TrendsBreakdown'
+import { Breakdown } from 'scenes/insights/EditorFilters/Breakdown'
 import { LifecycleToggles } from 'scenes/insights/EditorFilters/LifecycleToggles'
 import { LifecycleGlobalFilters } from 'scenes/insights/EditorFilters/LifecycleGlobalFilters'
-import React from 'react'
 import { RetentionSummary } from './RetentionSummary'
 import { PathsEventTypes } from './PathsEventTypes'
 import { PathsWildcardGroups } from './PathsWildcardGroups'
@@ -30,12 +28,19 @@ import { userLogic } from 'scenes/userLogic'
 import { insightLogic } from '../insightLogic'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { PathsAdvancedPaywall } from './PathsAdvancedPaywall'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { InsightTypeSelector } from './InsightTypeSelector'
 import './EditorFilters.scss'
 import clsx from 'clsx'
 import { Attribution } from './AttributionFilter'
+import {
+    isFunnelsFilter,
+    isLifecycleFilter,
+    isPathsFilter,
+    isRetentionFilter,
+    isStickinessFilter,
+    isTrendsFilter,
+} from 'scenes/insights/sharedUtils'
+import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 
 export interface EditorFiltersProps {
     insightProps: InsightLogicProps
@@ -48,32 +53,31 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
 
     const logic = insightLogic(insightProps)
     const { filters, insight, filterPropertiesCount } = useValues(logic)
-    const { preflight } = useValues(preflightLogic)
 
     const { advancedOptionsUsedCount } = useValues(funnelLogic(insightProps))
 
     const { featureFlags } = useValues(featureFlagLogic)
     const usingEditorPanels = featureFlags[FEATURE_FLAGS.INSIGHT_EDITOR_PANELS]
 
-    const isTrends = !filters.insight || filters.insight === InsightType.TRENDS
-    const isLifecycle = filters.insight === InsightType.LIFECYCLE
-    const isStickiness = filters.insight === InsightType.STICKINESS
-    const isRetention = filters.insight === InsightType.RETENTION
-    const isPaths = filters.insight === InsightType.PATHS
-    const isFunnels = filters.insight === InsightType.FUNNELS
+    const isTrends = isTrendsFilter(filters)
+    const isLifecycle = isLifecycleFilter(filters)
+    const isStickiness = isStickinessFilter(filters)
+    const isRetention = isRetentionFilter(filters)
+    const isPaths = isPathsFilter(filters)
+    const isFunnels = isFunnelsFilter(filters)
     const isTrendsLike = isTrends || isLifecycle || isStickiness
 
     const hasBreakdown =
         (isTrends && !NON_BREAKDOWN_DISPLAY_TYPES.includes(filters.display || ChartDisplayType.ActionsLineGraph)) ||
         (isRetention &&
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
-            filters.display !== ChartDisplayType.ActionsLineGraph) ||
+            (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
     const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
-    const advancedOptionsCount = advancedOptionsUsedCount + (filters.formula ? 1 : 0)
+    const advancedOptionsCount = advancedOptionsUsedCount + (isTrends && filters.formula ? 1 : 0)
     const advancedOptionsExpanded = !!advancedOptionsCount
 
     const editorFilters: InsightEditorFilterGroup[] = [
@@ -174,12 +178,12 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           component: LifecycleToggles,
                       }
                     : null,
-                hasPropertyFilters && filters.properties
+                hasPropertyFilters
                     ? {
                           key: 'properties',
                           label: !usingEditorPanels ? 'Filters' : undefined,
                           position: 'right',
-                          component: TrendsGlobalAndOrFilters,
+                          component: GlobalAndOrFilters,
                       }
                     : null,
             ]),
@@ -201,7 +205,7 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                                   give you the event volume for each URL your users have visited.
                               </>
                           ),
-                          component: TrendsBreakdown,
+                          component: Breakdown,
                       }
                     : null,
                 hasAttribution
@@ -250,18 +254,14 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             defaultExpanded: advancedOptionsExpanded,
             count: advancedOptionsCount,
             editorFilters: filterFalsy([
-                isPaths &&
-                    (hasPathsAdvanced
-                        ? {
-                              key: 'paths-advanced',
-                              component: PathsAdvanced,
-                          }
-                        : !preflight?.instance_preferences?.disable_paid_fs
-                        ? {
-                              key: 'paths-paywall',
-                              component: PathsAdvancedPaywall,
-                          }
-                        : undefined),
+                isPaths && {
+                    key: 'paths-advanced',
+                    component: (props) => (
+                        <PayGateMini feature={AvailableFeature.PATHS_ADVANCED}>
+                            <PathsAdvanced {...props} />
+                        </PayGateMini>
+                    ),
+                },
                 isFunnels && {
                     key: 'funnels-advanced',
                     component: FunnelsAdvanced,

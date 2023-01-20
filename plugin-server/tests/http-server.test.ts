@@ -40,10 +40,13 @@ describe('http server', () => {
                 { http: true }
             )
 
-            http.get(`http://localhost:${HTTP_SERVER_PORT}/_health`, (res) => {
-                const { statusCode } = res
-                expect(statusCode).toEqual(200)
-            })
+            await new Promise((resolve) =>
+                http.get(`http://localhost:${HTTP_SERVER_PORT}/_health`, (res) => {
+                    const { statusCode } = res
+                    expect(statusCode).toEqual(200)
+                    resolve(null)
+                })
+            )
 
             await pluginsServer.stop()
         })
@@ -65,10 +68,13 @@ describe('http server', () => {
                 { http: true, ingestion: true }
             )
 
-            http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
-                const { statusCode } = res
-                expect(statusCode).toEqual(200)
-            })
+            await new Promise((resolve) =>
+                http.get(`http://localhost:${HTTP_SERVER_PORT}/_ready`, (res) => {
+                    const { statusCode } = res
+                    expect(statusCode).toEqual(200)
+                    resolve(null)
+                })
+            )
 
             expect(pluginsServer.queue?.consumerReady).toBeTruthy()
             await pluginsServer.stop()

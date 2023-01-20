@@ -7,14 +7,37 @@ jobs:
         runs-on: ubuntu-latest
         if: github.event.pull_request.head.repo.full_name == github.repository # Don't run on forks
         steps:
-            - uses: actions/checkout@v2
+            - uses: actions/checkout@v3
               with:
                   fetch-depth: 0 # 👈 Required to retrieve git history (https://www.chromatic.com/docs/github-actions)
 
+            - name: Install pnpm
+              uses: pnpm/action-setup@v2
+              with:
+                  version: 7.x.x
+
+            - name: Set up Node.js
+              uses: actions/setup-node@v3
+              with:
+                  node-version: 18
+                  cache: pnpm
+
+            # there's no need to run chromatic on every commit,
+            # so we only run it if the frontend has changed
+            - uses: dorny/paths-filter@v2
+              id: changes
+              with:
+                  filters: |
+                      frontend:
+                        - 'frontend/**'
+                        - '.storybook/**'
+
             - name: Install dependencies and chromatic
-              run: yarn add --dev chromatic
+              if: steps.changes.outputs.frontend == 'true'
+              run: pnpm i -D chromatic
 
             - name: Publish to Chromatic
+              if: steps.changes.outputs.frontend == 'true'
               uses: chromaui/action@v1
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,3 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { useValues } from 'kea'
 import { frontendAppSceneLogic } from 'scenes/apps/frontendAppSceneLogic'

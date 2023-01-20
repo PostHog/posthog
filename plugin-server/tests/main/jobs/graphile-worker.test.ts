@@ -1,4 +1,4 @@
-import { GraphileWorker } from '../../../src/main/jobs/graphile-worker'
+import { GraphileWorker } from '../../../src/main/graphile-worker/graphile-worker'
 import { EnqueuedJob, Hub, JobName } from '../../../src/types'
 import { runRetriableFunction } from '../../../src/utils/retries'
 import { UUID } from '../../../src/utils/utils'

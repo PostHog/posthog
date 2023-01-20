@@ -1,6 +1,15 @@
 import { Meta, Story } from '@storybook/react'
-import React, { useState } from 'react'
-import { ChartDisplayType, FunnelVizType, InsightColor, InsightModel, InsightShortId, InsightType } from '~/types'
+import { useState } from 'react'
+import {
+    ChartDisplayType,
+    FunnelsFilterType,
+    FunnelVizType,
+    InsightColor,
+    InsightModel,
+    InsightShortId,
+    InsightType,
+    TrendsFilterType,
+} from '~/types'
 import { InsightCard as InsightCardComponent } from './index'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
 import { uuid } from 'lib/utils'
@@ -20,12 +29,10 @@ const EXAMPLE_TRENDS: InsightModel = {
         insight: InsightType.TRENDS,
         interval: 'day',
     },
-    filters_hash: 'cache_10242f26e25fd30ec2c9721e4f90a018',
     deleted: false,
     dashboards: [1],
     order: 0,
     last_refresh: '2021-12-14T12:57:57.125157Z',
-    refreshing: false,
     result: [
         {
             action: {
@@ -206,19 +213,16 @@ const EXAMPLE_FUNNEL: InsightModel = {
             },
         ],
         actions: [],
-        display: ChartDisplayType.FunnelViz,
         insight: InsightType.FUNNELS,
         interval: 'day',
         exclusions: [],
         properties: [],
         funnel_viz_type: FunnelVizType.Steps,
-    },
-    filters_hash: 'cache_efe341a46f090f397007fe97d8faf263',
+    } as FunnelsFilterType,
     order: 1,
     deleted: false,
     dashboards: [6],
     last_refresh: null,
-    refreshing: false,
     result: [
         {
             action_id: '$pageview',
@@ -279,6 +283,9 @@ const EXAMPLE_FUNNEL: InsightModel = {
 export default {
     title: 'Components/Cards/Insight Card',
     component: InsightCardComponent,
+    parameters: {
+        chromatic: { disableSnapshot: false },
+    },
     argTypes: {
         insightName: {
             control: { type: 'text' },
@@ -362,7 +369,10 @@ export const InsightCard: Story = (args) => {
             <InsightCardComponent
                 insight={{
                     ...EXAMPLE_TRENDS,
-                    filters: { ...EXAMPLE_TRENDS.filters, display: 'totally_wrong_display_type' as ChartDisplayType },
+                    filters: {
+                        ...EXAMPLE_TRENDS.filters,
+                        display: 'totally_wrong_display_type' as ChartDisplayType,
+                    } as TrendsFilterType,
                 }}
                 rename={() => {}}
                 duplicate={() => {}}

@@ -1,15 +1,14 @@
-import { GoogleOutlined, GithubOutlined, GitlabOutlined, KeyOutlined } from '@ant-design/icons'
-import React from 'react'
+import { GithubIcon, GitlabIcon, GoogleIcon, IconKey } from 'lib/components/icons'
 import { SSOProviders } from '~/types'
 
 export const SocialLoginIcon = (provider: SSOProviders): JSX.Element | undefined => {
     if (provider === 'google-oauth2') {
-        return <GoogleOutlined />
+        return <GoogleIcon />
     } else if (provider === 'github') {
-        return <GithubOutlined />
+        return <GithubIcon />
     } else if (provider === 'gitlab') {
-        return <GitlabOutlined />
+        return <GitlabIcon />
     } else if (provider === 'saml') {
-        return <KeyOutlined />
+        return <IconKey />
     }
 }

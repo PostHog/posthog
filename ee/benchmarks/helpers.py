@@ -16,6 +16,7 @@ django.setup()
 
 from ee.clickhouse.materialized_columns.columns import get_materialized_columns  # noqa: E402
 from posthog import client  # noqa: E402
+from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries  # noqa: E402
 from posthog.models.utils import UUIDT  # noqa: E402
 
 get_column = lambda rows, index: [row[index] for row in rows]
@@ -23,12 +24,12 @@ get_column = lambda rows, index: [row[index] for row in rows]
 
 def run_query(fn, *args):
     uuid = str(UUIDT())
-    client._request_information = {"kind": "benchmark", "id": f"{uuid}::${fn.__name__}"}
+    tag_queries(kind="benchmark", id=f"{uuid}::${fn.__name__}")
     try:
         fn(*args)
         return get_clickhouse_query_stats(uuid)
     finally:
-        client._request_information = None
+        reset_query_tags()
 
 
 def get_clickhouse_query_stats(uuid):

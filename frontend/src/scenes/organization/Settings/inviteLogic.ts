@@ -132,4 +132,11 @@ export const inviteLogic = kea<inviteLogicType>({
     events: ({ actions }) => ({
         afterMount: [actions.loadInvites],
     }),
+    urlToAction: ({ actions }) => ({
+        '*': (_, searchParams) => {
+            if (searchParams.invite_modal) {
+                actions.showInviteModal()
+            }
+        },
+    }),
 })

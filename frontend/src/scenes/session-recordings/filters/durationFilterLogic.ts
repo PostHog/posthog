@@ -1,6 +1,6 @@
 import { kea } from 'kea'
 import { convertSecondsToDuration } from 'lib/components/DurationPicker/DurationPicker'
-import { PropertyOperator, RecordingDurationFilter } from '~/types'
+import { PropertyFilterType, PropertyOperator, RecordingDurationFilter } from '~/types'
 import type { durationFilterLogicType } from './durationFilterLogicType'
 
 export enum TimeUnit {
@@ -74,7 +74,7 @@ export const durationFilterLogic = kea<durationFilterLogicType>({
             props.onChange({
                 operator: operator || values.operator,
                 value: value || values.value || 0,
-                type: 'recording',
+                type: PropertyFilterType.Recording,
                 key: 'duration',
             })
         }

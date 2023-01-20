@@ -1,5 +1,4 @@
 import './DefinitionPopup.scss'
-import React from 'react'
 import clsx from 'clsx'
 import { definitionPopupLogic, DefinitionPopupState } from 'lib/components/DefinitionPopup/definitionPopupLogic'
 import { useActions, useValues } from 'kea'
@@ -107,7 +106,7 @@ function DescriptionEmpty(): JSX.Element {
     return <div className="definition-popup-description empty">Add a description for this {singularType}</div>
 }
 
-function Example({ value }: { value: string }): JSX.Element {
+function Example({ value }: { value?: string }): JSX.Element {
     const { type } = useValues(definitionPopupLogic)
     let data: KeyMapping | null = null
 

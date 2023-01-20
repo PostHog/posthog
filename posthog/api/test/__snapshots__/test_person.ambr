@@ -37,7 +37,7 @@
          AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(person.properties, 'some_prop'), '^"|"$', ''))) )
   GROUP BY id
   HAVING max(is_deleted) = 0
-  AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, _timestamp), 'some_prop'), '^"|"$', '')))
+  AND (has(['some_value'], replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), 'some_prop'), '^"|"$', '')))
   ORDER BY max(created_at) DESC, id
   LIMIT 100
   '

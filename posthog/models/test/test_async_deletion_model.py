@@ -2,7 +2,8 @@ from uuid import UUID, uuid4
 
 from posthog.client import sync_execute
 from posthog.models import AsyncDeletion, DeletionType, Team, User
-from posthog.models.async_deletion.delete import mark_deletions_done, run_event_table_deletions
+from posthog.models.async_deletion.delete_cohorts import AsyncCohortDeletion
+from posthog.models.async_deletion.delete_events import AsyncEventDeletion
 from posthog.models.cohort.util import insert_static_cohort
 from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person, create_person_distinct_id
@@ -37,7 +38,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
         )
 
-        mark_deletions_done()
+        AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
         self.assertIsNotNone(deletion.delete_verified_at)
@@ -50,7 +51,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
         )
 
-        mark_deletions_done()
+        AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
         self.assertIsNone(deletion.delete_verified_at)
@@ -64,7 +65,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Person, team_id=self.teams[0].pk, key=str(uuid), created_by=self.user
         )
 
-        mark_deletions_done()
+        AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
         self.assertIsNotNone(deletion.delete_verified_at)
@@ -77,7 +78,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Person, team_id=self.teams[0].pk, key=str(uuid), created_by=self.user
         )
 
-        mark_deletions_done()
+        AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
         self.assertIsNone(deletion.delete_verified_at)
@@ -102,7 +103,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             created_by=self.user,
         )
 
-        mark_deletions_done()
+        AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
         self.assertIsNotNone(deletion.delete_verified_at)
@@ -121,7 +122,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             created_by=self.user,
         )
 
-        mark_deletions_done()
+        AsyncEventDeletion().mark_deletions_done()
 
         deletion.refresh_from_db()
         self.assertIsNone(deletion.delete_verified_at)
@@ -134,7 +135,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
         )
 
-        run_event_table_deletions()
+        AsyncEventDeletion().run()
 
         self.assertRowCount(0)
 
@@ -146,7 +147,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
         )
 
-        run_event_table_deletions()
+        AsyncEventDeletion().run()
 
         self.assertRowCount(1)
 
@@ -158,7 +159,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Person, team_id=self.teams[0].pk, key=str(uuid), created_by=self.user
         )
 
-        run_event_table_deletions()
+        AsyncEventDeletion().run()
 
         self.assertRowCount(0)
 
@@ -171,7 +172,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             deletion_type=DeletionType.Person, team_id=self.teams[0].pk, key=str(uuid), created_by=self.user
         )
 
-        run_event_table_deletions()
+        AsyncEventDeletion().run()
 
         self.assertRowCount(2)
 
@@ -189,7 +190,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             created_by=self.user,
         )
 
-        run_event_table_deletions()
+        AsyncEventDeletion().run()
 
         self.assertRowCount(0)
 
@@ -213,7 +214,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
             created_by=self.user,
         )
 
-        run_event_table_deletions()
+        AsyncEventDeletion().run()
 
         self.assertRowCount(3)
 
@@ -237,7 +238,7 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncDeletion.objects.create(
             deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
         )
-        run_event_table_deletions()
+        AsyncEventDeletion().run()
 
         self.assertRowCount(0, "person")
         self.assertRowCount(0, "person_distinct_id")
@@ -267,25 +268,51 @@ class TestAsyncDeletion(ClickhouseTestMixin, ClickhouseDestroyTablesMixin, BaseT
         AsyncDeletion.objects.create(
             deletion_type=DeletionType.Team, team_id=self.teams[0].pk, key=str(self.teams[0].pk), created_by=self.user
         )
-        run_event_table_deletions()
+        AsyncEventDeletion().run()
 
         self.assertRowCount(1, "person")
-        self.assertRowCount(1, "person_distinct_id")
         self.assertRowCount(1, "person_distinct_id2")
         self.assertRowCount(1, "groups")
         self.assertRowCount(1, "cohortpeople")
         self.assertRowCount(1, "person_static_cohort")
         self.assertRowCount(1, "plugin_log_entries")
 
+    @snapshot_clickhouse_queries
+    def test_delete_cohortpeople(self):
+        cohort_id = 3
+        team = self.teams[0]
+        self._insert_cohortpeople_row(team, uuid4(), cohort_id)
+
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Cohort_full, team_id=team.pk, key=str(cohort_id) + "_0", created_by=self.user
+        )
+        AsyncCohortDeletion().run()
+
+        self.assertRowCount(0, "cohortpeople")
+
+    @snapshot_clickhouse_queries
+    def test_delete_cohortpeople_version(self):
+        cohort_id = 3
+        team = self.teams[0]
+        self._insert_cohortpeople_row(team, uuid4(), cohort_id, 2)
+        self._insert_cohortpeople_row(team, uuid4(), cohort_id, 3)
+
+        AsyncDeletion.objects.create(
+            deletion_type=DeletionType.Cohort_stale, team_id=team.pk, key=str(cohort_id) + "_3", created_by=self.user
+        )
+        AsyncCohortDeletion().run()
+
+        self.assertRowCount(1, "cohortpeople")
+
     def assertRowCount(self, expected, table="events"):
         result = sync_execute(f"SELECT count() FROM {table}")[0][0]
         self.assertEqual(result, expected)
 
-    def _insert_cohortpeople_row(self, team: Team, person_id: UUID, cohort_id: int):
+    def _insert_cohortpeople_row(self, team: Team, person_id: UUID, cohort_id: int, version: int = 0):
         sync_execute(
             f"""
-            INSERT INTO cohortpeople (person_id, cohort_id, team_id, sign)
-            VALUES (%(person_id)s, %(cohort_id)s, %(team_id)s, 1)
+            INSERT INTO cohortpeople (person_id, cohort_id, team_id, sign, version)
+            VALUES (%(person_id)s, %(cohort_id)s, %(team_id)s, 1, %(version)s)
             """,
-            {"person_id": str(person_id), "cohort_id": cohort_id, "team_id": team.pk},
+            {"person_id": str(person_id), "cohort_id": cohort_id, "team_id": team.pk, "version": version},
         )

@@ -1,5 +1,4 @@
 import './CohortCriteriaRowBuilder.scss'
-import React from 'react'
 import { BehavioralFilterType, CohortFieldProps, Field, FilterType } from 'scenes/cohorts/CohortFilters/types'
 import { renderField, ROWS } from 'scenes/cohorts/CohortFilters/constants'
 import { Col, Divider, Row } from 'antd'

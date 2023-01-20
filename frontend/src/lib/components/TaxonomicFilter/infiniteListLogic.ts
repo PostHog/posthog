@@ -12,9 +12,13 @@ import {
     LoaderOptions,
     TaxonomicDefinitionTypes,
     TaxonomicFilterGroup,
+    TaxonomicFilterGroupType,
 } from 'lib/components/TaxonomicFilter/types'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
+import { getKeyMapping } from 'lib/components/PropertyKeyInfo'
+import { teamLogic } from '../../../scenes/teamLogic'
+import { captureTimeToSeeData } from '../../internalMetrics'
 
 /*
  by default the pop-up starts open for the first item in the list
@@ -87,6 +91,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         loadRemoteItems: (options: LoaderOptions) => options,
         updateRemoteItem: (item: TaxonomicDefinitionTypes) => ({ item }),
         expand: true,
+        abortAnyRunningQuery: true,
     },
 
     reducers: ({ props }) => ({
@@ -109,7 +114,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         isExpanded: [false, { expand: () => true }],
     }),
 
-    loaders: ({ values }) => ({
+    loaders: ({ actions, values, cache }) => ({
         remoteItems: [
             createEmptyListStorage('', true),
             {
@@ -123,7 +128,14 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         await breakpoint(1)
                     }
 
-                    const { isExpanded, remoteEndpoint, scopedRemoteEndpoint, searchQuery, excludedProperties } = values
+                    const {
+                        isExpanded,
+                        remoteEndpoint,
+                        scopedRemoteEndpoint,
+                        searchQuery,
+                        excludedProperties,
+                        listGroupType,
+                    } = values
 
                     if (!remoteEndpoint) {
                         // should not have been here in the first place!
@@ -136,6 +148,9 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                         offset,
                         excluded_properties: JSON.stringify(excludedProperties),
                     }
+
+                    const start = performance.now()
+                    actions.abortAnyRunningQuery()
 
                     const [response, expandedCountResponse] = await Promise.all([
                         // get the list of results
@@ -155,6 +170,17 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
                     breakpoint()
 
                     const queryChanged = values.items.searchQuery !== values.searchQuery
+
+                    await captureTimeToSeeData(teamLogic.values.currentTeamId, {
+                        type: 'properties_load',
+                        context: 'filters',
+                        action: listGroupType,
+                        primary_interaction_id: '',
+                        status: 'success',
+                        time_to_see_data_ms: Math.floor(performance.now() - start),
+                        api_response_bytes: 0,
+                    })
+                    cache.abortController = null
 
                     return {
                         results: appendAtIndex(
@@ -184,7 +210,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
     }),
 
-    listeners: ({ values, actions, props }) => ({
+    listeners: ({ values, actions, props, cache }) => ({
         onRowsRendered: ({ rowInfo: { startIndex, stopIndex, overscanStopIndex } }) => {
             if (values.isRemoteDataSource) {
                 let loadFrom: number | null = null
@@ -227,6 +253,12 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         expand: () => {
             actions.loadRemoteItems({ offset: values.index, limit: values.limit })
         },
+        abortAnyRunningQuery: () => {
+            if (cache.abortController) {
+                cache.abortController.abort()
+            }
+            cache.abortController = new AbortController()
+        },
     }),
 
     selectors: {
@@ -240,6 +272,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         remoteEndpoint: [(s) => [s.group], (group) => group?.endpoint || null],
         excludedProperties: [(s) => [s.group], (group) => group?.excludedProperties],
         scopedRemoteEndpoint: [(s) => [s.group], (group) => group?.scopedEndpoint || null],
+        hasRenderFunction: [(s) => [s.group], (group) => !!group?.render],
         isExpandable: [
             (s) => [s.remoteEndpoint, s.scopedRemoteEndpoint, s.remoteItems],
             (remoteEndpoint, scopedRemoteEndpoint, remoteItems) =>
@@ -276,17 +309,35 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
         ],
         fuse: [
             (s) => [s.rawLocalItems, s.group],
-            (rawLocalItems, group): ListFuse =>
-                new Fuse(
-                    (rawLocalItems || []).map((item) => ({
-                        name: group?.getName?.(item) || '',
-                        item: item,
-                    })),
-                    {
-                        keys: ['name'],
-                        threshold: 0.3,
+            (rawLocalItems, group): ListFuse => {
+                // maps e.g. "selector" to its display value "CSS Selector"
+                // so a search of "css" matches something
+                function asPostHogName(
+                    group: TaxonomicFilterGroup,
+                    item: EventDefinition | CohortType
+                ): string | undefined {
+                    const keyTypes = {
+                        [TaxonomicFilterGroupType.Events]: 'event',
+                        [TaxonomicFilterGroupType.EventProperties]: 'event',
+                        [TaxonomicFilterGroupType.PersonProperties]: 'event',
+                        [TaxonomicFilterGroupType.Elements]: 'element',
                     }
-                ),
+
+                    const propertyKeyType = keyTypes[group.type]
+                    return propertyKeyType ? getKeyMapping(group?.getName?.(item), propertyKeyType)?.label : undefined
+                }
+
+                const haystack = (rawLocalItems || []).map((item) => ({
+                    name: group?.getName?.(item) || '',
+                    posthogName: asPostHogName(group, item),
+                    item: item,
+                }))
+
+                return new Fuse(haystack, {
+                    keys: ['name', 'posthogName'],
+                    threshold: 0.3,
+                })
+            },
         ],
         localItems: [
             (s) => [s.rawLocalItems, s.searchQuery, s.fuse],
@@ -310,7 +361,10 @@ export const infiniteListLogic = kea<infiniteListLogicType>({
             (isRemoteDataSource, remoteItems, localItems) => (isRemoteDataSource ? remoteItems : localItems),
         ],
         totalResultCount: [(s) => [s.items], (items) => items.count || 0],
-        totalExtraCount: [(s) => [s.isExpandable], (isExpandable) => (isExpandable ? 1 : 0)],
+        totalExtraCount: [
+            (s) => [s.isExpandable, s.hasRenderFunction],
+            (isExpandable, hasRenderFunction) => (isExpandable ? 1 : 0) + (hasRenderFunction ? 1 : 0),
+        ],
         totalListCount: [
             (s) => [s.totalResultCount, s.totalExtraCount],
             (totalResultCount, totalExtraCount) => totalResultCount + totalExtraCount,

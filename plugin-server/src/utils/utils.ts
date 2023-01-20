@@ -3,13 +3,13 @@ import * as Sentry from '@sentry/node'
 import { randomBytes } from 'crypto'
 import Redis, { RedisOptions } from 'ioredis'
 import { DateTime } from 'luxon'
-import { Pool, PoolConfig } from 'pg'
+import { Pool } from 'pg'
 import { Readable } from 'stream'
 
 import {
     ClickHouseTimestamp,
+    ClickHouseTimestampSecondPrecision,
     ISOTimestamp,
-    LogLevel,
     Plugin,
     PluginConfigId,
     PluginsServerConfig,
@@ -47,21 +47,6 @@ export function bufferToStream(binary: Buffer): Readable {
     })
 
     return readableInstanceStream
-}
-
-export function setLogLevel(logLevel: LogLevel): void {
-    for (const loopLevel of ['debug', 'info', 'log', 'warn', 'error']) {
-        if (loopLevel === logLevel) {
-            break
-        }
-        const logFunction = (console as any)[loopLevel]
-        if (logFunction) {
-            const originalFunction = logFunction._original || logFunction
-            // eslint-disable-next-line @typescript-eslint/no-empty-function
-            ;(console as any)[loopLevel] = () => {}
-            ;(console as any)[loopLevel]._original = originalFunction
-        }
-    }
 }
 
 export function cloneObject<T>(obj: T): T {
@@ -233,8 +218,20 @@ export class UUIDT extends UUID {
 /** Format timestamp for ClickHouse. */
 export function castTimestampOrNow(
     timestamp?: DateTime | string | null,
+    timestampFormat?: TimestampFormat.ISO
+): ISOTimestamp
+export function castTimestampOrNow(
+    timestamp: DateTime | string | null,
+    timestampFormat: TimestampFormat.ClickHouse
+): ClickHouseTimestamp
+export function castTimestampOrNow(
+    timestamp: DateTime | string | null,
+    timestampFormat: TimestampFormat.ClickHouseSecondPrecision
+): ClickHouseTimestampSecondPrecision
+export function castTimestampOrNow(
+    timestamp?: DateTime | string | null,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
-): string {
+): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
     if (!timestamp) {
         timestamp = DateTime.utc()
     } else if (typeof timestamp === 'string') {
@@ -247,18 +244,31 @@ export function castTimestampOrNow(
 const DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION = 'yyyy-MM-dd HH:mm:ss'
 const DATETIME_FORMAT_CLICKHOUSE = 'yyyy-MM-dd HH:mm:ss.u'
 
+export function castTimestampToClickhouseFormat(timestamp: DateTime, timestampFormat: TimestampFormat.ISO): ISOTimestamp
+export function castTimestampToClickhouseFormat(
+    timestamp: DateTime,
+    timestampFormat: TimestampFormat.ClickHouse
+): ClickHouseTimestamp
+export function castTimestampToClickhouseFormat(
+    timestamp: DateTime,
+    timestampFormat: TimestampFormat.ClickHouseSecondPrecision
+): ClickHouseTimestampSecondPrecision
+export function castTimestampToClickhouseFormat(
+    timestamp: DateTime,
+    timestampFormat: TimestampFormat
+): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision
 export function castTimestampToClickhouseFormat(
     timestamp: DateTime,
     timestampFormat: TimestampFormat = TimestampFormat.ISO
-): string {
+): ISOTimestamp | ClickHouseTimestamp | ClickHouseTimestampSecondPrecision {
     timestamp = timestamp.toUTC()
     switch (timestampFormat) {
         case TimestampFormat.ClickHouseSecondPrecision:
-            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION)
+            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE_SECOND_PRECISION) as ClickHouseTimestampSecondPrecision
         case TimestampFormat.ClickHouse:
-            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE)
+            return timestamp.toFormat(DATETIME_FORMAT_CLICKHOUSE) as ClickHouseTimestamp
         case TimestampFormat.ISO:
-            return timestamp.toUTC().toISO()
+            return timestamp.toUTC().toISO() as ISOTimestamp
         default:
             throw new Error(`Unrecognized timestamp format ${timestampFormat}!`)
     }
@@ -352,7 +362,10 @@ export async function createRedis(serverConfig: PluginsServerConfig): Promise<Re
     return redis
 }
 
-export function pluginDigest(plugin: Plugin, teamId?: number): string {
+export function pluginDigest(plugin: Plugin | Plugin['id'], teamId?: number): string {
+    if (typeof plugin === 'number') {
+        return `plugin ID ${plugin} (unknown)`
+    }
     const extras = []
     if (teamId) {
         extras.push(`team ID ${teamId}`)
@@ -364,25 +377,9 @@ export function pluginDigest(plugin: Plugin, teamId?: number): string {
     return `plugin ${plugin.name} ID ${plugin.id} (${extras.join(' - ')})`
 }
 
-export function createPostgresPool(config: PluginsServerConfig, onError?: (error: Error) => any): Pool {
-    if (!config.DATABASE_URL && !config.POSTHOG_DB_NAME) {
-        throw new Error('Invalid configuration for Postgres: either DATABASE_URL or POSTHOG_DB_NAME required')
-    }
-
-    const credentials: Partial<PoolConfig> = config.DATABASE_URL
-        ? {
-              connectionString: config.DATABASE_URL,
-          }
-        : {
-              database: config.POSTHOG_DB_NAME ?? undefined,
-              user: config.POSTHOG_DB_USER,
-              password: config.POSTHOG_DB_PASSWORD,
-              host: config.POSTHOG_POSTGRES_HOST,
-              port: config.POSTHOG_POSTGRES_PORT,
-          }
-
+export function createPostgresPool(connectionString: string, onError?: (error: Error) => any): Pool {
     const pgPool = new Pool({
-        ...credentials,
+        connectionString,
         idleTimeoutMillis: 500,
         max: 10,
         ssl: process.env.DYNO // Means we are on Heroku

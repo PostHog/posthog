@@ -1,0 +1,74 @@
+.PlayerList {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    background-color: var(--side);
+    height: 100%;
+    width: 100%;
+    flex: 1;
+
+    .ReactVirtualized__Grid__innerScrollContainer {
+        margin: 8px;
+    }
+
+    .PlayerList__item {
+        padding: 2px 0;
+        background: transparent;
+        overflow: hidden;
+
+        .PlayerList__item__content--current {
+            .PlayerList__item__content__header {
+                box-shadow: 4px 0px 0px 0px rgba(142, 164, 255, 1) inset;
+            }
+        }
+    }
+
+    .PlayerList__position-finder {
+        display: none;
+        flex-direction: row;
+        justify-content: space-around;
+        position: absolute;
+        left: 50%;
+        top: 8px;
+        transform: translateX(-50%);
+        height: 35px;
+        width: 240px;
+        z-index: 10;
+        text-align: center;
+        overflow: hidden;
+
+        border-radius: 100px;
+        color: white;
+
+        &.visible {
+            display: flex;
+        }
+
+        .left {
+            cursor: pointer;
+            background-color: var(--primary);
+
+            &:hover {
+                background-color: var(--depr-lighten-primary-10);
+            }
+
+            span.anticon {
+                margin: 0 var(--recording-spacing) 0 1rem;
+            }
+        }
+
+        .right {
+            cursor: pointer;
+            width: calc(35px + var(--recording-spacing) / 4);
+            background-color: var(--depr-lighten-primary-5);
+
+            &:hover {
+                background-color: var(--depr-lighten-primary-15);
+            }
+
+            span.anticon {
+                margin-right: calc(var(--recording-spacing) / 4);
+            }
+        }
+    }
+}

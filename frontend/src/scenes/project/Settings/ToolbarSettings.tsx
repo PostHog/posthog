@@ -1,4 +1,3 @@
-import React from 'react'
 import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { LemonSwitch } from '@posthog/lemon-ui'

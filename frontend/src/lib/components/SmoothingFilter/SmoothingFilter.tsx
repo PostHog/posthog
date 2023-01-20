@@ -1,18 +1,23 @@
-import React from 'react'
 import { Select } from 'antd'
 import { FundOutlined } from '@ant-design/icons'
 import { smoothingOptions } from './smoothings'
 import { useActions, useValues } from 'kea'
 import { insightLogic } from 'scenes/insights/insightLogic'
+import { trendsLogic } from 'scenes/trends/trendsLogic'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
+import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 
 export function SmoothingFilter(): JSX.Element | null {
-    const { filters } = useValues(insightLogic)
-    const { setFilters } = useActions(insightLogic)
-    const { interval, smoothing_intervals } = filters
+    const { insightProps } = useValues(insightLogic)
+    const { filters } = useValues(trendsLogic(insightProps))
+    const { setFilters } = useActions(trendsLogic(insightProps))
+    const { updateInsightFilter } = useActions(insightDataLogic(insightProps))
 
-    if (!interval) {
+    if (!filters.interval || !isTrendsFilter(filters)) {
         return null
     }
+
+    const { interval, smoothing_intervals } = filters
 
     // Put a little icon next to the selected item
     const options = smoothingOptions[interval].map(({ value, label }) => ({
@@ -35,6 +40,9 @@ export function SmoothingFilter(): JSX.Element | null {
             dropdownMatchSelectWidth={false}
             onChange={(key) => {
                 setFilters({ ...filters, smoothing_intervals: key })
+                updateInsightFilter({
+                    smoothing_intervals: key,
+                })
             }}
             data-attr="smoothing-filter"
             options={options}

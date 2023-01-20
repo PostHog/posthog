@@ -1,7 +1,6 @@
 import { dayjs } from 'lib/dayjs'
 import { kea } from 'kea'
 import api from 'lib/api'
-import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -21,8 +20,11 @@ export const navigationLogic = kea<navigationLogicType>({
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     },
     actions: {
-        toggleSideBarBase: true,
-        toggleSideBarMobile: true,
+        toggleSideBarBase: (override?: boolean) => ({ override }), // Only use the override for testing
+        toggleSideBarMobile: (override?: boolean) => ({ override }), // Only use the override for testing
+        toggleActivationSideBar: true,
+        showActivationSideBar: true,
+        hideActivationSideBar: true,
         hideSideBarMobile: true,
         openSitePopover: true,
         closeSitePopover: true,
@@ -44,15 +46,22 @@ export const navigationLogic = kea<navigationLogicType>({
             true,
             { persist: true },
             {
-                toggleSideBarBase: (state) => !state,
+                toggleSideBarBase: (state, { override }) => override ?? !state,
             },
         ],
         // Mobile, applied on top of base, so that the sidebar does not show up annoyingly when shrinking the window
         isSideBarShownMobile: [
             false,
             {
-                toggleSideBarMobile: (state) => !state,
+                toggleSideBarMobile: (state, { override }) => override ?? !state,
                 hideSideBarMobile: () => false,
+            },
+        ],
+        isActivationSideBarShownBase: [
+            false,
+            {
+                showActivationSideBar: () => true,
+                hideActivationSideBar: () => false,
             },
         ],
         isSitePopoverOpen: [
@@ -112,43 +121,29 @@ export const navigationLogic = kea<navigationLogicType>({
             (mobileLayout, isSideBarShownBase, isSideBarShownMobile, bareNav) =>
                 !bareNav && (mobileLayout ? isSideBarShownMobile : isSideBarShownBase),
         ],
+        isActivationSideBarShown: [
+            (s) => [s.mobileLayout, s.isActivationSideBarShownBase, s.isSideBarShownMobile, s.bareNav],
+            (mobileLayout, isActivationSideBarShownBase, isSideBarShownMobile, bareNav) =>
+                !bareNav &&
+                (mobileLayout ? isActivationSideBarShownBase && !isSideBarShownMobile : isActivationSideBarShownBase),
+        ],
         systemStatus: [
-            () => [
-                systemStatusLogic.selectors.overview,
-                systemStatusLogic.selectors.systemStatusLoading,
-                preflightLogic.selectors.siteUrlMisconfigured,
-            ],
-            (statusMetrics, statusLoading, siteUrlMisconfigured) => {
-                if (statusLoading) {
-                    return true
-                }
-
+            (s) => [s.navigationStatus, preflightLogic.selectors.siteUrlMisconfigured],
+            (status, siteUrlMisconfigured) => {
                 if (siteUrlMisconfigured) {
                     return false
                 }
 
                 // On cloud non staff users don't have status metrics to review
-                const hasNoStatusMetrics = !statusMetrics || statusMetrics.length === 0
-                if (hasNoStatusMetrics && preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
+                if (preflightLogic.values.preflight?.cloud && !userLogic.values.user?.is_staff) {
                     return true
                 }
 
-                // if you have status metrics these three must have `value: true`
-                const aliveMetrics = ['redis_alive', 'db_alive', 'plugin_sever_alive', 'dead_letter_queue_ratio_ok']
-                const aliveSignals = statusMetrics
-                    .filter((sm) => sm.key && aliveMetrics.includes(sm.key))
-                    .filter((sm) => sm.value).length
-                return aliveSignals >= aliveMetrics.length
+                return status.system_status_ok
             },
         ],
-        asyncMigrationsOk: [
-            () => [systemStatusLogic.selectors.overview, systemStatusLogic.selectors.systemStatusLoading],
-            (statusMetrics, systemStatusLoading) => {
-                const asyncMigrations = statusMetrics.filter((sm) => sm.key && sm.key == 'async_migrations_ok')[0]
-                return systemStatusLoading || !asyncMigrations || asyncMigrations.value
-            },
-        ],
-        updateAvailable: [
+        asyncMigrationsOk: [(s) => [s.navigationStatus], (status) => status.async_migrations_ok],
+        anyUpdateAvailable: [
             (selectors) => [
                 selectors.latestVersion,
                 selectors.latestVersionLoading,
@@ -156,12 +151,30 @@ export const navigationLogic = kea<navigationLogicType>({
             ],
             (latestVersion, latestVersionLoading, preflight) => {
                 // Always latest version in multitenancy
-                return (
-                    !latestVersionLoading &&
-                    !preflight?.cloud &&
-                    latestVersion &&
-                    latestVersion !== preflight?.posthog_version
-                )
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor, latestPatch] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor, currentPatch] = preflight.posthog_version
+                    .split('.')
+                    .map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor || latestPatch > currentPatch
+            },
+        ],
+        minorUpdateAvailable: [
+            (selectors) => [
+                selectors.latestVersion,
+                selectors.latestVersionLoading,
+                preflightLogic.selectors.preflight,
+            ],
+            (latestVersion, latestVersionLoading, preflight): boolean => {
+                // Always latest version in multitenancy
+                if (latestVersionLoading || preflight?.cloud || !latestVersion || !preflight?.posthog_version) {
+                    return false
+                }
+                const [latestMajor, latestMinor] = latestVersion.split('.').map((n) => parseInt(n))
+                const [currentMajor, currentMinor] = preflight.posthog_version.split('.').map((n) => parseInt(n))
+                return latestMajor > currentMajor || latestMinor > currentMinor
             },
         ],
         projectNoticeVariantWithClosability: [
@@ -229,10 +242,28 @@ export const navigationLogic = kea<navigationLogicType>({
                 },
             },
         ],
+        navigationStatus: [
+            { system_status_ok: true, async_migrations_ok: true } as {
+                system_status_ok: boolean
+                async_migrations_ok: boolean
+            },
+            {
+                loadNavigationStatus: async () => {
+                    return await api.get('api/instance_settings')
+                },
+            },
+        ],
     },
-    listeners: ({ actions }) => ({
+    listeners: ({ actions, values }) => ({
         closeProjectNotice: ({ projectNoticeVariant }) => {
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
+        },
+        toggleActivationSideBar: () => {
+            if (values.isActivationSideBarShown) {
+                actions.hideActivationSideBar()
+            } else {
+                actions.showActivationSideBar()
+            }
         },
     }),
     events: ({ actions }) => ({

@@ -1,0 +1,26 @@
+.BillingLocked {
+    background-color: var(--bg-bridge);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    overflow: hidden;
+    min-height: 100vh;
+
+    .BillingLocked__main {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        flex: 1;
+        padding: 2rem;
+    }
+
+    .BillingLocked__content {
+        position: relative;
+        box-shadow: var(--shadow-elevation);
+        width: 100%;
+        padding: 2rem;
+        background-color: white;
+        border-radius: var(--radius);
+    }
+}

@@ -1,4 +1,3 @@
-import React from 'react'
 import { CreateOrganizationModal } from '../CreateOrganizationModal'
 import { SceneExport } from 'scenes/sceneTypes'
 import { organizationLogic } from 'scenes/organizationLogic'

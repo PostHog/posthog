@@ -1,5 +1,4 @@
-import React from 'react'
-import { Col, Row, Space, Tag, Typography } from 'antd'
+import { Space, Tag, Typography } from 'antd'
 import { ActionFilter, BreakdownKeyType } from '~/types'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { capitalizeFirstLetter, hexToRGBA, midEllipsis } from 'lib/utils'
@@ -109,8 +108,8 @@ export function InsightLabel({
     )
 
     return (
-        <Row className={clsx('insights-label', className)} wrap={false}>
-            <Col style={{ display: 'flex', alignItems: 'center' }} flex="auto">
+        <div className={clsx('insights-label', className)}>
+            <div className="flex items-center w-fit">
                 {!(hasMultipleSeries && !breakdownValue) && !hideIcon && (
                     <div
                         className="color-icon"
@@ -132,7 +131,10 @@ export function InsightLabel({
                         hasBreakdown={!!breakdownValue}
                     />
                 )}
-                <div className={clsx('label', allowWrap && 'wrap')} onClick={onLabelClick}>
+                <div
+                    className={clsx('flex items-center w-fit gap-x-2', allowWrap && 'flex-wrap')}
+                    onClick={onLabelClick}
+                >
                     {showEventName && (
                         <>
                             {action ? (
@@ -148,13 +150,11 @@ export function InsightLabel({
                     )}
 
                     {((action?.math && action.math !== 'total') || showCountedByTag) && (
-                        <span style={{ marginRight: 4 }}>
-                            <MathTag
-                                math={action?.math}
-                                mathProperty={action?.math_property}
-                                mathGroupTypeIndex={action?.math_group_type_index}
-                            />
-                        </span>
+                        <MathTag
+                            math={action?.math}
+                            mathProperty={action?.math_property}
+                            mathGroupTypeIndex={action?.math_group_type_index}
+                        />
                     )}
 
                     {pillValues.length > 0 && (
@@ -174,12 +174,8 @@ export function InsightLabel({
                         </Space>
                     )}
                 </div>
-            </Col>
-            {value && (
-                <Col flex="none">
-                    <span className="value">{value}</span>
-                </Col>
-            )}
-        </Row>
+            </div>
+            {value && <span className="value">{value}</span>}
+        </div>
     )
 }

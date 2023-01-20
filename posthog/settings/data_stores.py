@@ -85,6 +85,7 @@ if JOB_QUEUE_GRAPHILE_URL:
 CLICKHOUSE_TEST_DB = "posthog_test"
 
 CLICKHOUSE_HOST = os.getenv("CLICKHOUSE_HOST", "localhost")
+CLICKHOUSE_OFFLINE_CLUSTER_HOST = os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None)
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
@@ -140,6 +141,11 @@ SUFFIX = "_test" if TEST else ""
 
 KAFKA_EVENTS_PLUGIN_INGESTION: str = (
     f"{KAFKA_PREFIX}events_plugin_ingestion{SUFFIX}"  # can be overridden in settings.py
+)
+
+# Topic to write events to between clickhouse
+KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC: str = os.getenv(
+    "KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC", KAFKA_EVENTS_PLUGIN_INGESTION
 )
 
 # The last case happens when someone upgrades Heroku but doesn't have Redis installed yet. Collectstatic gets called before we can provision Redis.

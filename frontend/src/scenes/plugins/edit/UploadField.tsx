@@ -1,4 +1,3 @@
-import React from 'react'
 import { Button, Upload } from 'antd'
 import { UploadOutlined } from '@ant-design/icons'
 import { UploadFile } from 'antd/lib/upload/interface'

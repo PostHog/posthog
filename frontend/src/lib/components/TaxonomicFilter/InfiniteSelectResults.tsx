@@ -1,4 +1,3 @@
-import React from 'react'
 import { Tag } from 'antd'
 import { BindLogic, useActions, useValues } from 'kea'
 import { taxonomicFilterLogic } from './taxonomicFilterLogic'
@@ -38,9 +37,15 @@ function CategoryPill({
             className={clsx({ 'taxonomic-pill-active': isActive, 'taxonomic-count-zero': !canInteract })}
             onClick={canInteract ? onClick : undefined}
         >
-            {group?.name}
-            {': '}
-            {totalResultCount ?? '...'}
+            {group?.render ? (
+                group?.name
+            ) : (
+                <>
+                    {group?.name}
+                    {': '}
+                    {totalResultCount ?? '...'}
+                </>
+            )}
         </Tag>
     )
 }
@@ -49,8 +54,16 @@ export function InfiniteSelectResults({
     focusInput,
     taxonomicFilterLogicProps,
 }: InfiniteSelectResultsProps): JSX.Element {
-    const { activeTab, taxonomicGroups, taxonomicGroupTypes } = useValues(taxonomicFilterLogic)
-    const { setActiveTab } = useActions(taxonomicFilterLogic)
+    const { activeTab, taxonomicGroups, taxonomicGroupTypes, activeTaxonomicGroup, value } =
+        useValues(taxonomicFilterLogic)
+    const { setActiveTab, selectItem } = useActions(taxonomicFilterLogic)
+    const RenderComponent = activeTaxonomicGroup?.render
+
+    const listComponent = RenderComponent ? (
+        <RenderComponent value={value} onChange={(newValue) => selectItem(activeTaxonomicGroup, newValue, newValue)} />
+    ) : (
+        <InfiniteList />
+    )
 
     if (taxonomicGroupTypes.length === 1) {
         return (
@@ -58,7 +71,7 @@ export function InfiniteSelectResults({
                 logic={infiniteListLogic}
                 props={{ ...taxonomicFilterLogicProps, listGroupType: taxonomicGroupTypes[0] }}
             >
-                <InfiniteList />
+                {listComponent}
             </BindLogic>
         )
     }
@@ -93,7 +106,7 @@ export function InfiniteSelectResults({
                             logic={infiniteListLogic}
                             props={{ ...taxonomicFilterLogicProps, listGroupType: groupType }}
                         >
-                            <InfiniteList />
+                            {listComponent}
                         </BindLogic>
                     </div>
                 )

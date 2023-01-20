@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import { useMemo } from 'react'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 interface SelectorCountProps {

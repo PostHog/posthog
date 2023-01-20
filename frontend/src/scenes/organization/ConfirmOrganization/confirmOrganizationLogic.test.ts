@@ -18,6 +18,7 @@ describe('confirmOrganizationLogic', () => {
                 email: 'spike@spike.com',
                 first_name: 'Spike',
                 organization_name: 'Spikes Inc',
+                role_at_organization: 'engineering',
             })
 
             expectLogic(logic)
@@ -26,6 +27,7 @@ describe('confirmOrganizationLogic', () => {
                     confirmOrganization: {
                         first_name: 'Spike',
                         organization_name: 'Spikes Inc',
+                        role_at_organization: 'engineering',
                     },
                     email: 'spike@spike.com',
                 })

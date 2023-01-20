@@ -11,28 +11,12 @@
 
 .InsightLegendMenu {
     box-shadow: none !important;
-    border: 1px solid var(--border);
     background-color: var(--bg-light);
-    border-radius: var(--radius);
     max-width: 300px;
-    width: 100%;
     max-height: 100%;
-    overflow-y: auto;
-    overflow-x: auto;
-    display: flex;
-    flex-direction: column;
 
-    .InsightLegendMenu-scroll {
-        .InsightLegendMenu-item {
-            width: 100%;
-
-            .InsightLegendMenu-item-inner {
-                .insights-label {
-                    width: 100%;
-                    font-size: 0.75rem;
-                }
-            }
-        }
+    &.InsightLegendMenu--in-card-view {
+        max-width: 40%;
     }
 
     &.InsightLegendMenu--horizontal {

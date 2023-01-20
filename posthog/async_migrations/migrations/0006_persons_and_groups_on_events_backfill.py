@@ -13,7 +13,7 @@ class Migration(AsyncMigrationDefinition):
 
     description = "No-op migration"
 
-    posthog_max_version = "1.39.1"
+    posthog_max_version = "1.41.99"
 
     depends_on = "0005_person_replacing_by_version"
 

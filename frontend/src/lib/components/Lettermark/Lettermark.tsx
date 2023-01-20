@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import React from 'react'
 import './Lettermark.scss'
 
 // This is the number of known --lettermark-* variables in `globals.scss`

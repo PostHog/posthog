@@ -1,0 +1,2552 @@
+{
+    "$ref": "#/definitions/QuerySchema",
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "definitions": {
+        "ActionsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "number"
+                },
+                "kind": {
+                    "const": "ActionsNode",
+                    "type": "string"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                }
+            },
+            "required": ["id", "kind"],
+            "type": "object"
+        },
+        "AggregationAxisFormat": {
+            "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled"],
+            "type": "string"
+        },
+        "AnyPartialFilterType": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "actions": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "aggregation_axis_format": {
+                            "$ref": "#/definitions/AggregationAxisFormat"
+                        },
+                        "aggregation_axis_postfix": {
+                            "type": "string"
+                        },
+                        "aggregation_axis_prefix": {
+                            "type": "string"
+                        },
+                        "aggregation_group_type_index": {
+                            "type": "number"
+                        },
+                        "breakdown": {
+                            "$ref": "#/definitions/BreakdownKeyType"
+                        },
+                        "breakdown_group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "type": "number"
+                        },
+                        "breakdown_normalize_url": {
+                            "type": "boolean"
+                        },
+                        "breakdown_type": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/BreakdownType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "breakdown_value": {
+                            "type": ["string", "number"]
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "type": "array"
+                        },
+                        "compare": {
+                            "type": "boolean"
+                        },
+                        "date_from": {
+                            "type": ["string", "null"]
+                        },
+                        "date_to": {
+                            "type": ["string", "null"]
+                        },
+                        "display": {
+                            "$ref": "#/definitions/ChartDisplayType"
+                        },
+                        "entity_id": {
+                            "type": ["string", "number"]
+                        },
+                        "entity_math": {
+                            "type": "string"
+                        },
+                        "entity_type": {
+                            "$ref": "#/definitions/EntityType"
+                        },
+                        "events": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        },
+                        "formula": {},
+                        "from_dashboard": {
+                            "type": ["boolean", "number"]
+                        },
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        },
+                        "interval": {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        "properties": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/AnyPropertyFilter"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "$ref": "#/definitions/PropertyGroupFilter"
+                                }
+                            ]
+                        },
+                        "show_legend": {
+                            "type": "boolean"
+                        },
+                        "shown_as": {
+                            "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "smoothing_intervals": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "actions": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "aggregation_group_type_index": {
+                            "type": "number"
+                        },
+                        "breakdown": {
+                            "$ref": "#/definitions/BreakdownKeyType"
+                        },
+                        "breakdown_group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "breakdown_normalize_url": {
+                            "type": "boolean"
+                        },
+                        "breakdown_type": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/BreakdownType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "breakdown_value": {
+                            "type": ["string", "number"]
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "type": "array"
+                        },
+                        "compare": {
+                            "type": "boolean"
+                        },
+                        "date_from": {
+                            "type": ["string", "null"]
+                        },
+                        "date_to": {
+                            "type": ["string", "null"]
+                        },
+                        "display": {
+                            "$ref": "#/definitions/ChartDisplayType"
+                        },
+                        "entity_id": {
+                            "type": ["string", "number"]
+                        },
+                        "entity_math": {
+                            "type": "string"
+                        },
+                        "entity_type": {
+                            "$ref": "#/definitions/EntityType"
+                        },
+                        "events": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        },
+                        "from_dashboard": {
+                            "type": ["boolean", "number"]
+                        },
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        },
+                        "interval": {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        "properties": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/AnyPropertyFilter"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "$ref": "#/definitions/PropertyGroupFilter"
+                                }
+                            ]
+                        },
+                        "show_legend": {
+                            "type": "boolean"
+                        },
+                        "shown_as": {
+                            "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "stickiness_days": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "actions": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "aggregation_group_type_index": {
+                            "type": "number"
+                        },
+                        "bin_count": {
+                            "$ref": "#/definitions/BinCountValue"
+                        },
+                        "breakdown": {
+                            "$ref": "#/definitions/BreakdownKeyType"
+                        },
+                        "breakdown_attribution_type": {
+                            "$ref": "#/definitions/BreakdownAttributionType"
+                        },
+                        "breakdown_attribution_value": {
+                            "type": "number"
+                        },
+                        "breakdown_group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "breakdown_normalize_url": {
+                            "type": "boolean"
+                        },
+                        "breakdown_type": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/BreakdownType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "breakdown_value": {
+                            "type": ["string", "number"]
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "type": "array"
+                        },
+                        "date_from": {
+                            "type": ["string", "null"]
+                        },
+                        "date_to": {
+                            "type": ["string", "null"]
+                        },
+                        "drop_off": {
+                            "type": "boolean"
+                        },
+                        "entity_id": {
+                            "type": ["string", "number"]
+                        },
+                        "entity_math": {
+                            "type": "string"
+                        },
+                        "entity_type": {
+                            "$ref": "#/definitions/EntityType"
+                        },
+                        "entrance_period_start": {
+                            "type": "string"
+                        },
+                        "events": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "exclusions": {
+                            "items": {
+                                "$ref": "#/definitions/FunnelStepRangeEntityFilter"
+                            },
+                            "type": "array"
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        },
+                        "from_dashboard": {
+                            "type": ["boolean", "number"]
+                        },
+                        "funnel_advanced": {
+                            "type": "boolean"
+                        },
+                        "funnel_correlation_person_converted": {
+                            "enum": ["true", "false"],
+                            "type": "string"
+                        },
+                        "funnel_correlation_person_entity": {
+                            "type": "object"
+                        },
+                        "funnel_custom_steps": {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        "funnel_from_step": {
+                            "type": "number"
+                        },
+                        "funnel_order_type": {
+                            "$ref": "#/definitions/StepOrderValue"
+                        },
+                        "funnel_step": {
+                            "type": "number"
+                        },
+                        "funnel_step_breakdown": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "items": {
+                                        "type": "number"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "funnel_step_reference": {
+                            "$ref": "#/definitions/FunnelStepReference"
+                        },
+                        "funnel_to_step": {
+                            "type": "number"
+                        },
+                        "funnel_viz_type": {
+                            "$ref": "#/definitions/FunnelVizType"
+                        },
+                        "funnel_window_interval": {
+                            "type": "number"
+                        },
+                        "funnel_window_interval_unit": {
+                            "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                        },
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        },
+                        "interval": {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        "layout": {
+                            "$ref": "#/definitions/FunnelLayout"
+                        },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "properties": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/AnyPropertyFilter"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "$ref": "#/definitions/PropertyGroupFilter"
+                                }
+                            ]
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "actions": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "aggregation_group_type_index": {
+                            "type": "number"
+                        },
+                        "breakdown": {
+                            "$ref": "#/definitions/BreakdownKeyType"
+                        },
+                        "breakdown_group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "breakdown_normalize_url": {
+                            "type": "boolean"
+                        },
+                        "breakdown_type": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/BreakdownType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "breakdown_value": {
+                            "type": ["string", "number"]
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "type": "array"
+                        },
+                        "date_from": {
+                            "type": ["string", "null"]
+                        },
+                        "date_to": {
+                            "type": ["string", "null"]
+                        },
+                        "edge_limit": {
+                            "type": "number"
+                        },
+                        "end_point": {
+                            "type": "string"
+                        },
+                        "entity_id": {
+                            "type": ["string", "number"]
+                        },
+                        "entity_math": {
+                            "type": "string"
+                        },
+                        "entity_type": {
+                            "$ref": "#/definitions/EntityType"
+                        },
+                        "events": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "exclude_events": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        },
+                        "from_dashboard": {
+                            "type": ["boolean", "number"]
+                        },
+                        "funnel_filter": {
+                            "type": "object"
+                        },
+                        "funnel_paths": {
+                            "$ref": "#/definitions/FunnelPathType"
+                        },
+                        "include_event_types": {
+                            "items": {
+                                "$ref": "#/definitions/PathType"
+                            },
+                            "type": "array"
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        },
+                        "interval": {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        "local_path_cleaning_filters": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "max_edge_weight": {
+                            "type": "number"
+                        },
+                        "min_edge_weight": {
+                            "type": "number"
+                        },
+                        "path_dropoff_key": {
+                            "type": "string"
+                        },
+                        "path_end_key": {
+                            "type": "string"
+                        },
+                        "path_groupings": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "path_replacements": {
+                            "type": "boolean"
+                        },
+                        "path_start_key": {
+                            "type": "string"
+                        },
+                        "path_type": {
+                            "$ref": "#/definitions/PathType"
+                        },
+                        "properties": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/AnyPropertyFilter"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "$ref": "#/definitions/PropertyGroupFilter"
+                                }
+                            ]
+                        },
+                        "start_point": {
+                            "type": "string"
+                        },
+                        "step_limit": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "actions": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "aggregation_group_type_index": {
+                            "type": "number"
+                        },
+                        "breakdown": {
+                            "$ref": "#/definitions/BreakdownKeyType"
+                        },
+                        "breakdown_group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "breakdown_normalize_url": {
+                            "type": "boolean"
+                        },
+                        "breakdown_type": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/BreakdownType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "breakdown_value": {
+                            "type": ["string", "number"]
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "type": "array"
+                        },
+                        "date_from": {
+                            "type": ["string", "null"]
+                        },
+                        "date_to": {
+                            "type": ["string", "null"]
+                        },
+                        "entity_id": {
+                            "type": ["string", "number"]
+                        },
+                        "entity_math": {
+                            "type": "string"
+                        },
+                        "entity_type": {
+                            "$ref": "#/definitions/EntityType"
+                        },
+                        "events": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        },
+                        "from_dashboard": {
+                            "type": ["boolean", "number"]
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        },
+                        "interval": {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        "period": {
+                            "type": "string"
+                        },
+                        "properties": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/AnyPropertyFilter"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "$ref": "#/definitions/PropertyGroupFilter"
+                                }
+                            ]
+                        },
+                        "retention_reference": {
+                            "enum": ["total", "previous"],
+                            "type": "string"
+                        },
+                        "retention_type": {
+                            "$ref": "#/definitions/RetentionType"
+                        },
+                        "returning_entity": {
+                            "type": "object"
+                        },
+                        "target_entity": {
+                            "type": "object"
+                        },
+                        "total_intervals": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "actions": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "aggregation_group_type_index": {
+                            "type": "number"
+                        },
+                        "breakdown": {
+                            "$ref": "#/definitions/BreakdownKeyType"
+                        },
+                        "breakdown_group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "breakdown_normalize_url": {
+                            "type": "boolean"
+                        },
+                        "breakdown_type": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/BreakdownType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "breakdown_value": {
+                            "type": ["string", "number"]
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "type": "array"
+                        },
+                        "date_from": {
+                            "type": ["string", "null"]
+                        },
+                        "date_to": {
+                            "type": ["string", "null"]
+                        },
+                        "entity_id": {
+                            "type": ["string", "number"]
+                        },
+                        "entity_math": {
+                            "type": "string"
+                        },
+                        "entity_type": {
+                            "$ref": "#/definitions/EntityType"
+                        },
+                        "events": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        },
+                        "from_dashboard": {
+                            "type": ["boolean", "number"]
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        },
+                        "interval": {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        "properties": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/AnyPropertyFilter"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "$ref": "#/definitions/PropertyGroupFilter"
+                                }
+                            ]
+                        },
+                        "shown_as": {
+                            "$ref": "#/definitions/ShownAsValue"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "actions": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "aggregation_group_type_index": {
+                            "type": "number"
+                        },
+                        "breakdown": {
+                            "$ref": "#/definitions/BreakdownKeyType"
+                        },
+                        "breakdown_group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "breakdown_normalize_url": {
+                            "type": "boolean"
+                        },
+                        "breakdown_type": {
+                            "anyOf": [
+                                {
+                                    "$ref": "#/definitions/BreakdownType"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "breakdown_value": {
+                            "type": ["string", "number"]
+                        },
+                        "breakdowns": {
+                            "items": {
+                                "$ref": "#/definitions/Breakdown"
+                            },
+                            "type": "array"
+                        },
+                        "date_from": {
+                            "type": ["string", "null"]
+                        },
+                        "date_to": {
+                            "type": ["string", "null"]
+                        },
+                        "entity_id": {
+                            "type": ["string", "number"]
+                        },
+                        "entity_math": {
+                            "type": "string"
+                        },
+                        "entity_type": {
+                            "$ref": "#/definitions/EntityType"
+                        },
+                        "events": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "filter_test_accounts": {
+                            "type": "boolean"
+                        },
+                        "from_dashboard": {
+                            "type": ["boolean", "number"]
+                        },
+                        "insight": {
+                            "$ref": "#/definitions/InsightType"
+                        },
+                        "interval": {
+                            "$ref": "#/definitions/IntervalType"
+                        },
+                        "properties": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "$ref": "#/definitions/AnyPropertyFilter"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "$ref": "#/definitions/PropertyGroupFilter"
+                                }
+                            ]
+                        }
+                    },
+                    "type": "object"
+                }
+            ]
+        },
+        "AnyPropertyFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "event",
+                            "description": "Event properties",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "person",
+                            "description": "Person properties",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "enum": ["tag_name", "text", "href", "selector"],
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "element",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "const": "$session_duration",
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "session",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "const": "id",
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "type": {
+                            "const": "cohort",
+                            "type": "string"
+                        },
+                        "value": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "const": "duration",
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "recording",
+                            "type": "string"
+                        },
+                        "value": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "group_type_index": {
+                            "type": ["number", "null"]
+                        },
+                        "key": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "group",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "key": {
+                            "type": "string"
+                        },
+                        "label": {
+                            "type": "string"
+                        },
+                        "operator": {
+                            "$ref": "#/definitions/PropertyOperator"
+                        },
+                        "type": {
+                            "const": "feature",
+                            "description": "Event property with \"$feature/\" prepended",
+                            "type": "string"
+                        },
+                        "value": {
+                            "$ref": "#/definitions/PropertyFilterValue"
+                        }
+                    },
+                    "type": "object"
+                }
+            ]
+        },
+        "BaseMathType": {
+            "enum": ["total", "dau", "weekly_active", "monthly_active", "unique_session"],
+            "type": "string"
+        },
+        "BinCountValue": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "const": "auto",
+                    "type": "string"
+                }
+            ]
+        },
+        "Breakdown": {
+            "additionalProperties": false,
+            "properties": {
+                "normalize_url": {
+                    "type": "boolean"
+                },
+                "property": {
+                    "type": ["string", "number"]
+                },
+                "type": {
+                    "$ref": "#/definitions/BreakdownType"
+                }
+            },
+            "required": ["property", "type"],
+            "type": "object"
+        },
+        "BreakdownAttributionType": {
+            "enum": ["first_touch", "last_touch", "all_events", "step"],
+            "type": "string"
+        },
+        "BreakdownFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_group_type_index": {
+                    "type": "number"
+                },
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownKeyType"
+                },
+                "breakdown_group_type_index": {
+                    "type": ["number", "null"]
+                },
+                "breakdown_normalize_url": {
+                    "type": "boolean"
+                },
+                "breakdown_type": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BreakdownType"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "breakdown_value": {
+                    "type": ["string", "number"]
+                },
+                "breakdowns": {
+                    "items": {
+                        "$ref": "#/definitions/Breakdown"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "BreakdownKeyType": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                },
+                {
+                    "items": {
+                        "type": ["string", "number"]
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "BreakdownType": {
+            "enum": ["cohort", "person", "event", "group", "session"],
+            "type": "string"
+        },
+        "ChartDisplayType": {
+            "enum": [
+                "ActionsLineGraph",
+                "ActionsLineGraphCumulative",
+                "ActionsAreaGraph",
+                "ActionsTable",
+                "ActionsPie",
+                "ActionsBar",
+                "ActionsBarValue",
+                "WorldMap",
+                "BoldNumber"
+            ],
+            "type": "string"
+        },
+        "CountPerActorMathType": {
+            "enum": [
+                "avg_count_per_actor",
+                "min_count_per_actor",
+                "max_count_per_actor",
+                "median_count_per_actor",
+                "p90_count_per_actor",
+                "p95_count_per_actor",
+                "p99_count_per_actor"
+            ],
+            "type": "string"
+        },
+        "DataTableNode": {
+            "additionalProperties": false,
+            "properties": {
+                "allowSorting": {
+                    "description": "Can the user click on column headers to sort the table? (default: true)",
+                    "type": "boolean"
+                },
+                "columns": {
+                    "description": "Columns shown in the table, unless the `source` provides them.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "expandable": {
+                    "description": "Can expand row to show raw event data (default: true)",
+                    "type": "boolean"
+                },
+                "full": {
+                    "description": "Show with most visual options enabled. Used in scenes.",
+                    "type": "boolean"
+                },
+                "hiddenColumns": {
+                    "description": "Columns that aren't shown in the table, even if in columns or returned data",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "DataTableNode",
+                    "type": "string"
+                },
+                "propertiesViaUrl": {
+                    "description": "Link properties via the URL (default: false)",
+                    "type": "boolean"
+                },
+                "showActions": {
+                    "description": "Show the kebab menu at the end of the row",
+                    "type": "boolean"
+                },
+                "showColumnConfigurator": {
+                    "description": "Show a button to configure the table's columns if possible",
+                    "type": "boolean"
+                },
+                "showElapsedTime": {
+                    "description": "Show the time it takes to run a query",
+                    "type": "boolean"
+                },
+                "showEventFilter": {
+                    "description": "Include an event filter above the table (EventsNode only)",
+                    "type": "boolean"
+                },
+                "showEventsBufferWarning": {
+                    "description": "Show warning about live events being buffered max 60 sec (default: false)",
+                    "type": "boolean"
+                },
+                "showExport": {
+                    "description": "Show the export button",
+                    "type": "boolean"
+                },
+                "showPropertyFilter": {
+                    "description": "Include a property filter above the table",
+                    "type": "boolean"
+                },
+                "showReload": {
+                    "description": "Show a reload button",
+                    "type": "boolean"
+                },
+                "showSearch": {
+                    "description": "Include a free text search field (PersonsNode only)",
+                    "type": "boolean"
+                },
+                "source": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/EventsNode"
+                        },
+                        {
+                            "$ref": "#/definitions/EventsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/PersonsNode"
+                        }
+                    ],
+                    "description": "Source of the events"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "DateRange": {
+            "additionalProperties": false,
+            "properties": {
+                "date_from": {
+                    "type": ["string", "null"]
+                },
+                "date_to": {
+                    "type": ["string", "null"]
+                }
+            },
+            "type": "object"
+        },
+        "ElementType": {
+            "additionalProperties": false,
+            "properties": {
+                "attr_class": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "attr_id": {
+                    "type": "string"
+                },
+                "attributes": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "href": {
+                    "type": "string"
+                },
+                "nth_child": {
+                    "type": "number"
+                },
+                "nth_of_type": {
+                    "type": "number"
+                },
+                "order": {
+                    "type": "number"
+                },
+                "tag_name": {
+                    "type": "string"
+                },
+                "text": {
+                    "type": "string"
+                }
+            },
+            "required": ["attributes", "tag_name"],
+            "type": "object"
+        },
+        "EntityType": {
+            "enum": ["actions", "events", "new_entity"],
+            "type": "string"
+        },
+        "EventType": {
+            "additionalProperties": false,
+            "properties": {
+                "colonTimestamp": {
+                    "description": "Used in session recording events list",
+                    "type": "string"
+                },
+                "distinct_id": {
+                    "type": "string"
+                },
+                "elements": {
+                    "items": {
+                        "$ref": "#/definitions/ElementType"
+                    },
+                    "type": "array"
+                },
+                "elements_chain": {
+                    "type": ["string", "null"]
+                },
+                "event": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "person": {
+                    "additionalProperties": false,
+                    "properties": {
+                        "distinct_ids": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "is_identified": {
+                            "type": "boolean"
+                        },
+                        "properties": {
+                            "type": "object"
+                        }
+                    },
+                    "required": ["distinct_ids", "properties"],
+                    "type": "object"
+                },
+                "properties": {
+                    "type": "object"
+                },
+                "timestamp": {
+                    "type": "string"
+                }
+            },
+            "required": ["id", "distinct_id", "properties", "event", "timestamp", "elements"],
+            "type": "object"
+        },
+        "EventsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "event": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EventsNode",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "number"
+                },
+                "math": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/BaseMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyMathType"
+                        },
+                        {
+                            "$ref": "#/definitions/CountPerActorMathType"
+                        }
+                    ]
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "additionalProperties": false,
+                    "description": "Return a limited set of data",
+                    "properties": {
+                        "next": {
+                            "type": "string"
+                        },
+                        "results": {
+                            "items": {
+                                "$ref": "#/definitions/EventType"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "EventsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "actionId": {
+                    "description": "Show events matching a given action",
+                    "type": "number"
+                },
+                "after": {
+                    "description": "Only fetch events that happened after this timestamp",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch events that happened before this timestamp",
+                    "type": "string"
+                },
+                "event": {
+                    "description": "Limit to events matching this string",
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "EventsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "description": "Number of rows to return",
+                    "type": "number"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "personId": {
+                    "description": "Show events for a given person",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "additionalProperties": false,
+                    "description": "Cached query response",
+                    "properties": {
+                        "columns": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
+                        "results": {
+                            "items": {
+                                "items": {},
+                                "type": "array"
+                            },
+                            "type": "array"
+                        },
+                        "types": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["columns", "types", "results"],
+                    "type": "object"
+                },
+                "select": {
+                    "description": "Return a limited set of data. Required.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "where": {
+                    "description": "HogQL filters to apply on returned data",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "select"],
+            "type": "object"
+        },
+        "FilterLogicalOperator": {
+            "enum": ["AND", "OR"],
+            "type": "string"
+        },
+        "FunnelConversionWindowTimeUnit": {
+            "enum": ["minute", "hour", "day", "week", "month"],
+            "type": "string"
+        },
+        "FunnelLayout": {
+            "enum": ["horizontal", "vertical"],
+            "type": "string"
+        },
+        "FunnelPathType": {
+            "enum": ["funnel_path_before_step", "funnel_path_between_steps", "funnel_path_after_step"],
+            "type": "string"
+        },
+        "FunnelStepRangeEntityFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "funnel_from_step": {
+                    "type": "number"
+                },
+                "funnel_to_step": {
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
+        "FunnelStepReference": {
+            "enum": ["total", "previous"],
+            "type": "string"
+        },
+        "FunnelVizType": {
+            "enum": ["steps", "time_to_convert", "trends"],
+            "type": "string"
+        },
+        "FunnelsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown of the events and actions"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "funnelsFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the funnels insight",
+                    "properties": {
+                        "bin_count": {
+                            "$ref": "#/definitions/BinCountValue"
+                        },
+                        "breakdown_attribution_type": {
+                            "$ref": "#/definitions/BreakdownAttributionType"
+                        },
+                        "breakdown_attribution_value": {
+                            "type": "number"
+                        },
+                        "drop_off": {
+                            "type": "boolean"
+                        },
+                        "entrance_period_start": {
+                            "type": "string"
+                        },
+                        "exclusions": {
+                            "items": {
+                                "$ref": "#/definitions/FunnelStepRangeEntityFilter"
+                            },
+                            "type": "array"
+                        },
+                        "funnel_advanced": {
+                            "type": "boolean"
+                        },
+                        "funnel_correlation_person_converted": {
+                            "enum": ["true", "false"],
+                            "type": "string"
+                        },
+                        "funnel_correlation_person_entity": {
+                            "type": "object"
+                        },
+                        "funnel_custom_steps": {
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        "funnel_from_step": {
+                            "type": "number"
+                        },
+                        "funnel_order_type": {
+                            "$ref": "#/definitions/StepOrderValue"
+                        },
+                        "funnel_step": {
+                            "type": "number"
+                        },
+                        "funnel_step_breakdown": {
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "items": {
+                                        "type": "number"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "funnel_step_reference": {
+                            "$ref": "#/definitions/FunnelStepReference"
+                        },
+                        "funnel_to_step": {
+                            "type": "number"
+                        },
+                        "funnel_viz_type": {
+                            "$ref": "#/definitions/FunnelVizType"
+                        },
+                        "funnel_window_interval": {
+                            "type": "number"
+                        },
+                        "funnel_window_interval_unit": {
+                            "$ref": "#/definitions/FunnelConversionWindowTimeUnit"
+                        },
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "layout": {
+                            "$ref": "#/definitions/FunnelLayout"
+                        },
+                        "new_entity": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "FunnelsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
+        "HogQLExpression": {
+            "type": "string"
+        },
+        "InsightQueryNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                },
+                {
+                    "$ref": "#/definitions/UnimplementedQuery"
+                }
+            ]
+        },
+        "InsightType": {
+            "enum": ["TRENDS", "STICKINESS", "LIFECYCLE", "FUNNELS", "RETENTION", "PATHS"],
+            "type": "string"
+        },
+        "InsightVizNode": {
+            "additionalProperties": false,
+            "properties": {
+                "kind": {
+                    "const": "InsightVizNode",
+                    "type": "string"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightQueryNode"
+                }
+            },
+            "required": ["kind", "source"],
+            "type": "object"
+        },
+        "IntervalType": {
+            "enum": ["hour", "day", "week", "month"],
+            "type": "string"
+        },
+        "LegacyQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "filters": {
+                    "$ref": "#/definitions/AnyPartialFilterType"
+                },
+                "kind": {
+                    "const": "LegacyQuery",
+                    "type": "string"
+                }
+            },
+            "required": ["filters", "kind"],
+            "type": "object"
+        },
+        "LifecycleQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "LifecycleQuery",
+                    "type": "string"
+                },
+                "lifecycleFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the lifecycle insight",
+                    "properties": {
+                        "shown_as": {
+                            "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "toggledLifecycles": {
+                            "description": "Lifecycles that have been removed from display",
+                            "items": {
+                                "$ref": "#/definitions/LifecycleToggle"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
+        "LifecycleToggle": {
+            "enum": ["new", "resurrecting", "returning", "dormant"],
+            "type": "string"
+        },
+        "PathType": {
+            "enum": ["$pageview", "$screen", "custom_event"],
+            "type": "string"
+        },
+        "PathsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "PathsQuery",
+                    "type": "string"
+                },
+                "pathsFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the paths insight",
+                    "properties": {
+                        "edge_limit": {
+                            "type": "number"
+                        },
+                        "end_point": {
+                            "type": "string"
+                        },
+                        "exclude_events": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "funnel_filter": {
+                            "type": "object"
+                        },
+                        "funnel_paths": {
+                            "$ref": "#/definitions/FunnelPathType"
+                        },
+                        "include_event_types": {
+                            "items": {
+                                "$ref": "#/definitions/PathType"
+                            },
+                            "type": "array"
+                        },
+                        "local_path_cleaning_filters": {
+                            "items": {
+                                "type": "object"
+                            },
+                            "type": "array"
+                        },
+                        "max_edge_weight": {
+                            "type": "number"
+                        },
+                        "min_edge_weight": {
+                            "type": "number"
+                        },
+                        "path_dropoff_key": {
+                            "type": "string"
+                        },
+                        "path_end_key": {
+                            "type": "string"
+                        },
+                        "path_groupings": {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        "path_replacements": {
+                            "type": "boolean"
+                        },
+                        "path_start_key": {
+                            "type": "string"
+                        },
+                        "path_type": {
+                            "$ref": "#/definitions/PathType"
+                        },
+                        "start_point": {
+                            "type": "string"
+                        },
+                        "step_limit": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "PersonsNode": {
+            "additionalProperties": false,
+            "properties": {
+                "cohort": {
+                    "type": "number"
+                },
+                "distinctId": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "PersonsNode",
+                    "type": "string"
+                },
+                "limit": {
+                    "type": "number"
+                },
+                "offset": {
+                    "type": "number"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "description": "Cached query response",
+                    "type": "object"
+                },
+                "search": {
+                    "type": "string"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "PropertyFilterValue": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "number"
+                },
+                {
+                    "items": {
+                        "type": ["string", "number"]
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "PropertyGroupFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "values": {
+                    "items": {
+                        "$ref": "#/definitions/PropertyGroupFilterValue"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "values"],
+            "type": "object"
+        },
+        "PropertyGroupFilterValue": {
+            "additionalProperties": false,
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/FilterLogicalOperator"
+                },
+                "values": {
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/PropertyGroupFilterValue"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["type", "values"],
+            "type": "object"
+        },
+        "PropertyMathType": {
+            "enum": ["avg", "sum", "min", "max", "median", "p90", "p95", "p99"],
+            "type": "string"
+        },
+        "PropertyOperator": {
+            "description": "Sync with plugin-server/src/types.ts",
+            "enum": [
+                "exact",
+                "is_not",
+                "icontains",
+                "not_icontains",
+                "regex",
+                "not_regex",
+                "gt",
+                "gte",
+                "lt",
+                "lte",
+                "is_set",
+                "is_not_set",
+                "is_date_exact",
+                "is_date_before",
+                "is_date_after",
+                "between",
+                "not_between",
+                "min",
+                "max"
+            ],
+            "type": "string"
+        },
+        "QuerySchema": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/EventsQuery"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/PersonsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataTableNode"
+                },
+                {
+                    "$ref": "#/definitions/InsightVizNode"
+                },
+                {
+                    "$ref": "#/definitions/LegacyQuery"
+                },
+                {
+                    "$ref": "#/definitions/TrendsQuery"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsQuery"
+                },
+                {
+                    "$ref": "#/definitions/RetentionQuery"
+                },
+                {
+                    "$ref": "#/definitions/PathsQuery"
+                },
+                {
+                    "$ref": "#/definitions/StickinessQuery"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleQuery"
+                }
+            ]
+        },
+        "RetentionQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "RetentionQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "retentionFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the retention insight",
+                    "properties": {
+                        "period": {
+                            "type": "string"
+                        },
+                        "retention_reference": {
+                            "enum": ["total", "previous"],
+                            "type": "string"
+                        },
+                        "retention_type": {
+                            "$ref": "#/definitions/RetentionType"
+                        },
+                        "returning_entity": {
+                            "type": "object"
+                        },
+                        "target_entity": {
+                            "type": "object"
+                        },
+                        "total_intervals": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        },
+        "RetentionType": {
+            "enum": ["retention_recurring", "retention_first_time"],
+            "type": "string"
+        },
+        "ShownAsValue": {
+            "enum": ["Volume", "Stickiness", "Lifecycle"],
+            "type": "string"
+        },
+        "StepOrderValue": {
+            "enum": ["strict", "unordered", "ordered"],
+            "type": "string"
+        },
+        "StickinessQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "StickinessQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "stickinessFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the stickiness insight",
+                    "properties": {
+                        "compare": {
+                            "type": "boolean"
+                        },
+                        "display": {
+                            "$ref": "#/definitions/ChartDisplayType"
+                        },
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "show_legend": {
+                            "type": "boolean"
+                        },
+                        "shown_as": {
+                            "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "stickiness_days": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
+        "TrendsQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "breakdown": {
+                    "$ref": "#/definitions/BreakdownFilter",
+                    "description": "Breakdown of the events and actions"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/IntervalType",
+                    "description": "Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"
+                },
+                "kind": {
+                    "const": "TrendsQuery",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                },
+                "series": {
+                    "description": "Events and actions to include",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventsNode"
+                            },
+                            {
+                                "$ref": "#/definitions/ActionsNode"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "trendsFilter": {
+                    "additionalProperties": false,
+                    "description": "Properties specific to the trends insight",
+                    "properties": {
+                        "aggregation_axis_format": {
+                            "$ref": "#/definitions/AggregationAxisFormat"
+                        },
+                        "aggregation_axis_postfix": {
+                            "type": "string"
+                        },
+                        "aggregation_axis_prefix": {
+                            "type": "string"
+                        },
+                        "breakdown_histogram_bin_count": {
+                            "type": "number"
+                        },
+                        "compare": {
+                            "type": "boolean"
+                        },
+                        "display": {
+                            "$ref": "#/definitions/ChartDisplayType"
+                        },
+                        "formula": {},
+                        "hidden_legend_keys": {
+                            "additionalProperties": {
+                                "anyOf": [
+                                    {
+                                        "type": "boolean"
+                                    },
+                                    {
+                                        "not": {}
+                                    }
+                                ]
+                            },
+                            "type": "object"
+                        },
+                        "show_legend": {
+                            "type": "boolean"
+                        },
+                        "shown_as": {
+                            "$ref": "#/definitions/ShownAsValue"
+                        },
+                        "smoothing_intervals": {
+                            "type": "number"
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "required": ["kind", "series"],
+            "type": "object"
+        },
+        "UnimplementedQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange",
+                    "description": "Date range for the query"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude internal and test users by applying the respective filters",
+                    "type": "boolean"
+                },
+                "kind": {
+                    "const": "UnimplementedQuery",
+                    "description": "Used for insights that haven't been converted to the new query format yet",
+                    "type": "string"
+                },
+                "properties": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/AnyPropertyFilter"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "$ref": "#/definitions/PropertyGroupFilter"
+                        }
+                    ],
+                    "description": "Property filters for all series"
+                }
+            },
+            "required": ["kind"],
+            "type": "object"
+        }
+    }
+}

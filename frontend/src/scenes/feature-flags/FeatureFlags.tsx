@@ -1,11 +1,10 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { featureFlagsLogic, FeatureFlagsTabs } from './featureFlagsLogic'
 import { Tabs } from 'antd'
 import { Link } from 'lib/components/Link'
 import { copyToClipboard, deleteWithUndo } from 'lib/utils'
 import { PageHeader } from 'lib/components/PageHeader'
-import { FeatureFlagGroupType, FeatureFlagType } from '~/types'
+import { AvailableFeature, FeatureFlagGroupType, FeatureFlagType } from '~/types'
 import { normalizeColumnTitle } from 'lib/components/Table/utils'
 import { urls } from 'scenes/urls'
 import stringWithWBR from 'lib/utils/stringWithWBR'
@@ -20,6 +19,11 @@ import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/Pr
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { LemonInput, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { Tooltip } from 'lib/components/Tooltip'
+import { IconLock } from 'lib/components/icons'
+import { router } from 'kea-router'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
+import { userLogic } from 'scenes/userLogic'
 
 export const scene: SceneExport = {
     component: FeatureFlags,
@@ -31,6 +35,7 @@ function OverViewTab(): JSX.Element {
     const { featureFlagsLoading, searchedFeatureFlags, searchTerm, uniqueCreators, filters } =
         useValues(featureFlagsLogic)
     const { updateFeatureFlag, loadFeatureFlags, setSearchTerm, setFeatureFlagsFilters } = useActions(featureFlagsLogic)
+    const { hasAvailableFeature } = useValues(userLogic)
 
     const columns: LemonTableColumns<FeatureFlagType> = [
         {
@@ -43,9 +48,26 @@ function OverViewTab(): JSX.Element {
             render: function Render(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        <Link to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined} className="row-name">
-                            {stringWithWBR(featureFlag.key, 17)}
-                        </Link>
+                        <div className="flex flex-row items-center">
+                            <Link
+                                to={featureFlag.id ? urls.featureFlag(featureFlag.id) : undefined}
+                                className="row-name"
+                            >
+                                {stringWithWBR(featureFlag.key, 17)}
+                            </Link>
+                            {!featureFlag.can_edit && (
+                                <Tooltip title="You don't have edit permissions for this feature flag.">
+                                    <IconLock
+                                        style={{
+                                            marginLeft: 6,
+                                            verticalAlign: '-0.125em',
+                                            display: 'inline',
+                                        }}
+                                    />
+                                </Tooltip>
+                            )}
+                        </div>
+
                         {featureFlag.name && (
                             <span className="row-description" style={{ maxWidth: '24rem' }}>
                                 {featureFlag.name}
@@ -55,13 +77,29 @@ function OverViewTab(): JSX.Element {
                 )
             },
         },
+        ...(hasAvailableFeature(AvailableFeature.TAGGING)
+            ? [
+                  {
+                      title: 'Tags',
+                      dataIndex: 'tags' as keyof FeatureFlagType,
+                      render: function Render(tags: FeatureFlagType['tags']) {
+                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                      },
+                  } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
+              ]
+            : []),
         createdByColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         createdAtColumn<FeatureFlagType>() as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
         {
             title: 'Release conditions',
             width: 100,
             render: function Render(_, featureFlag: FeatureFlagType) {
-                return groupFilters(featureFlag.filters.groups)
+                const releaseText = groupFilters(featureFlag.filters.groups)
+                return releaseText == '100% of all users' ? (
+                    <LemonTag type="highlight">{releaseText}</LemonTag>
+                ) : (
+                    releaseText
+                )
             },
         },
         {
@@ -72,7 +110,11 @@ function OverViewTab(): JSX.Element {
             render: function RenderActive(_, featureFlag: FeatureFlagType) {
                 return (
                     <>
-                        {featureFlag.active ? (
+                        {featureFlag.performed_rollback ? (
+                            <LemonTag type="warning" className="uppercase">
+                                Rolled Back
+                            </LemonTag>
+                        ) : featureFlag.active ? (
                             <LemonTag type="success" className="uppercase">
                                 Enabled
                             </LemonTag>
@@ -112,12 +154,20 @@ function OverViewTab(): JSX.Element {
                                             : null
                                     }}
                                     id={`feature-flag-${featureFlag.id}-switch`}
+                                    disabled={!featureFlag.can_edit}
                                     fullWidth
                                 >
                                     {featureFlag.active ? 'Disable' : 'Enable'} feature flag
                                 </LemonButton>
                                 {featureFlag.id && (
-                                    <LemonButton status="stealth" to={urls.featureFlag(featureFlag.id)} fullWidth>
+                                    <LemonButton
+                                        status="stealth"
+                                        fullWidth
+                                        disabled={!featureFlag.can_edit}
+                                        onClick={() =>
+                                            featureFlag.id && router.actions.push(urls.featureFlag(featureFlag.id))
+                                        }
+                                    >
                                         Edit
                                     </LemonButton>
                                 )}
@@ -144,6 +194,7 @@ function OverViewTab(): JSX.Element {
                                                 callback: loadFeatureFlags,
                                             })
                                         }}
+                                        disabled={!featureFlag.can_edit}
                                         fullWidth
                                     >
                                         Delete feature flag
@@ -218,6 +269,11 @@ function OverViewTab(): JSX.Element {
                 dataSource={searchedFeatureFlags}
                 columns={columns}
                 rowKey="key"
+                defaultSorting={{
+                    columnKey: 'created_at',
+                    order: -1,
+                }}
+                noSortingCancellation
                 loading={featureFlagsLoading}
                 pagination={{ pageSize: 100 }}
                 nouns={['feature flag', 'feature flags']}

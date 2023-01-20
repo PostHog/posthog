@@ -2,7 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { Skeleton } from 'antd'
 import { useActions, useValues } from 'kea'
 import { LemonSelectMultiple } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function DataAttributes(): JSX.Element {

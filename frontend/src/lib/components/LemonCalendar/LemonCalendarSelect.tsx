@@ -1,24 +1,23 @@
 import { LemonCalendar } from 'lib/components/LemonCalendar/LemonCalendar'
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconClose } from 'lib/components/icons'
 
 export interface LemonCalendarSelectProps {
-    value?: string | null
-    onChange: (date: string) => void
+    value?: dayjs.Dayjs | null
+    onChange: (date: dayjs.Dayjs) => void
     months?: number
     onClose?: () => void
 }
 
 export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonCalendarSelectProps): JSX.Element {
-    const parsedValue = value ? dayjs(value).format('YYYY-MM-DD') : undefined
-    const [selectValue, setSelectValue] = useState(parsedValue)
+    const [selectValue, setSelectValue] = useState<dayjs.Dayjs | null>(value ? value.startOf('day') : null)
 
     return (
         <div className="LemonCalendarSelect" data-attr="lemon-calendar-select">
             <div className="flex justify-between border-b p-2 pb-4">
-                <h3 className="mb-0">Select a date</h3>
+                <h3 className="text-base mb-0">Select a date</h3>
                 {onClose && (
                     <LemonButton
                         icon={<IconClose />}
@@ -32,10 +31,10 @@ export function LemonCalendarSelect({ value, onChange, months, onClose }: LemonC
             <div className="p-2">
                 <LemonCalendar
                     onDateClick={setSelectValue}
-                    leftmostMonth={selectValue}
+                    leftmostMonth={selectValue?.startOf('month')}
                     months={months}
                     getLemonButtonProps={({ date, props }) => {
-                        if (date === selectValue) {
+                        if (date.isSame(selectValue, 'd')) {
                             return { ...props, status: 'primary', type: 'primary' }
                         }
                         return props

@@ -1,4 +1,3 @@
-import React from 'react'
 import { ComponentMeta } from '@storybook/react'
 
 import { LemonSkeleton } from './LemonSkeleton'
@@ -9,6 +8,7 @@ export default {
     title: 'Lemon UI/Lemon Skeleton',
     component: LemonSkeleton,
     parameters: {
+        chromatic: { disableSnapshot: false },
         docs: {
             description: {
                 component: `
@@ -74,13 +74,33 @@ export function Customisation(): JSX.Element {
 export function DarkBackground(): JSX.Element {
     return (
         <div className="space-y-2 bg-default p-2 rounded">
-            <p>Skeletons have a bunch of presets to help with simulating other LemonUI Components</p>
+            <p className="text-light">
+                Skeletons have a bunch of presets to help with simulating other LemonUI Components
+            </p>
 
             <div className="flex items-center gap-2">
                 <LemonSkeleton.Circle />
                 <LemonSkeleton />
                 <LemonSkeleton.Button />
             </div>
+        </div>
+    )
+}
+
+export function Repeat(): JSX.Element {
+    return (
+        <div className="space-y-2 p-2 rounded">
+            <p>
+                Skeletons can be easily repeated multiple times using the <b>repeat</b> property
+            </p>
+
+            <LemonSkeleton repeat={5} />
+
+            <p>
+                Add the <b>fade</b> property to progressively fade out the repeated skeletons
+            </p>
+
+            <LemonSkeleton repeat={5} fade />
         </div>
     )
 }

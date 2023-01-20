@@ -1,11 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 import { pathsLogic } from 'scenes/paths/pathsLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { InsightShortId, InsightType } from '~/types'
+import { InsightShortId, InsightType, PathsFilterType } from '~/types'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-
-jest.mock('lib/api')
 
 const Insight123 = '123' as InsightShortId
 
@@ -62,7 +60,7 @@ describe('pathsLogic', () => {
                 insightLogic(props).actions.setFilters({
                     insight: InsightType.PATHS,
                     step_limit: 999,
-                })
+                } as PathsFilterType)
             })
                 .toMatchValues(logic, {
                     filter: expect.objectContaining({
@@ -83,7 +81,7 @@ describe('pathsLogic', () => {
                     edge_limit: 60,
                     min_edge_weight: 5,
                     max_edge_weight: 10,
-                })
+                } as PathsFilterType)
             })
                 .toMatchValues(logic, {
                     filter: expect.objectContaining({

@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import { useState } from 'react'
 import { ComponentMeta, ComponentStory, Story } from '@storybook/react'
 
 import { LemonTextArea, LemonTextAreaProps, LemonTextMarkdown as _LemonTextMarkdown } from './LemonTextArea'
@@ -6,6 +6,7 @@ import { LemonTextArea, LemonTextAreaProps, LemonTextMarkdown as _LemonTextMarkd
 export default {
     title: 'Lemon UI/Lemon Text Area',
     component: LemonTextArea,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         value: {
             defaultValue:

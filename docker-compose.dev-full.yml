@@ -1,0 +1,87 @@
+#
+# docker-compose file used ONLY for local development.
+# This file is the same as `docker-compose.dev.yml` except it boots the services in containers instead of you running them locally
+# For more info, see:
+# https://posthog.com/handbook/engineering/developing-locally
+#
+# If you are looking at self-hosted deployment options check
+# https://posthog.com/docs/self-host
+#
+
+services:
+    db:
+        extends:
+            file: docker-compose.base.yml
+            service: db
+        ports:
+            - '5432:5432'
+
+    redis:
+        extends:
+            file: docker-compose.base.yml
+            service: redis
+        ports:
+            - '6379:6379'
+
+    clickhouse:
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
+        ports:
+            - '8123:8123'
+            - '9000:9000'
+            - '9440:9440'
+            - '9009:9009'
+        volumes:
+            - ./posthog/idl:/idl
+            - ./docker/clickhouse/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+            - ./docker/clickhouse/config.xml:/etc/clickhouse-server/config.xml
+            - ./docker/clickhouse/users-dev.xml:/etc/clickhouse-server/users.xml
+
+    zookeeper:
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
+
+    kafka:
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
+        ports:
+            - '9092:9092'
+
+    object_storage:
+        extends:
+            file: docker-compose.base.yml
+            service: object_storage
+        ports:
+            - '19000:19000'
+            - '19001:19001'
+
+    maildev:
+        extends:
+            file: docker-compose.base.yml
+            service: maildev
+        ports:
+            - '1080:1080'
+            - '1025:1025'
+
+    worker:
+        extends:
+            file: docker-compose.base.yml
+            service: worker
+        build: .
+
+    web:
+        extends:
+            file: docker-compose.base.yml
+            service: web
+        ports:
+            - '8080:8080'
+        build: .
+
+    plugins:
+        extends:
+            file: docker-compose.base.yml
+            service: plugins
+        build: .

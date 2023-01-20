@@ -1,4 +1,4 @@
-import React, { Dispatch, SetStateAction, useState } from 'react'
+import { Dispatch, SetStateAction, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { RestrictedComponentProps } from '../../../lib/components/RestrictedArea'
@@ -21,7 +21,7 @@ export function DeleteProjectModal({
     return (
         <LemonModal
             title="Delete the project and its data?"
-            onClose={() => setIsOpen(false)}
+            onClose={!isDeletionInProgress ? () => setIsOpen(false) : undefined}
             footer={
                 <>
                     <LemonButton disabled={isDeletionInProgress} type="secondary" onClick={() => setIsOpen(false)}>

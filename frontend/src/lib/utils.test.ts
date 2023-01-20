@@ -2,48 +2,51 @@ import tk from 'timekeeper'
 import {
     areObjectValuesEmpty,
     average,
+    booleanOperatorMap,
+    calculateDays,
     capitalizeFirstLetter,
+    ceilMsToClosestSecond,
+    chooseOperatorMap,
     colonDelimitedDuration,
     compactNumber,
+    convertPropertiesToPropertyGroup,
+    convertPropertyGroupToProperties,
     dateFilterToText,
+    dateMapping,
+    dateStringToDayJs,
+    dateTimeOperatorMap,
+    durationOperatorMap,
     endWithPunctation,
     ensureStringIsNotBlank,
+    eventToDescription,
+    floorMsToClosestSecond,
     formatLabel,
+    genericOperatorMap,
+    getFormattedLastWeekDate,
     hexToRGBA,
     humanFriendlyDuration,
     identifierToHuman,
+    isExternalLink,
     isURL,
     median,
     midEllipsis,
+    numericOperatorMap,
     objectDiffShallow,
     pluralize,
-    toParams,
-    eventToDescription,
-    ceilMsToClosestSecond,
-    floorMsToClosestSecond,
-    dateMapping,
-    getFormattedLastWeekDate,
-    genericOperatorMap,
-    dateTimeOperatorMap,
-    stringOperatorMap,
-    numericOperatorMap,
-    chooseOperatorMap,
-    booleanOperatorMap,
-    roundToDecimal,
-    convertPropertyGroupToProperties,
-    convertPropertiesToPropertyGroup,
-    calculateDays,
     range,
-    durationOperatorMap,
-    isExternalLink,
+    reverseColonDelimitedDuration,
+    roundToDecimal,
     selectorOperatorMap,
-    dateStringToDayJs,
+    stringOperatorMap,
+    toParams,
 } from './utils'
 import {
     ActionFilter,
     ElementType,
     EventType,
     FilterLogicalOperator,
+    PropertyFilterType,
+    PropertyGroupFilter,
     PropertyOperator,
     PropertyType,
     TimeUnitType,
@@ -130,8 +133,13 @@ describe('formatLabel()', () => {
             formatLabel('some_event', {
                 ...action,
                 properties: [
-                    { value: 'hello', key: 'greeting', operator: PropertyOperator.Exact, type: '' },
-                    { operator: PropertyOperator.GreaterThan, value: 5, key: '', type: '' },
+                    {
+                        value: 'hello',
+                        key: 'greeting',
+                        operator: PropertyOperator.Exact,
+                        type: PropertyFilterType.Person,
+                    },
+                    { operator: PropertyOperator.GreaterThan, value: 5, key: '', type: PropertyFilterType.Person },
                 ],
             })
         ).toEqual('some_event (greeting = hello, > 5)')
@@ -180,6 +188,11 @@ describe('isURL()', () => {
         expect(isURL(1)).toEqual(false)
         expect(isURL(true)).toEqual(false)
         expect(isURL(null)).toEqual(false)
+        expect(
+            isURL(
+                'https://client.rrrr.alpha.dev.foo.bar/9RvDy6gCmic_srrKs1db?sourceOrigin=rrrr&embedded={%22hostContext%22:%22landing%22,%22hostType%22:%22web%22,%22type%22:%22popsync%22}&share=1&wrapperUrl=https%3A%2F%2Fuat.rrrr.io%2F9RvDy6gCmicxyz&save=1&initialSearch={%22sites%22:%22google.com,gettyimages.com%22,%22safe%22:true,%22q%22:%22Perro%22}&opcid=4360f861-ffff-4444-9999-5257065a7dc3&waitForToken=1'
+            )
+        ).toEqual(false)
     })
 })
 
@@ -203,11 +216,11 @@ describe('compactNumber()', () => {
     it('formats number correctly', () => {
         expect(compactNumber(10)).toEqual('10')
         expect(compactNumber(293)).toEqual('293')
-        expect(compactNumber(5001)).toEqual('5K')
-        expect(compactNumber(5312)).toEqual('5.31K')
-        expect(compactNumber(5392)).toEqual('5.39K')
-        expect(compactNumber(2833102)).toEqual('2.83M')
-        expect(compactNumber(8283310234)).toEqual('8.28B')
+        expect(compactNumber(5001)).toEqual('5 K')
+        expect(compactNumber(5312)).toEqual('5.31 K')
+        expect(compactNumber(5392)).toEqual('5.39 K')
+        expect(compactNumber(2833102)).toEqual('2.83 M')
+        expect(compactNumber(8283310234)).toEqual('8.28 B')
         expect(compactNumber(null)).toEqual('-')
     })
 })
@@ -270,7 +283,8 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText(null, null, 'default')).toEqual('default')
             expect(dateFilterToText('-24h', null, 'default')).toEqual('Last 24 hours')
             expect(dateFilterToText('-48h', undefined, 'default')).toEqual('Last 48 hours')
-            expect(dateFilterToText('-1d', null, 'default')).toEqual('Yesterday')
+            expect(dateFilterToText('-1d', null, 'default')).toEqual('Last 1 day')
+            expect(dateFilterToText('-1dStart', 'dStart', 'default')).toEqual('Yesterday')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default')).toEqual('Previous month')
         })
 
@@ -300,7 +314,8 @@ describe('dateFilterToText()', () => {
             expect(dateFilterToText('-48h', undefined, 'default', dateMapping, true)).toEqual(
                 'February 29 - March 2, 2012'
             )
-            expect(dateFilterToText('-1d', null, 'default', dateMapping, true)).toEqual('March 1, 2012')
+            expect(dateFilterToText('-1d', null, 'default', dateMapping, true)).toEqual('March 1 - March 2, 2012')
+            expect(dateFilterToText('-1dStart', 'dStart', 'default', dateMapping, true)).toEqual('March 1, 2012')
             expect(dateFilterToText('-1mStart', '-1mEnd', 'default', dateMapping, true)).toEqual(
                 'March 1 - March 31, 2012'
             )
@@ -510,10 +525,28 @@ describe('colonDelimitedDuration()', () => {
         expect(colonDelimitedDuration(604800.222, 5)).toEqual('01:00:00:00:00')
         expect(colonDelimitedDuration(604800.999, 6)).toEqual('01:00:00:00:00')
     })
+    it('returns the smallest possible for numUnits = null', () => {
+        expect(colonDelimitedDuration(59, null)).toEqual('00:59')
+        expect(colonDelimitedDuration(3599, null)).toEqual('59:59')
+        expect(colonDelimitedDuration(3600, null)).toEqual('01:00:00')
+    })
     it('returns an empty string for nullish inputs', () => {
         expect(colonDelimitedDuration('')).toEqual('')
         expect(colonDelimitedDuration(null)).toEqual('')
         expect(colonDelimitedDuration(undefined)).toEqual('')
+    })
+})
+
+describe('reverseColonDelimitedDuration()', () => {
+    it('returns correct value', () => {
+        expect(reverseColonDelimitedDuration('59')).toEqual(59)
+        expect(reverseColonDelimitedDuration('59:59')).toEqual(3599)
+        expect(reverseColonDelimitedDuration('23:59:59')).toEqual(86399)
+    })
+    it('returns an null for bad values', () => {
+        expect(reverseColonDelimitedDuration('1232123')).toEqual(null)
+        expect(reverseColonDelimitedDuration('AA:AA:AA')).toEqual(null)
+        expect(reverseColonDelimitedDuration(undefined)).toEqual(null)
     })
 })
 
@@ -689,7 +722,7 @@ describe('convertPropertyGroupToProperties()', () => {
     })
 
     it('converts a deeply nested property group into an array of properties', () => {
-        const propertyGroup = {
+        const propertyGroup: PropertyGroupFilter = {
             type: FilterLogicalOperator.And,
             values: [
                 {

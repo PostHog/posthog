@@ -1,4 +1,4 @@
-import React, { useState, useCallback, Dispatch, SetStateAction } from 'react'
+import { useState, useCallback, Dispatch, SetStateAction } from 'react'
 import { Table, Popconfirm } from 'antd'
 import { useActions, useValues } from 'kea'
 import { ExclamationCircleOutlined } from '@ant-design/icons'

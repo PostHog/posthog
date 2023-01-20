@@ -1,8 +1,8 @@
-import React, { CSSProperties, useEffect } from 'react'
-import { useValues, BindLogic, useActions } from 'kea'
+import { CSSProperties, useEffect } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
 import { propertyFilterLogic } from './propertyFilterLogic'
 import '../../../scenes/actions/Actions.scss'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType } from '~/types'
 import { PathItemSelector } from './components/PathItemSelector'
 import { PropertyFilterButton } from './components/PropertyFilterButton'
 import { SimpleOption, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
@@ -44,7 +44,9 @@ export function PathItemFilters({
                     <div key={index} className={'mb-2'}>
                         <PathItemSelector
                             pathItem={filter.value as string | undefined}
-                            onChange={(pathItem) => setFilter(index, pathItem, pathItem, null, 'event')}
+                            onChange={(pathItem) =>
+                                setFilter(index, { key: pathItem, value: pathItem, type: PropertyFilterType.Event })
+                            }
                             index={index}
                             taxonomicGroupTypes={taxonomicGroupTypes}
                             wildcardOptions={wildcardOptions}

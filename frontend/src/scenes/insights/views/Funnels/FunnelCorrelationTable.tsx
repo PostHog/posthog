@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react'
-import { Row, Spin, Table } from 'antd'
+import { useEffect, useState } from 'react'
+import { Row, Table } from 'antd'
 import Column from 'antd/lib/table/Column'
 import { useActions, useValues } from 'kea'
 import { RiseOutlined, FallOutlined, EllipsisOutlined, InfoCircleOutlined } from '@ant-design/icons'
@@ -18,12 +18,13 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { Popup } from 'lib/components/Popup/Popup'
 import { CorrelationMatrix } from './CorrelationMatrix'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { Spinner } from 'lib/components/Spinner/Spinner'
 
 export function FunnelCorrelationTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const logic = funnelLogic(insightProps)
     const {
-        stepsWithCount,
+        steps,
         correlationValues,
         correlationTypes,
         eventHasPropertyCorrelations,
@@ -79,11 +80,7 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         return (
             <>
                 <h4>
-                    {is_success ? (
-                        <RiseOutlined style={{ color: 'green' }} />
-                    ) : (
-                        <FallOutlined style={{ color: 'red' }} />
-                    )}{' '}
+                    {is_success ? <RiseOutlined className="text-success" /> : <FallOutlined className="text-danger" />}{' '}
                     <PropertyKeyInfo value={first_value} />
                     {second_value !== undefined && (
                         <>
@@ -137,17 +134,17 @@ export function FunnelCorrelationTable(): JSX.Element | null {
     const renderNestedTable = (eventName: string): JSX.Element => {
         if (eventWithPropertyCorrelationsLoading) {
             return (
-                <div className="nested-properties-loading">
-                    <Spin />
-                    <h3>Loading correlation results</h3>
-                    <p>This process can take up to 20 seconds. </p>
+                <div className="flex flex-col items-center py-2">
+                    <Spinner className="text-2xl mb-2" />
+                    <h3 className="mb-1 text-md font-semibold">Loading correlation results…</h3>
+                    <p className="m-0 text-xs text-muted">This process can take up to 20 seconds.</p>
                 </div>
             )
         }
 
         return (
             <div>
-                <h4 style={{ paddingLeft: 16 }}>Correlated properties</h4>
+                <h4 className="pl-4">Correlated properties</h4>
                 <Table
                     dataSource={eventWithPropertyCorrelationsValues[eventName]}
                     rowKey={(record: FunnelCorrelation) => record.event.event}
@@ -197,53 +194,36 @@ export function FunnelCorrelationTable(): JSX.Element | null {
         )
     }
 
-    return stepsWithCount.length > 1 ? (
+    return steps.length > 1 ? (
         <VisibilitySensor id={correlationPropKey} offset={152}>
             <div className="funnel-correlation-table">
                 <span className="funnel-correlation-header">
                     <span className="table-header">
-                        <IconSelectEvents style={{ marginRight: 4, fontSize: 24, opacity: 0.5 }} />
+                        <IconSelectEvents className="mr-1 text-2xl opacity-50" />
                         CORRELATED EVENTS
                     </span>
                     <span className="table-options">
                         <p className="title">CORRELATION</p>
                         <div
                             className="tab-btn ant-btn"
-                            style={{
-                                paddingTop: '1px',
-                                paddingBottom: '1px',
-                                borderTopRightRadius: 0,
-                                borderBottomRightRadius: 0,
-                            }}
                             onClick={() => onClickCorrelationType(FunnelCorrelationType.Success)}
                         >
                             <Checkbox
                                 checked={correlationTypes.includes(FunnelCorrelationType.Success)}
-                                style={{
-                                    pointerEvents: 'none',
-                                }}
+                                className="pointer-events-none"
                             >
                                 Success
                             </Checkbox>
                         </div>
                         <div
                             className="tab-btn ant-btn"
-                            style={{
-                                marginRight: '8px',
-                                paddingTop: '1px',
-                                paddingBottom: '1px',
-                                borderTopLeftRadius: 0,
-                                borderBottomLeftRadius: 0,
-                            }}
                             onClick={() => onClickCorrelationType(FunnelCorrelationType.Failure)}
                         >
                             <Checkbox
                                 checked={correlationTypes.includes(FunnelCorrelationType.Failure)}
-                                style={{
-                                    pointerEvents: 'none',
-                                }}
+                                className="pointer-events-none"
                             >
-                                Dropoff
+                                Drop-off
                             </Checkbox>
                         </div>
                     </span>
@@ -270,29 +250,32 @@ export function FunnelCorrelationTable(): JSX.Element | null {
                             }
                             return expanded ? (
                                 <Tooltip title="Collapse">
-                                    <div
-                                        style={{ cursor: 'pointer', opacity: 0.5, fontSize: 24 }}
+                                    <LemonButton
+                                        icon={<IconUnfoldLess />}
+                                        status="stealth"
+                                        type="tertiary"
+                                        active
+                                        noPadding
                                         onClick={(e) => {
                                             removeNestedTableExpandedKey(record.event.event)
                                             onExpand(record, e)
                                         }}
-                                    >
-                                        <IconUnfoldLess />
-                                    </div>
+                                    />
                                 </Tooltip>
                             ) : (
                                 <Tooltip title="Expand to see correlated properties for this event">
-                                    <div
-                                        style={{ cursor: 'pointer', opacity: 0.5, fontSize: 24 }}
+                                    <LemonButton
+                                        icon={<IconUnfoldMore />}
+                                        status="stealth"
+                                        type="tertiary"
+                                        noPadding
                                         onClick={(e) => {
                                             !eventHasPropertyCorrelations(record.event.event) &&
                                                 loadEventWithPropertyCorrelations(record.event.event)
                                             addNestedTableExpandedKey(record.event.event)
                                             onExpand(record, e)
                                         }}
-                                    >
-                                        <IconUnfoldMore />
-                                    </div>
+                                    />
                                 </Tooltip>
                             )
                         },
@@ -400,10 +383,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 }
             >
                 <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined
-                        style={{ color: 'var(--primary)', fontSize: 24 }}
-                        className="insight-dropdown-actions"
-                    />
+                    <EllipsisOutlined className="insight-dropdown-actions" />
                 </LemonButton>
             </Popup>
         </Row>

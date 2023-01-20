@@ -2,6 +2,7 @@ import glob
 import subprocess
 import tempfile
 import uuid
+from datetime import timedelta
 from os.path import abspath, basename, dirname, join
 from typing import Dict, Generator, List, Tuple
 
@@ -12,8 +13,15 @@ from django.utils import timezone
 from sentry_sdk.api import capture_exception
 
 from posthog.api.dead_letter_queue import get_dead_letter_queue_events_last_24h, get_dead_letter_queue_size
-from posthog.client import make_ch_pool, query_with_columns, sync_execute
+from posthog.cache_utils import cache_for
+from posthog.clickhouse.client.connection import make_ch_pool
+from posthog.client import query_with_columns, sync_execute
+from posthog.cloud_utils import is_cloud
 from posthog.models.event.util import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
+from posthog.models.session_recording_event.util import (
+    get_recording_count_month_to_date,
+    get_recording_events_count_month_to_date,
+)
 from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_STABLE_HOST, CLICKHOUSE_USER
 
 SLOW_THRESHOLD_MS = 10000
@@ -43,6 +51,20 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
         "metric": "Events recorded month to date",
         "value": get_event_count_month_to_date(),
     }
+
+    if not is_cloud():
+        # NOTE: These metrics can be quite expensive to calculate and are only really interesting to self-hosted customers
+        yield {
+            "key": "clickhouse_session_recordings_count_month_to_date",
+            "metric": "Session recordings month to date",
+            "value": get_recording_count_month_to_date(),
+        }
+
+        yield {
+            "key": "clickhouse_session_recordings_events_count_month_to_date",
+            "metric": "Session recordings events month to date",
+            "value": get_recording_events_count_month_to_date(),
+        }
 
     disk_status = sync_execute(
         "SELECT formatReadableSize(total_space), formatReadableSize(free_space) FROM system.disks"
@@ -95,23 +117,13 @@ def system_status() -> Generator[SystemStatusRow, None, None]:
 
     yield {"key": "dead_letter_queue_size", "metric": "Dead letter queue size", "value": dead_letter_queue_size}
 
-    dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
+    dead_letter_queue_events_high, dead_letter_queue_events_last_day = dead_letter_queue_ratio()
 
     yield {
         "key": "dead_letter_queue_events_last_day",
         "metric": "Events sent to dead letter queue in the last 24h",
         "value": dead_letter_queue_events_last_day,
     }
-
-    total_events_ingested_last_day = sync_execute(
-        "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
-    )[0][0]
-    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / max(
-        dead_letter_queue_events_last_day + total_events_ingested_last_day, 1
-    )
-
-    # if the dead letter queue has as many events today as ingestion, issue an alert
-    dead_letter_queue_events_high = dead_letter_queue_ingestion_ratio >= 0.2
 
     yield {
         "key": "dead_letter_queue_ratio_ok",
@@ -126,6 +138,26 @@ def is_alive() -> bool:
         return True
     except:
         return False
+
+
+def dead_letter_queue_ratio() -> Tuple[bool, int]:
+    dead_letter_queue_events_last_day = get_dead_letter_queue_events_last_24h()
+
+    total_events_ingested_last_day = sync_execute(
+        "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
+    )[0][0]
+
+    dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / max(
+        dead_letter_queue_events_last_day + total_events_ingested_last_day, 1
+    )
+
+    # if the dead letter queue has above 20% of events compared to ingestion, issue an alert
+    return dead_letter_queue_ingestion_ratio >= 0.2, dead_letter_queue_events_last_day
+
+
+@cache_for(timedelta(minutes=5))
+def dead_letter_queue_ratio_ok_cached() -> bool:
+    return dead_letter_queue_ratio()[0]
 
 
 def get_clickhouse_running_queries() -> List[Dict]:

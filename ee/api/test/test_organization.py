@@ -50,8 +50,9 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             response.json(),
         )
 
+    @patch("posthog.api.organization.delete_bulky_postgres_data")
     @patch("posthoganalytics.capture")
-    def test_delete_second_managed_organization(self, mock_capture):
+    def test_delete_second_managed_organization(self, mock_capture, mock_delete_bulky_postgres_data):
         organization, _, team = Organization.objects.bootstrap(self.user, name="X")
         organization_props = organization.get_analytics_metadata()
         self.assertTrue(Organization.objects.filter(id=organization.id).exists())
@@ -67,6 +68,7 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             organization_props,
             groups={"instance": ANY, "organization": str(organization.id)},
         )
+        mock_delete_bulky_postgres_data.assert_called_once_with(team_ids=[team.id])
 
     @patch("posthoganalytics.capture")
     def test_delete_last_organization(self, mock_capture):
@@ -188,9 +190,10 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             organization.refresh_from_db()
             self.assertTrue(organization.name, "Meow")
 
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_has_license(self):
-        with self.settings(MULTI_TENANCY=False):
+        current_plans = License.PLANS
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
+        with self.is_cloud(False):
             License.objects.create(key="key", plan="enterprise", valid_until=dt.datetime.now() + dt.timedelta(days=1))
 
             # Still only old, empty available_features field value known
@@ -201,16 +204,23 @@ class TestOrganizationEnterpriseAPI(APILicensedTest):
             self.organization.refresh_from_db()
             self.assertTrue(self.organization.is_feature_available("whatever"))
             self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
+        License.PLANS = current_plans
 
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     def test_feature_available_self_hosted_no_license(self):
+        current_plans = License.PLANS
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
+
         self.assertFalse(self.organization.is_feature_available("whatever"))
         self.assertFalse(self.organization.is_feature_available("feature-doesnt-exist"))
+        License.PLANS = current_plans
 
-    @patch("posthog.models.organization.License.PLANS", {"enterprise": ["whatever"]})
     @patch("ee.api.license.requests.post")
     def test_feature_available_self_hosted_license_expired(self, patch_post):
+        current_plans = License.PLANS
+        License.PLANS = {"enterprise": ["whatever"]}  # type: ignore
+
         with freeze_time("2070-01-01T12:00:00.000Z"):  # LicensedTestMixin enterprise license expires in 2038
             sync_all_organization_available_features()  # This is normally ran every hour
             self.organization.refresh_from_db()
             self.assertFalse(self.organization.is_feature_available("whatever"))
+        License.PLANS = current_plans

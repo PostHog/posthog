@@ -1,22 +1,28 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
-import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
-import { urls } from 'scenes/urls'
 import { PageHeader } from 'lib/components/PageHeader'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useValues } from 'kea'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { EventsScene } from 'scenes/events/EventsScene'
 
 export const scene: SceneExport = {
     component: Events,
-    logic: eventsTableLogic,
-    paramsToProps: ({ params: { fixedFilters } }) => ({ fixedFilters, key: 'EventsTable', sceneUrl: urls.events() }),
+    // NOTE: Removing the lines below because turbo mode messes up having two separate versions of this scene.
+    //       It's a small price to pay. Put this back when the flag is removed.
+    // logic: eventsTableLogic,
+    // paramsToProps: ({ params: { fixedFilters } }) => ({ fixedFilters, key: 'EventsTable', sceneUrl: urls.events() }),
 }
 
 export function Events(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
+
     return (
         <>
             <PageHeader title="Live events" caption="Event history limited to the last twelve months." />
             <div className="pt-4 border-t" />
-            <EventsTable pageKey={'EventsTable'} />
+            {featureDataExploration ? <EventsScene /> : <EventsTable pageKey={'EventsTable'} />}
         </>
     )
 }

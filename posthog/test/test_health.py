@@ -17,9 +17,9 @@ from django.http import HttpResponse
 from django.test import Client
 from kafka.errors import KafkaError
 
-from posthog.client import ch_pool
+from posthog.clickhouse.client.connection import ch_pool
 from posthog.health import logger
-from posthog.kafka_client.client import TestKafkaProducer
+from posthog.kafka_client.client import KafkaProducerForTests
 
 
 @pytest.mark.django_db
@@ -224,13 +224,13 @@ def simulate_kafka_cannot_connect():
     """
     Causes instantiation of a kafka producer to raise a `KafkaError`.
 
-    IMPORTANT: this is mocking the `TestKafkaProducer`, itselt a mock. I'm
+    IMPORTANT: this is mocking the `KafkaProducerForTests`, itself a mock. I'm
     hoping that the real producer raises similarly, and that that behaviour
     doesn't change with version of the library. I have tested this manually
     however locally with real Kafka connection, and it seems to function as
     expected :fingerscrossed:
     """
-    with patch.object(TestKafkaProducer, "__init__") as init_mock:
+    with patch.object(KafkaProducerForTests, "__init__") as init_mock:
         init_mock.side_effect = KafkaError("failed to connect")
         yield
 

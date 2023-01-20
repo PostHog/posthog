@@ -1,3 +1,5 @@
+import { LifecycleToggle } from '~/types'
+
 /* Insight series colors. */
 const dataColorVars = [
     'brand-blue',
@@ -30,7 +32,7 @@ export const tagColors = [
     'geekblue',
 ]
 
-function getColorVar(variable: string): string {
+export function getColorVar(variable: string): string {
     const colorValue = getComputedStyle(document.body).getPropertyValue('--' + variable)
     if (!colorValue) {
         throw new Error(`Couldn't find color variable --${variable}`)
@@ -43,19 +45,24 @@ function getColorVar(variable: string): string {
  * @param index The index of the series color.
  * @param numSeries Number of series in the insight being visualized.
  * @param comparePrevious If true, wrapped colors ()
+ * @param asBackgroundHighlight If true, add opacity to color
  */
-export function getSeriesColor(index: number | undefined = 0, comparePrevious: boolean = false): string {
+export function getSeriesColor(
+    index: number | undefined = 0,
+    comparePrevious: boolean = false,
+    asBackgroundHighlight?: boolean
+): string {
     const adjustedIndex = (comparePrevious ? Math.floor(index / 2) : index) % dataColorVars.length
     const isPreviousPeriodSeries = comparePrevious && index % 2 === 1
     const baseHex = getColorVar(`data-${dataColorVars[adjustedIndex]}`)
-    return isPreviousPeriodSeries ? `${baseHex}80` : baseHex
+    return isPreviousPeriodSeries ? `${baseHex}80` : asBackgroundHighlight ? `${baseHex}30` : baseHex
 }
 
 /** Return hexadecimal color value for lifecycle status.
  *
  * Hexadecimal is necessary as Chart.js doesn't work with CSS vars.
  */
-export function getBarColorFromStatus(status: string, hover?: boolean): string {
+export function getBarColorFromStatus(status: LifecycleToggle, hover?: boolean): string {
     switch (status) {
         case 'new':
         case 'returning':

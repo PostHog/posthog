@@ -1,5 +1,4 @@
 import './EventDefinitionsTable.scss'
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/components/LemonTable'
 import { EventDefinition, EventDefinitionType } from '~/types'
@@ -65,7 +64,7 @@ export function EventDefinitionsTable(): JSX.Element {
             render: function Render(_, definition: EventDefinition) {
                 return <EventDefinitionHeader definition={definition} hideIcon asLink />
             },
-            sorter: (a, b) => a.name?.localeCompare(b.name ?? '') ?? 0,
+            sorter: true,
         },
         ...(hasDashboardCollaboration
             ? [
@@ -91,7 +90,7 @@ export function EventDefinitionsTable(): JSX.Element {
                               <span className="text-muted">—</span>
                           )
                       },
-                      sorter: (a, b) => (a?.volume_30_day ?? 0) - (b?.volume_30_day ?? 0),
+                      sorter: true,
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
                   {
                       title: <ThirtyDayQueryCountTitle tooltipPlacement="bottom" />,
@@ -104,7 +103,7 @@ export function EventDefinitionsTable(): JSX.Element {
                               <span className="text-muted">—</span>
                           )
                       },
-                      sorter: (a, b) => (a?.query_usage_30_day ?? 0) - (b?.query_usage_30_day ?? 0),
+                      sorter: true,
                   } as LemonTableColumn<EventDefinition, keyof EventDefinition | undefined>,
               ]
             : []),
@@ -199,6 +198,13 @@ export function EventDefinitionsTable(): JSX.Element {
                           }
                         : undefined,
                 }}
+                onSort={(newSorting) =>
+                    setFilters({
+                        ordering: newSorting
+                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                            : undefined,
+                    })
+                }
                 expandable={{
                     expandedRowRender: function RenderPropertiesTable(definition) {
                         return <EventDefinitionProperties definition={definition} />
@@ -207,6 +213,7 @@ export function EventDefinitionsTable(): JSX.Element {
                     noIndent: true,
                 }}
                 dataSource={eventDefinitions.results}
+                useURLForSorting={false}
                 emptyState="No event definitions"
                 nouns={['event', 'events']}
             />

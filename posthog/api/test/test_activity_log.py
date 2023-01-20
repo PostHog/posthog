@@ -32,7 +32,7 @@ class TestActivityLog(APIBaseTest, QueryMatchingTest):
 
     def _create_and_edit_things(self):
         created_insights = []
-        for i in range(0, 11):
+        for _ in range(0, 11):
             insight_id, _ = self._create_insight({})
             created_insights.append(insight_id)
 

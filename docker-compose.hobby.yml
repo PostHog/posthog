@@ -4,28 +4,26 @@
 # Please take a look at https://posthog.com/docs/self-host/deploy/hobby
 # for more info.
 #
-version: '3'
 
 services:
     db:
-        image: postgres:12-alpine
-        restart: on-failure
-        environment:
-            POSTGRES_USER: posthog
-            POSTGRES_DB: posthog
-            POSTGRES_PASSWORD: posthog
+        extends:
+            file: docker-compose.base.yml
+            service: db
         volumes:
             - postgres-data:/var/lib/postgresql/data
     redis:
-        image: redis:6.2.7-alpine
-        restart: on-failure
-        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+        extends:
+            file: docker-compose.base.yml
+            service: redis
     clickhouse:
         #
         # Note: please keep the default version in sync across
         #       `posthog` and the `charts-clickhouse` repos
         #
-        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.3}
+        extends:
+            file: docker-compose.base.yml
+            service: clickhouse
         restart: on-failure
         depends_on:
             - kafka
@@ -37,58 +35,48 @@ services:
             - ./posthog/docker/clickhouse/users.xml:/etc/clickhouse-server/users.xml
             - clickhouse-data:/var/lib/clickhouse
     zookeeper:
-        image: zookeeper:3.7.0
-        restart: on-failure
+        extends:
+            file: docker-compose.base.yml
+            service: zookeeper
         volumes:
             - zookeeper-datalog:/datalog
             - zookeeper-data:/data
             - zookeeper-logs:/logs
     kafka:
-        image: bitnami/kafka:2.8.1-debian-10-r99
-        restart: on-failure
-        depends_on:
-            - zookeeper
-        environment:
-            KAFKA_BROKER_ID: 1001
-            KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
-            KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
-            KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
-            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
-            ALLOW_PLAINTEXT_LISTENER: 'true'
+        extends:
+            file: docker-compose.base.yml
+            service: kafka
 
-    worker: &worker
-        image: posthog/posthog:$POSTHOG_APP_TAG
-        command: ./bin/docker-worker-celery --with-scheduler
-        restart: on-failure
+    worker:
+        extends:
+            file: docker-compose.base.yml
+            service: worker
         environment:
             SENTRY_DSN: $SENTRY_DSN
             SITE_URL: https://$DOMAIN
-            DISABLE_SECURE_SSL_REDIRECT: 'true'
-            IS_BEHIND_PROXY: 'true'
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            CLICKHOUSE_HOST: 'clickhouse'
-            CLICKHOUSE_DATABASE: 'posthog'
-            CLICKHOUSE_SECURE: 'false'
-            CLICKHOUSE_VERIFY: 'false'
-            KAFKA_URL: 'kafka://kafka'
-            REDIS_URL: 'redis://redis:6379/'
             SECRET_KEY: $POSTHOG_SECRET
-            PGHOST: db
-            PGUSER: posthog
-            PGPASSWORD: posthog
-            DEPLOYMENT: hobby
-        depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-            - object_storage
+        image: posthog/posthog:$POSTHOG_APP_TAG
     web:
-        <<: *worker
-        command: /compose/start
-        restart: on-failure
+        extends:
+            file: docker-compose.base.yml
+            service: web
         volumes:
             - ./compose:/compose
+        image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SECRET
+    plugins:
+        extends:
+            file: docker-compose.base.yml
+            service: plugins
+        image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SECRET
+
     caddy:
         image: caddy:2.6.1
         restart: unless-stopped
@@ -99,38 +87,23 @@ services:
             - ./Caddyfile:/etc/caddy/Caddyfile
         depends_on:
             - web
-    plugins:
-        image: posthog/posthog:$POSTHOG_APP_TAG
-        command: ./bin/plugin-server --no-restart-loop
-        restart: on-failure
-        environment:
-            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
-            KAFKA_HOSTS: 'kafka:9092'
-            REDIS_URL: 'redis://redis:6379/'
-            CLICKHOUSE_HOST: 'clickhouse'
-        depends_on:
-            - db
-            - redis
-            - clickhouse
-            - kafka
-            - object_storage
-
     object_storage:
-        image: minio/minio:RELEASE.2022-09-17T00-09-45Z.fips
+        extends:
+            file: docker-compose.base.yml
+            service: object_storage
         restart: on-failure
         volumes:
             - object_storage:/data
-        environment:
-            MINIO_ROOT_USER: object_storage_root_user
-            MINIO_ROOT_PASSWORD: object_storage_root_password
-        entrypoint: sh
-        command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
 
     asyncmigrationscheck:
-        <<: *worker
-        command: python manage.py run_async_migrations --check
-        restart: 'no'
-        scale: 0
+        extends:
+            file: docker-compose.base.yml
+            service: asyncmigrationscheck
+        image: posthog/posthog:$POSTHOG_APP_TAG
+        environment:
+            SENTRY_DSN: $SENTRY_DSN
+            SITE_URL: https://$DOMAIN
+            SECRET_KEY: $POSTHOG_SECRET
 
 volumes:
     zookeeper-data:

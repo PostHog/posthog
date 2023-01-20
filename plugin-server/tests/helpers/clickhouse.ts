@@ -3,7 +3,7 @@ import { performance } from 'perf_hooks'
 
 import { defaultConfig } from '../../src/config/config'
 import { PluginsServerConfig } from '../../src/types'
-import { isDevEnv } from '../../src/utils/env-utils'
+import { status } from '../../src/utils/status'
 import { delay } from '../../src/utils/utils'
 
 export async function resetTestDatabaseClickhouse(extraServerConfig?: Partial<PluginsServerConfig>): Promise<void> {
@@ -44,17 +44,15 @@ export async function delayUntilEventIngested<T extends any[] | number>(
     for (let i = 0; i < maxDelayCount; i++) {
         data = await fetchData()
         dataLength = typeof data === 'number' ? data : data.length
-        if (isDevEnv()) {
-            console.log(
-                `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${dataLength} event${
-                    dataLength !== 1 ? 's' : ''
-                }.`
-            )
-        }
+        status.debug(
+            `Waiting. ${Math.round((performance.now() - timer) / 100) / 10}s since the start. ${dataLength} event${
+                dataLength !== 1 ? 's' : ''
+            }.`
+        )
         if (dataLength >= minLength) {
             return data
         }
         await delay(delayMs)
     }
-    return data
+    throw Error(`Failed to get data in time, got ${JSON.stringify(data)}`)
 }

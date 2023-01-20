@@ -1,4 +1,3 @@
-import React from 'react'
 import { ExporterFormat } from '~/types'
 import { LemonButton, LemonButtonProps, LemonButtonWithPopup } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'

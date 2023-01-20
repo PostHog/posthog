@@ -1,7 +1,7 @@
 from datetime import timedelta
 from typing import Tuple
 from unittest.mock import MagicMock
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from django.test import TestCase
 from django.utils import timezone
@@ -17,16 +17,16 @@ from posthog.models.filters import Filter, PathFilter
 from posthog.models.group.util import create_group
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.session_recording_event.util import create_session_recording_event
 from posthog.queries.paths import Paths, PathsActors
 from posthog.queries.paths.paths_event_query import PathEventQuery
+from posthog.session_recordings.test.test_factory import create_session_recording_events
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
+    also_test_with_materialized_columns,
     snapshot_clickhouse_queries,
-    test_with_materialized_columns,
 )
 
 ONE_MINUTE = 60_000  # 1 minute in milliseconds
@@ -47,21 +47,6 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={"industry": "technology"}
         )
         create_group(team_id=self.team.pk, group_type_index=1, group_key="company:2", properties={})
-
-    def _create_session_recording_event(
-        self, distinct_id, session_id, timestamp, window_id="", team_id=None, has_full_snapshot=True
-    ):
-        if team_id is None:
-            team_id = self.team.pk
-        create_session_recording_event(
-            uuid=uuid4(),
-            team_id=team_id,
-            distinct_id=distinct_id,
-            timestamp=timestamp,
-            session_id=session_id,
-            window_id=window_id,
-            snapshot_data={"timestamp": timestamp.timestamp(), "has_full_snapshot": has_full_snapshot},
-        )
 
     def _get_people_at_path(self, filter, path_start=None, path_end=None, funnel_filter=None, path_dropoff=None):
         person_filter = filter.with_data(
@@ -1308,7 +1293,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             5, len(self._get_people_at_path(path_filter, "4_between_step_1_c", "5_step two", funnel_filter))
         )
 
-    @test_with_materialized_columns(["$current_url", "$screen_name"])
+    @also_test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_paths_end(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
         p1 = [
@@ -1954,7 +1939,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @test_with_materialized_columns(["$current_url", "$screen_name"])
+    @also_test_with_materialized_columns(["$current_url", "$screen_name"])
     def test_paths_start_and_end(self):
         p1 = _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
 
@@ -2765,15 +2750,13 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
-    @test_with_materialized_columns(
-        ["$current_url", "$screen_name"], group_properties=[(0, "industry"), (1, "industry")]
+    @also_test_with_materialized_columns(
+        ["$current_url", "$screen_name"],
+        group_properties=[(0, "industry"), (1, "industry")],
+        materialize_only_with_person_on_events=True,
     )
     @snapshot_clickhouse_queries
     def test_path_groups_filtering_person_on_events(self):
-        from posthog.models.team import util
-
-        util.can_enable_person_on_events = True
-
         self._create_groups()
         # P1 for pageview event, org:5
         _create_person(team_id=self.team.pk, distinct_ids=["p1"])
@@ -2951,8 +2934,8 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
                 event_uuid="41111111-1111-1111-1111-111111111111",
             ),
         ]
-        self._create_session_recording_event("p1", "s1", timezone.now(), window_id="w1")
-        self._create_session_recording_event("p1", "s3", timezone.now(), window_id="w3")
+        create_session_recording_events(self.team.pk, timezone.now(), "p1", "s1", window_id="w1")
+        create_session_recording_events(self.team.pk, timezone.now(), "p1", "s3", window_id="w3")
 
         # User with path matches, but no recordings
         p2 = _create_person(team_id=self.team.pk, distinct_ids=["p2"])
@@ -3080,7 +3063,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             event_uuid="31111111-1111-1111-1111-111111111111",
         ),
 
-        self._create_session_recording_event("p1", "s1", timezone.now(), window_id="w1")
+        create_session_recording_events(self.team.pk, timezone.now(), "p1", "s1", window_id="w1")
 
         filter = PathFilter(
             data={
@@ -3143,7 +3126,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             event_uuid="31111111-1111-1111-1111-111111111111",
         ),
 
-        self._create_session_recording_event("p1", "s1", timezone.now(), window_id="w1")
+        create_session_recording_events(self.team.pk, timezone.now(), "p1", "s1", window_id="w1")
 
         # No matching events for dropoff
         filter = PathFilter(

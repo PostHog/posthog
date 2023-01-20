@@ -8,6 +8,8 @@ from posthog.queries.funnels.utils import get_funnel_order_class
 
 
 class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
+    QUERY_TYPE = "funnel_time_to_convert"
+
     def __init__(self, filter: Filter, team: Team) -> None:
         super().__init__(filter, team)
         self.funnel_order = get_funnel_order_class(filter)(filter, team)
@@ -39,11 +41,11 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             bin_count_identifier = str(bin_count)
             bin_count_expression = None
         else:
-            # Auto count is clamped between 3 and 60
+            # Auto count is clamped between 1 and 60
             bin_count_identifier = "bin_count"
             bin_count_expression = f"""
                 count() AS sample_count,
-                ifNull(least(60, greatest(3, ceil(cbrt(sample_count)))), 0) AS {bin_count_identifier},
+                least(60, greatest(1, ceil(cbrt(ifNull(sample_count, 0))))) AS {bin_count_identifier},
             """
 
         if not (0 < to_step < len(self._filter.entities)):
@@ -56,32 +58,25 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
         ]
         steps_average_conversion_time_expression_sum = " + ".join(steps_average_conversion_time_identifiers)
 
-        steps_average_conditional_for_invalid_values = [
-            f"{identifier} >= 0" for identifier in steps_average_conversion_time_identifiers
-        ]
-        # :HACK: Protect against CH bug https://github.com/ClickHouse/ClickHouse/issues/26580
-        #   once the issue is resolved, stop skipping the test: test_auto_bin_count_single_step_duplicate_events
-        #   and remove this comment
-
         query = f"""
             WITH
                 step_runs AS (
-                    SELECT * FROM (
-                        {steps_per_person_query}
-                    ) WHERE {" AND ".join(steps_average_conditional_for_invalid_values)}
+                    {steps_per_person_query}
                 ),
                 histogram_params AS (
                     /* Binning ensures that each sample belongs to a bin in results */
                     /* If bin_count is not a custom number, it's calculated in bin_count_expression */
                     SELECT
-                        floor(min({steps_average_conversion_time_expression_sum})) AS from_seconds,
-                        ceil(max({steps_average_conversion_time_expression_sum})) AS to_seconds,
+                        ifNull(floor(min({steps_average_conversion_time_expression_sum})), 0) AS from_seconds,
+                        ifNull(ceil(max({steps_average_conversion_time_expression_sum})), 1) AS to_seconds,
                         round(avg({steps_average_conversion_time_expression_sum}), 2) AS average_conversion_time,
                         {bin_count_expression or ""}
                         ceil((to_seconds - from_seconds) / {bin_count_identifier}) AS bin_width_seconds_raw,
                         /* Use 60 seconds as fallback bin width in case of only one sample */
                         if(bin_width_seconds_raw > 0, bin_width_seconds_raw, 60) AS bin_width_seconds
                     FROM step_runs
+                    -- We only need to check step to_step here, because it depends on all the other ones being NOT NULL too
+                    WHERE step_{to_step}_average_conversion_time_inner IS NOT NULL
                 ),
                 /* Below CTEs make histogram_params columns available to the query below as straightforward identifiers */
                 ( SELECT bin_width_seconds FROM histogram_params ) AS bin_width_seconds,
@@ -112,6 +107,6 @@ class ClickhouseFunnelTimeToConvert(ClickhouseFunnelBase):
             ) fill
             USING (bin_from_seconds)
             ORDER BY bin_from_seconds
-            SETTINGS allow_experimental_window_functions = 1"""
+        """
 
         return query

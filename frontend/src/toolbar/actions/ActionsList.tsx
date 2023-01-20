@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Button, Row, Input } from 'antd'

@@ -1,8 +1,7 @@
-import React from 'react'
 import { useValues } from 'kea'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
-import { groupsAccessLogic, GroupsAccessStatus } from 'lib/introductions/groupsAccessLogic'
+import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 
 const UNIQUE_USERS = -1
@@ -14,7 +13,7 @@ interface AggregationSelectProps {
 
 export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: AggregationSelectProps): JSX.Element {
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
-    const { groupsAccessStatus } = useValues(groupsAccessLogic)
+    const { needsUpgradeForGroups, canStartUsingGroups } = useValues(groupsAccessLogic)
 
     const optionSections: LemonSelectSection<number>[] = [
         {
@@ -28,12 +27,8 @@ export function AggregationSelect({ aggregationGroupTypeIndex, onChange }: Aggre
         },
     ]
 
-    if (
-        [GroupsAccessStatus.HasAccess, GroupsAccessStatus.HasGroupTypes, GroupsAccessStatus.NoAccess].includes(
-            groupsAccessStatus
-        )
-    ) {
-        optionSections[0].footer = <GroupIntroductionFooter />
+    if (needsUpgradeForGroups || canStartUsingGroups) {
+        optionSections[0].footer = <GroupIntroductionFooter needsUpgrade={needsUpgradeForGroups} />
     } else {
         groupTypes.forEach((groupType) => {
             optionSections[0].options.push({

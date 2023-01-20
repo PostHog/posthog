@@ -1,6 +1,12 @@
 import { PluginMeta, RetryError } from '@posthog/plugin-scaffold'
 
-import { Hub, ISOTimestamp, PluginConfig, PluginConfigVMInternalResponse } from '../../../../../src/types'
+import {
+    Hub,
+    ISOTimestamp,
+    PluginConfig,
+    PluginConfigVMInternalResponse,
+    PluginTaskType,
+} from '../../../../../src/types'
 import { createPluginActivityLog } from '../../../../../src/utils/db/activity-log'
 import { createHub } from '../../../../../src/utils/db/hub'
 import { createStorage } from '../../../../../src/worker/vm/extensions/storage'
@@ -44,6 +50,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         hub.kafkaProducer.flush = jest.fn()
         jest.spyOn(hub.db, 'queuePluginLogEntry')
         jest.spyOn(hub.appMetrics, 'queueMetric')
+        jest.spyOn(hub.appMetrics, 'queueError')
 
         jest.spyOn(Date, 'now').mockReturnValue(1_000_000_000)
     })
@@ -57,16 +64,16 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         return createStorage(hub, pluginConfig39)
     }
 
-    function createVM(pluginConfig: PluginConfig = pluginConfig39) {
+    function createVM(pluginConfig: PluginConfig = pluginConfig39, schedule = {}) {
         runIn = jest.fn()
         runNow = jest.fn()
-        // :TODO: Kill deepmerge
+
         const mockVM = {
             methods: {
                 exportEvents: jest.fn(),
             },
             tasks: {
-                schedule: {},
+                schedule,
                 job: {},
             },
             meta: {
@@ -259,7 +266,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
-            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
+            expect(jest.mocked(hub.appMetrics.queueError).mock.calls).toMatchSnapshot()
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
@@ -283,7 +290,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     ),
                 })
             )
-            expect(jest.mocked(hub.appMetrics.queueMetric).mock.calls).toMatchSnapshot()
+            expect(jest.mocked(hub.appMetrics.queueError).mock.calls).toMatchSnapshot()
 
             expect(await storage().get(EXPORT_PARAMETERS_KEY, null)).toEqual(null)
         })
@@ -741,6 +748,26 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                 offset: 0,
             })
         })
+
+        it('specifically for the S3 exporter, make sure to use a larger than default batch size', () => {
+            // NOTE: this doesn't actually check that this value is used in the
+            // requests to ClickHouse, but :fingercrossed: it's good enough.
+            createVM()
+            let eventsPerRun = addHistoricalEventsExportCapabilityV2(
+                hub,
+                { plugin: { name: 'S3 Export Plugin' } } as any,
+                vm
+            ).eventsPerRun
+            expect(eventsPerRun).toEqual(10000)
+
+            // Otherwise it should be the default, 500
+            eventsPerRun = addHistoricalEventsExportCapabilityV2(
+                hub,
+                { plugin: { name: 'foo' } } as any,
+                vm
+            ).eventsPerRun
+            expect(eventsPerRun).toEqual(500)
+        })
     })
 
     describe('getTimestampBoundaries()', () => {
@@ -856,7 +883,7 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
         })
 
         it('captures activity for export failure', async () => {
-            await stopExport(params, '', 'fail')
+            await stopExport(params, 'Some error message', 'fail')
 
             expect(createPluginActivityLog).toHaveBeenCalledWith(
                 hub,
@@ -867,7 +894,10 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
                     trigger: {
                         job_id: '1',
                         job_type: INTERFACE_JOB_NAME,
-                        payload: params,
+                        payload: {
+                            ...params,
+                            failure_reason: 'Some error message',
+                        },
                     },
                 }
             )
@@ -954,6 +984,68 @@ describe('addHistoricalEventsExportCapabilityV2()', () => {
             createVM(pluginConfig)
 
             expect(hub.db.addOrUpdatePublicJob).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('tasks.schedule.runEveryMinute()', () => {
+        it('sets __ignoreForAppMetrics if runEveryMinute was not previously defined', async () => {
+            createVM()
+
+            expect(vm.tasks.schedule.runEveryMinute).toEqual({
+                name: 'runEveryMinute',
+                type: PluginTaskType.Schedule,
+                exec: expect.any(Function),
+                __ignoreForAppMetrics: true,
+            })
+
+            await vm.tasks.schedule.runEveryMinute.exec()
+        })
+
+        it('calls original method and does not set __ignoreForAppMetrics if runEveryMinute was previously defined in plugin', async () => {
+            const pluginRunEveryMinute = jest.fn()
+
+            createVM(pluginConfig39, {
+                runEveryMinute: {
+                    name: 'runEveryMinute',
+                    type: PluginTaskType.Schedule,
+                    exec: pluginRunEveryMinute,
+                },
+            })
+
+            expect(vm.tasks.schedule.runEveryMinute).toEqual({
+                name: 'runEveryMinute',
+                type: PluginTaskType.Schedule,
+                exec: expect.any(Function),
+                __ignoreForAppMetrics: false,
+            })
+
+            await vm.tasks.schedule.runEveryMinute.exec()
+
+            expect(pluginRunEveryMinute).toHaveBeenCalled()
+        })
+
+        it('calls original method and sets __ignoreForAppMetrics if runEveryMinute was previously also wrapped', async () => {
+            const pluginRunEveryMinute = jest.fn()
+
+            createVM(pluginConfig39, {
+                runEveryMinute: {
+                    name: 'runEveryMinute',
+                    type: PluginTaskType.Schedule,
+                    exec: pluginRunEveryMinute,
+                    __ignoreForAppMetrics: true,
+                },
+            })
+
+            expect(vm.tasks.schedule.runEveryMinute).toEqual({
+                name: 'runEveryMinute',
+                type: PluginTaskType.Schedule,
+                exec: expect.any(Function),
+                __ignoreForAppMetrics: true,
+            })
+
+            await vm.tasks.schedule.runEveryMinute.exec()
+
+            expect(pluginRunEveryMinute).toHaveBeenCalled()
         })
     })
 })

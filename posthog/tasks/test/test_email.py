@@ -1,11 +1,10 @@
-from typing import Any, Tuple
+from typing import Tuple
 from unittest.mock import MagicMock, patch
 
 from freezegun import freeze_time
 
 from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.messaging import MessagingRecord, get_email_hash
 from posthog.models.organization import OrganizationInvite, OrganizationMembership
 from posthog.models.plugin import Plugin, PluginConfig
 from posthog.tasks.email import (
@@ -13,11 +12,9 @@ from posthog.tasks.email import (
     send_async_migration_errored_email,
     send_canary_email,
     send_fatal_plugin_error,
-    send_first_ingestion_reminder_emails,
     send_invite,
     send_member_join,
     send_password_reset,
-    send_second_ingestion_reminder_emails,
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -144,54 +141,3 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_first_email_sent_to_correct_users_only_once(self, __: Any, MockEmailMessage: MagicMock) -> None:
-        mock_email_messages(MockEmailMessage)
-        in_range_org, user = create_org_team_and_user("2022-01-02 00:00:00", "in_range_user@posthog.com")
-        User.objects.create_and_join(
-            first_name="Test User",
-            organization=in_range_org,
-            email="in_range_user_not_admin@posthog.com",
-            password=None,
-            level=OrganizationMembership.Level.MEMBER,
-        )
-
-        with freeze_time("2022-01-03 15:00:00"):
-            send_first_ingestion_reminder_emails()
-            self.assertEqual(MessagingRecord.objects.all().count(), 2)
-            self.assertEqual(
-                set([record[0] for record in MessagingRecord.objects.all().values_list("email_hash")]),
-                set(
-                    [get_email_hash("in_range_user_not_admin@posthog.com"), get_email_hash("in_range_user@posthog.com")]
-                ),
-            )
-
-            send_first_ingestion_reminder_emails()
-            self.assertEqual(MessagingRecord.objects.all().count(), 2)
-
-    @patch("posthoganalytics.feature_enabled", return_value=True)
-    def test_second_first_email_sent_to_correct_users_only_once(self, _: Any, MockEmailMessage: MagicMock) -> None:
-        mock_email_messages(MockEmailMessage)
-
-        in_range_org, user = create_org_team_and_user("2022-01-02 00:00:00", "in_range_user@posthog.com")
-        User.objects.create_and_join(
-            first_name="Test User",
-            organization=in_range_org,
-            email="in_range_user_not_admin@posthog.com",
-            password=None,
-            level=OrganizationMembership.Level.MEMBER,
-        )
-
-        with freeze_time("2022-01-06 15:00:00"):
-            send_second_ingestion_reminder_emails()
-            self.assertEqual(MessagingRecord.objects.all().count(), 2)
-            self.assertEqual(
-                set([record[0] for record in MessagingRecord.objects.all().values_list("email_hash")]),
-                set(
-                    [get_email_hash("in_range_user_not_admin@posthog.com"), get_email_hash("in_range_user@posthog.com")]
-                ),
-            )
-
-            send_second_ingestion_reminder_emails()
-            self.assertEqual(MessagingRecord.objects.all().count(), 2)

@@ -1,11 +1,10 @@
 import { useValues } from 'kea'
-import React from 'react'
-import { userLogic } from 'scenes/userLogic'
 import { identifierToHuman } from 'lib/utils'
 import { IconOpenInNew } from '../icons'
 import './PayGatePage.scss'
 import { AvailableFeature } from '~/types'
 import { LemonButton } from '../LemonButton'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 interface PayGatePageInterface {
     header: string | JSX.Element
@@ -13,6 +12,7 @@ interface PayGatePageInterface {
     hideUpgradeButton?: boolean
     docsLink?: string // Link to the docs of the feature, if no link is sent, it will be hidden
     featureKey: AvailableFeature
+    featureName?: string
 }
 
 export function PayGatePage({
@@ -21,9 +21,10 @@ export function PayGatePage({
     hideUpgradeButton,
     docsLink,
     featureKey,
+    featureName,
 }: PayGatePageInterface): JSX.Element {
-    const { upgradeLink } = useValues(userLogic)
-    const featureName = identifierToHuman(featureKey, 'title')
+    const { upgradeLink } = useValues(billingLogic)
+    featureName = featureName || identifierToHuman(featureKey, 'title')
 
     return (
         <div className="pay-gate-page">
@@ -39,6 +40,7 @@ export function PayGatePage({
                     <LemonButton
                         type={hideUpgradeButton ? 'primary' : 'secondary'}
                         to={`${docsLink}?utm_medium=in-product&utm_campaign=${featureKey}-upgrade-learn-more`}
+                        targetBlank
                         center
                         data-attr={`${featureKey}-learn-more`}
                     >

@@ -940,6 +940,69 @@ describe('ActionMatcher', () => {
 
             expect(await actionMatcher.match(eventExampleOk1)).toEqual([actionDefinition])
         })
+
+        it('properly handles is_not null string coercion', async () => {
+            const actionDefinitionOpIsSet: Action = await createTestAction([
+                {
+                    properties: [
+                        { type: 'event', key: 'foo', operator: 'is_set' as PropertyOperator },
+                        { type: 'event', key: 'foo', value: ['null'], operator: 'is_not' as PropertyOperator },
+                    ],
+                },
+            ])
+
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: null, pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
+
+            expect(await actionMatcher.match(eventFooBar)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([])
+            expect(await actionMatcher.match(eventFooBaR)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooBaz)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooNumber)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(await actionMatcher.match(eventFooTrue)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooNull)).toEqual([])
+        })
+
+        it('properly handles exact null string coercion', async () => {
+            const actionDefinitionOpIsSet: Action = await createTestAction([
+                {
+                    properties: [{ type: 'event', key: 'foo', value: ['null'] }],
+                },
+            ])
+
+            const eventFooBar = createTestEvent({ properties: { foo: 'bar' } })
+            const eventFooBarPolPot = createTestEvent({ properties: { foo: null, pol: 'pot' } })
+            const eventFooBaR = createTestEvent({ properties: { foo: 'baR' } })
+            const eventFooBaz = createTestEvent({ properties: { foo: 'baz' } })
+            const eventFooRabarbar = createTestEvent({ properties: { foo: 'rabarbar' } })
+            const eventFooNumber = createTestEvent({ properties: { foo: 7 } })
+            const eventNoNothing = createTestEvent()
+            const eventFigNumber = createTestEvent({ properties: { fig: 999 } })
+            const eventFooTrue = createTestEvent({ properties: { foo: true } })
+            const eventFooNull = createTestEvent({ properties: { foo: null } })
+
+            expect(await actionMatcher.match(eventFooBar)).toEqual([])
+            expect(await actionMatcher.match(eventFooBarPolPot)).toEqual([actionDefinitionOpIsSet])
+            expect(await actionMatcher.match(eventFooBaR)).toEqual([])
+            expect(await actionMatcher.match(eventFooBaz)).toEqual([])
+            expect(await actionMatcher.match(eventFooRabarbar)).toEqual([])
+            expect(await actionMatcher.match(eventFooNumber)).toEqual([])
+            expect(await actionMatcher.match(eventNoNothing)).toEqual([])
+            expect(await actionMatcher.match(eventFigNumber)).toEqual([])
+            expect(await actionMatcher.match(eventFooTrue)).toEqual([])
+            expect(await actionMatcher.match(eventFooNull)).toEqual([actionDefinitionOpIsSet])
+        })
     })
 
     describe('#checkElementsAgainstSelector()', () => {

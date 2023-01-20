@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PersonPropertySelect } from 'lib/components/PersonPropertySelect/PersonPropertySelect'
@@ -58,7 +57,7 @@ export function CorrelationConfig(): JSX.Element {
                         </h3>
                         <PersonPropertySelect
                             onChange={(properties) => handleChange(properties)}
-                            selectedProperties={currentTeam.correlation_config.excluded_person_property_names || []}
+                            selectedProperties={funnelCorrelationConfig.excluded_person_property_names || []}
                             addText="Add exclusion"
                         />
                     </div>
@@ -69,7 +68,7 @@ export function CorrelationConfig(): JSX.Element {
                         </h3>
                         <EventSelect
                             onChange={(excludedEvents) => handleChange(undefined, excludedEvents)}
-                            selectedEvents={currentTeam.correlation_config.excluded_event_names || []}
+                            selectedEvents={funnelCorrelationConfig.excluded_event_names || []}
                             addElement={
                                 <LemonButton size="small" type="secondary" icon={<IconPlus />}>
                                     Add exclusion
@@ -86,7 +85,7 @@ export function CorrelationConfig(): JSX.Element {
                             <LemonSelectMultiple
                                 mode="multiple-custom"
                                 onChange={(properties) => handleChange(undefined, undefined, properties)}
-                                value={currentTeam.correlation_config.excluded_event_property_names || []}
+                                value={funnelCorrelationConfig.excluded_event_property_names || []}
                             />
                         </div>
                     </div>

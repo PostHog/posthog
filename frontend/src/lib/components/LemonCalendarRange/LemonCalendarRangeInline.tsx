@@ -1,5 +1,5 @@
 import { LemonCalendar } from 'lib/components/LemonCalendar/LemonCalendar'
-import React, { useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { dayjs } from 'lib/dayjs'
 import clsx from 'clsx'
 import { LemonCalendarRangeProps } from './LemonCalendarRange'
@@ -9,19 +9,21 @@ const WIDTH_OF_ONE_CALENDAR_MONTH = 300
 /** Number of calendars to display if `typeof window === undefined` */
 const CALENDARS_IF_NO_WINDOW = 2
 
+type RangeState = [dayjs.Dayjs | null, dayjs.Dayjs | null, 'start' | 'end']
+
 export function LemonCalendarRangeInline({
     value,
     onChange,
     months,
 }: Omit<LemonCalendarRangeProps, 'onClose'>): JSX.Element {
     // Keep a sanitised and cached copy of the selected range
-    const [valueStart, valueEnd] = [
-        value?.[0] ? dayjs(value[0]).format('YYYY-MM-DD') : null,
-        value?.[1] ? dayjs(value[1]).format('YYYY-MM-DD') : null,
-    ]
-    const [[rangeStart, rangeEnd, lastChanged], _setRange] = useState([valueStart, valueEnd, 'end' as 'start' | 'end'])
+    const [[rangeStart, rangeEnd, lastChanged], _setRange] = useState<RangeState>([
+        value?.[0] ?? null,
+        value?.[1] ?? null,
+        'end',
+    ])
 
-    function setRange([rangeStart, rangeEnd, lastChanged]: [string | null, string | null, 'start' | 'end']): void {
+    function setRange([rangeStart, rangeEnd, lastChanged]: RangeState): void {
         _setRange([rangeStart, rangeEnd, lastChanged])
         if (rangeStart && rangeEnd) {
             onChange([rangeStart, rangeEnd])
@@ -48,22 +50,19 @@ export function LemonCalendarRangeInline({
     // What months exactly are shown on the calendar
     const shownMonths = months ?? autoMonthCount
     const rangeMonthDiff =
-        rangeStart && rangeEnd ? dayjs(rangeEnd).startOf('month').diff(dayjs(rangeStart).startOf('month'), 'month') : 0
-    const leftmostMonthForRange = dayjs(rangeStart ?? rangeEnd ?? undefined)
+        rangeStart && rangeEnd ? rangeEnd.startOf('month').diff(rangeStart.startOf('month'), 'month') : 0
+    const leftmostMonthForRange = (rangeStart ?? rangeEnd ?? dayjs())
         .subtract(Math.max(0, shownMonths - 1 - rangeMonthDiff), 'month')
         .startOf('month')
-        .format('YYYY-MM-DD')
     const [leftmostMonth, setLeftmostMonth] = useState(leftmostMonthForRange)
 
     // If the range changes via props and is not in view, update the first month
     useEffect(() => {
-        const lastMonthForRange = dayjs(leftmostMonthForRange)
-            .add(shownMonths - 1, 'month')
-            .endOf('month')
+        const lastMonthForRange = leftmostMonthForRange.add(shownMonths - 1, 'month').endOf('month')
         if (
             rangeStart &&
             rangeEnd &&
-            (dayjs(rangeStart).isAfter(lastMonthForRange) || dayjs(rangeEnd).isBefore(dayjs(leftmostMonthForRange)))
+            (rangeStart.isAfter(lastMonthForRange) || rangeEnd.isBefore(leftmostMonthForRange))
         ) {
             setLeftmostMonth(leftmostMonthForRange)
         }
@@ -96,15 +95,15 @@ export function LemonCalendarRangeInline({
             onLeftmostMonthChanged={setLeftmostMonth}
             months={shownMonths}
             getLemonButtonProps={({ date, props, dayIndex }) => {
-                if (date === rangeStart || date === rangeEnd) {
+                if (date.isSame(rangeStart, 'd') || date.isSame(rangeEnd, 'd')) {
                     return {
                         ...props,
                         className:
-                            date === rangeStart && date === rangeEnd
+                            date.isSame(rangeStart, 'd') && date.isSame(rangeEnd, 'd')
                                 ? props.className
                                 : clsx(props.className, {
-                                      'rounded-r-none': date === rangeStart && dayIndex < 6,
-                                      'rounded-l-none': date === rangeEnd && dayIndex > 0,
+                                      'rounded-r-none': date.isSame(rangeStart, 'd') && dayIndex < 6,
+                                      'rounded-l-none': date.isSame(rangeEnd, 'd') && dayIndex > 0,
                                   }),
                         status: 'primary',
                         type: 'primary',

@@ -56,6 +56,7 @@ MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
+    "posthog.middleware.QueryTimeCountingMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
@@ -77,7 +78,6 @@ try:
 except ImportError:
     pass
 else:
-    INSTALLED_APPS.append("rest_hooks")
     INSTALLED_APPS.append("ee.apps.EnterpriseConfig")
 
 # Use django-extensions if it exists
@@ -96,7 +96,7 @@ ROOT_URLCONF = "posthog.urls"
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": ["frontend/dist", "posthog/templates"],
+        "DIRS": ["frontend/dist", "posthog/templates", "posthog/year_in_posthog"],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -176,7 +176,7 @@ USE_TZ = True
 
 STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist")]
+STATICFILES_DIRS = [os.path.join(BASE_DIR, "frontend/dist"), os.path.join(BASE_DIR, "posthog/year_in_posthog/images")]
 STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 AUTH_USER_MODEL = "posthog.User"
@@ -206,6 +206,7 @@ REST_FRAMEWORK = {
         "posthog.rate_limit.PassThroughBurstRateThrottle",
         "posthog.rate_limit.PassThroughSustainedRateThrottle",
     ],
+    "STRICT_JSON": False,
 }
 if DEBUG:
     REST_FRAMEWORK["DEFAULT_RENDERER_CLASSES"].append("rest_framework.renderers.BrowsableAPIRenderer")  # type: ignore
@@ -247,18 +248,35 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
         "GZIP_RESPONSE_ALLOW_LIST",
         ",".join(
             [
-                "^/?api/projects/\\d+/session_recordings/.*/snapshots/?$",
                 "^/?api/plugin_config/\\d+/frontend/?$",
                 "^/?api/projects/@current/property_definitions/?$",
                 "^/?api/projects/\\d+/event_definitions/?$",
                 "^/?api/projects/\\d+/insights/(trend|funnel)/?$",
+                "^/?api/projects/\\d+/insights/?$",
                 "^/?api/projects/\\d+/insights/\\d+/?$",
                 "^/?api/projects/\\d+/dashboards/\\d+/?$",
+                "^/?api/projects/\\d+/dashboards/?$",
                 "^/?api/projects/\\d+/actions/?$",
                 "^/?api/projects/\\d+/session_recordings/?$",
+                "^/?api/projects/\\d+/session_recordings/.*$",
+                "^/?api/projects/\\d+/session_recording_playlists/?$",
+                "^/?api/projects/\\d+/session_recording_playlists/.*$",
+                "^/?api/projects/\\d+/performance_events/?$",
+                "^/?api/projects/\\d+/performance_events/.*$",
                 "^/?api/projects/\\d+/exports/\\d+/content/?$",
                 "^/?api/projects/\\d+/activity_log/important_changes/?$",
+                "^/?api/projects/\\d+/uploaded_media/?$",
+                "^/uploaded_media/.*$",
+                "^/year_in_posthog/.*$",
+                "^/api/element/stats/?$",
+                "^/api/projects/\\d+/groups/property_definitions/?$",
+                "^/api/projects/\\d+/cohorts/?$",
+                "^/api/projects/\\d+/persons/?$",
+                "^/api/organizations/@current/plugins/?$",
+                "^api/projects/@current/feature_flags/my_flags/?$",
             ]
         ),
     )
 )
+
+KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS = int(os.getenv("KAFKA_PRODUCE_ACK_TIMEOUT_SECONDS", None) or 10)

@@ -32,16 +32,21 @@ describe('taxonomic breakdown filter utils', () => {
 
             onChange(changedBreakdown, group)
 
-            expect(setFilters).toHaveBeenCalledWith({
-                breakdown_type: 'event',
-                breakdowns: [
-                    { property: 'a', type: 'event' },
-                    { property: 'b', type: 'event' },
-                    { property: 'c', type: 'event' },
-                ],
-                breakdown: undefined,
-                breakdown_group_type_index: undefined,
-            })
+            expect(setFilters).toHaveBeenCalledWith(
+                {
+                    breakdown_type: 'event',
+                    breakdowns: [
+                        { property: 'a', type: 'event', normalize_url: false },
+                        { property: 'b', type: 'event', normalize_url: false },
+                        { property: 'c', type: 'event', normalize_url: false },
+                    ],
+                    breakdown: undefined,
+                    breakdown_group_type_index: undefined,
+                    breakdown_histogram_bin_count: undefined,
+                    breakdown_normalize_url: false,
+                },
+                true
+            )
         })
 
         it('sets breakdowns for cohorts', () => {
@@ -59,16 +64,21 @@ describe('taxonomic breakdown filter utils', () => {
 
             onChange(changedBreakdown, group)
 
-            expect(setFilters).toHaveBeenCalledWith({
-                breakdown_type: 'cohort',
-                breakdowns: [
-                    { property: 'all', type: 'cohort' },
-                    { property: 1, type: 'cohort' },
-                    { property: 2, type: 'cohort' },
-                ],
-                breakdown: undefined,
-                breakdown_group_type_index: undefined,
-            })
+            expect(setFilters).toHaveBeenCalledWith(
+                {
+                    breakdown_type: 'cohort',
+                    breakdowns: [
+                        { property: 'all', type: 'cohort', normalize_url: false },
+                        { property: 1, type: 'cohort', normalize_url: false },
+                        { property: 2, type: 'cohort', normalize_url: false },
+                    ],
+                    breakdown_histogram_bin_count: undefined,
+                    breakdown_normalize_url: false,
+                    breakdown: undefined,
+                    breakdown_group_type_index: undefined,
+                },
+                true
+            )
         })
 
         it('sets breakdowns for person properties', () => {
@@ -83,15 +93,20 @@ describe('taxonomic breakdown filter utils', () => {
 
             onChange(changedBreakdown, group)
 
-            expect(setFilters).toHaveBeenCalledWith({
-                breakdown_type: 'person',
-                breakdowns: [
-                    { property: 'country', type: 'person' },
-                    { property: 'height', type: 'person' },
-                ],
-                breakdown: undefined,
-                breakdown_group_type_index: undefined,
-            })
+            expect(setFilters).toHaveBeenCalledWith(
+                {
+                    breakdown: undefined,
+                    breakdown_type: 'person',
+                    breakdowns: [
+                        { property: 'country', type: 'person', normalize_url: false },
+                        { property: 'height', type: 'person', normalize_url: false },
+                    ],
+                    breakdown_group_type_index: undefined,
+                    breakdown_histogram_bin_count: undefined,
+                    breakdown_normalize_url: false,
+                },
+                true
+            )
         })
 
         // multi property breakdown not implemented for groups
@@ -108,13 +123,17 @@ describe('taxonomic breakdown filter utils', () => {
             const changedBreakdown = 'c'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.EventProperties, undefined)
             onChange(changedBreakdown, group)
-            expect(setFilters).toHaveBeenCalledWith({
-                breakdown_type: 'event',
-                breakdown: 'c',
-                breakdowns: undefined,
-                breakdown_group_type_index: undefined,
-                breakdown_histogram_bin_count: undefined,
-            })
+            expect(setFilters).toHaveBeenCalledWith(
+                {
+                    breakdown_type: 'event',
+                    breakdown: 'c',
+                    breakdowns: undefined,
+                    breakdown_group_type_index: undefined,
+                    breakdown_histogram_bin_count: undefined,
+                    breakdown_normalize_url: false,
+                },
+                true
+            )
         })
 
         it('sets breakdown for cohorts', () => {
@@ -130,12 +149,16 @@ describe('taxonomic breakdown filter utils', () => {
                 undefined
             )
             onChange(changedBreakdown, group)
-            expect(setFilters).toHaveBeenCalledWith({
-                breakdown_type: 'cohort',
-                breakdown: ['all', 1, 2],
-                breakdowns: undefined,
-                breakdown_group_type_index: undefined,
-            })
+            expect(setFilters).toHaveBeenCalledWith(
+                {
+                    breakdown_type: 'cohort',
+                    breakdown: ['all', 1, 2],
+                    breakdowns: undefined,
+                    breakdown_group_type_index: undefined,
+                    breakdown_normalize_url: false,
+                },
+                true
+            )
         })
 
         it('sets breakdown for person properties', () => {
@@ -148,12 +171,16 @@ describe('taxonomic breakdown filter utils', () => {
             const changedBreakdown = 'height'
             const group: TaxonomicFilterGroup = taxonomicGroupFor(TaxonomicFilterGroupType.PersonProperties, undefined)
             onChange(changedBreakdown, group)
-            expect(setFilters).toHaveBeenCalledWith({
-                breakdown_type: 'person',
-                breakdown: 'height',
-                breakdowns: undefined,
-                breakdown_group_type_index: undefined,
-            })
+            expect(setFilters).toHaveBeenCalledWith(
+                {
+                    breakdown_type: 'person',
+                    breakdown: 'height',
+                    breakdowns: undefined,
+                    breakdown_group_type_index: undefined,
+                    breakdown_normalize_url: false,
+                },
+                true
+            )
         })
 
         it('sets breakdowns for group properties', () => {
@@ -168,12 +195,16 @@ describe('taxonomic breakdown filter utils', () => {
 
             onChange(changedBreakdown, group)
 
-            expect(setFilters).toHaveBeenCalledWith({
-                breakdown_type: 'group',
-                breakdowns: undefined,
-                breakdown: '$lib_version',
-                breakdown_group_type_index: 0,
-            })
+            expect(setFilters).toHaveBeenCalledWith(
+                {
+                    breakdown_type: 'group',
+                    breakdowns: undefined,
+                    breakdown: '$lib_version',
+                    breakdown_group_type_index: 0,
+                    breakdown_normalize_url: false,
+                },
+                true
+            )
         })
     })
 })

@@ -22,4 +22,4 @@ exec gunicorn posthog.wsgi \
     --threads=8 \
     --worker-class=gthread \
     ${STATSD_HOST:+--statsd-host $STATSD_HOST:$STATSD_PORT} \
-    --limit-request-line=8190 $@
+    --limit-request-line=16384 $@

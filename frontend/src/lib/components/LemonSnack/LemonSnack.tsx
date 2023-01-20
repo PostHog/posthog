@@ -1,6 +1,5 @@
 import { LemonButton } from '@posthog/lemon-ui'
 import clsx from 'clsx'
-import React from 'react'
 import { IconClose } from '../icons'
 import './LemonSnack.scss'
 
@@ -9,13 +8,22 @@ export interface LemonSnackProps {
     onClose?: () => void
     title?: string
     wrap?: boolean
+    className?: string
     'data-attr'?: string
+    color?: 'primary-extralight' | 'primary-highlight'
 }
 
-export function LemonSnack({ children, wrap, onClose, title }: LemonSnackProps): JSX.Element {
+export function LemonSnack({
+    children,
+    wrap,
+    onClose,
+    title,
+    className,
+    color = 'primary-highlight',
+}: LemonSnackProps): JSX.Element {
     return (
         <span
-            className={clsx('LemonSnack', {
+            className={clsx(`LemonSnack bg-${color}`, className, {
                 'LemonSnack--wrap': wrap,
             })}
         >

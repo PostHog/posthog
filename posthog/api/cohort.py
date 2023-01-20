@@ -1,6 +1,6 @@
 import csv
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, cast
 
 from django.conf import settings
 from django.db.models import QuerySet
@@ -32,7 +32,8 @@ from posthog.constants import (
     OFFSET,
 )
 from posthog.event_usage import report_user_action
-from posthog.models import Cohort
+from posthog.models import Cohort, User
+from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.cohort import get_and_update_pending_version
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -133,6 +134,7 @@ class CohortSerializer(serializers.ModelSerializer):
 
     def update(self, cohort: Cohort, validated_data: Dict, *args: Any, **kwargs: Any) -> Cohort:  # type: ignore
         request = self.context["request"]
+        user = cast(User, request.user)
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
@@ -144,6 +146,13 @@ class CohortSerializer(serializers.ModelSerializer):
         is_deletion_change = deleted_state is not None and cohort.deleted != deleted_state
         if is_deletion_change:
             cohort.deleted = deleted_state
+            if cohort.deleted is True:
+                AsyncDeletion.objects.create(
+                    deletion_type=DeletionType.Cohort_full,
+                    team_id=cohort.team.pk,
+                    key=f"{cohort.pk}_{cohort.version}",
+                    created_by=user,
+                )
 
         if not cohort.is_static and not is_deletion_change:
             cohort.is_calculating = True
@@ -202,8 +211,8 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         team = self.team
         filter = Filter(request=request, team=self.team)
 
-        is_csv_request = self.request.accepted_renderer.format == "csv"
-        if is_csv_request:
+        is_csv_request = self.request.accepted_renderer.format == "csv" or request.GET.get("is_csv_export")
+        if is_csv_request and not filter.limit:
             filter = filter.with_data({LIMIT: CSV_EXPORT_LIMIT, OFFSET: 0})
         elif not filter.limit:
             filter = filter.with_data({LIMIT: 100})
@@ -212,7 +221,7 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
 
         raw_result = sync_execute(query, params)
         actor_ids = [row[0] for row in raw_result]
-        actors, serialized_actors = get_people(team.pk, actor_ids)
+        actors, serialized_actors = get_people(team.pk, actor_ids, distinct_id_limit=10 if is_csv_request else None)
 
         _should_paginate = len(actor_ids) >= filter.limit
         next_url = format_query_params_absolute_url(request, filter.offset + filter.limit) if _should_paginate else None
@@ -221,6 +230,17 @@ class CohortViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             if filter.offset - filter.limit >= 0
             else None
         )
+        if is_csv_request:
+            KEYS_ORDER = ["id", "email", "name", "created_at", "properties", "distinct_ids"]
+            DELETE_KEYS = ["value_at_data_point", "uuid", "type", "is_identified", "matched_recordings"]
+            for actor in serialized_actors:
+                if actor["properties"].get("email"):
+                    actor["email"] = actor["properties"]["email"]  # type: ignore
+                    del actor["properties"]["email"]
+            serialized_actors = [
+                {k: v for k, v in sorted(actor.items(), key=lambda item: KEYS_ORDER.index(item[0]) if item[0] in KEYS_ORDER else 999999) if k not in DELETE_KEYS}  # type: ignore
+                for actor in serialized_actors
+            ]
 
         return Response({"results": serialized_actors, "next": next_url, "previous": previous_url})
 
@@ -232,7 +252,7 @@ class LegacyCohortViewSet(CohortViewSet):
 def will_create_loops(cohort: Cohort) -> bool:
     # Loops can only be formed when trying to update a Cohort, not when creating one
     team_id = cohort.team_id
-    cohorts_seen = set([cohort.pk])
+    cohorts_seen = {cohort.pk}
     cohorts_queue = [property.value for property in cohort.properties.flat if property.type == "cohort"]
     while cohorts_queue:
         current_cohort_id = cohorts_queue.pop()

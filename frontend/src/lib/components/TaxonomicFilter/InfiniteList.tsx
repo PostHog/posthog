@@ -1,6 +1,5 @@
 import './InfiniteList.scss'
 import '../Popup/Popup.scss'
-import React from 'react'
 import { Empty, Tag } from 'antd'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { List, ListRowProps, ListRowRenderer } from 'react-virtualized/dist/es/List'
@@ -133,8 +132,8 @@ const renderItemContents = ({
             ) : (
                 <>
                     {group.getIcon ? icon : null}
-                    <span className="truncate" title={group.getName(item) || item.name || ''}>
-                        {group.getName(item) || item.name || ''}
+                    <span className="truncate" title={group.getName?.(item) || item.name || ''}>
+                        {group.getName?.(item) || item.name || ''}
                     </span>
                 </>
             )}
@@ -150,7 +149,7 @@ const selectedItemHasPopup = (
     return (
         // NB: also update "renderItemPopup" above
         !!item &&
-        !!group?.getValue(item) &&
+        !!group?.getValue?.(item) &&
         !!listGroupType &&
         ([
             TaxonomicFilterGroupType.Actions,

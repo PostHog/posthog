@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import React from 'react'
 import { IconClose, IconEllipsis } from '../icons'
 import { LemonButton, LemonButtonWithPopup } from '../LemonButton'
 import { LemonButtonPopup } from '../LemonButton/LemonButton'

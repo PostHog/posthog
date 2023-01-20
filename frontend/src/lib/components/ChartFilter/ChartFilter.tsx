@@ -1,21 +1,20 @@
-import React from 'react'
 import { useActions, useValues } from 'kea'
 import { chartFilterLogic } from './chartFilterLogic'
 import {
-    AreaChartOutlined,
-    BarChartOutlined,
-    LineChartOutlined,
-    OrderedListOutlined,
-    PieChartOutlined,
-    GlobalOutlined,
-    TableOutlined,
-    NumberOutlined,
-} from '@ant-design/icons'
-import { ChartDisplayType, FilterType, FunnelVizType, InsightType } from '~/types'
+    IconShowChart,
+    IconCumulativeChart,
+    IconBarChart,
+    IconAreaChart,
+    Icon123,
+    IconPieChart,
+    IconTableChart,
+    IconPublic,
+} from 'lib/components/icons'
+
+import { ChartDisplayType, FilterType, FunnelVizType } from '~/types'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { Tooltip } from '../Tooltip'
-import { LemonTag } from '../LemonTag/LemonTag'
 import { LemonSelect, LemonSelectOptions } from '@posthog/lemon-ui'
+import { isTrendsFilter } from 'scenes/insights/sharedUtils'
 
 interface ChartFilterProps {
     filters: FilterType
@@ -28,148 +27,105 @@ export function ChartFilter({ filters, onChange, disabled }: ChartFilterProps): 
     const { chartFilter } = useValues(chartFilterLogic(insightProps))
     const { setChartFilter } = useActions(chartFilterLogic(insightProps))
 
-    const cumulativeDisabled = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const pieDisabled: boolean = filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const worldMapDisabled: boolean =
-        filters.insight === InsightType.STICKINESS ||
-        (filters.insight === InsightType.RETENTION &&
-            !!filters.breakdown &&
-            filters.breakdown !== '$geoip_country_code' &&
-            filters.breakdown !== '$geoip_country_name') ||
-        !isSingleSeries || // World map only works with one series
-        !!filters.formula // Breakdowns currently don't work with formulas
-    const boldNumberDisabled: boolean =
-        filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION || !isSingleSeries // Bold number only works with one series
-    const barDisabled: boolean = filters.insight === InsightType.RETENTION
-    const barValueDisabled: boolean =
-        barDisabled || filters.insight === InsightType.STICKINESS || filters.insight === InsightType.RETENTION
-    const defaultDisplay: ChartDisplayType =
-        filters.insight === InsightType.RETENTION
-            ? ChartDisplayType.ActionsTable
-            : filters.insight === InsightType.FUNNELS
-            ? ChartDisplayType.FunnelViz
-            : ChartDisplayType.ActionsLineGraph
+    const isTrends = isTrendsFilter(filters)
+    const trendsOnlyDisabledReason = !isTrends ? "This type isn't available for this insight type." : undefined
+    const singleSeriesOnlyDisabledReason = !isSingleSeries
+        ? "This type isn't available, because there are multiple trend series."
+        : undefined
 
-    function Label({
-        icon,
-        tooltip,
-        children = null,
-    }: {
-        icon: React.ReactNode
-        tooltip?: string
-        children: React.ReactNode
-    }): JSX.Element {
-        return (
-            <Tooltip title={tooltip} placement="left">
-                <div className="w-full">
-                    {icon} {children}
-                </div>
-            </Tooltip>
-        )
-    }
+    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> = [
+        {
+            title: 'Time Series',
+            options: [
+                {
+                    value: ChartDisplayType.ActionsLineGraph,
+                    icon: <IconShowChart />,
+                    label: 'Line',
+                },
+                {
+                    value: ChartDisplayType.ActionsBar,
+                    icon: <IconBarChart />,
+                    label: 'Bar',
+                },
+                {
+                    value: ChartDisplayType.ActionsAreaGraph,
+                    icon: <IconAreaChart />,
+                    label: 'Area',
+                },
+            ],
+        },
+        {
+            title: 'Cumulative Time Series',
+            options: [
+                {
+                    value: ChartDisplayType.ActionsLineGraphCumulative,
+                    icon: <IconCumulativeChart />,
+                    label: 'Line',
+                    disabledReason: trendsOnlyDisabledReason,
+                },
+            ],
+        },
+        {
+            title: 'Total Value',
+            options: [
+                {
+                    value: ChartDisplayType.BoldNumber,
+                    icon: <Icon123 />,
+                    label: 'Number',
+                    disabledReason: trendsOnlyDisabledReason || singleSeriesOnlyDisabledReason,
+                },
+                {
+                    value: ChartDisplayType.ActionsPie,
+                    icon: <IconPieChart />,
+                    label: 'Pie',
+                    disabledReason: trendsOnlyDisabledReason,
+                },
+                {
+                    value: ChartDisplayType.ActionsBarValue,
+                    icon: <IconBarChart className="rotate-90" />,
+                    label: 'Bar',
+                    disabledReason: trendsOnlyDisabledReason,
+                },
+                {
+                    value: ChartDisplayType.ActionsTable,
+                    icon: <IconTableChart />,
+                    label: 'Table',
+                },
+                {
+                    value: ChartDisplayType.WorldMap,
+                    icon: <IconPublic />,
+                    label: 'World Map',
+                    tooltip: 'Visualize data by country.',
+                    disabledReason:
+                        trendsOnlyDisabledReason ||
+                        singleSeriesOnlyDisabledReason ||
+                        (isTrends && filters.formula
+                            ? "This type isn't available, because it doesn't support formulas."
+                            : !!filters.breakdown &&
+                              filters.breakdown !== '$geoip_country_code' &&
+                              filters.breakdown !== '$geoip_country_name'
+                            ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
+                            : undefined),
+                },
+            ],
+        },
+    ]
 
-    const options: LemonSelectOptions<ChartDisplayType | FunnelVizType> =
-        filters.insight === InsightType.FUNNELS
-            ? [
-                  { value: FunnelVizType.Steps, label: <Label icon={<OrderedListOutlined />}>Steps</Label> },
-                  {
-                      value: FunnelVizType.Trends,
-                      label: (
-                          <Label icon={<LineChartOutlined />}>
-                              Trends
-                              <LemonTag
-                                  type="warning"
-                                  className="uppercase"
-                                  style={{ marginLeft: 6, lineHeight: '1.4em' }}
-                              >
-                                  BETA
-                              </LemonTag>
-                          </Label>
-                      ),
-                  },
-              ]
-            : [
-                  {
-                      title: 'Line Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsLineGraph,
-                              label: <Label icon={<LineChartOutlined />}>Linear</Label>,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsLineGraphCumulative,
-                              label: <Label icon={<AreaChartOutlined />}>Cumulative</Label>,
-                              disabled: cumulativeDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      title: 'Bar Chart',
-                      options: [
-                          {
-                              value: ChartDisplayType.ActionsBar,
-                              label: <Label icon={<BarChartOutlined />}>Time</Label>,
-                              disabled: barDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsBarValue,
-                              label: <Label icon={<BarChartOutlined />}>Value</Label>,
-                              disabled: barValueDisabled,
-                          },
-                      ],
-                  },
-                  {
-                      options: [
-                          {
-                              value: ChartDisplayType.BoldNumber,
-                              label: (
-                                  <Label
-                                      icon={<NumberOutlined />}
-                                      tooltip="Big and bold. Only works with one series at a time."
-                                  >
-                                      Number
-                                  </Label>
-                              ),
-                              disabled: boldNumberDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsTable,
-                              label: <Label icon={<TableOutlined />}>Table</Label>,
-                          },
-                          {
-                              value: ChartDisplayType.ActionsPie,
-                              label: <Label icon={<PieChartOutlined />}>Pie</Label>,
-                              disabled: pieDisabled,
-                          },
-                          {
-                              value: ChartDisplayType.WorldMap,
-                              label: (
-                                  <Label
-                                      icon={<GlobalOutlined />}
-                                      tooltip="Visualize data by country. Only works with one series at a time."
-                                  >
-                                      World Map
-                                  </Label>
-                              ),
-                              disabled: worldMapDisabled,
-                          },
-                      ],
-                  },
-              ]
     return (
         <LemonSelect
             key="2"
-            value={chartFilter || defaultDisplay || filters.display}
+            value={chartFilter || ChartDisplayType.ActionsLineGraph}
             onChange={(value) => {
                 setChartFilter(value as ChartDisplayType | FunnelVizType)
                 onChange?.(value as ChartDisplayType | FunnelVizType)
             }}
-            dropdownPlacement={'bottom-end'}
+            dropdownPlacement="bottom-end"
+            optionTooltipPlacement="left"
             dropdownMatchSelectWidth={false}
             data-attr="chart-filter"
             disabled={disabled}
             options={options}
-            size={'small'}
+            size="small"
         />
     )
 }

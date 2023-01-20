@@ -18,6 +18,7 @@ const allIcons: IconDefinition[] = Object.entries(icons)
 export default {
     title: 'Lemon UI/Icons',
     parameters: {
+        chromatic: { disableSnapshot: false },
         options: { showPanel: false },
         docs: {
             description: {
@@ -25,7 +26,7 @@ export default {
 
 [Related Figma area](https://www.figma.com/file/Y9G24U4r04nEjIDGIEGuKI/PostHog-Design-System-One?node-id=3139%3A1388)
 
-Lemon Icons are generally Material Icons with some matching in-house additions. 
+Lemon Icons are generally [Material Icons](https://fonts.google.com/icons) with some matching in-house additions. 
 All should be based on a 24px (1.5rem) square viewbox, with icon contents fitting into a 20px (1.25rem) or smaller square. 
 
 When adding new icons from Figma please make sure to:

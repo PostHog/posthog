@@ -1,117 +1,93 @@
-import { Alert, Input, Modal } from 'antd'
+import { LemonButton, LemonInput, LemonModal, Link } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
+import { PureField } from 'lib/forms/Field'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import React, { useCallback, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { teamLogic } from 'scenes/teamLogic'
 import { organizationLogic } from '../organizationLogic'
 
 export function CreateProjectModal({
     isVisible,
     onClose,
-    title,
-    caption,
-    mask,
+    inline = false,
 }: {
     isVisible: boolean
     onClose?: () => void
-    title?: string
-    caption?: JSX.Element
-    mask?: boolean
+    inline?: boolean
 }): JSX.Element {
     const { createTeam } = useActions(teamLogic)
-    const { currentOrganization, isProjectCreationForbidden } = useValues(organizationLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const { reportProjectCreationSubmitted } = useActions(eventUsageLogic)
-    const [errorMessage, setErrorMessage] = useState<string | null>(null)
-    const inputRef = useRef<Input | null>(null)
+    const [name, setName] = useState<string>('')
 
     const closeModal: () => void = useCallback(() => {
         if (onClose) {
-            setErrorMessage(null)
             onClose()
-            if (inputRef.current) {
-                inputRef.current.setValue('')
+            if (name) {
+                setName('')
             }
         }
-    }, [inputRef, onClose])
+    }, [name, onClose])
 
     const handleSubmit = (): void => {
-        const name = inputRef.current?.state.value?.trim()
-        if (name) {
-            reportProjectCreationSubmitted(
-                currentOrganization?.teams ? currentOrganization.teams.length : 0,
-                name.length
-            )
-            setErrorMessage(null)
-            createTeam(name)
-            closeModal()
-        } else {
-            setErrorMessage('Your project needs a name!')
-        }
+        createTeam({ name, is_demo: false })
+        reportProjectCreationSubmitted(currentOrganization?.teams ? currentOrganization.teams.length : 0, name.length)
+        closeModal()
     }
 
-    const defaultCaption = (
-        <p>
-            Projects are a way of tracking multiple products under the umbrella of a single organization.
-            <br />
-            All organization members will be able to access the new project upon creation, but you can make it private
-            in its settings to restrict access.
-            <br />
-            <a href="https://posthog.com/docs/user-guides/organizations-and-projects" target="_blank" rel="noopener">
-                Learn more about projects in Docs.
-            </a>
-        </p>
-    )
-
-    return isProjectCreationForbidden ? (
-        <Modal
-            title={
-                currentOrganization
-                    ? `You cannot create a project in ${currentOrganization.name}`
-                    : 'You cannot create a project'
+    return (
+        <LemonModal
+            title={currentOrganization ? `Create a project within ${currentOrganization.name}` : 'Create a project'}
+            description={
+                <>
+                    <p>
+                        Use Projects to organize your data into separate collections – for example, to create
+                        separate environments for production / staging / local development.
+                    </p>
+                    <p>
+                        <strong>Tip:</strong> We recommend using the same project for both your website and app to track
+                        conversion fully.{' '}
+                        <Link to="https://posthog.com/manual/organizations-and-projects#projects" target="_blank">
+                            Learn more in PostHog Docs.
+                        </Link>
+                    </p>
+                    {currentOrganization?.teams?.some((team) => team.name === 'Default Project') && (
+                        <p>
+                            <strong>Bonus tip:</strong> You can always rename your "Default Project".
+                        </p>
+                    )}
+                </>
             }
-            okButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            onCancel={closeModal}
-            visible={isVisible}
-            mask={mask}
-            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
-            closeIcon={null}
-        >
-            Your organization access level is insufficient for creating a new project.
-            <br />
-            Project creation requires administrator access.
-        </Modal>
-    ) : (
-        <Modal
-            title={
-                title ||
-                (currentOrganization ? `Creating a project in ${currentOrganization.name}` : 'Creating a project')
+            footer={
+                <>
+                    {onClose && (
+                        <LemonButton type="secondary" onClick={() => onClose()}>
+                            Cancel
+                        </LemonButton>
+                    )}
+                    <LemonButton type="primary" onClick={() => handleSubmit()} disabled={!name}>
+                        Create project
+                    </LemonButton>
+                </>
             }
-            okText="Create project"
-            cancelButtonProps={onClose ? undefined : { style: { display: 'none' } }}
-            onOk={handleSubmit}
-            onCancel={closeModal}
-            visible={isVisible}
-            mask={mask}
-            wrapProps={isVisible && !mask ? { style: { pointerEvents: 'none' } } : undefined}
-            closeIcon={null}
+            isOpen={isVisible}
+            onClose={onClose}
+            inline={inline}
         >
-            {caption || defaultCaption}
-            <div className="input-set">
-                <label htmlFor="projectName">Project Name</label>
-                <Input
-                    ref={inputRef}
-                    placeholder='for example "Web app", "Mobile app", "Production", "Landing website"'
+            <PureField label="Project name">
+                <LemonInput
+                    placeholder="Production / Staging / Admin App"
                     maxLength={64}
                     autoFocus
-                    name="projectName"
+                    value={name}
+                    onChange={(value) => setName(value)}
                     onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                             handleSubmit()
                         }
                     }}
                 />
-            </div>
-            {errorMessage && <Alert message={errorMessage} type="error" />}
-        </Modal>
+            </PureField>
+        </LemonModal>
     )
 }

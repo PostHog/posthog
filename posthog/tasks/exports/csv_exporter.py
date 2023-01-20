@@ -4,7 +4,6 @@ from urllib.parse import parse_qsl, quote, urlencode, urlparse, urlunparse
 
 import requests
 import structlog
-from rest_framework_csv import renderers as csvrenderers
 from sentry_sdk import capture_exception, push_scope
 from statshog.defaults.django import statsd
 
@@ -12,6 +11,8 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.logging.timing import timed
 from posthog.models.exported_asset import ExportedAsset, save_content
 from posthog.utils import absolute_uri
+
+from .ordered_csv_renderer import OrderedCsvRenderer
 
 logger = structlog.get_logger(__name__)
 
@@ -150,6 +151,10 @@ def _convert_response_to_csv_data(data: Any) -> List[Any]:
     return []
 
 
+class UnexpectedEmptyJsonResponse(Exception):
+    pass
+
+
 def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: int = 3_500) -> None:
     resource = exported_asset.export_context
 
@@ -179,6 +184,18 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 
         # Figure out how to handle funnel polling....
         data = response.json()
+
+        if data is None:
+            unexpected_empty_json_response = UnexpectedEmptyJsonResponse("JSON is None when calling API for data")
+            logger.error(
+                "csv_exporter.json_was_none",
+                exc=unexpected_empty_json_response,
+                exc_info=True,
+                response_text=response.text,
+            )
+
+            raise unexpected_empty_json_response
+
         csv_rows = _convert_response_to_csv_data(data)
 
         all_csv_rows = all_csv_rows + csv_rows
@@ -188,7 +205,7 @@ def _export_to_csv(exported_asset: ExportedAsset, limit: int = 1000, max_limit: 
 
         next_url = data.get("next")
 
-    renderer = csvrenderers.CSVRenderer()
+    renderer = OrderedCsvRenderer()
 
     # NOTE: This is not ideal as some rows _could_ have different keys
     # Ideally we would extend the csvrenderer to supported keeping the order in place
@@ -210,7 +227,7 @@ def make_api_call(
 ) -> requests.models.Response:
     request_url: str = absolute_uri(next_url or path)
     try:
-        url = add_query_params(request_url, {"limit": str(limit)})
+        url = add_query_params(request_url, {"limit": str(limit), "is_csv_export": "1"})
         response = requests.request(
             method=method.lower(), url=url, json=body, headers={"Authorization": f"Bearer {access_token}"}
         )

@@ -1,4 +1,3 @@
-import React from 'react'
 import { SceneExport } from 'scenes/sceneTypes'
 import { unsubscribeLogic } from './unsubscribeLogic'
 import { useValues } from 'kea'

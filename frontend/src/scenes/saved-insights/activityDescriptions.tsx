@@ -9,12 +9,10 @@ import {
 import { Link } from 'lib/components/Link'
 import { urls } from 'scenes/urls'
 import { FilterType, InsightModel, InsightShortId } from '~/types'
-import React from 'react'
 import { BreakdownSummary, FiltersSummary, QuerySummary } from 'lib/components/Cards/InsightCard/InsightDetails'
 import '../../lib/components/Cards/InsightCard/InsightCard.scss'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { pluralize } from 'lib/utils'
-import { INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED } from 'lib/components/Cards/InsightCard/InsightCard'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 
 const nameOrLinkToInsight = (short_id?: InsightShortId | null, name?: string | null): string | JSX.Element => {
@@ -65,30 +63,18 @@ const insightActionsMapping: Record<
         }
     },
     filters: function onChangedFilter(change) {
-        // const filtersBefore = change?.before as FeatureFlagFilters
         const filtersAfter = change?.after as Partial<FilterType>
-        let extendedDescription: JSX.Element | undefined = undefined
-        const changes: Description[] = []
 
-        if (filtersAfter.insight && INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED.includes(filtersAfter.insight)) {
-            changes.push(<>changed details</>)
-        } else {
-            changes.push(<>changed details</>)
-            extendedDescription = (
+        return {
+            description: ['changed query definition'],
+            extendedDescription: (
                 <div className="summary-card">
                     <QuerySummary filters={filtersAfter} />
                     <FiltersSummary filters={filtersAfter} />
                     {filtersAfter.breakdown_type && <BreakdownSummary filters={filtersAfter} />}
                 </div>
-            )
+            ),
         }
-
-        if (changes.length > 0) {
-            return { description: changes, extendedDescription }
-        }
-
-        console.error({ change }, 'could not describe this change')
-        return null
     },
     deleted: function onSoftDelete(change, logItem, asNotification) {
         const isDeleted = detectBoolean(change?.after)
@@ -216,8 +202,6 @@ const insightActionsMapping: Record<
     id: () => null,
     created_at: () => null,
     created_by: () => null,
-    filters_hash: () => null,
-    refreshing: () => null,
     updated_at: () => null,
     last_modified_at: () => null,
     order: () => null,
@@ -270,7 +254,7 @@ export function insightActivityDescriber(logItem: ActivityLogItem, asNotificatio
         )
 
         for (const change of logItem.detail.changes || []) {
-            if (!change?.field) {
+            if (!change?.field || !insightActionsMapping[change.field]) {
                 continue // insight updates have to have a "field" to be described
             }
 

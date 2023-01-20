@@ -5,6 +5,7 @@ import { format } from 'util'
 import { Action, Hook, IngestionPersonData, PostIngestionEvent } from '../../types'
 import { DB } from '../../utils/db/db'
 import fetch from '../../utils/fetch'
+import { status } from '../../utils/status'
 import { stringify } from '../../utils/utils'
 import { OrganizationManager } from './organization-manager'
 import { SiteUrlManager } from './site-url-manager'
@@ -164,6 +165,9 @@ export class HookCommander {
     siteUrlManager: SiteUrlManager
     statsd: StatsD | undefined
 
+    /** Hook request timeout in ms. */
+    EXTERNAL_REQUEST_TIMEOUT = 10 * 1000
+
     constructor(
         db: DB,
         teamManager: TeamManager,
@@ -183,9 +187,12 @@ export class HookCommander {
         person: IngestionPersonData | undefined,
         actionMatches: Action[]
     ): Promise<void> {
+        status.debug('🔍', `Looking for hooks to fire for event "${event.event}"`)
         if (!actionMatches.length) {
+            status.debug('🔍', `No hooks to fire for event "${event.event}"`)
             return
         }
+        status.debug('🔍', `Found ${actionMatches.length} matching actions`)
 
         const team = await this.teamManager.fetchTeam(event.teamId)
 
@@ -194,7 +201,6 @@ export class HookCommander {
         }
 
         const webhookUrl = team.slack_incoming_webhook
-        const organization = await this.organizationManager.fetchOrganization(team.organization_id)
 
         if (webhookUrl) {
             const webhookRequests = actionMatches
@@ -203,7 +209,7 @@ export class HookCommander {
             await Promise.all(webhookRequests).catch((error) => captureException(error))
         }
 
-        if (organization!.available_features.includes('zapier')) {
+        if (await this.organizationManager.hasAvailableFeature(team.id, 'zapier')) {
             const restHooks = actionMatches.map(({ hooks }) => hooks).flat()
 
             if (restHooks.length > 0) {
@@ -237,10 +243,12 @@ export class HookCommander {
                 text: messageMarkdown,
             }
         }
+
         await fetch(webhookUrl, {
             method: 'POST',
             body: JSON.stringify(message, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
+            timeout: this.EXTERNAL_REQUEST_TIMEOUT,
         })
         this.statsd?.increment('webhook_firings', {
             team_id: event.teamId.toString(),
@@ -272,10 +280,12 @@ export class HookCommander {
             hook: { id: hook.id, event: hook.event, target: hook.target },
             data: { ...event, person: sendablePerson },
         }
+
         const request = await fetch(hook.target, {
             method: 'POST',
             body: JSON.stringify(payload, undefined, 4),
             headers: { 'Content-Type': 'application/json' },
+            timeout: this.EXTERNAL_REQUEST_TIMEOUT,
         })
         if (request.status === 410) {
             // Delete hook on our side if it's gone on Zapier's

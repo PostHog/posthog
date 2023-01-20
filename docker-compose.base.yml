@@ -1,0 +1,110 @@
+#
+# docker-compose base file used for local development, hobby deploys, and other compose use cases.
+#
+# If you are looking at self-hosted deployment options check
+# https://posthog.com/docs/self-host
+#
+
+services:
+    db:
+        image: postgres:12-alpine
+        restart: on-failure
+        environment:
+            POSTGRES_USER: posthog
+            POSTGRES_DB: posthog
+            POSTGRES_PASSWORD: posthog
+
+    redis:
+        image: redis:6.2.7-alpine
+        restart: on-failure
+        command: redis-server --maxmemory-policy allkeys-lru --maxmemory 200mb
+
+    clickhouse:
+        #
+        # Note: please keep the default version in sync across
+        #       `posthog` and the `charts-clickhouse` repos
+        #
+        image: ${CLICKHOUSE_SERVER_IMAGE:-clickhouse/clickhouse-server:22.8}
+        restart: on-failure
+        depends_on:
+            - kafka
+            - zookeeper
+    zookeeper:
+        image: zookeeper:3.7.0
+        restart: on-failure
+
+    kafka:
+        image: bitnami/kafka:2.8.1-debian-10-r99
+        restart: on-failure
+        depends_on:
+            - zookeeper
+        environment:
+            KAFKA_BROKER_ID: 1001
+            KAFKA_CFG_RESERVED_BROKER_MAX_ID: 1001
+            KAFKA_CFG_LISTENERS: PLAINTEXT://:9092
+            KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+            KAFKA_CFG_ZOOKEEPER_CONNECT: zookeeper:2181
+            ALLOW_PLAINTEXT_LISTENER: 'true'
+
+    object_storage:
+        image: minio/minio:RELEASE.2022-06-25T15-50-16Z
+        restart: on-failure
+        environment:
+            MINIO_ROOT_USER: object_storage_root_user
+            MINIO_ROOT_PASSWORD: object_storage_root_password
+        entrypoint: sh
+        command: -c 'mkdir -p /data/posthog && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog' bucket before starting the service
+
+    maildev:
+        image: maildev/maildev:2.0.5
+        restart: on-failure
+    worker: &worker
+        command: ./bin/docker-worker-celery --with-scheduler
+        restart: on-failure
+        environment:
+            DISABLE_SECURE_SSL_REDIRECT: 'true'
+            IS_BEHIND_PROXY: 'true'
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            CLICKHOUSE_HOST: 'clickhouse'
+            CLICKHOUSE_DATABASE: 'posthog'
+            CLICKHOUSE_SECURE: 'false'
+            CLICKHOUSE_VERIFY: 'false'
+            KAFKA_URL: 'kafka://kafka'
+            REDIS_URL: 'redis://redis:6379/'
+            PGHOST: db
+            PGUSER: posthog
+            PGPASSWORD: posthog
+            DEPLOYMENT: hobby
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+
+    web:
+        <<: *worker
+        command: /compose/start
+        restart: on-failure
+
+    plugins:
+        command: ./bin/plugin-server --no-restart-loop
+        restart: on-failure
+        environment:
+            DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            KAFKA_HOSTS: 'kafka:9092'
+            REDIS_URL: 'redis://redis:6379/'
+            CLICKHOUSE_HOST: 'clickhouse'
+        depends_on:
+            - db
+            - redis
+            - clickhouse
+            - kafka
+            - object_storage
+
+    asyncmigrationscheck:
+        <<: *worker
+        command: python manage.py run_async_migrations --check
+        restart: 'no'
+        deploy:
+            replicas: 0

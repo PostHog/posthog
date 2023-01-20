@@ -1,5 +1,4 @@
 import { IconErrorOutline } from 'lib/components/icons'
-import React from 'react'
 import { LemonLabel } from '../components/LemonLabel/LemonLabel'
 import { Field as KeaField, FieldProps as KeaFieldProps } from 'kea-forms/lib/components'
 import clsx from 'clsx'
@@ -20,6 +19,8 @@ export type PureFieldProps = {
     className?: string
     children?: React.ReactNode
     onClick?: () => void
+    /** Flex the field as a row rather than columns */
+    inline?: boolean
 }
 
 /** A "Pure" field - used when you want the Field styles without the Kea form functionality */
@@ -32,10 +33,14 @@ export const PureField = ({
     onExplanationClick,
     className,
     children,
+    inline,
     onClick,
 }: PureFieldProps): JSX.Element => {
     return (
-        <div onClick={onClick} className={clsx('Field flex flex-col gap-2', className, error && 'Field--error')}>
+        <div
+            onClick={onClick}
+            className={clsx('Field flex gap-2', className, error && 'Field--error', inline ? 'flex-row' : 'flex-col')}
+        >
             {label ? (
                 <LemonLabel
                     info={info}
@@ -61,11 +66,27 @@ export const PureField = ({
 
 export type FieldProps = Omit<PureFieldProps, 'children' | 'error'> & Pick<KeaFieldProps, 'children' | 'name'>
 
-export const Field = ({ name, help, className, showOptional, ...keaFieldProps }: FieldProps): JSX.Element => {
+export const Field = ({
+    name,
+    help,
+    className,
+    showOptional,
+    inline,
+    info,
+    ...keaFieldProps
+}: FieldProps): JSX.Element => {
     /** Drop-in replacement antd template for kea forms */
     const template: KeaFieldProps['template'] = ({ label, kids, error }) => {
         return (
-            <PureField label={label} error={error} help={help} className={className} showOptional={showOptional}>
+            <PureField
+                label={label}
+                error={error}
+                help={help}
+                className={className}
+                showOptional={showOptional}
+                inline={inline}
+                info={info}
+            >
                 {kids}
             </PureField>
         )

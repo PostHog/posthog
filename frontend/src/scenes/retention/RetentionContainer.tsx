@@ -1,4 +1,3 @@
-import React from 'react'
 import { RetentionLineGraph } from './RetentionLineGraph'
 import { RetentionTable } from './RetentionTable'
 import './RetentionContainer.scss'

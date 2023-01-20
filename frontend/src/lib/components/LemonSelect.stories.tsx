@@ -1,11 +1,12 @@
-import React from 'react'
 import { ComponentMeta, ComponentStory } from '@storybook/react'
 import { LemonSelect, LemonSelectOptions, LemonSelectProps } from './LemonSelect'
 import { capitalizeFirstLetter } from 'lib/utils'
+import { SurprisedHog, BlushingHog } from 'lib/components/hedgehogs'
 
 export default {
     title: 'Lemon UI/Lemon Select',
     component: LemonSelect,
+    parameters: { chromatic: { disableSnapshot: false } },
     argTypes: {
         options: {
             defaultValue: [
@@ -85,6 +86,21 @@ MixedValuesTypes.args = {
     ] as LemonSelectOptions<string | number>,
 }
 
+export const NestedSelect = Template.bind({})
+NestedSelect.args = {
+    dropdownMatchSelectWidth: false,
+    options: [
+        { label: 'Capybara', value: 'capybara' },
+        {
+            label: 'Elephant',
+            options: [
+                { label: 'African elephant', value: 'elephant-african' },
+                { label: 'Asian elephant', value: 'elephant-asian' },
+            ],
+        },
+    ] as LemonSelectOptions<string | number>,
+}
+
 export const Clearable = Template.bind({})
 Clearable.args = { allowClear: true, value: 'poodle' }
 
@@ -93,6 +109,33 @@ LongOptions.args = {
     allowClear: true,
     value: '1',
     options: [...Array(100)].map((_, x) => ({ value: `${x}`, label: `${x}` })),
+}
+
+export const CustomElement = Template.bind({})
+CustomElement.args = {
+    value: 1,
+    options: [
+        {
+            value: 1,
+            element: (
+                <div>
+                    <SurprisedHog className="w-10 h-10 mr-4" />
+                    Surprised
+                </div>
+            ),
+            label: 'Wow',
+        },
+        {
+            value: 2,
+            element: (
+                <div>
+                    <BlushingHog className="w-10 h-10 mr-4" />
+                    Blushing
+                </div>
+            ),
+            label: 'Ohh',
+        },
+    ],
 }
 
 export const _FullWidth: ComponentStory<typeof LemonSelect> = (props: LemonSelectProps<any>) => {

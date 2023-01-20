@@ -9,10 +9,12 @@ import {
     DashboardType,
     FilterLogicalOperator,
     FilterType,
+    FunnelsFilterType,
     InsightModel,
     InsightShortId,
     InsightType,
     ItemMode,
+    PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
 } from '~/types'
@@ -22,20 +24,20 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import * as Sentry from '@sentry/react'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { useAvailableFeatures } from '~/mocks/features'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
-import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_TEAM_ID } from 'lib/api.mock'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardPrivilegeLevel, DashboardRestrictionLevel } from 'lib/constants'
+import api from 'lib/api'
 
 const API_FILTERS: Partial<FilterType> = {
     insight: InsightType.TRENDS as InsightType,
     events: [{ id: 3 }],
-    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+    properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' } as any as AnyPropertyFilter],
 }
 
 const Insight12 = '12' as InsightShortId
@@ -90,17 +92,17 @@ function insightModelWith(properties: Record<string, any>): InsightModel {
         updated_at: '2021-03-09T14: 00: 00.000Z',
         updated_by: null,
         visibility: null,
-        refreshing: false,
         last_modified_at: '2021-03-31T15:00:00.000Z',
         last_modified_by: null,
         effective_privilege_level: DashboardPrivilegeLevel.CanEdit,
         effective_restriction_level: DashboardRestrictionLevel.EveryoneInProjectCanEdit,
         layouts: {},
         color: null,
-        filters_hash: 'hash',
         ...properties,
     } as InsightModel
 }
+
+const seenQueryIDs: string[] = []
 
 describe('insightLogic', () => {
     let logic: ReturnType<typeof insightLogic.build>
@@ -109,9 +111,23 @@ describe('insightLogic', () => {
         useAvailableFeatures([AvailableFeature.DASHBOARD_COLLABORATION])
         useMocks({
             get: {
-                '/api/projects/:team/insights/trend/': (req) => {
+                '/api/projects/:team/tags': [],
+                '/api/projects/:team/insights/trend/': async (req) => {
+                    const clientQueryId = req.url.searchParams.get('client_query_id')
+                    if (clientQueryId !== null) {
+                        seenQueryIDs.push(clientQueryId)
+                    }
+
                     if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
+                    }
+                    if (req.url.searchParams.get('date_from') === '-180d') {
+                        // delay for 2 seconds before response without pausing
+                        return new Promise((resolve) =>
+                            setTimeout(() => {
+                                resolve([200, { result: ['very slow result from api'] }])
+                            }, 2000)
+                        )
                     }
                     return [200, { result: ['result from api'] }]
                 },
@@ -190,6 +206,7 @@ describe('insightLogic', () => {
                     200,
                     { id: 12, short_id: Insight12, ...((req.body as any) || {}) },
                 ],
+                '/api/projects/997/insights/cancel/': [201],
             },
             patch: {
                 '/api/projects/:team/insights/:id': async (req) => {
@@ -322,7 +339,14 @@ describe('insightLogic', () => {
                         filters: {
                             insight: InsightType.TRENDS,
                             events: [{ id: 2 }],
-                            properties: [{ value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }],
+                            properties: [
+                                {
+                                    value: 'lol',
+                                    operator: PropertyOperator.Exact,
+                                    key: 'lol',
+                                    type: PropertyFilterType.Person,
+                                },
+                            ],
                         },
                     },
                 })
@@ -338,7 +362,7 @@ describe('insightLogic', () => {
                         insight: partial({ short_id: Insight42, results: ['cached result'] }),
                         filters: partial({
                             events: [{ id: 2 }],
-                            properties: [partial({ type: 'lol' })],
+                            properties: [partial({ type: PropertyFilterType.Person })],
                         }),
                     })
                     .toNotHaveDispatchedActions(['loadResultsSuccess']) // this took the cached results
@@ -355,7 +379,14 @@ describe('insightLogic', () => {
                         filters: {
                             insight: InsightType.TRENDS,
                             events: [{ id: 3 }],
-                            properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                            properties: [
+                                {
+                                    value: 'a',
+                                    operator: PropertyOperator.Exact,
+                                    key: 'a',
+                                    type: PropertyFilterType.Person,
+                                },
+                            ],
                         },
                     },
                 })
@@ -381,13 +412,14 @@ describe('insightLogic', () => {
             afterEach(resumeKeaLoadersErrors)
 
             it('makes a query to load the results', async () => {
-                const insight = {
+                const insight: Partial<InsightModel> = {
                     short_id: Insight42,
-                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
-                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                        properties: [
+                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                        ],
                     },
                 }
                 logic = insightLogic({
@@ -413,13 +445,14 @@ describe('insightLogic', () => {
 
         describe('props with filters, no cached results, respects doNotLoad', () => {
             it('does not make a query', async () => {
-                const insight = {
+                const insight: Partial<InsightModel> = {
                     short_id: Insight42,
-                    results: undefined,
                     filters: {
                         insight: InsightType.TRENDS,
                         events: [{ id: 3, throw: true }],
-                        properties: [{ value: 'a', operator: PropertyOperator.Exact, key: 'a', type: 'a' }],
+                        properties: [
+                            { value: 'a', operator: PropertyOperator.Exact, key: 'a', type: PropertyFilterType.Person },
+                        ],
                     },
                 }
                 logic = insightLogic({
@@ -767,7 +800,7 @@ describe('insightLogic', () => {
         }).toDispatchActions(['setFilters', 'saveInsight', router.actionCreators.push(urls.insightView(Insight12))])
     })
 
-    test('saveInsight and updateInsight reload the saved insights list', async () => {
+    test('saveInsight and updateInsight update the saved insights list', async () => {
         savedInsightsLogic.mount()
         logic = insightLogic({
             dashboardItemId: Insight42,
@@ -780,10 +813,10 @@ describe('insightLogic', () => {
         logic.mount()
 
         logic.actions.saveInsight()
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.loadInsights])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.addInsight])
 
         logic.actions.updateInsight({ filters: { insight: InsightType.FUNNELS } })
-        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.loadInsights])
+        await expectLogic(logic).toDispatchActions([savedInsightsLogic.actionTypes.setInsight])
     })
 
     test('saveInsight updates dashboards', async () => {
@@ -874,7 +907,12 @@ describe('insightLogic', () => {
     })
 
     describe('filterPropertiesCount selector', () => {
-        const standardPropertyFilter = { value: 'lol', operator: PropertyOperator.Exact, key: 'lol', type: 'lol' }
+        const standardPropertyFilter: AnyPropertyFilter = {
+            value: 'lol',
+            operator: PropertyOperator.Exact,
+            key: 'lol',
+            type: PropertyFilterType.Person,
+        }
         const cases: {
             properties: AnyPropertyFilter[] | PropertyGroupFilter
             count: number
@@ -941,7 +979,7 @@ describe('insightLogic', () => {
             logic.mount()
 
             await expectLogic(logic, () => {
-                logic.actions.setFilters({ new_entity: [] })
+                logic.actions.setFilters({ new_entity: [] } as FunnelsFilterType)
             }).toNotHaveDispatchedActions(['loadResults'])
         })
     })
@@ -970,7 +1008,7 @@ describe('insightLogic', () => {
             expectLogic(logic).toMatchValues({ isUsingSessionAnalysis: true })
         })
         it('setting global session property filters sets it true', async () => {
-            const insight = {
+            const insight: Partial<InsightModel> = {
                 filters: {
                     insight: InsightType.TRENDS,
                     properties: {
@@ -983,7 +1021,7 @@ describe('insightLogic', () => {
                                         key: '$session_duration',
                                         value: 1,
                                         operator: PropertyOperator.GreaterThan,
-                                        type: 'session',
+                                        type: PropertyFilterType.Session,
                                     },
                                 ],
                             },
@@ -1168,21 +1206,73 @@ describe('insightLogic', () => {
                     insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
                 })
         })
+
+        it('reacts to duplication of dashboard attaching it to new dashboard', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 42] })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3, 1234] }),
+                })
+        })
+
+        it('does not react to duplication of dashboard that did not include this insight', async () => {
+            await expectLogic(logic, () => {
+                insightsModel.actions.insightsAddedToDashboard({ dashboardId: 1234, insightIds: [0, 1, 2] })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    insight: expect.objectContaining({ dashboards: [1, 2, 3] }),
+                })
+        })
     })
 
-    it('will not save with empty filters', async () => {
-        jest.spyOn(Sentry, 'captureException')
-        logic = insightLogic({
-            dashboardItemId: '4578' as InsightShortId,
-            cachedInsight: { filters: { insight: InsightType.FUNNELS } },
+    describe('cancelling queries', () => {
+        beforeEach(async () => {
+            logic = insightLogic({
+                dashboardItemId: 'new',
+            })
+            logic.mount()
         })
-        logic.mount()
 
-        logic.actions.setInsight({ id: 4578, short_id: '4578' as InsightShortId, filters: {} }, {})
-        logic.actions.saveInsight()
-        expect(Sentry.captureException).toHaveBeenCalledWith(
-            new Error('Will not override empty filters in saveInsight.'),
-            expect.any(Object)
-        )
+        it('cancels a running query', async () => {
+            jest.spyOn(api, 'create')
+
+            setTimeout(() => {
+                // this change of filters will dispatch cancellation on the first query
+                // will run while the -180d query is still running
+                logic.actions.setFilters({ insight: InsightType.TRENDS, date_from: '-90d' })
+            }, 200)
+            // dispatches an artificially slow data request
+            // takes 3000 milliseconds to return
+            logic.actions.setFilters({ insight: InsightType.TRENDS, date_from: '-180d' })
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    'loadResults',
+                    'abortAnyRunningQuery',
+                    'loadResults',
+                    'abortAnyRunningQuery',
+                    'abortQuery',
+                    'loadResultsSuccess',
+                ])
+                .toMatchValues({
+                    filters: partial({ date_from: '-90d' }),
+                })
+
+            const mockCreateCalls = (api.create as jest.Mock).mock.calls
+            // there will be at least two used client query ids
+            // the most recent has not been cancelled
+            // the one before that has been
+            expect(mockCreateCalls).toEqual([
+                [
+                    `api/projects/${MOCK_TEAM_ID}/insights/cancel`,
+                    {
+                        client_query_id: seenQueryIDs[seenQueryIDs.length - 2],
+                    },
+                ],
+            ])
+        })
     })
 })

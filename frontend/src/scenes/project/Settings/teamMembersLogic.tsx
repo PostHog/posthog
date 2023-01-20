@@ -1,4 +1,3 @@
-import React from 'react'
 import { kea, path, actions, selectors, listeners, events } from 'kea'
 import { loaders } from 'kea-loaders'
 import { forms } from 'kea-forms'

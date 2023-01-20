@@ -1,4 +1,5 @@
 from posthog.clickhouse.base_sql import COPY_ROWS_BETWEEN_TEAMS_BASE_SQL
+from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS, STORAGE_POLICY, kafka_engine
 from posthog.clickhouse.table_engines import CollapsingMergeTree, ReplacingMergeTree
 from posthog.kafka_client.topics import KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_UNIQUE_ID
@@ -39,7 +40,10 @@ PERSONS_TABLE_SQL = lambda: (
     table_name=PERSONS_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=PERSONS_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS,
+    extra_fields=f"""
+    {KAFKA_COLUMNS}
+    , {index_by_kafka_timestamp(PERSONS_TABLE)}
+    """,
     storage_policy=STORAGE_POLICY(),
 )
 
@@ -88,7 +92,7 @@ GET_LATEST_PERSON_ID_SQL = """
 )
 
 #
-# person_distinct_id table - use this still in queries, but this will eventually get removed.
+# person_distinct_id - legacy table for person distinct IDs, do not use
 #
 
 
@@ -154,7 +158,7 @@ FROM {database}.kafka_{table_name}
 )
 
 #
-# person_distinct_ids2 - new table!
+# person_distinct_id2 - table currently used for person distinct IDs, its schema is improved over the original
 #
 
 PERSON_DISTINCT_ID2_TABLE = "person_distinct_id2"
@@ -182,7 +186,11 @@ PERSON_DISTINCT_ID2_TABLE_SQL = lambda: (
     table_name=PERSON_DISTINCT_ID2_TABLE,
     cluster=CLICKHOUSE_CLUSTER,
     engine=PERSON_DISTINCT_ID2_TABLE_ENGINE(),
-    extra_fields=KAFKA_COLUMNS + "\n, _partition UInt64",
+    extra_fields=f"""
+    {KAFKA_COLUMNS}
+    , _partition UInt64
+    , {index_by_kafka_timestamp(PERSON_DISTINCT_ID2_TABLE)}
+    """,
 )
 
 KAFKA_PERSON_DISTINCT_ID2_TABLE_SQL = lambda: PERSON_DISTINCT_ID2_TABLE_BASE_SQL.format(
@@ -276,19 +284,6 @@ SELECT_PERSON_DISTINCT_ID2S_OF_TEAM = """SELECT * FROM {table_name} WHERE team_i
 #
 
 GET_TEAM_PERSON_DISTINCT_IDS = """
-SELECT distinct_id, argMax(person_id, _timestamp) as person_id
-FROM (
-    SELECT distinct_id, person_id, max(_timestamp) as _timestamp
-    FROM person_distinct_id
-    WHERE team_id = %(team_id)s
-    GROUP BY person_id, distinct_id, team_id
-    HAVING max(is_deleted) = 0
-)
-GROUP BY distinct_id
-"""
-
-# Query to query distinct ids using the new table, will be used if 0003_fill_person_distinct_id2 migration is complete
-GET_TEAM_PERSON_DISTINCT_IDS_NEW_TABLE = """
 SELECT distinct_id, argMax(person_id, version) as person_id
 FROM person_distinct_id2
 WHERE team_id = %(team_id)s
@@ -318,10 +313,6 @@ INSERT INTO person (id, created_at, team_id, properties, is_identified, _timesta
 
 INSERT_PERSON_BULK_SQL = """
 INSERT INTO person (id, created_at, team_id, properties, is_identified, _timestamp, _offset, is_deleted, version) VALUES
-"""
-
-INSERT_PERSON_DISTINCT_ID = """
-INSERT INTO person_distinct_id SELECT %(distinct_id)s, %(person_id)s, %(team_id)s, %(_sign)s, now(), 0 VALUES
 """
 
 INSERT_PERSON_DISTINCT_ID2 = """
@@ -396,10 +387,12 @@ ORDER BY count DESC, key ASC
 
 GET_ACTORS_FROM_EVENT_QUERY = """
 SELECT
-    {id_field} AS actor_id
+    {id_field} AS actor_id,
+    {actor_value_expression} AS actor_value
     {matching_events_select_statement}
 FROM ({events_query})
 GROUP BY actor_id
+ORDER BY actor_value DESC, actor_id DESC /* Also sorting by ID for determinism */
 {limit}
 {offset}
 """

@@ -1,4 +1,4 @@
-import React, { HTMLProps } from 'react'
+import { HTMLProps } from 'react'
 import { copyToClipboard } from 'lib/utils'
 import { Tooltip } from 'lib/components/Tooltip'
 import { IconCopy } from './icons'

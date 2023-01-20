@@ -8,14 +8,19 @@ from ee.models.license import License
 from posthog.client import sync_execute
 from posthog.models import User
 from posthog.settings import SITE_URL
-from posthog.tasks.status_report import get_instance_licenses
 
 
 def send_license_usage():
     license = License.objects.first_valid()
     user = User.objects.filter(is_active=True).first()
+
     if not license:
         return
+
+    # New type of license key for billing-v2
+    if license.is_v2_license:
+        return
+
     try:
         date_from = (timezone.now() - relativedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
         date_to = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -32,6 +37,9 @@ def send_license_usage():
         if response.status_code == 404 and response.json().get("code") == "not_found":
             license.valid_until = now() - relativedelta(hours=1)
             license.save()
+
+        if response.status_code == 400 and response.json().get("code") == "already_sent":
+            return
 
         if response.json().get("valid_until"):
             license.valid_until = response.json()["valid_until"]
@@ -50,6 +58,7 @@ def send_license_usage():
                 },
                 groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
             )
+            response.raise_for_status()
             return
         else:
             posthoganalytics.capture(
@@ -58,19 +67,24 @@ def send_license_usage():
                 {
                     "date": date_from.strftime("%Y-%m-%d"),
                     "events_count": events_count,
-                    "license_keys": get_instance_licenses(),
+                    "license_keys": [license.key for license in License.objects.all()],
                     "organization_name": user.current_organization.name,  # type: ignore
                 },
                 groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
             )
     except Exception as err:
-        posthoganalytics.capture(
-            user.distinct_id,  # type: ignore
-            "send license usage data error",
-            {
-                "error": str(err),
-                "date": date_from.strftime("%Y-%m-%d"),
-                "organization_name": user.current_organization.name,  # type: ignore
-            },
-            groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
-        )
+        try:
+            posthoganalytics.capture(
+                user.distinct_id,  # type: ignore
+                "send license usage data error",
+                {
+                    "error": str(err),
+                    "date": date_from.strftime("%Y-%m-%d"),
+                    "organization_name": user.current_organization.name,  # type: ignore
+                },
+                groups={"organization": str(user.current_organization.id), "instance": SITE_URL},  # type: ignore
+            )
+            raise err
+        except:
+            # If the posthoganalytics call errors, just throw the original error rather than that error
+            raise err

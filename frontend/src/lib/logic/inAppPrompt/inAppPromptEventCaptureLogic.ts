@@ -24,7 +24,8 @@ const inAppPromptEventCaptureLogic = kea<inAppPromptEventCaptureLogicType>([
             step,
             totalSteps,
         }),
-        reportTutorialSkipped: true,
+        reportProductTourStarted: true,
+        reportProductTourSkipped: true,
     }),
     listeners({
         reportPromptShown: ({ type, sequence, step, totalSteps }) => {
@@ -63,8 +64,11 @@ const inAppPromptEventCaptureLogic = kea<inAppPromptEventCaptureLogicType>([
                 totalSteps,
             })
         },
-        reportTutorialSkipped: () => {
-            posthog.capture('tutorial skipped')
+        reportProductTourStarted: () => {
+            posthog.capture('product tour started')
+        },
+        reportProductTourSkipped: () => {
+            posthog.capture('product tour skipped')
         },
     }),
 ])

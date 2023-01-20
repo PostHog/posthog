@@ -1,0 +1,118 @@
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { Tabs } from 'antd'
+import { useActions, useValues } from 'kea'
+import { More } from 'lib/components/LemonButton/More'
+import { LemonTable, LemonTableColumns } from 'lib/components/LemonTable'
+import { RestrictedComponentProps } from 'lib/components/RestrictedArea'
+import { urls } from 'scenes/urls'
+import { AccessLevel, RoleType } from '~/types'
+import { CreateRoleModal } from './CreateRoleModal'
+import { rolesLogic } from './rolesLogic'
+
+export function Roles({ isRestricted }: RestrictedComponentProps): JSX.Element {
+    const { roles, rolesLoading } = useValues(rolesLogic)
+    const { setRoleInFocus, openCreateRoleModal, deleteRole } = useActions(rolesLogic)
+
+    const columns: LemonTableColumns<RoleType> = [
+        {
+            key: 'name',
+            title: 'Role',
+            dataIndex: 'name',
+            render: function RoleNameRender(_, role) {
+                return (
+                    <div
+                        className="row-name text-primary cursor-pointer"
+                        onClick={() => {
+                            setRoleInFocus(role)
+                        }}
+                    >
+                        {role.name}
+                    </div>
+                )
+            },
+        },
+        {
+            key: 'actions',
+            width: 0,
+            sticky: true,
+            render: function renderActions(_, role) {
+                return (
+                    <More
+                        overlay={
+                            isRestricted ? (
+                                "You don't have permission to delete roles"
+                            ) : (
+                                <LemonButton onClick={() => deleteRole(role)} status="danger">
+                                    Delete
+                                </LemonButton>
+                            )
+                        }
+                    />
+                )
+            },
+        },
+    ]
+
+    return (
+        <>
+            <div className="flex items-center">
+                <div style={{ flexGrow: 1 }}>
+                    <h2 id="roles" className="subtitle">
+                        Roles
+                    </h2>
+                    <p className="text-muted-alt">
+                        Create roles to provide fine-grained permissions to users across posthog resources. Admins+ will
+                        always have full edit access regardless of default or role.
+                    </p>
+                </div>
+
+                {!isRestricted && (
+                    <LemonButton type="primary" onClick={openCreateRoleModal} data-attr="create-role-button">
+                        Create role
+                    </LemonButton>
+                )}
+            </div>
+            <LemonTable
+                dataSource={roles}
+                columns={columns}
+                rowKey={() => 'id'}
+                expandable={{
+                    expandedRowRender: function RenderRolesTable(role) {
+                        return (
+                            <Tabs defaultActiveKey="members">
+                                <Tabs.TabPane tab="Members" key="members">
+                                    <div className="flex flex-col my-4">
+                                        {role.members.map((member) => (
+                                            <div key={member.id}>{member.user.first_name}</div>
+                                        ))}
+                                    </div>
+                                </Tabs.TabPane>
+                                <Tabs.TabPane tab="Feature flags" key="feature-flags">
+                                    <div className="mb-4">
+                                        {role.feature_flags_access_level === AccessLevel.WRITE ? (
+                                            'All'
+                                        ) : (
+                                            <div className="flex flex-col">
+                                                {role.associated_flags.map((flag) => (
+                                                    <Link key={flag.id} to={urls.featureFlag(flag.id)}>
+                                                        {flag.key}
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </Tabs.TabPane>
+                            </Tabs>
+                        )
+                    },
+                }}
+                style={{ marginTop: '1rem' }}
+                loading={rolesLoading}
+                data-attr="org-roles-table"
+                defaultSorting={{ columnKey: 'level', order: -1 }}
+                pagination={{ pageSize: 50 }}
+            />
+            <CreateRoleModal />
+        </>
+    )
+}

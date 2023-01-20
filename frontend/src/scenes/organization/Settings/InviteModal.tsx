@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import React from 'react'
 import './InviteModal.scss'
 import { isEmail, pluralize } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'

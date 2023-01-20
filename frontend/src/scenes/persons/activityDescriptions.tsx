@@ -1,5 +1,4 @@
 import { ActivityLogItem, HumanizedChange } from 'lib/components/ActivityLog/humanizeActivity'
-import React from 'react'
 import { PersonHeader } from 'scenes/persons/PersonHeader'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/components/Link'

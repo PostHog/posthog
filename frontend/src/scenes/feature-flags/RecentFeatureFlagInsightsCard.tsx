@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 import { CompactList } from 'lib/components/CompactList/CompactList'
-import React from 'react'
 import { InsightRow } from 'scenes/project-homepage/RecentInsights'
 import { urls } from 'scenes/urls'
 import { InsightModel } from '~/types'

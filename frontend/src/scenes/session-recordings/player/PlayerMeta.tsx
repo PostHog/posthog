@@ -1,102 +1,59 @@
 import './PlayerMeta.scss'
-import React from 'react'
-import { Col, Row, Skeleton, Space } from 'antd'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/components/ProfilePicture'
-import { useValues } from 'kea'
-import { PersonHeader } from 'scenes/persons/PersonHeader'
-import { metaLogic } from 'scenes/session-recordings/player/metaLogic'
-import { TZLabel } from 'lib/components/TimezoneAware'
-import { percentage, truncate } from 'lib/utils'
+import { useActions, useValues } from 'kea'
+import { asDisplay, PersonHeader } from 'scenes/persons/PersonHeader'
+import { playerMetaLogic } from 'scenes/session-recordings/player/playerMetaLogic'
+import { TZLabel } from 'lib/components/TZLabel'
+import { percentage } from 'lib/utils'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { SessionRecordingPlayerProps } from '~/types'
 import clsx from 'clsx'
 import { LemonSkeleton } from 'lib/components/LemonSkeleton'
-import { Link } from '@posthog/lemon-ui'
+import { LemonButton, Link } from '@posthog/lemon-ui'
+import { playerSettingsLogic } from './playerSettingsLogic'
+import { IconUnfoldLess, IconUnfoldMore } from 'lib/components/icons'
+import { PropertiesTable } from 'lib/components/PropertiesTable'
+import { CSSTransition } from 'react-transition-group'
+import { Tooltip } from 'lib/components/Tooltip'
+import { PropertyIcon } from 'lib/components/PropertyIcon'
+import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
+import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { PlayerMetaLinks } from './PlayerMetaLinks'
 
-export function PlayerMetaV2({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
-    const { sessionPerson, description, resolution, scale, recordingStartTime, loading } = useValues(
-        metaLogic({ sessionRecordingId, playerKey })
-    )
-
-    return (
-        <Col className="player-meta-container-v2">
-            <Row className="player-meta-person" align="middle" justify="space-between" wrap={false}>
-                <Row className="player-meta-person-title" align="middle" wrap={false}>
-                    {loading ? (
-                        <Space>
-                            <Skeleton.Avatar active size="small" shape="circle" />
-                            <Skeleton title={false} active paragraph={{ rows: 1, width: 160 }} />
-                        </Space>
-                    ) : (
-                        <>
-                            <ProfilePicture
-                                name={sessionPerson?.name}
-                                email={sessionPerson?.properties?.$email}
-                                size="md"
-                                style={{ marginRight: '0.5rem' }}
-                            />
-                            <span className="email">
-                                <PersonHeader person={sessionPerson} withIcon={false} />
-                            </span>
-                        </>
-                    )}
-                </Row>
-                <Col>
-                    {loading ? (
-                        <Skeleton title={false} active paragraph={{ rows: 1, width: 80 }} />
-                    ) : (
-                        <span className="time text-muted">
-                            {recordingStartTime && <TZLabel time={dayjs(recordingStartTime)} />}
-                        </span>
-                    )}
-                </Col>
-            </Row>
-            <Row className="player-meta-other" align="middle" justify="start">
-                <Row className="player-meta-other-description">
-                    {loading ? <Skeleton title={false} active paragraph={{ rows: 1 }} /> : <span>{description}</span>}
-                </Row>
-                <Row className="player-meta-other-resolution mt-2">
-                    {loading ? (
-                        <Skeleton title={false} active paragraph={{ rows: 1, width: '100%' }} />
-                    ) : (
-                        <span>
-                            {resolution ? (
-                                <>
-                                    Resolution: {resolution.width} x {resolution.height} ({percentage(scale, 1, true)})
-                                </>
-                            ) : (
-                                <>Resolution: ...</>
-                            )}
-                        </span>
-                    )}
-                </Row>
-            </Row>
-        </Col>
-    )
-}
-
-export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecordingPlayerProps): JSX.Element {
+export function PlayerMeta(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const {
         sessionPerson,
-        description,
         resolution,
-        currentUrl,
+        lastPageviewEvent,
         scale,
         currentWindowIndex,
         recordingStartTime,
-        loading,
-        isFullScreen,
-    } = useValues(metaLogic({ sessionRecordingId, playerKey }))
+        sessionPlayerMetaDataLoading,
+        windowIds,
+    } = useValues(playerMetaLogic(props))
+
+    const { isFullScreen, isMetadataExpanded } = useValues(playerSettingsLogic)
+    const { setIsMetadataExpanded } = useActions(playerSettingsLogic)
+
+    const iconProperties = lastPageviewEvent?.properties || sessionPerson?.properties
+
+    const { ref, size } = useResizeBreakpoints({
+        0: 'compact',
+        550: 'normal',
+    })
+
+    const isSmallPlayer = size === 'compact'
+
     return (
         <div
-            className={clsx('PlayerMetaV3', {
-                'PlayerMetaV3--fullscreen': isFullScreen,
+            ref={ref}
+            className={clsx('PlayerMeta', {
+                'PlayerMeta--fullscreen': isFullScreen,
             })}
         >
             {isFullScreen && (
-                <div className="PlayerMetaV3__escape">
+                <div className="PlayerMeta__escape">
                     <div className="bg-muted-dark text-white px-2 py-1 rounded shadow my-1 mx-auto">
                         Press <kbd className="font-bold">Esc</kbd> to exit full screen
                     </div>
@@ -104,23 +61,19 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
             )}
 
             <div
-                className={clsx('flex items-center gap-2', {
+                className={clsx('PlayerMeta__top flex items-center gap-2 shrink-0', {
                     'p-3 border-b': !isFullScreen,
                     'px-3 p-1 text-xs': isFullScreen,
                 })}
             >
-                <div className="mr-2">
+                <div className="mr-2 ph-no-capture">
                     {!sessionPerson ? (
                         <LemonSkeleton.Circle className="w-12 h-12" />
                     ) : (
-                        <ProfilePicture
-                            name={sessionPerson?.name}
-                            email={sessionPerson?.properties?.$email}
-                            size={!isFullScreen ? 'xxl' : 'md'}
-                        />
+                        <ProfilePicture name={asDisplay(sessionPerson)} size={!isFullScreen ? 'xxl' : 'md'} />
                     )}
                 </div>
-                <div className="flex-1">
+                <div className="overflow-hidden ph-no-capture flex-1">
                     <div className="font-bold">
                         {!sessionPerson || !recordingStartTime ? (
                             <LemonSkeleton className="w-1/3 my-1" />
@@ -137,48 +90,131 @@ export function PlayerMetaV3({ sessionRecordingId, playerKey }: SessionRecording
                             </div>
                         )}
                     </div>
-                    <div className=" text-muted">
-                        {loading ? <LemonSkeleton className="w-1/4 my-1" /> : <span>{description}</span>}
+                    <div className="text-muted">
+                        {sessionPlayerMetaDataLoading ? (
+                            <LemonSkeleton className="w-1/4 my-1" />
+                        ) : iconProperties ? (
+                            <div className="flex flex-row flex-nowrap shrink-0 gap-2 text-muted-alt">
+                                <span className="flex items-center gap-1 whitespace-nowrap">
+                                    <PropertyIcon
+                                        noTooltip={!isFullScreen}
+                                        property="$browser"
+                                        value={iconProperties['$browser']}
+                                    />
+                                    {!isFullScreen ? iconProperties['$browser'] : null}
+                                </span>
+                                <span className="flex items-center gap-1 whitespace-nowrap">
+                                    <PropertyIcon
+                                        noTooltip={!isFullScreen}
+                                        property="$device_type"
+                                        value={iconProperties['$device_type'] || iconProperties['$initial_device_type']}
+                                    />
+                                    {!isFullScreen
+                                        ? iconProperties['$device_type'] || iconProperties['$initial_device_type']
+                                        : null}
+                                </span>
+                                <span className="flex items-center gap-1 whitespace-nowrap">
+                                    <PropertyIcon
+                                        noTooltip={!isFullScreen}
+                                        property="$os"
+                                        value={iconProperties['$os']}
+                                    />
+                                    {!isFullScreen ? iconProperties['$os'] : null}
+                                </span>
+                                <span className="flex items-center gap-1 whitespace-nowrap">
+                                    <PropertyIcon
+                                        noTooltip={!isFullScreen}
+                                        property="$geoip_country_code"
+                                        value={iconProperties['$geoip_country_code']}
+                                    />
+                                    {!isFullScreen ? iconProperties['$geoip_city_name'] : null}
+                                </span>
+                            </div>
+                        ) : null}
                     </div>
                 </div>
+
+                <LemonButton
+                    className={clsx('PlayerMeta__expander', isFullScreen ? 'rotate-90' : '')}
+                    status="stealth"
+                    active={isMetadataExpanded}
+                    onClick={() => setIsMetadataExpanded(!isMetadataExpanded)}
+                    icon={isMetadataExpanded ? <IconUnfoldLess /> : <IconUnfoldMore />}
+                    tooltip={isMetadataExpanded ? 'Hide person properties' : 'Show person properties'}
+                    tooltipPlacement={isFullScreen ? 'bottom' : 'left'}
+                />
+
+                {props.sessionRecordingId ? <PlayerMetaLinks {...props} /> : null}
             </div>
+            {sessionPerson && (
+                <CSSTransition
+                    in={isMetadataExpanded}
+                    timeout={200}
+                    classNames="PlayerMetaPersonProperties-"
+                    mountOnEnter
+                    unmountOnExit
+                >
+                    <div className="PlayerMetaPersonProperties">
+                        {Object.keys(sessionPerson.properties).length ? (
+                            <PropertiesTable properties={sessionPerson.properties} />
+                        ) : (
+                            <p className="text-center m-4">There are no properties.</p>
+                        )}
+                    </div>
+                </CSSTransition>
+            )}
             <div
-                className={clsx('flex items-center justify-between gap-2 whitespace-nowrap', {
-                    'p-3 h-12': !isFullScreen,
-                    'p-1 px-3 text-xs': isFullScreen,
-                })}
+                className={clsx(
+                    'PlayerMeta__bottom flex items-center justify-between gap-2 whitespace-nowrap overflow-hidden',
+                    {
+                        'p-3': !isFullScreen,
+                        'p-1 px-3 text-xs h-12': isFullScreen,
+                    }
+                )}
             >
-                {loading || currentWindowIndex === -1 ? (
-                    <LemonSkeleton className="w-1/3" />
+                {sessionPlayerMetaDataLoading || currentWindowIndex === -1 ? (
+                    <LemonSkeleton className="w-1/3 my-1" />
                 ) : (
                     <>
-                        <IconWindow
-                            value={currentWindowIndex + 1}
-                            className="text-muted"
-                            style={{ marginRight: '0.25rem' }}
-                        />
-                        <div className="window-number">Window {currentWindowIndex + 1}</div>
-                        {currentUrl && (
-                            <>
-                                {'· '}
-                                <Link to={currentUrl} target="_blank">
-                                    {truncate(currentUrl, 32)}
-                                </Link>
-                                <span className="flex items-center">
-                                    <CopyToClipboardInline description="current url" explicitValue={currentUrl} />
+                        <IconWindow value={currentWindowIndex + 1} className="text-muted-alt" />
+                        {windowIds.length > 1 && !isSmallPlayer ? (
+                            <div className="text-muted-alt">Window {currentWindowIndex + 1}</div>
+                        ) : null}
+
+                        {lastPageviewEvent?.properties?.['$current_url'] && (
+                            <span className="flex items-center gap-2 truncate">
+                                <span>·</span>
+                                <span className="flex items-center gap-1 truncate">
+                                    <Tooltip title="Click to open url">
+                                        <Link
+                                            to={lastPageviewEvent?.properties['$current_url']}
+                                            target="_blank"
+                                            className="truncate"
+                                        >
+                                            {lastPageviewEvent?.properties['$current_url']}
+                                        </Link>
+                                    </Tooltip>
+                                    <span className="flex items-center">
+                                        <CopyToClipboardInline
+                                            description="current url"
+                                            explicitValue={lastPageviewEvent?.properties['$current_url']}
+                                            iconStyle={{ color: 'var(--muted-alt)' }}
+                                        />
+                                    </span>
                                 </span>
-                            </>
+                            </span>
                         )}
                     </>
                 )}
-                <div className="flex-1" />
-                {loading ? (
+                <div className={clsx('flex-1', isSmallPlayer ? 'min-w-4' : 'min-w-20')} />
+                {sessionPlayerMetaDataLoading ? (
                     <LemonSkeleton className="w-1/3" />
                 ) : (
-                    <span>
+                    <span className="text-muted-alt">
                         {resolution && (
                             <>
-                                Resolution: {resolution.width} x {resolution.height} ({percentage(scale, 1, true)})
+                                Resolution: {resolution.width} x {resolution.height}{' '}
+                                {!isSmallPlayer && `(${percentage(scale, 1, true)})`}
                             </>
                         )}
                     </span>

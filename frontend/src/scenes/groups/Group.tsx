@@ -1,9 +1,7 @@
-import React from 'react'
 import { Tabs } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { useValues } from 'kea'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
-import { TZLabel } from 'lib/components/TimezoneAware'
+import { TZLabel } from 'lib/components/TZLabel'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { EventsTable } from 'scenes/events/EventsTable'
 import { urls } from 'scenes/urls'
@@ -17,6 +15,12 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { SpinnerOverlay } from 'lib/components/Spinner/Spinner'
 import { NotFound } from 'lib/components/NotFound'
 import { RelatedFeatureFlags } from 'scenes/persons/RelatedFeatureFlags'
+import { Query } from '~/queries/Query/Query'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { NodeKind } from '~/queries/schema'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { IconInfo } from 'lib/components/icons'
 
 const { TabPane } = Tabs
 
@@ -27,7 +31,7 @@ export const scene: SceneExport = {
 
 function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTypeName: string }): JSX.Element {
     return (
-        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+        <div className="flex items-center flex-wrap">
             <div className="mr-4">
                 <span className="text-muted">Type:</span> {groupTypeName}
             </div>
@@ -51,6 +55,8 @@ function GroupCaption({ groupData, groupTypeName }: { groupData: IGroup; groupTy
 
 export function Group(): JSX.Element {
     const { groupData, groupDataLoading, groupTypeName, groupKey, groupTypeIndex, groupType } = useValues(groupLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const featureDataExploration = featureFlags[FEATURE_FLAGS.DATA_EXPLORATION_LIVE_EVENTS]
 
     if (!groupData) {
         return groupDataLoading ? <SpinnerOverlay /> : <NotFound object="group" />
@@ -71,26 +77,40 @@ export function Group(): JSX.Element {
                     <PropertiesTable properties={groupData.group_properties || {}} embedded={false} searchable />
                 </TabPane>
                 <TabPane tab={<span data-attr="persons-events-tab">Events</span>} key={PersonsTabType.EVENTS}>
-                    <EventsTable
-                        pageKey={`${groupTypeIndex}::${groupKey}`}
-                        fixedFilters={{
-                            properties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
-                        }}
-                        sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
-                        showCustomizeColumns={false}
-                    />
+                    {featureDataExploration ? (
+                        <Query
+                            query={{
+                                kind: NodeKind.DataTableNode,
+                                full: true,
+                                source: {
+                                    kind: NodeKind.EventsQuery,
+                                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                                    fixedProperties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
+                                },
+                            }}
+                        />
+                    ) : (
+                        <EventsTable
+                            pageKey={`${groupTypeIndex}::${groupKey}`}
+                            fixedFilters={{
+                                properties: [{ key: `$group_${groupTypeIndex}`, value: groupKey }],
+                            }}
+                            sceneUrl={urls.group(groupTypeIndex.toString(), groupKey)}
+                            showCustomizeColumns={false}
+                        />
+                    )}
                 </TabPane>
 
                 <TabPane
                     tab={
-                        <span data-attr="group-related-tab">
+                        <div className="flex items-center" data-attr="group-related-tab">
                             Related people & groups
                             <Tooltip
                                 title={`People and groups that have shared events with this ${groupTypeName} in the last 90 days.`}
                             >
-                                <InfoCircleOutlined style={{ marginLeft: 6, marginRight: 0 }} />
+                                <IconInfo className="ml-1 text-base shrink-0" />
                             </Tooltip>
-                        </span>
+                        </div>
                     }
                     key={PersonsTabType.RELATED}
                 >

@@ -2,19 +2,21 @@ import json
 import re
 from dataclasses import dataclass
 from enum import Enum, auto
-from typing import Any, List, Optional, Tuple, Union, cast
+from typing import Any, List, Literal, Optional, Tuple, Union, cast
 from uuid import UUID
 
 import structlog
+from django.core.exceptions import RequestDataTooBig
 from django.db.models import QuerySet
 from rest_framework import request, status
+from rest_framework.exceptions import ValidationError
 from sentry_sdk import capture_exception
 from statshog.defaults.django import statsd
 
 from posthog.constants import EventDefinitionType
 from posthog.exceptions import RequestParsingError, generate_exception_response
 from posthog.models import Entity, EventDefinition
-from posthog.models.entity import MATH_TYPE
+from posthog.models.entity import MathType
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.team import Team
@@ -31,7 +33,7 @@ class PaginationMode(Enum):
 
 def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
     if not filter.target_entity_id:
-        raise ValueError("An entity id and the entity type must be provided to determine an entity")
+        raise ValidationError("An entity id and the entity type must be provided to determine an entity")
 
     entity_math = filter.target_entity_math or "total"  # make math explicit
     possible_entity = entity_from_order(filter.target_entity_order, filter.entities)
@@ -40,14 +42,24 @@ def get_target_entity(filter: Union[Filter, StickinessFilter]) -> Entity:
         return possible_entity
 
     possible_entity = retrieve_entity_from(
-        filter.target_entity_id, filter.target_entity_type, entity_math, filter.events, filter.actions
+        filter.target_entity_id,
+        filter.target_entity_type,
+        entity_math,
+        filter.events,
+        filter.actions,
     )
     if possible_entity:
         return possible_entity
     elif filter.target_entity_type:
-        return Entity({"id": filter.target_entity_id, "type": filter.target_entity_type, "math": entity_math})
+        return Entity(
+            {
+                "id": filter.target_entity_id,
+                "type": filter.target_entity_type,
+                "math": entity_math,
+            }
+        )
     else:
-        raise ValueError("An entity must be provided for target entity to be determined")
+        raise ValidationError("An entity must be provided for target entity to be determined")
 
 
 def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[Entity]:
@@ -61,7 +73,11 @@ def entity_from_order(order: Optional[str], entities: List[Entity]) -> Optional[
 
 
 def retrieve_entity_from(
-    entity_id: str, entity_type: Optional[str], entity_math: MATH_TYPE, events: List[Entity], actions: List[Entity]
+    entity_id: str,
+    entity_type: Optional[str],
+    entity_math: MathType,
+    events: List[Entity],
+    actions: List[Entity],
 ) -> Optional[Entity]:
     """
     Retrieves the entity from the events and actions.
@@ -157,7 +173,26 @@ def get_data(request):
             None,
             cors_response(
                 request,
-                generate_exception_response("capture", f"Malformed request data: {error}", code="invalid_payload"),
+                generate_exception_response(
+                    "capture",
+                    f"Malformed request data: {error}",
+                    code="invalid_payload",
+                ),
+            ),
+        )
+
+    except RequestDataTooBig:
+        return (
+            None,
+            cors_response(
+                request,
+                generate_exception_response(
+                    endpoint="capture",
+                    detail="Request too large.",
+                    type="client_error",
+                    code="request_too_large",
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                ),
             ),
         )
 
@@ -221,7 +256,10 @@ def get_event_ingestion_context(
             error_response = cors_response(
                 request,
                 generate_exception_response(
-                    "capture", "Invalid Project ID.", code="invalid_project", attr="project_id"
+                    "capture",
+                    "Invalid Project ID.",
+                    code="invalid_project",
+                    attr="project_id",
                 ),
             )
             return None, db_error, error_response
@@ -271,7 +309,9 @@ def get_event_ingestion_context(
     return ingestion_context, db_error, error_response
 
 
-def get_event_ingestion_context_for_token(token: str) -> Optional[EventIngestionContext]:
+def get_event_ingestion_context_for_token(
+    token: str,
+) -> Optional[EventIngestionContext]:
     """
     Based on a token associated with a Team, retrieve the context that is
     required to ingest events.
@@ -323,6 +363,7 @@ def check_definition_ids_inclusion_field_sql(
 
 SURROGATE_REGEX = re.compile("([\ud800-\udfff])")
 
+
 # keep in sync with posthog/plugin-server/src/utils/db/utils.ts::safeClickhouseString
 def safe_clickhouse_string(s: str) -> str:
     matches = SURROGATE_REGEX.findall(s or "")
@@ -332,9 +373,12 @@ def safe_clickhouse_string(s: str) -> str:
 
 
 def create_event_definitions_sql(
-    event_type: EventDefinitionType, is_enterprise: bool = False, conditions: str = ""
+    event_type: EventDefinitionType,
+    is_enterprise: bool = False,
+    conditions: str = "",
+    order_expr: str = "",
+    order_direction: Literal["ASC", "DESC"] = "DESC",
 ) -> str:
-    # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
     if is_enterprise:
         from ee.models import EnterpriseEventDefinition
 
@@ -347,46 +391,31 @@ def create_event_definitions_sql(
         for f in ee_model._meta.get_fields()
         if hasattr(f, "column") and f.column not in ["deprecated_tags", "tags"]  # type: ignore
     }
-    shared_conditions = f"WHERE team_id = %(team_id)s {conditions}"
 
-    def select_ee_event_definitions(fields: str):
-        return f"""
-            SELECT {fields}
-            FROM ee_enterpriseeventdefinition
-            FULL OUTER JOIN posthog_eventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id
-        """
-
-    def select_event_definitions(fields: str):
-        return f"""
-            SELECT {fields} FROM posthog_eventdefinition
-        """
-
-    # Only return event definitions
-    raw_event_definition_fields = ",".join(event_definition_fields)
-    ordering = (
-        "ORDER BY last_seen_at DESC NULLS LAST, query_usage_30_day DESC NULLS LAST, name ASC"
+    enterprise_join = (
+        "FULL OUTER JOIN ee_enterpriseeventdefinition ON posthog_eventdefinition.id=ee_enterpriseeventdefinition.eventdefinition_ptr_id"
         if is_enterprise
-        else "ORDER BY name ASC"
+        else ""
     )
 
     if event_type == EventDefinitionType.EVENT_CUSTOM:
-        shared_conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
+        conditions += " AND posthog_eventdefinition.name NOT LIKE %(is_posthog_event)s"
     if event_type == EventDefinitionType.EVENT_POSTHOG:
-        shared_conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
+        conditions += " AND posthog_eventdefinition.name LIKE %(is_posthog_event)s"
 
-    return (
-        f"""
-            {select_ee_event_definitions(raw_event_definition_fields)}
-            {shared_conditions}
-            {ordering}
-        """
-        if is_enterprise
-        else f"""
-            {select_event_definitions(raw_event_definition_fields)}
-            {shared_conditions}
-            {ordering}
-        """
+    additional_ordering = (
+        f"{order_expr} {order_direction} NULLS {'FIRST' if order_direction == 'ASC' else 'LAST'}, "
+        if order_expr
+        else ""
     )
+
+    return f"""
+            SELECT {",".join(event_definition_fields)}
+            FROM posthog_eventdefinition
+            {enterprise_join}
+            WHERE team_id = %(team_id)s {conditions}
+            ORDER BY {additional_ordering}name ASC
+        """
 
 
 def get_pk_or_uuid(queryset: QuerySet, key: Union[int, str]) -> QuerySet:

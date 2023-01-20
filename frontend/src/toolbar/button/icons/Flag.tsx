@@ -1,5 +1,4 @@
 import './Flag.scss'
-import React from 'react'
 
 interface FlagProps extends React.PropsWithoutRef<JSX.IntrinsicElements['svg']> {
     engaged?: boolean

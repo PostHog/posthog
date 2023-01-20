@@ -1,4 +1,3 @@
-import React from 'react'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { userLogic } from '../../../scenes/userLogic'
 import { ProfilePicture } from '../../../lib/components/ProfilePicture'
@@ -36,6 +35,7 @@ import { inviteLogic } from 'scenes/organization/Settings/inviteLogic'
 import { Tooltip } from 'lib/components/Tooltip'
 import { LemonButtonPropsBase } from '@posthog/lemon-ui'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { billingLogic } from 'scenes/billing/billingLogic'
 
 function SitePopoverSection({ title, children }: { title?: string | JSX.Element; children: any }): JSX.Element {
     return (
@@ -76,23 +76,22 @@ function CurrentOrganization({ organization }: { organization: OrganizationBasic
     const { closeSitePopover } = useActions(navigationLogic)
 
     return (
-        <LemonRow icon={<Lettermark name={organization.name} />} fullWidth>
-            <>
+        <Tooltip title="Organization settings" placement="left">
+            <LemonButton
+                data-attr="top-menu-item-org-settings"
+                icon={<Lettermark name={organization.name} />}
+                sideIcon={<IconSettings />}
+                status="stealth"
+                fullWidth
+                to={urls.organizationSettings()}
+                onClick={closeSitePopover}
+            >
                 <div className="SitePopover__main-info SitePopover__organization">
                     <strong>{organization.name}</strong>
                     <AccessLevelIndicator organization={organization} />
                 </div>
-                <Tooltip title="Organization settings" placement="left">
-                    <LemonButton
-                        to={urls.organizationSettings()}
-                        onClick={closeSitePopover}
-                        data-attr="top-menu-item-org-settings"
-                        status="stealth"
-                        icon={<IconSettings />}
-                    />
-                </Tooltip>
-            </>
-        </LemonRow>
+            </LemonButton>
+        </Tooltip>
     )
 }
 
@@ -184,13 +183,13 @@ function SystemStatus(): JSX.Element {
 
 function Version(): JSX.Element {
     const { closeSitePopover } = useActions(navigationLogic)
-    const { updateAvailable, latestVersion } = useValues(navigationLogic)
+    const { minorUpdateAvailable, anyUpdateAvailable, latestVersion } = useValues(navigationLogic)
     const { preflight } = useValues(preflightLogic)
 
     return (
         <LemonRow
-            status={updateAvailable ? 'warning' : 'success'}
-            icon={updateAvailable ? <IconUpdate /> : <IconCheckmark />}
+            status={minorUpdateAvailable ? 'warning' : 'success'}
+            icon={minorUpdateAvailable ? <IconUpdate /> : <IconCheckmark />}
             fullWidth
         >
             <>
@@ -198,7 +197,7 @@ function Version(): JSX.Element {
                     <div>
                         Version <strong>{preflight?.posthog_version}</strong>
                     </div>
-                    {updateAvailable && <div className="supplement">{latestVersion} is available</div>}
+                    {anyUpdateAvailable && <div className="supplement">{latestVersion} is available</div>}
                 </div>
                 {latestVersion && (
                     <Link
@@ -276,12 +275,14 @@ export function SitePopover(): JSX.Element {
     const { user, otherOrganizations } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
+    const { billingVersion } = useValues(billingLogic)
     const { isSitePopoverOpen, systemStatus } = useValues(navigationLogic)
     const { toggleSitePopover, closeSitePopover } = useActions(navigationLogic)
     const { relevantLicense } = useValues(licenseLogic)
     useMountedLogic(licenseLogic)
 
     const expired = relevantLicense && isLicenseExpired(relevantLicense)
+    const billingV2 = billingVersion === 'v2'
 
     return (
         <Popup
@@ -295,7 +296,7 @@ export function SitePopover(): JSX.Element {
                     </SitePopoverSection>
                     <SitePopoverSection title="Current organization">
                         {currentOrganization && <CurrentOrganization organization={currentOrganization} />}
-                        {preflight?.cloud && (
+                        {billingV2 || preflight?.cloud ? (
                             <LemonButton
                                 onClick={closeSitePopover}
                                 to={urls.organizationBilling()}
@@ -305,7 +306,7 @@ export function SitePopover(): JSX.Element {
                             >
                                 Billing
                             </LemonButton>
-                        )}
+                        ) : null}
                         <InviteMembersButton />
                     </SitePopoverSection>
                     {(otherOrganizations.length > 0 || preflight?.can_create_org) && (
@@ -322,7 +323,9 @@ export function SitePopover(): JSX.Element {
                     )}
                     {(!(preflight?.cloud || preflight?.demo) || user?.is_staff) && (
                         <SitePopoverSection title="PostHog instance">
-                            {!preflight?.cloud && <License license={relevantLicense} expired={expired} />}
+                            {!preflight?.cloud && !billingV2 ? (
+                                <License license={relevantLicense} expired={expired} />
+                            ) : null}
                             <SystemStatus />
                             {!preflight?.cloud && <Version />}
                             <AsyncMigrations />

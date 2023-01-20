@@ -41,7 +41,7 @@ def _create_signup_actions(team, user_and_timestamps):
 
 
 def _date(day, hour=5, month=0):
-    return datetime(2020, 6 + month, 10 + day, hour, tzinfo=pytz.UTC).isoformat()
+    return datetime(2020, 6 + month, 10 + day, hour).isoformat()
 
 
 def pluck(list_of_dicts, key, child_key=None):
@@ -750,6 +750,56 @@ def retention_test_factory(retention):
                 [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
             )
 
+        @snapshot_clickhouse_queries
+        def test_retention_with_user_properties_via_action(self):
+            action = Action.objects.create(team=self.team)
+            ActionStep.objects.create(
+                action=action,
+                event="$pageview",
+                properties=[{"key": "email", "value": "person1@test.com", "type": "person"}],
+            )
+
+            _create_person(
+                team_id=self.team.pk, distinct_ids=["person1", "alias1"], properties={"email": "person1@test.com"}
+            )
+            _create_person(team_id=self.team.pk, distinct_ids=["person2"], properties={"email": "person2@test.com"})
+
+            _create_events(
+                self.team,
+                [
+                    ("person1", _date(0)),
+                    ("person1", _date(1)),
+                    ("person1", _date(2)),
+                    ("person1", _date(5)),
+                    ("alias1", _date(5, 9)),
+                    ("person1", _date(6)),
+                    ("person2", _date(1)),
+                    ("person2", _date(2)),
+                    ("person2", _date(3)),
+                    ("person2", _date(6)),
+                ],
+            )
+
+            result = retention().run(
+                RetentionFilter(
+                    data={
+                        "target_entity": json.dumps({"id": action.pk, "type": TREND_FILTER_TYPE_ACTIONS}),
+                        "returning_entity": {"id": "$pageview", "type": "events"},
+                        "date_to": _date(6, hour=0),
+                        "total_intervals": 7,
+                    }
+                ),
+                self.team,
+            )
+
+            self.assertEqual(len(result), 7)
+            self.assertEqual(pluck(result, "label"), ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6"])
+            self.assertEqual(result[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+            self.assertEqual(
+                pluck(result, "values", "count"),
+                [[1, 1, 1, 0, 0, 1, 1], [1, 1, 0, 0, 1, 1], [1, 0, 0, 1, 1], [0, 0, 0, 0], [0, 0, 0], [1, 1], [1]],
+            )
+
         def test_retention_action_start_point(self):
             _create_person(team=self.team, distinct_ids=["person1", "alias1"])
             _create_person(team=self.team, distinct_ids=["person2"])
@@ -1002,11 +1052,13 @@ def retention_test_factory(retention):
             result_pacific = retention().run(
                 RetentionFilter(data={"date_to": _date(10, hour=6)}, team=self.team), self.team
             )
+
             self.assertEqual(
                 pluck(result_pacific, "label"),
                 ["Day 0", "Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7", "Day 8", "Day 9", "Day 10"],
             )
-            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.UTC))
+
+            self.assertEqual(result_pacific[0]["date"], datetime(2020, 6, 10, 0, tzinfo=pytz.timezone("US/Pacific")))
 
             self.assertEqual(
                 pluck(result, "values", "count"),
@@ -1017,7 +1069,7 @@ def retention_test_factory(retention):
                     [0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0],  #  person 2
+                    [1, 0, 0, 0, 0],  # person 2
                     [0, 0, 0, 0],
                     [0, 0, 0],
                     [0, 0],
@@ -1028,13 +1080,13 @@ def retention_test_factory(retention):
             self.assertEqual(
                 pluck(result_pacific, "values", "count"),
                 [
-                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0, 0],
                     [0, 0, 0, 0, 0, 0, 0],
-                    [0, 0, 0, 0, 0, 0],
-                    [1, 1, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 1, 0, 0, 0, 0],  # person 2 is across two dates in US/Pacific
+                    [1, 0, 0, 0, 0],
                     [0, 0, 0, 0],
                     [0, 0, 0],
                     [0, 0],

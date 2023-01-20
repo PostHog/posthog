@@ -23,6 +23,8 @@ type LemonInputPropsBase = Pick<
     ref?: React.Ref<HTMLInputElement>
     id?: string
     placeholder?: string
+    /** Use the danger status for invalid input. */
+    status?: 'default' | 'danger'
     /** Whether there should be a clear icon to the right allowing you to reset the input. The `suffix` prop will be ignored if clearing is allowed. */
     allowClear?: boolean
     /** Element to prefix input field */
@@ -35,7 +37,8 @@ type LemonInputPropsBase = Pick<
     fullWidth?: boolean
     /** Special case - show a transparent background rather than white */
     transparentBackground?: boolean
-
+    /** Size of the element. Default: `'medium'`. */
+    size?: 'small' | 'medium'
     'data-attr'?: string
     'aria-label'?: string
 }
@@ -53,8 +56,8 @@ type LemonInputPropsNumber = LemonInputPropsBase &
         type: 'number'
         value?: number
         defaultValue?: number
-        onChange?: (newValue: number) => void
-        onPressEnter?: (newValue: number) => void
+        onChange?: (newValue: number | undefined) => void
+        onPressEnter?: (newValue: number | undefined) => void
     }
 
 export type LemonInputProps = LemonInputPropsText | LemonInputPropsNumber
@@ -66,13 +69,15 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         onFocus,
         onBlur,
         onPressEnter,
-        allowClear,
-        fullWidth,
+        status = 'default',
+        allowClear = false,
+        fullWidth = false,
         prefix,
         suffix,
         type,
         value,
-        transparentBackground,
+        transparentBackground = false,
+        size = 'medium',
         ...textProps
     },
     ref
@@ -93,7 +98,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
     allowClear = allowClear ?? (type === 'search' ? true : false)
     fullWidth = fullWidth ?? (type === 'search' ? false : true)
     prefix = prefix ?? (type === 'search' ? <IconMagnifier /> : undefined)
-
     // Type=password has some special overrides
     suffix =
         suffix ??
@@ -117,7 +121,6 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         allowClear && value ? (
             <LemonButton
                 size="small"
-                noPadding
                 icon={<IconClose />}
                 status="primary-alt"
                 tooltip="Clear input"
@@ -139,10 +142,13 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
         <span
             className={clsx(
                 'LemonInput',
-                !textProps.disabled && focused && 'LemonInput--focused',
-                value && 'LemonInput--hascontent',
-                fullWidth && 'LemonInput--fullwidth',
+                status !== 'default' && `LemonInput--status-${status}`,
                 type && `LemonInput--type-${type}`,
+                size && `LemonInput--${size}`,
+                textProps.disabled && 'LemonInput--disabled',
+                fullWidth && 'LemonInput--full-width',
+                value && 'LemonInput--has-content',
+                !textProps.disabled && focused && 'LemonInput--focused',
                 transparentBackground && 'LemonInput--transparent-background',
                 className
             )}
@@ -165,7 +171,9 @@ export const LemonInput = React.forwardRef<HTMLInputElement, LemonInputProps>(fu
                 value={value}
                 onChange={(event) => {
                     if (type === 'number') {
-                        onChange?.(event.currentTarget.valueAsNumber)
+                        onChange?.(
+                            !isNaN(event.currentTarget.valueAsNumber) ? event.currentTarget.valueAsNumber : undefined
+                        )
                     } else {
                         onChange?.(event.currentTarget.value ?? '')
                     }
