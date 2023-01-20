@@ -12,6 +12,7 @@ import { Timestamp } from './PlayerControllerTime'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { eventsListLogic } from './inspector/v1/eventsListLogic'
+import { playerInspectorLogic } from './inspector/playerInspectorLogic'
 
 interface TickProps extends SessionRecordingPlayerLogicProps {
     event: RecordingEventType
@@ -60,6 +61,7 @@ function PlayerSeekbarInspector({ minMs, maxMs }: { minMs: number; maxMs: number
     )
 }
 
+// TODO: Memoize this component
 function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEvents, index }: TickProps): JSX.Element {
     const { handleTickClick } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
     const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
@@ -115,13 +117,16 @@ function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEv
     )
 }
 
-export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlayerLogicProps): JSX.Element {
+export function Seekbar(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const sliderRef = useRef<HTMLDivElement | null>(null)
     const thumbRef = useRef<HTMLDivElement | null>(null)
-    const { handleDown, setSlider, setThumb } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
-    const { sessionPlayerData } = useValues(sessionRecordingDataLogic({ sessionRecordingId }))
-    const { eventListData } = useValues(eventsListLogic({ sessionRecordingId, playerKey }))
-    const { thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic({ sessionRecordingId, playerKey }))
+    const { handleDown, setSlider, setThumb, handleTickClick } = useActions(seekbarLogic(props))
+    const { sessionPlayerData } = useValues(sessionRecordingDataLogic(props))
+
+    const { allItems } = useValues(playerInspectorLogic(props))
+
+    const { eventListData } = useValues(eventsListLogic(props))
+    const { thumbLeftPos, bufferPercent, isScrubbing } = useValues(seekbarLogic(props))
 
     // Workaround: Something with component and logic mount timing that causes slider and thumb
     // reducers to be undefined.
@@ -130,11 +135,11 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
             setSlider(sliderRef)
             setThumb(thumbRef)
         }
-    }, [sliderRef.current, thumbRef.current, sessionRecordingId])
+    }, [sliderRef.current, thumbRef.current, props.sessionRecordingId])
 
     return (
         <div className="flex items-center h-8" data-attr="rrweb-controller">
-            <Timestamp sessionRecordingId={sessionRecordingId} playerKey={playerKey} />
+            <Timestamp {...props} />
             <div className={clsx('PlayerSeekbar', { 'PlayerSeekbar--scrubbing': isScrubbing })}>
                 <div
                     className="PlayerSeekbar__slider"
@@ -151,6 +156,7 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
                                     segment.isActive && 'PlayerSeekbar__segments__item--active'
                                 )}
                                 title={!segment.isActive ? 'Inactive period' : 'Active period'}
+                                // eslint-disable-next-line react/forbid-dom-props
                                 style={{
                                     width: `${
                                         (100 * segment.durationMs) / sessionPlayerData.metadata.recordingDurationMs
@@ -176,10 +182,9 @@ export function Seekbar({ sessionRecordingId, playerKey }: SessionRecordingPlaye
                             key={event.id}
                             index={i}
                             event={event}
-                            sessionRecordingId={sessionRecordingId}
-                            playerKey={playerKey}
                             status={event.level as RowStatus}
                             numEvents={eventListData.length}
+                            onClick={() => event.playerPosition && handleTickClick(event.playerPosition)}
                         />
                     ))}
                 </div>
