@@ -157,9 +157,13 @@ def is_precalculated_query(cohort: Cohort) -> bool:
 
 
 def format_filter_query(
-    cohort: Cohort, index: int, hogql_context: HogQLContext, id_column: str = "distinct_id"
+    cohort: Cohort,
+    index: int,
+    hogql_context: HogQLContext,
+    id_column: str = "distinct_id",
+    custom_match_field="person_id",
 ) -> Tuple[str, Dict[str, Any]]:
-    person_query, params = format_cohort_subquery(cohort, index, hogql_context, custom_match_field="person_id")
+    person_query, params = format_cohort_subquery(cohort, index, hogql_context, custom_match_field=custom_match_field)
 
     person_id_query = CALCULATE_COHORT_PEOPLE_SQL.format(
         query=person_query,

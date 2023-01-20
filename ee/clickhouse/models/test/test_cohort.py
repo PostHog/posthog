@@ -753,7 +753,10 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
 
         with self.settings(USE_PRECALCULATED_CH_COHORT_PEOPLE=True):
 
-            filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}, team=self.team)
+            filter = Filter(
+                data={"properties": [{"key": "id", "value": cohort1.pk, "type": "precalculated-cohort"}]},
+                team=self.team,
+            )
             query, params = parse_prop_grouped_clauses(
                 team_id=self.team.pk, property_group=filter.property_groups, hogql_context=filter.hogql_context
             )

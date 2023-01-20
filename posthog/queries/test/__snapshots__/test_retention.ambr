@@ -1,7 +1,7 @@
 # name: TestFOSSRetention.test_retention_event_action
   '
   WITH actor_query AS
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -73,7 +73,7 @@
 # name: TestFOSSRetention.test_retention_with_user_properties_via_action
   '
   WITH actor_query AS
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -160,7 +160,7 @@
 # name: TestFOSSRetention.test_timezones
   '
   WITH actor_query AS
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -232,7 +232,7 @@
 # name: TestFOSSRetention.test_timezones.1
   '
   WITH actor_query AS
-    (WITH 'day' as period,
+    (WITH 'Day' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as

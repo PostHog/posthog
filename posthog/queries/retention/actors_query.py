@@ -1,7 +1,6 @@
 import dataclasses
-from typing import List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from posthog.client import substitute_params
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.team import Team
 from posthog.queries.actor_base_query import ActorBaseQuery
@@ -51,7 +50,7 @@ class RetentionActorsByPeriod(ActorBaseQuery):
         where appearances values represent if the person was active in an
         interval, where the index of the list is the interval it refers to.
         """
-        actor_query = _build_actor_query(
+        actor_query, actor_query_params = _build_actor_query(
             filter=self._filter,
             team=self._team,
             filter_by_breakdown=(
@@ -63,7 +62,11 @@ class RetentionActorsByPeriod(ActorBaseQuery):
         )
 
         results = insight_sync_execute(
-            actor_query, self._filter.hogql_context.values, query_type="retention_actors", filter=self._filter
+            actor_query,
+            self._filter.hogql_context.values,
+            query_type="retention_actors",
+            filter=self._filter,
+            args=actor_query_params,
         )
         actor_appearances = [
             AppearanceRow(actor_id=str(row[0]), appearance_count=len(row[1]), appearances=row[1]) for row in results
@@ -95,7 +98,7 @@ def build_actor_activity_query(
     selected_interval: Optional[int] = None,
     aggregate_users_by_distinct_id: Optional[bool] = None,
     retention_events_query=RetentionEventsQuery,
-) -> str:
+) -> Tuple[str, Dict[str, Any]]:
     from posthog.queries.retention import build_returning_event_query, build_target_event_query
 
     """
@@ -106,7 +109,7 @@ def build_actor_activity_query(
     We use actor here as an abstraction over the different types we can have aside from
     person_ids
     """
-    returning_event_query = build_returning_event_query(
+    returning_event_query, returning_event_query_params = build_returning_event_query(
         filter=filter,
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
@@ -114,7 +117,7 @@ def build_actor_activity_query(
         retention_events_query=retention_events_query,
     )
 
-    target_event_query = build_target_event_query(
+    target_event_query, target_event_query_params = build_target_event_query(
         filter=filter,
         team=team,
         aggregate_users_by_distinct_id=aggregate_users_by_distinct_id,
@@ -126,13 +129,15 @@ def build_actor_activity_query(
         "period": filter.period.lower(),
         "breakdown_values": list(filter_by_breakdown) if filter_by_breakdown else None,
         "selected_interval": selected_interval,
+        **returning_event_query_params,
+        **target_event_query_params,
     }
 
-    query = substitute_params(RETENTION_BREAKDOWN_ACTOR_SQL, all_params).format(
+    query = RETENTION_BREAKDOWN_ACTOR_SQL.format(
         returning_event_query=returning_event_query, target_event_query=target_event_query
     )
 
-    return query
+    return query, all_params
 
 
 def _build_actor_query(
@@ -141,8 +146,9 @@ def _build_actor_query(
     filter_by_breakdown: Optional[BreakdownValues] = None,
     selected_interval: Optional[int] = None,
     retention_events_query=RetentionEventsQuery,
-):
-    actor_activity_query = build_actor_activity_query(
+) -> Tuple[str, Dict[str, Any]]:
+
+    actor_activity_query, actor_activity_query_params = build_actor_activity_query(
         filter=filter,
         team=team,
         filter_by_breakdown=filter_by_breakdown,
@@ -151,6 +157,7 @@ def _build_actor_query(
         retention_events_query=retention_events_query,
     )
 
+    params = {"offset": filter.offset, "limit": filter.limit or 100, **actor_activity_query_params}
     actor_query_template = """
         SELECT
             actor_id,
@@ -168,8 +175,6 @@ def _build_actor_query(
         OFFSET %(offset)s
     """
 
-    actor_query = substitute_params(
-        actor_query_template, {"offset": filter.offset, "limit": filter.limit or 100}
-    ).format(actor_activity_query=actor_activity_query)
+    actor_query = actor_query_template.format(actor_activity_query=actor_activity_query)
 
-    return actor_query
+    return actor_query, params

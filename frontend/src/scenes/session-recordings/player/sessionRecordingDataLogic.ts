@@ -87,23 +87,23 @@ const calculateBufferedTo = (
 ): PlayerPosition | null => {
     let bufferedTo: PlayerPosition | null = null
     // If we don't have metadata or snapshots yet, then we can't calculate the bufferedTo.
-    if (segments && snapshotsByWindowId && startAndEndTimesByWindowId) {
-        for (const segment of segments) {
-            const lastEventForWindowId = (snapshotsByWindowId[segment.windowId] ?? []).slice(-1).pop()
+    if (!segments || !snapshotsByWindowId || !startAndEndTimesByWindowId) {
+        return bufferedTo
+    }
 
-            if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
-                // If we've buffered past the start of the segment, see how far.
-                const windowStartTime = startAndEndTimesByWindowId[segment.windowId].startTimeEpochMs
-                bufferedTo = {
-                    windowId: segment.windowId,
-                    time: Math.min(lastEventForWindowId.timestamp - windowStartTime, segment.endPlayerPosition.time),
-                }
-            } else {
-                // If we haven't buffered past the start of the segment, then return our current bufferedTo.
-                return bufferedTo
+    for (const segment of segments) {
+        const lastEventForWindowId = (snapshotsByWindowId[segment.windowId] ?? []).slice(-1).pop()
+
+        if (lastEventForWindowId && lastEventForWindowId.timestamp >= segment.startTimeEpochMs) {
+            // If we've buffered past the start of the segment, see how far.
+            const windowStartTime = startAndEndTimesByWindowId[segment.windowId].startTimeEpochMs
+            bufferedTo = {
+                windowId: segment.windowId,
+                time: Math.min(lastEventForWindowId.timestamp - windowStartTime, segment.endPlayerPosition.time),
             }
         }
     }
+
     return bufferedTo
 }
 

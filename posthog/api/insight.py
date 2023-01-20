@@ -123,6 +123,7 @@ class InsightBasicSerializer(TaggedItemSerializerMixin, serializers.ModelSeriali
             "id",
             "short_id",
             "name",
+            "derived_name",
             "filters",
             "dashboards",
             "description",
