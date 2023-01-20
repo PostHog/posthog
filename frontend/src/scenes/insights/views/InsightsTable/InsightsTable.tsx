@@ -148,7 +148,7 @@ export function InsightsTable({
             render: function RenderCheckbox(_, item: IndexedTrendResult) {
                 return (
                     <LemonCheckbox
-                        color={getSeriesColor(item.id, compare)}
+                        color={getSeriesColor(item.seriesIndex, compare)}
                         checked={!hiddenLegendKeys[item.id]}
                         onChange={() => toggleVisibility(item.id)}
                         disabled={!canCheckUncheckSeries}
@@ -165,7 +165,7 @@ export function InsightsTable({
             return (
                 <div className="series-name-wrapper-col">
                     <InsightLabel
-                        seriesColor={getSeriesColor(item.id, compare)}
+                        seriesColor={getSeriesColor(item.seriesIndex, compare)}
                         action={item.action}
                         fallbackName={item.breakdown_value === '' ? 'None' : item.label}
                         hasMultipleSeries={indexedResults.length > 1}

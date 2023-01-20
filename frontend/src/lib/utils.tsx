@@ -693,6 +693,10 @@ export function autoCaptureEventToDescription(
         if (event.properties.$event_type === 'submit') {
             return 'submitted'
         }
+
+        if (event.properties.$event_type === 'touch') {
+            return 'pressed'
+        }
         return 'interacted with'
     }
 
