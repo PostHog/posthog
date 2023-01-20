@@ -27,6 +27,7 @@ from rest_framework import status
 
 from posthog.api.capture import get_distinct_id
 from posthog.api.test.mock_sentry import mock_sentry_context_for_tagging
+from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
@@ -598,6 +599,38 @@ class TestCapture(BaseTest):
         self.assertEqual(kafka_produce.call_count, 0)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_batch_with_dumped_json_data(self, kafka_produce):
+        """Test batch rejects payloads that contained JSON dumped data.
+
+        This could happen when request batch data is dumped before creating the data dictionary:
+
+        .. code-block:: python
+
+            batch = json.dumps([{"event": "$groupidentify", "distinct_id": "2", "properties": {}}])
+            requests.post("/batch/", data={"api_key": "123", "batch": batch})
+
+        Notice batch already points to a str as we called json.dumps on it before calling requests.post.
+        This is an error as requests.post would call json.dumps itself on the data dictionary.
+
+        Once we get the request, as json.loads does not recurse on strings, we load the batch as a string,
+        instead of a list of dictionaries (events). We should report to the user that their data is not as
+        expected.
+        """
+        data = json.dumps([{"event": "$groupidentify", "distinct_id": "2", "properties": {}}])
+        response = self.client.post(
+            "/batch/", data={"api_key": self.team.api_token, "batch": data}, content_type="application/json"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            self.validation_error_response(
+                "Invalid payload: All events must be dictionaries not 'str'!", code="invalid_payload"
+            ),
+        )
+        self.assertEqual(kafka_produce.call_count, 0)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_batch_gzip_header(self, kafka_produce):
         data = {
             "api_key": self.team.api_token,
@@ -1113,7 +1146,42 @@ class TestCapture(BaseTest):
         self._send_session_recording_event()
         self.assertEqual(kafka_produce.call_count, 1)
         kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
-        self.assertEqual(kafka_topic_used, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, None)
+
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_performance_events_go_to_session_recording_events_topic(self, kafka_produce):
+        # `$performance_events` are not normal analytics events but rather
+        # displayed along side session recordings. They are sent to the
+        # `KAFKA_SESSION_RECORDING_EVENTS` topic to isolate them from causing
+        # any issues with normal analytics events.
+        session_id = "abc123"
+        window_id = "def456"
+        distinct_id = "ghi789"
+
+        event = {
+            "event": "$performance_event",
+            "properties": {
+                "$session_id": session_id,
+                "$window_id": window_id,
+                "distinct_id": distinct_id,
+            },
+            "offset": 1993,
+        }
+
+        response = self.client.post(
+            "/e/",
+            data={"batch": [event], "api_key": self.team.api_token},
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        kafka_topic_used = kafka_produce.call_args_list[0][1]["topic"]
+        self.assertEqual(kafka_topic_used, KAFKA_SESSION_RECORDING_EVENTS)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, None)
 
     @patch("posthog.models.utils.UUIDT", return_value="fake-uuid")
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
@@ -1137,7 +1205,9 @@ class TestCapture(BaseTest):
             event_data=event_data,
         )
         self.assertEqual(kafka_produce.call_count, 1)
-        self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC)
+        self.assertEqual(kafka_produce.call_args_list[0][1]["topic"], KAFKA_SESSION_RECORDING_EVENTS)
+        key = kafka_produce.call_args_list[0][1]["key"]
+        self.assertEqual(key, None)
         data_sent_to_kafka = json.loads(kafka_produce.call_args_list[0][1]["data"]["data"])
 
         # Decompress the data sent to kafka to compare it to the original data
@@ -1203,7 +1273,7 @@ class TestCapture(BaseTest):
         ]  # 512 * 1024 is the max size of a single message and random letters shouldn't be compressible, so this should be at least 2 messages
         self._send_session_recording_event(event_data=data)
         topic_counter = Counter([call[1]["topic"] for call in kafka_produce.call_args_list])
-        self.assertGreater(topic_counter[KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC], 1)
+        self.assertGreater(topic_counter[KAFKA_SESSION_RECORDING_EVENTS], 1)
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_database_unavailable(self, kafka_produce):

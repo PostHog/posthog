@@ -90,44 +90,44 @@ const MiniFilters: SharedListMiniFilter[] = [
         name: 'Error',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-all',
         name: 'All',
         alone: true,
         tooltip: 'All network performance information collected during the session',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-fetch',
         name: 'Fetch/XHR',
         tooltip: 'Requests during the session to external resources like APIs via XHR or Fetch',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-document',
         name: 'Doc',
         tooltip: 'Page load information collected on a fresh browser page load, refresh, or page paint.',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-assets-js',
         name: 'JS',
         tooltip: 'Scripts loaded during the session.',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-assets-css',
         name: 'CSS',
         tooltip: 'CSS loaded during the session.',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-assets-img',
         name: 'Img',
         tooltip: 'Images loaded during the session.',
     },
     {
-        tab: SessionRecordingPlayerTab.PERFORMANCE,
+        tab: SessionRecordingPlayerTab.NETWORK,
         key: 'performance-other',
         name: 'Other',
         tooltip: 'Any other network requests that do not fall into the other categories',
@@ -177,6 +177,7 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
         setTab: (tab: SessionRecordingPlayerTab) => ({ tab }),
         setTimestampMode: (mode: 'absolute' | 'relative') => ({ mode }),
         setMiniFilter: (key: string, enabled: boolean) => ({ key, enabled }),
+        setSyncScroll: (enabled: boolean) => ({ enabled }),
     }),
     reducers(({ values }) => ({
         speed: [
@@ -282,6 +283,14 @@ export const playerSettingsLogic = kea<playerSettingsLogicType>([
 
                     return newFilters
                 },
+            },
+        ],
+
+        syncScroll: [
+            true,
+            { persist: true },
+            {
+                setSyncScroll: (_, { enabled }) => enabled,
             },
         ],
     })),

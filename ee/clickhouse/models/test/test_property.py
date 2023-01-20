@@ -9,9 +9,11 @@ from rest_framework.exceptions import ValidationError
 from ee.clickhouse.materialized_columns.columns import materialize
 from posthog.client import sync_execute
 from posthog.constants import PropertyOperatorType
+from posthog.models.cohort import Cohort
 from posthog.models.element import Element
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
+from posthog.models.organization import Organization
 from posthog.models.property import Property, TableWithProperties
 from posthog.models.property.util import (
     PropertyGroup,
@@ -20,6 +22,7 @@ from posthog.models.property.util import (
     parse_prop_grouped_clauses,
     prop_filter_json_extract,
 )
+from posthog.models.team import Team
 from posthog.models.utils import PersonPropertiesMode
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.person_query import PersonQuery
@@ -620,6 +623,28 @@ def test_parse_prop_clauses_defaults(snapshot):
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             allow_denormalized_props=False,
+        )
+        == snapshot
+    )
+
+
+@pytest.mark.django_db
+def test_parse_prop_clauses_precalculated_cohort(snapshot):
+
+    org = Organization.objects.create(name="other org")
+
+    team = Team.objects.create(organization=org)
+    cohort = Cohort.objects.create(team=team, groups=[{"event_id": "$pageview", "days": 7}], name="cohort")
+
+    f = Filter(data={"properties": [{"key": "id", "value": cohort.pk, "type": "precalculated-cohort"}]}, team=team)
+
+    assert (
+        parse_prop_grouped_clauses(
+            team_id=1,
+            property_group=f.property_groups,
+            person_properties_mode=PersonPropertiesMode.USING_SUBQUERY,
+            allow_denormalized_props=False,
+            person_id_joined_alias="pdi.person_id",
         )
         == snapshot
     )

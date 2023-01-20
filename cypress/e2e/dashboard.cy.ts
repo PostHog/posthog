@@ -290,7 +290,7 @@ describe('Dashboard', () => {
 
                 // load the named insight
                 cy.contains('.saved-insights tr', insightToKeepName).within(() => {
-                    cy.get('a.row-name').click()
+                    cy.get('.row-name a').click()
                 })
 
                 insight.addInsightToDashboard(dashboardName)

@@ -30,7 +30,6 @@ import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { userLogic } from 'scenes/userLogic'
 import { Tooltip } from 'lib/components/Tooltip'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { lemonToast } from 'lib/components/lemonToast'
@@ -38,6 +37,7 @@ import { convertPropertyGroupToProperties, toParams } from 'lib/utils'
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
+import { IconInfo } from 'lib/components/icons'
 
 const DEFAULT_DURATION = 14 // days
 
@@ -643,7 +643,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                     <>Current value is {((experimentResults?.expected_loss || 0) * 100)?.toFixed(2)}%</>
                                 }
                             >
-                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                                <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                             .
                         </>
@@ -658,7 +658,7 @@ export const experimentLogic = kea<experimentLogicType>([
                                 placement="right"
                                 title={<>Current value is {experimentResults?.p_value?.toFixed(3) || 1}.</>}
                             >
-                                <InfoCircleOutlined style={{ padding: '4px 2px' }} />
+                                <IconInfo className="ml-1 text-muted text-xl" />
                             </Tooltip>
                             .
                         </>

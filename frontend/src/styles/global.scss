@@ -10,6 +10,7 @@ Only 400 (`normal`), 500 (`var(--font-medium)`), 600 (`var(--font-semibold)`), o
 // Global components
 @import '../../../node_modules/react-toastify/dist/ReactToastify';
 @import 'fonts';
+@import 'functions';
 @import 'mixins';
 @import 'utility-legacy';
 @import 'utilities';
@@ -596,10 +597,6 @@ body {
         letter-spacing: 0.5px;
         margin-bottom: 0.25rem;
         line-height: 1.5rem;
-    }
-
-    .ant-tooltip-open {
-        width: max-content;
     }
 
     // AntD uses its own border color for the bottom of tab lists, but we want to use `var(--border)`

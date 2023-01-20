@@ -129,8 +129,8 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
             if len(order_by) == 0:
                 if not select or "*" in select or "timestamp" in select:
                     order_by = ["-timestamp"]
-                elif "total()" in select:
-                    order_by = ["-total()"]
+                elif "count()" in select:
+                    order_by = ["-count()"]
 
             query_result = query_events_list(
                 filter=filter,
@@ -220,14 +220,18 @@ class EventViewSet(StructuredViewSetMixin, mixins.RetrieveModelMixin, mixins.Lis
 
     @action(methods=["GET"], detail=False)
     def values(self, request: request.Request, **kwargs) -> response.Response:
-        key = request.GET.get("key")
         team = self.team
+
+        key = request.GET.get("key")
+        event_names = request.GET.getlist("event_name", None)
+
         flattened = []
         if key == "custom_event":
             events = sync_execute(GET_CUSTOM_EVENTS, {"team_id": team.pk})
             return response.Response([{"name": event[0]} for event in events])
         elif key:
-            result = get_property_values_for_key(key, team, value=request.GET.get("value"))
+            result = get_property_values_for_key(key, team, event_names, value=request.GET.get("value"))
+
             for value in result:
                 try:
                     # Try loading as json for dicts or arrays

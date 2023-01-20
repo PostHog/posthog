@@ -1,7 +1,7 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -64,7 +64,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -120,7 +120,7 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events.2
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -180,7 +180,7 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events_materialized
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -243,7 +243,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -299,7 +299,7 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events_materialized.2
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -359,7 +359,7 @@
 # name: TestClickhouseRetention.test_groups_filtering_person_on_events
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -447,7 +447,7 @@
 # name: TestClickhouseRetention.test_groups_filtering_person_on_events.1
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -662,7 +662,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -723,7 +723,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as

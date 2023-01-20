@@ -39,7 +39,9 @@
         align-items: center;
         font-size: 0.875rem;
         font-weight: 600;
-        margin-bottom: 0.125rem;
+        &:not(:last-child) {
+            margin-bottom: 0.125rem;
+        }
     }
     .row-description {
         display: inline-block;
@@ -148,12 +150,16 @@
     }
 }
 
-.LemonTable__header--actionable {
-    cursor: pointer;
+.LemonTable__header {
+    cursor: default;
+    &.LemonTable__header--actionable {
+        cursor: pointer;
+    }
 }
 
 .LemonTable__header-content {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     line-height: 1.5;
 }

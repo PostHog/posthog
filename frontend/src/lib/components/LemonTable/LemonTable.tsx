@@ -12,6 +12,7 @@ import { useScrollable } from 'lib/hooks/useScrollable'
 import { LemonSkeleton } from '../LemonSkeleton'
 import { LemonTableLoader } from './LemonTableLoader'
 import { More } from 'lib/components/LemonButton/More'
+import { IconInfo } from '../icons'
 
 /**
  * Determine the column's key, using `dataIndex` as fallback.
@@ -253,11 +254,13 @@ export function LemonTable<T extends Record<string, any>>({
                                                     determineColumnKey(column) ?? columnIndex
                                                 }`}
                                                 className={clsx(
+                                                    'LemonTable__header',
                                                     column.sorter && 'LemonTable__header--actionable',
                                                     columnIndex === columnGroup.children.length - 1 &&
                                                         'LemonTable__boundary',
                                                     column.className
                                                 )}
+                                                /* eslint-disable-next-line react/forbid-dom-props */
                                                 style={{ textAlign: column.align }}
                                                 onClick={
                                                     column.sorter && !column.more
@@ -274,40 +277,56 @@ export function LemonTable<T extends Record<string, any>>({
                                                 }
                                             >
                                                 <div
-                                                    className="LemonTable__header-content items-center"
+                                                    className="LemonTable__header-content"
+                                                    /* eslint-disable-next-line react/forbid-dom-props */
                                                     style={{ justifyContent: column.align }}
                                                 >
-                                                    {column.title}
-                                                    {column.sorter && (
-                                                        <Tooltip
-                                                            title={() => {
-                                                                const nextSorting = getNextSorting(
-                                                                    currentSorting,
-                                                                    determineColumnKey(column, 'sorting'),
-                                                                    disableSortingCancellation
-                                                                )
-                                                                return `Click to ${
-                                                                    nextSorting
-                                                                        ? nextSorting.order === 1
-                                                                            ? 'sort ascending'
-                                                                            : 'sort descending'
-                                                                        : 'cancel sorting'
-                                                                }`
-                                                            }}
-                                                        >
-                                                            <SortingIndicator
-                                                                order={
-                                                                    currentSorting?.columnKey ===
-                                                                    determineColumnKey(column, 'sorting')
-                                                                        ? currentSorting.order
-                                                                        : null
-                                                                }
-                                                            />
-                                                            {/* this non-breaking space lets antd's tooltip work*/}{' '}
-                                                        </Tooltip>
-                                                    )}
+                                                    <div className="flex items-center">
+                                                        {column.tooltip ? (
+                                                            <Tooltip title={column.tooltip}>
+                                                                <div className="flex items-center">
+                                                                    {column.title}
+                                                                    <IconInfo className="ml-1 text-base" />
+                                                                </div>
+                                                            </Tooltip>
+                                                        ) : (
+                                                            column.title
+                                                        )}
+                                                        {column.sorter && (
+                                                            <Tooltip
+                                                                title={() => {
+                                                                    const nextSorting = getNextSorting(
+                                                                        currentSorting,
+                                                                        determineColumnKey(column, 'sorting'),
+                                                                        disableSortingCancellation
+                                                                    )
+                                                                    return `Click to ${
+                                                                        nextSorting
+                                                                            ? nextSorting.order === 1
+                                                                                ? 'sort ascending'
+                                                                                : 'sort descending'
+                                                                            : 'cancel sorting'
+                                                                    }`
+                                                                }}
+                                                            >
+                                                                <SortingIndicator
+                                                                    order={
+                                                                        currentSorting?.columnKey ===
+                                                                        determineColumnKey(column, 'sorting')
+                                                                            ? currentSorting.order
+                                                                            : null
+                                                                    }
+                                                                />
+                                                                {/* this non-breaking space lets antd's tooltip work*/}{' '}
+                                                            </Tooltip>
+                                                        )}
+                                                    </div>
                                                     {column.more && (
-                                                        <More overlay={column.more} data-attr="table-header-more" />
+                                                        <More
+                                                            overlay={column.more}
+                                                            className="ml-1"
+                                                            data-attr="table-header-more"
+                                                        />
                                                     )}
                                                 </div>
                                             </th>

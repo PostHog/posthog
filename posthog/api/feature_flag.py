@@ -23,6 +23,7 @@ from posthog.models.feature_flag import (
     can_user_edit_feature_flag,
     get_all_feature_flags,
     get_user_blast_radius,
+    set_feature_flags_for_team_in_cache,
 )
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
@@ -158,6 +159,19 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
                         raise serializers.ValidationError(
                             detail=f"Cohort with id {prop.value} does not exist", code="cohort_does_not_exist"
                         )
+
+        payloads = filters.get("payloads", {})
+
+        if not isinstance(payloads, dict):
+            raise serializers.ValidationError("Payloads must be passed as a dictionary")
+
+        if filters.get("multivariate"):
+            if not all(key in variants for key in payloads):
+                raise serializers.ValidationError("Payload keys must match a variant key for multivariate flags")
+        else:
+            if len(payloads) > 1 or any(key != "true" for key in payloads):  # only expect one key
+                raise serializers.ValidationError("Payload keys must be 'true' for boolean flags")
+
         return filters
 
     def create(self, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -187,6 +201,8 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
 
         report_user_action(request.user, "feature flag created", instance.get_analytics_metadata())
 
+        set_feature_flags_for_team_in_cache(self.context["team_id"])
+
         return instance
 
     def update(self, instance: FeatureFlag, validated_data: Dict, *args: Any, **kwargs: Any) -> FeatureFlag:
@@ -199,6 +215,9 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
         instance.update_cohorts()
 
         report_user_action(request.user, "feature flag updated", instance.get_analytics_metadata())
+
+        set_feature_flags_for_team_in_cache(self.context["team_id"])
+
         return instance
 
     def _update_filters(self, validated_data):
@@ -210,13 +229,14 @@ class FeatureFlagSerializer(TaggedItemSerializerMixin, serializers.HyperlinkedMo
             validated_data["performed_rollback"] = False
 
 
-class MinimalFeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
+class MinimalFeatureFlagSerializer(serializers.ModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
 
     class Meta:
         model = FeatureFlag
         fields = [
             "id",
+            "team_id",
             "name",
             "key",
             "filters",
@@ -275,7 +295,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         if not feature_flag_list:
             return Response(flags)
 
-        matches, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        matches, _, _, _ = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
         for feature_flag in feature_flags:
             flags.append(
                 {
@@ -325,7 +345,7 @@ class FeatureFlagViewSet(TaggedItemViewSetMixin, StructuredViewSetMixin, ForbidD
         if not distinct_id:
             raise exceptions.ValidationError(detail="distinct_id is required")
 
-        flags, reasons = get_all_feature_flags(self.team_id, distinct_id, groups)
+        flags, reasons, _, _ = get_all_feature_flags(self.team_id, distinct_id, groups)
 
         flags_with_evaluation_reasons = {}
 

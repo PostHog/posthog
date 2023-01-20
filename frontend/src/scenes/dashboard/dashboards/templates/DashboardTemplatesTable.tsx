@@ -5,8 +5,8 @@ import { DashboardTemplatesRepositoryEntry } from 'scenes/dashboard/dashboards/t
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
 import { LemonButton } from 'lib/components/LemonButton'
-import { CloudDownloadOutlined } from '@ant-design/icons'
 import { CommunityTag } from 'lib/CommunityTag'
+import { IconCloudDownload } from 'lib/components/icons'
 
 export const DashboardTemplatesTable = (): JSX.Element => {
     const { searchTerm } = useValues(dashboardsLogic)
@@ -58,7 +58,7 @@ export const DashboardTemplatesTable = (): JSX.Element => {
                                             status={'primary'}
                                             type={'primary'}
                                             onClick={() => installTemplate({ name: record.name, url: record.url })}
-                                            icon={<CloudDownloadOutlined />}
+                                            icon={<IconCloudDownload />}
                                             loading={templateLoading}
                                             disabled={templateLoading}
                                         >
