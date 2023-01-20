@@ -1058,6 +1058,12 @@ export interface BillingV2FeatureType {
     group?: AvailableFeature
 }
 
+export interface BillingV2TierType {
+    unit_amount_usd: string
+    current_amount_usd?: string | null
+    up_to: number | null
+}
+
 export interface BillingProductV2Type {
     type: 'EVENTS' | 'RECORDINGS' | 'ENTERPRISE' | 'BASE' | 'events' | 'recordings' | 'enterprise' | 'base'
     name: string
@@ -1065,11 +1071,7 @@ export interface BillingProductV2Type {
     price_description?: string
     image_url?: string
     free_allocation?: number
-    tiers?: {
-        unit_amount_usd: string
-        current_amount_usd?: string | null
-        up_to: number | null
-    }[]
+    tiers?: BillingV2TierType[]
     tiered?: boolean
     current_usage?: number
     projected_usage?: number

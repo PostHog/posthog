@@ -518,7 +518,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             </div>
 
                             <ul>
-                                {product.tiers.map((tier, i) => (
+                                {product.tiers?.map((tier, i) => (
                                     <li
                                         key={i}
                                         className={clsx('flex justify-between py-2', {
@@ -530,10 +530,10 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                                             {i === 0
                                                 ? `First ${summarizeUsage(tier.up_to)} ${productType.plural} / mo`
                                                 : tier.up_to
-                                                ? `${summarizeUsage(product.tiers[i - 1].up_to)} - ${summarizeUsage(
-                                                      tier.up_to
-                                                  )}`
-                                                : `> ${summarizeUsage(product.tiers[i - 1].up_to)}`}
+                                                ? `${summarizeUsage(
+                                                      product.tiers?.[i - 1].up_to || null
+                                                  )} - ${summarizeUsage(tier.up_to)}`
+                                                : `> ${summarizeUsage(product.tiers?.[i - 1].up_to || null)}`}
                                         </span>
                                         <b>
                                             {tierAmountType === 'individual' ? (
