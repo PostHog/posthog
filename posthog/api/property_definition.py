@@ -138,14 +138,14 @@ class QueryContext:
 
     def as_sql(self):
         query = f"""
-            SELECT {self.property_definition_fields},{self.event_property_field} AS is_event_property
+            SELECT {self.property_definition_fields},{self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
             {self._join_on_event_property()}
             WHERE posthog_propertydefinition.team_id = {self.team_id}
               AND type = {PropertyDefinition.Type.EVENT}
               AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter} {self.event_name_filter}
-            ORDER BY is_event_property DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -211,8 +211,8 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "query_usage_30_day",
             "property_type",
             "tags",
-            # This is a calculated property, it means either this property has been seen on any event, or it has been seen with the provided `event_names` query param events
-            "is_event_property",
+            # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
+            "is_seen_on_filtered_events",
         )
 
     def update(self, property_definition: PropertyDefinition, validated_data):
