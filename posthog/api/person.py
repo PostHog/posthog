@@ -640,13 +640,35 @@ def prepare_actor_query_filter(filter: T) -> T:
     if not search:
         return filter
 
+    group_properties_filter_group = []
+    if filter.aggregation_group_type_index is not None:
+        group_properties_filter_group.append(
+            {
+                "key": "name",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,
+                "operator": "icontains",
+            }
+        ),
+        group_properties_filter_group.append(
+            {
+                "key": "slug",
+                "value": search,
+                "type": "group",
+                "group_type_index": filter.aggregation_group_type_index,
+                "operator": "icontains",
+            }
+        ),
+
     new_group = {
-        "type": "OR",
+        "type": "OR",  # $$$$
         "values": [
             {"key": "email", "type": "person", "value": search, "operator": "icontains"},
             {"key": "name", "type": "person", "value": search, "operator": "icontains"},
             {"key": "distinct_id", "type": "event", "value": search, "operator": "icontains"},
-        ],
+        ]
+        + group_properties_filter_group,
     }
     prop_group = (
         {"type": "AND", "values": [new_group, filter.property_groups.to_dict()]}
