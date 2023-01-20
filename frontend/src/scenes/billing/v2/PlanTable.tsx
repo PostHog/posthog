@@ -4,7 +4,7 @@ import { IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { Tooltip } from 'lib/components/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
+import { AvailableFeature, BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 import { billingV2Logic } from './billingV2Logic'
 import './PlanTable.scss'
 
@@ -124,6 +124,8 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
     const { billing } = useValues(billingV2Logic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
+    const excludedFeatures: string[] = [AvailableFeature.DASHBOARD_COLLABORATION]
+
     const upgradeButtons = billing?.available_plans?.map((plan) => (
         <td key={`${plan.name}-cta`}>
             <LemonButton
@@ -241,32 +243,38 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                                   </td>
                                               ))}
                                       </tr>
-                                      {feature_group.features.map((feature: BillingV2FeatureType, j: number) => (
-                                          <tr
-                                              key={feature.name}
-                                              className={
-                                                  // Show the bottom border on the row if it's the last subfeature in the list
-                                                  j === feature_group.features.length - 1 ? 'PlanTable__tr__border' : ''
-                                              }
-                                          >
-                                              <th className="PlanTable__th__subfeature text-muted text-xs">
-                                                  <Tooltip title={feature.description}>{feature.name}</Tooltip>
-                                              </th>
-                                              {billing?.available_plans?.map((plan) => (
-                                                  <td key={`${plan.name}-${feature.name}`}>
-                                                      <PlanIcon
-                                                          feature={plan?.products
-                                                              ?.find((p) => p.type === product.type)
-                                                              ?.feature_groups?.find(
-                                                                  (fg) => fg.name === feature_group.name
-                                                              )
-                                                              ?.features?.find((f) => f.key === feature.key)}
-                                                          className={'text-base'}
-                                                      />
-                                                  </td>
-                                              ))}
-                                          </tr>
-                                      ))}
+                                      {feature_group.features.map((feature: BillingV2FeatureType, j: number) => {
+                                          return excludedFeatures.includes(feature.key) ? (
+                                              <></>
+                                          ) : (
+                                              <tr
+                                                  key={feature.name}
+                                                  className={
+                                                      // Show the bottom border on the row if it's the last subfeature in the list
+                                                      j === feature_group.features.length - 1
+                                                          ? 'PlanTable__tr__border'
+                                                          : ''
+                                                  }
+                                              >
+                                                  <th className="PlanTable__th__subfeature text-muted text-xs">
+                                                      <Tooltip title={feature.description}>{feature.name}</Tooltip>
+                                                  </th>
+                                                  {billing?.available_plans?.map((plan) => (
+                                                      <td key={`${plan.name}-${feature.name}`}>
+                                                          <PlanIcon
+                                                              feature={plan?.products
+                                                                  ?.find((p) => p.type === product.type)
+                                                                  ?.feature_groups?.find(
+                                                                      (fg) => fg.name === feature_group.name
+                                                                  )
+                                                                  ?.features?.find((f) => f.key === feature.key)}
+                                                              className={'text-base'}
+                                                          />
+                                                      </td>
+                                                  ))}
+                                              </tr>
+                                          )
+                                      })}
                                   </>
                               ))
                           )
