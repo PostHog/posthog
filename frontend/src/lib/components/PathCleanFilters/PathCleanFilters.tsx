@@ -1,45 +1,46 @@
-import '../../../scenes/actions/Actions.scss'
-import { FilterRow } from '../PropertyFilters/components/FilterRow'
-import { PathRegexPopup } from './PathRegexPopup'
+import '../../../scenes/actions/Actions.scss' // TODO: is this used by <FilterRow />?
 import { PathCleaningFilter } from '~/types'
+import { PathCleanFilterItem } from './PathCleanFilterItem'
+import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
 
-interface PathCleanFilterProps {
-    pageKey: string
-    pathCleaningFilters: PathCleaningFilter[]
-    onChange: (newItem: PathCleaningFilter) => void
-    onRemove: (index: number) => void
+export interface PathCleanFiltersProps {
+    filters?: PathCleaningFilter[]
+    setFilters: (filters: PathCleaningFilter[]) => void
 }
 
-export function PathCleanFilters({
-    pageKey,
-    pathCleaningFilters,
-    onChange,
-    onRemove,
-}: PathCleanFilterProps): JSX.Element {
+export function PathCleanFilters({ filters = [], setFilters }: PathCleanFiltersProps): JSX.Element {
+    const onAddFilter = (filter: PathCleaningFilter): void => {
+        setFilters([...filters, filter])
+    }
+    const onEditFilter = (index: number, filter: PathCleaningFilter): void => {
+        const newFilters = filters.map((f, i) => {
+            if (i === index) {
+                return filter
+            } else {
+                return f
+            }
+        })
+        setFilters(newFilters)
+    }
+    const onRemoveFilter = (index: number): void => {
+        setFilters(filters.filter((_, i) => i !== index))
+    }
+
     return (
         <div className="flex items-center gap-2 flex-wrap">
-            {pathCleaningFilters.map((item, index) => (
-                <FilterRow
+            {filters.map((filter, index) => (
+                <PathCleanFilterItem
                     key={index}
-                    item={item}
-                    index={index}
-                    totalCount={pathCleaningFilters.length - 1} // empty state
-                    filters={pathCleaningFilters}
-                    pageKey={pageKey}
-                    label="Add rule"
-                    onRemove={onRemove}
-                    filterComponent={(onComplete) => (
-                        <PathRegexPopup
-                            item={item}
-                            onClose={onComplete}
-                            onComplete={(newItem) => {
-                                onChange(newItem)
-                                onComplete()
-                            }}
-                        />
-                    )}
+                    filter={filter}
+                    onChange={(filter) => {
+                        onEditFilter(index, filter)
+                    }}
+                    onRemove={() => {
+                        onRemoveFilter(index)
+                    }}
                 />
             ))}
+            <PathCleanFilterAddItemButton onAdd={onAddFilter} />
         </div>
     )
 }

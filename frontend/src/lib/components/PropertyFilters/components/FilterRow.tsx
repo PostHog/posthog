@@ -2,7 +2,7 @@ import React, { useState } from 'react'
 import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
 import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
-import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
+import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { Popup } from 'lib/components/Popup/Popup'
 import '../../../../scenes/actions/Actions.scss' // TODO: we should decouple this styling from this component sooner than later
 import './FilterRow.scss'
@@ -88,14 +88,6 @@ export const FilterRow = React.memo(function FilterRow({
                                 onClose={() => onRemove(index)}
                                 item={item}
                             />
-                        ) : isValidPathCleanFilter(item) ? (
-                            <PropertyFilterButton
-                                item={item}
-                                onClick={() => setOpen(!open)}
-                                onClose={() => onRemove(index)}
-                            >
-                                {`${item['alias']}::${item['regex']}`}
-                            </PropertyFilterButton>
                         ) : (
                             <LemonButton
                                 onClick={() => setOpen(!open)}
