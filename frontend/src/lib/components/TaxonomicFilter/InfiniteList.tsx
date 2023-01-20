@@ -105,7 +105,7 @@ const renderItemContents = ({
         (listGroupType === TaxonomicFilterGroupType.NumericalEventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventProperties ||
             listGroupType === TaxonomicFilterGroupType.EventFeatureFlags) &&
-        (item as PropertyDefinition).is_seen_on_filtered_eventsed_events !== null &&
+        (item as PropertyDefinition).is_seen_on_filtered_events !== null &&
         !(item as PropertyDefinition).is_seen_on_filtered_events
 
     const icon = <div className="taxonomic-list-row-contents-icon">{group.getIcon?.(item)}</div>

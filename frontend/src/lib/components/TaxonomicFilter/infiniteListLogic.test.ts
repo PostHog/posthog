@@ -33,8 +33,8 @@ describe('infiniteListLogic', () => {
                     let results = search
                         ? mockEventPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockEventPropertyDefinitions
-                    if (req.url.searchParams.has('is_event_property')) {
-                        const isEventProperty = req.url.searchParams.get('is_event_property') === 'true'
+                    if (req.url.searchParams.has('filter_by_event_names')) {
+                        const isEventProperty = req.url.searchParams.get('filter_by_event_names') === 'true'
                         results = results.filter(
                             (e: PropertyDefinition) => e.is_seen_on_filtered_events === isEventProperty
                         )

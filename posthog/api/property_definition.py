@@ -81,7 +81,7 @@ class QueryContext:
             return self
 
     def with_event_property_filter(
-        self, event_names: Optional[str], is_event_property: Optional[str]
+        self, event_names: Optional[str], filter_by_event_names: Optional[str]
     ) -> "QueryContext":
         event_property_filter = ""
         event_name_filter = ""
@@ -95,21 +95,19 @@ class QueryContext:
 
         is_filtering_by_event_names = event_names and len(event_names) > 0
 
-        if is_filtering_by_event_names or is_event_property is not None:
+        if is_filtering_by_event_names:
             event_property_field = (
                 f"case when {self.posthog_eventproperty_table_join_alias}.id is null then false else true end"
             )
+
+            if filter_by_event_names == "true":
+                event_property_filter = f"AND {event_property_field} = true"
 
         if is_filtering_by_event_names:
             event_name_join_filter = " AND event in %(event_names)s"
             qualified_event_name_join_filter = (
                 f" AND {self.posthog_eventproperty_table_join_alias}.event in %(event_names)s"
             )
-
-        if is_event_property == "true":
-            event_property_filter = f"AND {event_property_field} = true"
-        elif is_event_property == "false":
-            event_property_filter = f"AND {event_property_field} = false"
 
         return dataclasses.replace(
             self,
@@ -326,7 +324,7 @@ class PropertyDefinitionViewSet(
             .with_feature_flags(self.request.GET.get("is_feature_flag"))
             .with_event_property_filter(
                 event_names=self.request.GET.get("event_names", None),
-                is_event_property=self.request.GET.get("is_event_property", None),
+                filter_by_event_names=self.request.GET.get("filter_by_event_names", None),
             )
             .with_search(search_query, search_kwargs)
             .with_excluded_properties(self.request.GET.get("excluded_properties", None))
