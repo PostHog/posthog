@@ -121,6 +121,7 @@ export const SizesIconOnly = (): JSX.Element => {
 export const DisabledWithReason = (): JSX.Element => {
     return <StatusesTemplate disabledReason="You're not cool enough to click this." accommodateTooltip />
 }
+// TODO: Add DisabledWithReason.play for a proper snapshot showcasing the tooltip
 
 export const Loading = (): JSX.Element => {
     return <TypesAndStatusesTemplate loading />

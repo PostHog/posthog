@@ -63,5 +63,6 @@ module.exports = {
     },
     features: {
         postcss: false,
+        buildStoriesJson: true,
     },
 }

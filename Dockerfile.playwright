@@ -9,6 +9,12 @@ WORKDIR /work
 
 RUN npm install -g pnpm
 
-RUN pnpm install @playwright/test@1.28.1
+COPY package.json pnpm-lock.yaml ./
 
-COPY playwright.config.ts ./
+RUN CYPRESS_INSTALL_BINARY=0 pnpm install
+
+COPY playwright.config.ts webpack.config.js babel.config.js tsconfig.json ./
+
+COPY .storybook/ .storybook/
+
+COPY frontend/ frontend/
