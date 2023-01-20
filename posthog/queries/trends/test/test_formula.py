@@ -274,6 +274,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
             ],
         )
 
+    @snapshot_clickhouse_queries
     def test_breakdown_cohort(self):
         cohort = Cohort.objects.create(
             team=self.team,

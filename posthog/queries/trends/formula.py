@@ -26,13 +26,13 @@ class TrendsFormula:
             queries.append(sql)
             params = {**params, **entity_params}
 
-        breakdown_values_list = ""
+        breakdown_value = ""
         if filter.breakdown_type == "cohort":
             breakdown_values_list = ", ".join(f"sub_{letter}.breakdown_value" for letter in letters)
+            breakdown_value = ", arrayFilter(x -> x != 0, [{}])[1]".format(breakdown_values_list)
         else:
             breakdown_values_list = ", ".join(trim_quotes_expr(f"sub_{letter}.breakdown_value") for letter in letters)
-
-        breakdown_value = ", arrayFilter(x -> notEmpty(x), [{}])[1]".format(breakdown_values_list)
+            breakdown_value = ", arrayFilter(x -> notEmpty(x), [{}])[1]".format(breakdown_values_list)
 
         is_aggregate = filter.display in NON_TIME_SERIES_DISPLAY_TYPES
 
