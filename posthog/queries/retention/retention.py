@@ -151,6 +151,7 @@ def build_returning_event_query(
         using_person_on_events=using_person_on_events,
     ).get_query()
 
+    # TODO: this gets called without all variables ready to be interpolated, causing "val_1" errors with HogQL
     query = substitute_params(returning_event_query_templated, returning_event_params)
 
     return query
@@ -175,6 +176,7 @@ def build_target_event_query(
         using_person_on_events=using_person_on_events,
     ).get_query()
 
+    # TODO: this gets called without all variables ready to be interpolated, causing "val_1" errors with HogQL
     query = substitute_params(target_event_query_templated, target_event_params)
 
     return query
