@@ -188,7 +188,7 @@ class BillingViewset(viewsets.GenericViewSet):
 
         # if there is a "plan_keys" query param get the specified plans
         if request.query_params.get("plan_keys", None):
-            plan_keys = request.query_params.get("plan_keys", None)
+            plan_keys = request.query_params.get("plan_keys", "")
             plans = self._get_plans(plan_keys, org)
             response["available_plans"] = plans["plans"]
 
