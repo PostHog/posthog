@@ -11,7 +11,11 @@ export function isLicenseExpired(license: LicenseType): boolean {
 }
 
 /** The higher the plan, the higher its sorting value - sync with back-end License model */
-const PLAN_TO_SORTING_VALUE: Record<LicensePlan, number> = { [LicensePlan.Scale]: 10, [LicensePlan.Enterprise]: 20 }
+const PLAN_TO_SORTING_VALUE: Record<LicensePlan, number> = {
+    [LicensePlan.Starter]: 0,
+    [LicensePlan.Scale]: 10,
+    [LicensePlan.Enterprise]: 20,
+}
 
 export const licenseLogic = kea<licenseLogicType>({
     path: ['scenes', 'instance', 'Licenses', 'licenseLogic'],

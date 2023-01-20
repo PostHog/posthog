@@ -1,6 +1,6 @@
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
-import { IconArrowRight, IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
+import { IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
@@ -332,7 +332,15 @@ export const billingPlans: BillingPlan[] = [
     },
 ]
 
-export function PlanIcon({ feature, className }: { feature?: BillingV2FeatureType; className?: string }): JSX.Element {
+export function PlanIcon({
+    feature,
+    className,
+    timeDenominator,
+}: {
+    feature?: BillingV2FeatureType
+    className?: string
+    timeDenominator?: string
+}): JSX.Element {
     return (
         <div className="flex items-center text-xs text-muted">
             {!feature ? (
@@ -342,7 +350,10 @@ export function PlanIcon({ feature, className }: { feature?: BillingV2FeatureTyp
             ) : feature.limit ? (
                 <>
                     <IconWarning className={`text-warning mr-4 ${className}`} />
-                    {feature.limit && `${feature.limit} ${feature.unit && feature.unit}/mo`}
+                    {feature.limit &&
+                        `${convertLargeNumberToWords(feature.limit, null)} ${feature.unit && feature.unit}${
+                            timeDenominator ? `/${timeDenominator}` : ''
+                        }`}
                     {feature.note}
                 </>
             ) : (
@@ -366,7 +377,7 @@ const getPlanBasePrice = (plan: BillingV2PlanType): number | string => {
     return '$0/mo'
 }
 
-const convertTierToHumanReadable = (
+const convertLargeNumberToWords = (
     // The number to convert
     num: number | null,
     // The previous tier's number
@@ -377,7 +388,7 @@ const convertTierToHumanReadable = (
     productType: BillingProductV2Type['type'] | null = null
 ): string => {
     if (num === null && previousNum) {
-        return `${convertTierToHumanReadable(previousNum, null)} +`
+        return `${convertLargeNumberToWords(previousNum, null)} +`
     }
     if (num === null) {
         return ''
@@ -393,7 +404,7 @@ const convertTierToHumanReadable = (
 
     return `${previousNum ? `${(previousNum / denominator).toFixed(0)}-` : multipleTiers ? 'First ' : ''}${(
         num / denominator
-    ).toFixed(0)}${denominator === 1000000 ? ' million' : 'k'}${
+    ).toFixed(0)}${denominator === 1000000 ? ' million' : denominator === 1000 ? 'k' : ''}${
         !previousNum && multipleTiers ? ` ${productType}/mo` : ''
     }`
 }
@@ -410,7 +421,7 @@ const getProductTiers = (plan: BillingV2PlanType, productType: BillingProductV2T
                         className="flex justify-between items-center"
                     >
                         <span className="text-xs">
-                            {convertTierToHumanReadable(tier.up_to, tiers[i - 1]?.up_to, true, productType)}
+                            {convertLargeNumberToWords(tier.up_to, tiers[i - 1]?.up_to, true, productType)}
                         </span>
                         <span className="font-bold">
                             {i === 0 && parseFloat(tier.unit_amount_usd) === 0
@@ -424,7 +435,7 @@ const getProductTiers = (plan: BillingV2PlanType, productType: BillingProductV2T
             ) : product?.free_allocation ? (
                 <div key={`${plan.name}-${productType}-tiers`} className="flex justify-between items-center">
                     <span className="text-xs">
-                        Up to {convertTierToHumanReadable(product?.free_allocation, null)} {product?.type}/mo
+                        Up to {convertLargeNumberToWords(product?.free_allocation, null)} {product?.type}/mo
                     </span>
                     <span className="font-bold">Free</span>
                 </div>
@@ -437,22 +448,22 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
     const { billing } = useValues(billingV2Logic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
 
-    const upgradeButtons = billingPlans.map((plan) => (
+    const upgradeButtons = billing?.available_plans?.map((plan) => (
         <td key={`${plan.name}-cta`}>
             <LemonButton
-                to={`${plan.signupLink}&redirect_path=${redirectPath}`}
-                type={plan.name === 'PostHog Cloud Lite' ? 'secondary' : 'primary'}
+                to={`/api/billing-v2/activation?plan=${plan.key}&redirect_path=${redirectPath}`}
+                type={plan.name === 'Starter' ? 'secondary' : 'primary'}
                 fullWidth
                 center
                 disableClientSideRouting
-                disabled={plan.name === 'PostHog Cloud Lite' && !billing?.billing_period}
+                disabled={plan.name === 'Starter' && !billing?.billing_period}
                 onClick={() => {
-                    if (plan.name != 'PostHog Cloud Lite') {
+                    if (plan.name != 'Starter') {
                         reportBillingUpgradeClicked(plan.name)
                     }
                 }}
             >
-                {!billing?.billing_period && plan.name === 'PostHog Cloud Lite' ? 'Current plan' : plan.cta}
+                {!billing?.billing_period && plan.name === 'Starter' ? 'Current plan' : 'Upgrade'}
             </LemonButton>
         </td>
     ))
@@ -497,7 +508,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                   <tr
                                       key={product.type}
                                       className={
-                                          i !== billing?.available_plans[0].products.length - 1
+                                          i !== billing?.available_plans?.[0].products.length - 1
                                               ? 'PlanTable__tr__border'
                                               : ''
                                       }
@@ -523,18 +534,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                             colSpan={4}
                             className="PlanTable__th__section bg-muted-light text-muted justify-left rounded text-left mb-2"
                         >
-                            <div className="flex justify-between items-center">
-                                <span>Features</span>
-                                <span>
-                                    <Link
-                                        to="https://posthog.com/pricing"
-                                        target="_blank"
-                                        className="text-xs text-muted italic"
-                                    >
-                                        Full feature comparison <IconArrowRight />
-                                    </Link>
-                                </span>
-                            </div>
+                            <span>Features</span>
                         </th>
                     </tr>
 
@@ -550,6 +550,22 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                           }
                                       >
                                           <th>{feature_group.name}</th>
+                                          {(product.type === 'events' || product.type === 'recordings') &&
+                                              billing?.available_plans?.map((plan) => (
+                                                  <td key={`${plan.name}-${feature_group.name}`}>
+                                                      <PlanIcon
+                                                          feature={{
+                                                              key: '',
+                                                              name: '',
+                                                              unit: product.type,
+                                                              limit: plan?.products.find((p) => p.type === product.type)
+                                                                  ?.free_allocation,
+                                                          }}
+                                                          timeDenominator="mo"
+                                                          className={'text-base'}
+                                                      />
+                                                  </td>
+                                              ))}
                                       </tr>
                                       {feature_group.features.map((feature: BillingV2FeatureType, j: number) => (
                                           <tr
