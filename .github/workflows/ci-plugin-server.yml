@@ -240,7 +240,9 @@ jobs:
                   path: 'plugin-server/coverage'
 
     publish-coverage:
-        name: Publish HTML Report
+        # Publishes coverage reports to GitHub Pages. This is largely ripped from
+        # https://ysfaran.github.io/blog/2022/09/02/playwright-gh-action-gh-pages/
+        name: Publish Coverage HTML Report
         # using always() is not ideal here, because it would also run if the workflow was cancelled
         if: "success() || needs.functional-tests.result == 'failure'"
         needs: [functional-tests]
