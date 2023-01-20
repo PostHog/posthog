@@ -254,15 +254,6 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                               </th>
                                               {billing?.available_plans?.map((plan) => (
                                                   <td key={`${plan.name}-${feature.name}`}>
-                                                      {console.log(
-                                                          plan?.products
-                                                              ?.find((p) => p.type === product.type)
-                                                              ?.feature_groups?.find(
-                                                                  (fg) => fg.name === feature_group.name
-                                                              )
-                                                              ?.features?.find((f) => f.key === feature.key),
-                                                          'hiiii'
-                                                      )}
                                                       <PlanIcon
                                                           feature={plan?.products
                                                               ?.find((p) => p.type === product.type)
