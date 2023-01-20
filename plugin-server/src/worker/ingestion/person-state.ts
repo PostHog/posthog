@@ -569,7 +569,7 @@ export class PersonState {
             }
 
             failedAttempts++
-            if (failedAttempts === MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
+            if (failedAttempts >= MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
                 throw error // Very much not OK, failed repeatedly so rethrowing the error
             }
 
