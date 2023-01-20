@@ -3,7 +3,7 @@ import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { useState } from 'react'
 
 export function ElapsedTime(): JSX.Element | null {
-    const { elapsedTime, loadingStart } = useValues(dataNodeLogic)
+    const { elapsedTime, loadingStart, responseError } = useValues(dataNodeLogic)
     const [, setTick] = useState(0)
 
     let time = elapsedTime
@@ -19,5 +19,5 @@ export function ElapsedTime(): JSX.Element | null {
         return null
     }
 
-    return <div>{`${(time / 1000).toFixed(time < 1000 ? 2 : 1)}s`}</div>
+    return <div className={responseError ? 'text-danger' : ''}>{`${(time / 1000).toFixed(time < 1000 ? 2 : 1)}s`}</div>
 }
