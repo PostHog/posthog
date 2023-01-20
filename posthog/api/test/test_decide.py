@@ -3,6 +3,7 @@ import json
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import modify_settings
 from django.test.client import Client
 from rest_framework import status
 
@@ -10,9 +11,11 @@ from posthog.api.test.test_feature_flag import QueryTimeoutWrapper
 from posthog.models import FeatureFlag, GroupTypeMapping, Person, PersonalAPIKey, Plugin, PluginConfig, PluginSourceFile
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_personal
+from posthog.settings import OPTIONAL_MIDDLEWARE
 from posthog.test.base import BaseTest, QueryMatchingTest, snapshot_postgres_queries
 
 
+@modify_settings(MIDDLEWARE={"remove": OPTIONAL_MIDDLEWARE})
 class TestDecide(BaseTest, QueryMatchingTest):
     """
     Tests the `/decide` endpoint.

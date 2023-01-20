@@ -17,6 +17,7 @@ import lzstring
 from django.db import DEFAULT_DB_ALIAS
 from django.db import Error as DjangoDatabaseError
 from django.db import connections
+from django.test import modify_settings
 from django.test.client import Client
 from django.utils import timezone
 from freezegun import freeze_time
@@ -31,7 +32,7 @@ from posthog.kafka_client.topics import KAFKA_SESSION_RECORDING_EVENTS
 from posthog.models.feature_flag import FeatureFlag
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
-from posthog.settings import DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC
+from posthog.settings import DATA_UPLOAD_MAX_MEMORY_SIZE, KAFKA_EVENTS_PLUGIN_INGESTION_TOPIC, OPTIONAL_MIDDLEWARE
 from posthog.test.base import BaseTest
 
 
@@ -50,6 +51,7 @@ def mocked_get_ingest_context_from_token(_: Any) -> None:
     raise Exception("test exception")
 
 
+@modify_settings(MIDDLEWARE={"remove": OPTIONAL_MIDDLEWARE})
 class TestCapture(BaseTest):
     """
     Tests all data capture endpoints (e.g. `/capture` `/track`).
@@ -142,6 +144,39 @@ class TestCapture(BaseTest):
             },
             self._to_arguments(kafka_produce),
         )
+
+    @patch("axes.helpers.get_cache")
+    @patch("posthog.kafka_client.client._KafkaProducer.produce")
+    def test_capture_event_doesnt_touch_cache(self, kafka_produce, patch_cache):
+        # patch_cache.return_value.get.return_value = 0
+        patch_cache.side_effect = Exception("Cache should not be touched")
+
+        data = {
+            "event": "$autocapture",
+            "properties": {
+                "distinct_id": 2,
+                "token": self.team.api_token,
+                "$elements": [
+                    {"tag_name": "a", "nth_child": 1, "nth_of_type": 2, "attr__class": "btn btn-sm"},
+                    {"tag_name": "div", "nth_child": 1, "nth_of_type": 2, "$el_text": "💻"},
+                ],
+            },
+        }
+        with self.assertNumQueries(1):
+            response = self.client.get("/e/?data=%s" % quote(self._to_json(data)), HTTP_ORIGIN="https://localhost")
+        self.assertEqual(response.get("access-control-allow-origin"), "https://localhost")
+        self.assertDictContainsSubset(
+            {
+                "distinct_id": "2",
+                "ip": "127.0.0.1",
+                "site_url": "http://testserver",
+                "data": data,
+                "team_id": self.team.pk,
+            },
+            self._to_arguments(kafka_produce),
+        )
+
+        patch_cache.assert_not_called()
 
     @patch("posthog.kafka_client.client._KafkaProducer.produce")
     def test_capture_event_too_large(self, kafka_produce):
