@@ -44,8 +44,7 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
         """
         try:
             return getattr(view, "team_id", None)
-        except KeyError as e:
-            raise e
+        except KeyError:
             return None
 
     def allow_request(self, request, view):
