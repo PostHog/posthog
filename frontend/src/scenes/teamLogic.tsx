@@ -23,7 +23,7 @@ const parseUpdatedAttributeName = (attr: string | null): string => {
     return attr ? identifierToHuman(attr) : 'Project'
 }
 
-interface FrequentMistakeAdvice {
+export interface FrequentMistakeAdvice {
     key: string
     type: 'event' | 'person'
     fix: string
