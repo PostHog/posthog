@@ -1,17 +1,17 @@
 import { useState } from 'react'
-import { LemonInput } from '../LemonInput/LemonInput'
-import { LemonButton } from '../LemonButton'
-import { LemonDivider } from '../LemonDivider'
+
+import { LemonInput, LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { PathCleaningFilter } from '~/types'
 
 interface PathRegexPopupProps {
-    onComplete: (newItem: Record<string, any>) => void
+    onComplete: (newItem: PathCleaningFilter) => void
     onClose: () => void
-    item: Record<string, any>
+    item: PathCleaningFilter
 }
 
 export function PathRegexPopup({ item, onComplete, onClose }: PathRegexPopupProps): JSX.Element {
-    const [alias, setAlias] = useState(item['alias'])
-    const [regex, setRegex] = useState(item['regex'])
+    const [alias, setAlias] = useState(item.alias)
+    const [regex, setRegex] = useState(item.regex)
 
     return (
         <div className="px-2">
@@ -20,12 +20,12 @@ export function PathRegexPopup({ item, onComplete, onClose }: PathRegexPopupProp
             <div className="space-y-2">
                 <div>
                     <span>Alias</span>
-                    <LemonInput defaultValue={alias} onChange={(e) => setAlias(e)} onPressEnter={() => false} />
+                    <LemonInput defaultValue={alias} onChange={(alias) => setAlias(alias)} onPressEnter={() => false} />
                 </div>
                 <div>
                     <span>Regex</span>
-                    <LemonInput defaultValue={regex} onChange={(e) => setRegex(e)} onPressEnter={() => false} />
-                    <div className="text-muted" style={{ marginBottom: 12 }}>
+                    <LemonInput defaultValue={regex} onChange={(regex) => setRegex(regex)} onPressEnter={() => false} />
+                    <div className="text-muted mb-3">
                         For example: <code>\/merchant\/\d+\/dashboard$</code>
                     </div>
                 </div>

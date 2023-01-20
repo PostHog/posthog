@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
+import { PathCleaningFilter } from '~/types'
 
 export function PathCleaningFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam, pathCleaningFiltersWithNew } = useValues(teamLogic)
 
-    const handleChange = (filters: Record<string, any>[]): void => {
+    const handleChange = (filters: PathCleaningFilter[]): void => {
         updateCurrentTeam({ path_cleaning_filters: filters })
     }
 

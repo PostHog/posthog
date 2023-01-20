@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AnyPropertyFilter } from '~/types'
+import { AnyPropertyFilter, PathCleaningFilter } from '~/types'
 import { Row } from 'antd'
 import { PropertyFilterButton } from './PropertyFilterButton'
 import { isValidPathCleanFilter, isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
@@ -13,7 +13,7 @@ import { LemonButton } from 'lib/components/LemonButton'
 interface FilterRowProps {
     item: Record<string, any>
     index: number
-    filters: AnyPropertyFilter[]
+    filters: AnyPropertyFilter[] | PathCleaningFilter[]
     pageKey: string
     showConditionBadge?: boolean
     totalCount: number
@@ -65,24 +65,15 @@ export const FilterRow = React.memo(function FilterRow({
                 {disablePopover ? (
                     <>
                         {filterComponent(() => setOpen(false))}
-                        {!!Object.keys(filters[index]).length &&
-                            (orFiltering ? (
-                                <LemonButton
-                                    icon={<IconDelete />}
-                                    status="primary-alt"
-                                    onClick={() => onRemove(index)}
-                                    size="small"
-                                    className="ml-2"
-                                />
-                            ) : (
-                                <LemonButton
-                                    icon={<IconClose />}
-                                    status="primary-alt"
-                                    onClick={() => onRemove(index)}
-                                    size="small"
-                                    className="ml-2"
-                                />
-                            ))}
+                        {!!Object.keys(filters[index]).length && (
+                            <LemonButton
+                                icon={orFiltering ? <IconDelete /> : <IconClose />}
+                                status="primary-alt"
+                                onClick={() => onRemove(index)}
+                                size="small"
+                                className="ml-2"
+                            />
+                        )}
                     </>
                 ) : (
                     <Popup
