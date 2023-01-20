@@ -35,7 +35,7 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
 
         -- the specific version of the `old_person_id` mapping. This is used to
         -- allow us to discard old mappings as new ones are added.
-        version INT NOT NULL
+        version INT NOT NULL,
 
         -- A flag that can be used to tombstone a mapping. This is useful in
         -- cases where all references to e.g. `old_person_id` have been removed,
