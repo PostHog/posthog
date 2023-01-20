@@ -132,7 +132,7 @@ const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFla
 
     const newPayloads = {}
     flag.filters.multivariate?.variants.forEach((variant, index) => {
-        newPayloads[index] = flag.filters.payloads[variant.key]
+        newPayloads[index] = flag.filters.payloads?.[variant.key]
     })
     return {
         ...flag,

@@ -243,7 +243,10 @@ export const sceneConfigurations: Partial<Record<Scene, SceneConfig>> = {
     },
 }
 
-export const redirects: Record<string, string | ((params: Params) => string)> = {
+export const redirects: Record<
+    string,
+    string | ((params: Params, searchParams: Params, hashParams: Params) => string)
+> = {
     '/': urls.projectHomepage(),
     '/saved_insights': urls.savedInsights(),
     '/dashboards': urls.dashboards(),
@@ -259,6 +262,13 @@ export const redirects: Record<string, string | ((params: Params) => string)> = 
     '/events/stats/:id': ({ id }) => urls.eventDefinition(id),
     '/events/properties': urls.eventPropertyDefinitions(),
     '/events/properties/:id': ({ id }) => urls.eventPropertyDefinition(id),
+    '/recordings': (_params, _searchParams, hashParams) => {
+        if (hashParams.sessionRecordingId) {
+            // Previous URLs for an individual recording were like: /recordings/#sessionRecordingId=foobar
+            return urls.sessionRecording(hashParams.sessionRecordingId)
+        }
+        return urls.sessionRecordings()
+    },
 }
 
 export const routes: Record<string, Scene> = {
