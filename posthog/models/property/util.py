@@ -156,18 +156,18 @@ def parse_prop_clauses(
             else:
 
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
-                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx, hogql_context)
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
                 elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                        cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
-                        cohort, idx, custom_match_field=f"{person_id_joined_alias}"
+                        cohort, idx, hogql_context, custom_match_field=f"{person_id_joined_alias}"
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")

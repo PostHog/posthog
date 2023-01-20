@@ -308,7 +308,7 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
         if isinstance(filter.breakdown, list)
         else Cohort.objects.filter(team_id=team.pk, pk=filter.breakdown)
     )
-    cohort_queries, params = _parse_breakdown_cohorts(list(cohorts))
+    cohort_queries, params = _parse_breakdown_cohorts(list(cohorts), filter.hogql_context)
     ids = [cohort.pk for cohort in cohorts]
     if isinstance(filter.breakdown, list) and "all" in filter.breakdown:
         all_query, all_params = _format_all_query(team, filter, entity=entity)
@@ -318,11 +318,11 @@ def format_breakdown_cohort_join_query(team: Team, filter: Filter, **kwargs) -> 
     return " UNION ALL ".join(cohort_queries), ids, params
 
 
-def _parse_breakdown_cohorts(cohorts: List[Cohort]) -> Tuple[List[str], Dict]:
+def _parse_breakdown_cohorts(cohorts: List[Cohort], hogql_context: HogQLContext) -> Tuple[List[str], Dict]:
     queries = []
     params: Dict[str, Any] = {}
     for idx, cohort in enumerate(cohorts):
-        person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+        person_id_query, cohort_filter_params = format_filter_query(cohort, idx, hogql_context)
         params = {**params, **cohort_filter_params}
         cohort_query = person_id_query.replace(
             "SELECT distinct_id", f"SELECT distinct_id, {cohort.pk} as value", 1

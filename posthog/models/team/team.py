@@ -283,7 +283,7 @@ class Team(UUIDClassicModel):
                 {person_query}
             )
         """,
-            person_query_params,
+            {**person_query_params, **filter.hogql_context.values},
         )[0][0]
 
     @lru_cache(maxsize=5)
