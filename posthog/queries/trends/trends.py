@@ -126,10 +126,11 @@ class Trends(TrendsTotalVolume, Lifecycle, TrendsFormula):
             query_type, sql, params, parse_function = self._get_sql_for_entity(adjusted_filter, team, entity)
             scope.set_context("filter", filter.to_dict())
             scope.set_tag("team", team)
-            scope.set_context("query", {"sql": sql, "params": params})
+            query_params = {**params, **filter.hogql_context.values}
+            scope.set_context("query", {"sql": sql, "params": query_params})
             result = insight_sync_execute(
                 sql,
-                {**params, **filter.hogql_context.values},
+                query_params,
                 query_type=query_type,
                 filter=adjusted_filter,
             )
