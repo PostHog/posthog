@@ -173,10 +173,6 @@ class BillingViewset(viewsets.GenericViewSet):
             response["products"] = products["standard"]
             response["products_enterprise"] = products["enterprise"]
 
-            plan_keys = request.query_params.get("keys", None)
-            plans = self._get_plans(plan_keys, org)
-            response["available_plans"] = plans["plans"]
-
             calculated_usage = get_cached_current_usage(org) if org else None
 
             for product in response["products"] + response["products_enterprise"]:
@@ -189,6 +185,12 @@ class BillingViewset(viewsets.GenericViewSet):
         for product in response["products"]:
             usage_limit = product.get("usage_limit", product.get("free_allocation"))
             product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
+
+        # if there is a "plan_keys" query param
+        if request.query_params.get("plan_keys", None):
+            plan_keys = request.query_params.get("plan_keys", None)
+            plans = self._get_plans(plan_keys, org)
+            response["available_plans"] = plans["plans"]
 
         # Before responding ensure the org is updated with the latest info
         if org:
