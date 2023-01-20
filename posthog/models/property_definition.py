@@ -59,7 +59,6 @@ class PropertyDefinition(UUIDModel):
     volume_30_day: models.IntegerField = models.IntegerField(default=None, null=True)  # Deprecated in #4480
 
     class Meta:
-        unique_together = ("team", "name")
         indexes = (
             [
                 GinIndex(
