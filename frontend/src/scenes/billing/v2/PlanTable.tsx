@@ -2,6 +2,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { useActions, useValues } from 'kea'
 import { IconCheckmark, IconClose, IconWarning } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
+import { Tooltip } from 'lib/components/Tooltip'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { BillingProductV2Type, BillingV2FeatureType, BillingV2PlanType } from '~/types'
 import { billingV2Logic } from './billingV2Logic'
@@ -544,10 +545,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                   <>
                                       <tr
                                           key={feature_group.name}
-                                          className={
-                                              // Show the bottom border if it's not the last feature in the list and it doesn't have subfeatures
-                                              !feature_group.features.length ? 'PlanTable__tr__border' : ''
-                                          }
+                                          className={!feature_group.features.length ? 'PlanTable__tr__border' : ''}
                                       >
                                           <th>{feature_group.name}</th>
                                           {(product.type === 'events' || product.type === 'recordings') &&
@@ -576,7 +574,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                               }
                                           >
                                               <th className="PlanTable__th__subfeature text-muted text-xs">
-                                                  {feature.name}
+                                                  <Tooltip title={feature.description}>{feature.name}</Tooltip>
                                               </th>
                                               {billing?.available_plans?.map((plan) => (
                                                   <td key={`${plan.name}-${feature.name}`}>
