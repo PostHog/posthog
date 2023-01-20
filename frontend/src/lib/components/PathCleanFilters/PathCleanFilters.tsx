@@ -2,12 +2,13 @@ import '../../../scenes/actions/Actions.scss'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FilterRow } from '../PropertyFilters/components/FilterRow'
 import { PathRegexPopup } from './PathCleanFilter'
+import { PathCleaningFilter } from '~/types'
 
 interface PropertyFiltersProps {
     endpoint?: string | null
-    onChange: (newItem: Record<string, any>) => void
+    onChange: (newItem: PathCleaningFilter) => void
     onRemove: (index: number) => void
-    pathCleaningFilters: Record<string, any>[]
+    pathCleaningFilters: PathCleaningFilter[]
     pageKey: string
     showConditionBadge?: boolean
     disablePopover?: boolean
@@ -36,7 +37,7 @@ export function PathCleanFilters({
                             pageKey={pageKey}
                             showConditionBadge={showConditionBadge}
                             disablePopover={disablePopover}
-                            label={'Add rule'}
+                            label="Add rule"
                             onRemove={onRemove}
                             filterComponent={(onComplete) => {
                                 return (
