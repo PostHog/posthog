@@ -61,7 +61,9 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
 
     def test_hogql_methods(self):
         self.assertEqual(self._translate("count()"), "count(*)")
-        self.assertEqual(self._translate("count(event)"), "count(distinct event)")
+        self.assertEqual(self._translate("countDistinct(event)"), "count(distinct event)")
+        self.assertEqual(self._translate("countDistinctIf(event, 1 == 2)"), "countIf(distinct event, equals(1, 2))")
+        self.assertEqual(self._translate("sumIf(1, 1 == 2)"), "sumIf(1, equals(1, 2))")
 
     def test_hogql_functions(self):
         context = HogQLContext(values=None)  # inline values
@@ -77,8 +79,10 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         self._assert_value_error("())", "SyntaxError: unmatched ')'")
         self._assert_value_error("this makes little sense", "SyntaxError: invalid syntax")
         self._assert_value_error("avg(bla)", "Unknown event field 'bla'")
-        self._assert_value_error("count(2,4)", "Aggregation 'count' expects one or zero arguments.")
-        self._assert_value_error("avg(2,1)", "Aggregation 'avg' expects just one argument.")
+        self._assert_value_error("count(2)", "Aggregation 'count' requires 0 arguments, found 1")
+        self._assert_value_error("count(2,4)", "Aggregation 'count' requires 0 arguments, found 2")
+        self._assert_value_error("countIf()", "Aggregation 'countIf' requires 1 argument, found 0")
+        self._assert_value_error("countIf(2,4)", "Aggregation 'countIf' requires 1 argument, found 2")
         self._assert_value_error(
             "bla.avg(bla)", "Can only call simple functions like 'avg(properties.bla)' or 'count()'"
         )
@@ -89,7 +93,6 @@ class TestHogQLContext(APIBaseTest, ClickhouseTestMixin):
         self._assert_value_error("['properties']['value']['bla']", "Unknown node in field access chain:")
         self._assert_value_error("chipotle", "Unknown event field 'chipotle'")
         self._assert_value_error("person.chipotle", "Unknown person field 'chipotle'")
-        self._assert_value_error("avg(2)", "avg(...) must be called on fields or properties, not literals.")
         self._assert_value_error(
             "avg(avg(properties.bla))", "Aggregation 'avg' cannot be nested inside another aggregation 'avg'."
         )
