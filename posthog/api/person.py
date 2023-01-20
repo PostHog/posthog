@@ -647,14 +647,14 @@ def prepare_actor_query_filter(filter: T) -> T:
                 "key": "name",
                 "value": search,
                 "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
                 "operator": "icontains",
             },
             {
                 "key": "slug",
                 "value": search,
                 "type": "group",
-                "group_type_index": filter.aggregation_group_type_index,
+                "group_type_index": filter.aggregation_group_type_index,  # type: ignore
                 "operator": "icontains",
             },
         ]
