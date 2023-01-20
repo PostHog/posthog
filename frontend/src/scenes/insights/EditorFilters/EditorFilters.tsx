@@ -72,7 +72,6 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
             featureFlags[FEATURE_FLAGS.RETENTION_BREAKDOWN] &&
             (filters as any).display !== ChartDisplayType.ActionsLineGraph) ||
         (isFunnels && filters.funnel_viz_type === FunnelVizType.Steps)
-    const hasPropertyFilters = isTrends || isStickiness || isRetention || isPaths || isFunnels || isLifecycle
     const hasPathsAdvanced = availableFeatures.includes(AvailableFeature.PATHS_ADVANCED)
     const hasAttribution = isFunnels && filters.funnel_viz_type === FunnelVizType.Steps
 
@@ -169,14 +168,12 @@ export function EditorFilters({ insightProps, showing }: EditorFiltersProps): JS
                           component: LifecycleToggles,
                       }
                     : null,
-                hasPropertyFilters
-                    ? {
-                          key: 'properties',
-                          label: !usingEditorPanels ? 'Filters' : undefined,
-                          position: 'right',
-                          component: GlobalAndOrFilters,
-                      }
-                    : null,
+                {
+                    key: 'properties',
+                    label: !usingEditorPanels ? 'Filters' : undefined,
+                    position: 'right',
+                    component: GlobalAndOrFilters,
+                },
             ]),
         },
         {
