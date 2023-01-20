@@ -122,7 +122,6 @@ export function Elements(): JSX.Element {
                                             highestClickCount
                                         )}, 100%, 32%, 1) 0px 1px 5px 1px`,
                                     }}
-                                    type={'$autocapture'}
                                     onClick={() => selectElement(element)}
                                     onMouseOver={() => selectedElement === null && setHoverElement(element)}
                                     onMouseOut={() => selectedElement === null && setHoverElement(null)}
@@ -153,7 +152,6 @@ export function Elements(): JSX.Element {
                                             highestClickCount
                                         )}, 100%, 32%, 1) 0px 1px 5px 1px`,
                                     }}
-                                    type={'$rageclick'}
                                     align={'left'}
                                     onClick={() => selectElement(element)}
                                     onMouseOver={() => selectedElement === null && setHoverElement(element)}
