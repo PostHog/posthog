@@ -509,6 +509,7 @@ export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Eleme
                                   <tr
                                       key={product.type}
                                       className={
+                                          billing?.available_plans?.[0].products.length &&
                                           i !== billing?.available_plans?.[0].products.length - 1
                                               ? 'PlanTable__tr__border'
                                               : ''

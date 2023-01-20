@@ -215,9 +215,11 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     const [isEditingBillingLimit, setIsEditingBillingLimit] = useState(false)
     const [billingLimitInput, setBillingLimitInput] = useState<number | undefined>(DEFAULT_BILLING_LIMIT)
 
-    const billingLimitAsUsage = isEditingBillingLimit
-        ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
-        : convertAmountToUsage(customLimitUsd || '', product.tiers)
+    const billingLimitAsUsage = product.tiers
+        ? isEditingBillingLimit
+            ? convertAmountToUsage(`${billingLimitInput}`, product.tiers)
+            : convertAmountToUsage(customLimitUsd || '', product.tiers)
+        : 0
 
     const productType = { plural: product.type, singular: product.type.slice(0, -1) }
 
@@ -231,7 +233,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
             return actuallyUpdateLimit()
         }
 
-        const newAmountAsUsage = convertAmountToUsage(`${value}`, product.tiers)
+        const newAmountAsUsage = product.tiers ? convertAmountToUsage(`${value}`, product.tiers) : 0
 
         if (product.current_usage && newAmountAsUsage < product.current_usage) {
             LemonDialog.open({
@@ -278,7 +280,9 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
     useEffect(() => {
         setBillingLimitInput(
             parseInt(customLimitUsd || '0') ||
-                parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers)) ||
+                (product.tiers
+                    ? parseInt(convertUsageToAmount((product.projected_usage || 0) * 1.5, product.tiers))
+                    : 0) ||
                 DEFAULT_BILLING_LIMIT
         )
     }, [customLimitUsd])
@@ -373,7 +377,7 @@ const BillingProduct = ({ product }: { product: BillingProductV2Type }): JSX.Ele
                             </LemonLabel>
                             <div className="font-bold text-4xl">${product.current_amount_usd}</div>
                         </div>
-                        {product.tiered && (
+                        {product.tiered && product.tiers && (
                             <>
                                 <div className="space-y-2">
                                     <LemonLabel
