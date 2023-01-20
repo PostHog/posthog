@@ -154,9 +154,10 @@ def parse_prop_clauses(
                     f"{property_operator} 0 = 13"
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
-
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
-                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
+                    person_id_query, cohort_filter_params = format_filter_query(
+                        cohort, idx, custom_match_field=person_id_joined_alias
+                    )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
                 elif person_properties_mode == PersonPropertiesMode.DIRECT_ON_EVENTS:
