@@ -6,6 +6,9 @@ on:
         branches:
             - master
 
+permissions:
+    pages: write
+
 jobs:
     playwright:
         name: Visual Regression Tests
