@@ -641,25 +641,23 @@ def prepare_actor_query_filter(filter: T) -> T:
         return filter
 
     group_properties_filter_group = []
-    if filter.aggregation_group_type_index is not None:
-        group_properties_filter_group.append(
+    if hasattr(filter, "aggregation_group_type_index"):
+        group_properties_filter_group += [
             {
                 "key": "name",
                 "value": search,
                 "type": "group",
                 "group_type_index": filter.aggregation_group_type_index,
                 "operator": "icontains",
-            }
-        ),
-        group_properties_filter_group.append(
+            },
             {
                 "key": "slug",
                 "value": search,
                 "type": "group",
                 "group_type_index": filter.aggregation_group_type_index,
                 "operator": "icontains",
-            }
-        ),
+            },
+        ]
 
     new_group = {
         "type": "OR",  # $$$$
