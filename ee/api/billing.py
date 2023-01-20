@@ -9,7 +9,7 @@ import requests
 import structlog
 from django.conf import settings
 from django.core.cache import cache
-from django.http import HttpRequest, HttpResponse
+from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
 from rest_framework import serializers, status, viewsets
@@ -140,7 +140,7 @@ class BillingViewset(viewsets.GenericViewSet):
         BasicAuthentication,
     ]
 
-    def list(self, request: HttpRequest, *args: Any, **kwargs: Any) -> Response:
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         license = License.objects.first_valid()
         if license and not license.is_v2_license:
             raise NotFound("Billing V2 is not supported for this license type")
@@ -186,7 +186,7 @@ class BillingViewset(viewsets.GenericViewSet):
             usage_limit = product.get("usage_limit", product.get("free_allocation"))
             product["percentage_usage"] = product["current_usage"] / usage_limit if usage_limit else 0
 
-        # if there is a "plan_keys" query param
+        # if there is a "plan_keys" query param get the specified plans
         if request.query_params.get("plan_keys", None):
             plan_keys = request.query_params.get("plan_keys", None)
             plans = self._get_plans(plan_keys, org)
