@@ -3,23 +3,13 @@ import { useEffect, useRef, useState } from 'react'
 import { useActions, useValues } from 'kea'
 import clsx from 'clsx'
 import { seekbarLogic } from 'scenes/session-recordings/player/seekbarLogic'
-import { RecordingEventType, RecordingSegment } from '~/types'
+import { RecordingSegment } from '~/types'
 import { sessionRecordingDataLogic } from './sessionRecordingDataLogic'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { RowStatus } from 'scenes/session-recordings/player/inspector/v1/listLogic'
-import { SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
+import { sessionRecordingPlayerLogic, SessionRecordingPlayerLogicProps } from './sessionRecordingPlayerLogic'
 import { Timestamp } from './PlayerControllerTime'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { autoCaptureEventToDescription, capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
-import { eventsListLogic } from './inspector/v1/eventsListLogic'
 import { playerInspectorLogic } from './inspector/playerInspectorLogic'
-
-interface TickProps extends SessionRecordingPlayerLogicProps {
-    event: RecordingEventType
-    index: number
-    status: RowStatus
-    numEvents: number
-}
 
 function PlayerSeekbarInspector({ minMs, maxMs }: { minMs: number; maxMs: number }): JSX.Element {
     const [percentage, setPercentage] = useState<number>(0)
@@ -61,78 +51,30 @@ function PlayerSeekbarInspector({ minMs, maxMs }: { minMs: number; maxMs: number
     )
 }
 
-// TODO: Memoize this component
-function PlayerSeekbarTick({ event, sessionRecordingId, playerKey, status, numEvents, index }: TickProps): JSX.Element {
-    const { handleTickClick } = useActions(seekbarLogic({ sessionRecordingId, playerKey }))
-    const { reportRecordingPlayerSeekbarEventHovered } = useActions(eventUsageLogic)
-    const zIndexOffset = !!status ? numEvents : 0 // Bump up the important events
-
-    const hoverTimeoutRef = useRef<any>(null)
-
-    useEffect(() => {
-        return () => {
-            clearTimeout(hoverTimeoutRef.current)
-        }
-    }, [])
-
-    return (
-        <div
-            className={clsx('PlayerSeekbarTick', status === RowStatus.Match && 'PlayerSeekbarTick--match')}
-            title={event.event}
-            style={{
-                left: `${event.percentageOfRecordingDuration}%`,
-                zIndex: zIndexOffset + index,
-            }}
-            onClick={(e) => {
-                e.stopPropagation()
-                event.playerPosition && handleTickClick(event.playerPosition)
-            }}
-            onMouseEnter={() => {
-                // We only want to report the event hover if the user is hovering over the tick for more than 1 second
-                hoverTimeoutRef.current = setTimeout(() => {
-                    reportRecordingPlayerSeekbarEventHovered()
-                }, 500)
-            }}
-            onMouseLeave={() => {
-                clearTimeout(hoverTimeoutRef.current)
-            }}
-        >
-            <div className="PlayerSeekbarTick__info">
-                <PropertyKeyInfo
-                    className="font-medium"
-                    disableIcon
-                    disablePopover
-                    ellipsis={true}
-                    value={capitalizeFirstLetter(autoCaptureEventToDescription(event))}
-                />
-                {event.event === '$autocapture' ? <span className="opacity-75 ml-2">(Autocapture)</span> : null}
-                {event.event === '$pageview' ? (
-                    <span className="ml-2 opacity-75">
-                        {event.properties.$pathname || event.properties.$current_url}
-                    </span>
-                ) : null}
-            </div>
-            <div className="PlayerSeekbarTick__line" />
-        </div>
-    )
-}
-
 function PlayerSeekbarTicks(props: SessionRecordingPlayerLogicProps): JSX.Element {
     const { seekbarItems } = useValues(playerInspectorLogic(props))
     const { endTimeMs } = useValues(seekbarLogic(props))
+    const { seekToTime } = useActions(sessionRecordingPlayerLogic(props))
 
     return (
         <div className="PlayerSeekbar__ticks">
             {seekbarItems.map((item, i) => (
                 <div
                     key={i}
-                    className={clsx('PlayerSeekbarTick', status === RowStatus.Match && 'PlayerSeekbarTick--match')}
+                    className={clsx(
+                        'PlayerSeekbarTick',
+                        item.highlightColor && `PlayerSeekbarTick--${item.highlightColor}`
+                    )}
                     title={item.data.event}
+                    // eslint-disable-next-line react/forbid-dom-props
                     style={{
                         left: `${(item.timeInRecording / endTimeMs) * 100}%`,
-                        zIndex: i,
+                        zIndex: i + (item.highlightColor ? 1000 : 0),
                     }}
-                    onClick={(e) => {}}
+                    onClick={(e) => {
+                        e.stopPropagation()
+                        seekToTime(item.timeInRecording)
+                    }}
                 >
                     <div className="PlayerSeekbarTick__info">
                         <PropertyKeyInfo
@@ -154,17 +96,6 @@ function PlayerSeekbarTicks(props: SessionRecordingPlayerLogicProps): JSX.Elemen
                     <div className="PlayerSeekbarTick__line" />
                 </div>
             ))}
-
-            {/* {eventListData.map((event: RecordingEventType, i) => (
-                <PlayerSeekbarTick
-                    key={event.id}
-                    index={i}
-                    event={event}
-                    status={event.level as RowStatus}
-                    numEvents={eventListData.length}
-                    onClick={() => event.playerPosition && handleTickClick(event.playerPosition)}
-                />
-            ))} */}
         </div>
     )
 }
