@@ -141,7 +141,9 @@ class QueryContext:
             SELECT {self.property_definition_fields},{self.event_property_field} AS is_event_property
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = {self.team_id} AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
+            WHERE posthog_propertydefinition.team_id = {self.team_id}
+              AND type = {PropertyDefinition.Type.EVENT}
+              AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter} {self.event_name_filter}
             ORDER BY is_event_property DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
@@ -154,7 +156,9 @@ class QueryContext:
             SELECT count(*) as full_count
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = {self.team_id} AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
+            WHERE posthog_propertydefinition.team_id = {self.team_id}
+              AND type = {PropertyDefinition.Type.EVENT}
+              AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter} {self.event_name_filter}
             """
 
@@ -271,7 +275,7 @@ class PropertyDefinitionViewSet(
     pagination_class = NotCountingLimitOffsetPaginator
 
     def get_queryset(self):
-        queryset = PropertyDefinition.objects
+        queryset = PropertyDefinition.objects.filter(type=PropertyDefinition.Type.EVENT)
 
         property_definition_fields = ", ".join(
             [f'posthog_propertydefinition."{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")]  # type: ignore
