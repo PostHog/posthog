@@ -172,9 +172,11 @@ export const sceneLogic = kea<sceneLogicType>({
         > = {}
 
         for (const path of Object.keys(redirects)) {
-            mapping[path] = (params) => {
+            mapping[path] = (params, searchParams, hashParams) => {
                 const redirect = redirects[path]
-                router.actions.replace(typeof redirect === 'function' ? redirect(params) : redirect)
+                router.actions.replace(
+                    typeof redirect === 'function' ? redirect(params, searchParams, hashParams) : redirect
+                )
             }
         }
         for (const [path, scene] of Object.entries(routes)) {
