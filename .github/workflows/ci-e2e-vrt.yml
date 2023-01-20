@@ -66,8 +66,7 @@ jobs:
               uses: actions/upload-pages-artifact@v1
               with:
                   # Upload entire coverage folder
-                  path: |
-                      example.txt
+                  path: ./
 
             - name: Deploy to GitHub Pages
               if: always()
