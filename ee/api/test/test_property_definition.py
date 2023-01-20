@@ -105,6 +105,13 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         self.assertEqual(response_data["results"][1]["name"], "other property")
         self.assertEqual(response_data["results"][1]["is_seen_on_filtered_events"], False)
 
+        response = self.client.get(
+            f"/api/projects/@current/property_definitions/?search=property&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response_data = response.json()
+        self.assertEqual(len(response_data["results"]), 1)
+
         response = self.client.get(f"/api/projects/@current/property_definitions/?search=er pr")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         response_data = response.json()
