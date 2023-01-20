@@ -36,12 +36,11 @@ export function PathCleaningFilterComponent({
     const hasFilters = (currentTeam?.path_cleaning_filters || []).length > 0
 
     return (
-        <div>
+        <>
             <PathCleanFilters
                 filters={local_path_cleaning_filters}
                 setFilters={(filters) => setFilter({ local_path_cleaning_filters: filters })}
             />
-
             <Tooltip
                 title={
                     hasFilters
@@ -63,6 +62,6 @@ export function PathCleaningFilterComponent({
                     />
                 </div>
             </Tooltip>
-        </div>
+        </>
     )
 }
