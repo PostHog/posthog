@@ -44,6 +44,11 @@ INSTALLED_APPS = [
 SHORT_CIRCUIT_MIDDLEWARES = get_from_env("SHORT_CIRCUIT_MIDDLEWARES", False, type_cast=str_to_bool)
 
 ALWAYS_PREFIX_MIDDLEWARES = [
+    # We add the capture middleware as early as possible, then explicitly handle
+    # dispatching the request to the capture handlers such that we can better
+    # control exactly the dependencies that are used, as well as e.g. ensuring
+    # that Cors headers are set as expected.
+    "posthog.api.capture.capture_middleware",
     "django_prometheus.middleware.PrometheusBeforeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "django_structlog.middlewares.RequestMiddleware",
@@ -78,10 +83,7 @@ OPTIONAL_MIDDLEWARE = [
     "posthog.middleware.AutoProjectMiddleware",
 ]
 
-if not SHORT_CIRCUIT_MIDDLEWARES:
-    MIDDLEWARE = ALWAYS_PREFIX_MIDDLEWARES + OPTIONAL_MIDDLEWARE + ALWAYS_POSTFIX_MIDDLEWARES
-else:
-    MIDDLEWARE = ALWAYS_PREFIX_MIDDLEWARES + ALWAYS_POSTFIX_MIDDLEWARES
+MIDDLEWARE = ALWAYS_PREFIX_MIDDLEWARES + OPTIONAL_MIDDLEWARE + ALWAYS_POSTFIX_MIDDLEWARES
 
 if STATSD_HOST is not None:
     MIDDLEWARE.insert(0, "django_statsd.middleware.StatsdMiddleware")

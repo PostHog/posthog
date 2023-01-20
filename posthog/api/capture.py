@@ -3,12 +3,13 @@ import json
 import re
 import time
 from datetime import datetime
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 import structlog
 from dateutil import parser
 from django.conf import settings
-from django.http import JsonResponse
+from django.http import HttpRequest, JsonResponse
+from django.shortcuts import HttpResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from kafka.errors import KafkaError
@@ -429,3 +430,45 @@ def capture_internal(event, distinct_id, ip, site_url, now, sent_at, team_id, ev
             kafka_partition_key = hashlib.sha256(candidate_partition_key.encode()).hexdigest()
 
     return log_event(parsed_event, event["event"], partition_key=kafka_partition_key)
+
+
+def capture_middleware(get_response: Callable[[HttpRequest], HttpResponse]):
+    """
+    Middleware to serve up capture responses. We specifically want to avoid
+    doing any unnecessary work in these endpoints as they are hit very
+    frequently, and we want to provide the best availability possible, which
+    translates to keeping dependencies to a minimum.
+    """
+    from corsheaders.middleware import CorsPostCsrfMiddleware
+    from django_prometheus.middleware import PrometheusAfterMiddleware, PrometheusBeforeMiddleware
+
+    prometheus_before = PrometheusBeforeMiddleware()
+    prometheus_after = PrometheusAfterMiddleware()
+    cors = CorsPostCsrfMiddleware()
+
+    def middleware(request: HttpRequest) -> HttpResponse:
+        if request.path in (
+            "/e",
+            "/e/",
+            "/s",
+            "/s/",
+            "/track",
+            "/track/",
+            "/capture",
+            "/capture/",
+            "/batch",
+            "/batch/",
+        ):
+            prometheus_before.process_request(request)
+            cors.process_request(request)
+            prometheus_after.process_request(request)
+
+            response = get_event(request)
+
+            prometheus_after.process_response(request, response)
+            prometheus_before.process_response(request, response)
+            return response
+
+        return get_response(request)
+
+    return middleware
