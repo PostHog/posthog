@@ -73,7 +73,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
-        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter']],
+        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter', 'setSyncScroll']],
         values: [
             playerSettingsLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
@@ -99,7 +99,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setWindowIdFilter: (windowId: string | null) => ({ windowId }),
         setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
-        setSyncScroll: (syncScroll: boolean) => ({ syncScroll }),
+        setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
     reducers(({}) => ({
         searchQuery: [
@@ -126,11 +126,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        syncScroll: [
+        syncScrollingPaused: [
             false,
             {
-                setSyncScroll: (_, { syncScroll }) => syncScroll,
-                setItemExpanded: () => false,
+                setTab: () => false,
+                setSyncScrollPaused: (_, { paused }) => paused,
+                setItemExpanded: () => true,
+                setSyncScroll: () => false,
             },
         ],
     })),
