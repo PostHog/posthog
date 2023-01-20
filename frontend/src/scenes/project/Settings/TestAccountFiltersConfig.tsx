@@ -11,7 +11,8 @@ import { AlertMessage } from 'lib/components/AlertMessage'
 export function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
-    const { currentTeam, currentTeamLoading, testAccountFilterWarningLabels } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading, testAccountFilterWarningLabels, testAccountFilterFrequentMistakes } =
+        useValues(teamLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const handleChange = (filters: AnyPropertyFilter[]): void => {
@@ -34,6 +35,18 @@ export function TestAccountFiltersConfig(): JSX.Element {
                             {testAccountFilterWarningLabels.map((l, i) => (
                                 <li key={i} className="ml-4">
                                     {l}
+                                </li>
+                            ))}
+                        </ul>
+                    </AlertMessage>
+                )}
+                {!!testAccountFilterFrequentMistakes && testAccountFilterFrequentMistakes.length > 0 && (
+                    <AlertMessage type="warning" className="m-2">
+                        <p>Your filter contains a setting that is likely to exclude or include unexpected users.</p>
+                        <ul className="list-disc">
+                            {testAccountFilterFrequentMistakes.map(({ key, type, fix }, i) => (
+                                <li key={i} className="ml-4">
+                                    {key} is a {type} property, but {fix}.
                                 </li>
                             ))}
                         </ul>
