@@ -13,47 +13,50 @@ jobs:
         container:
             image: mcr.microsoft.com/playwright:v1.28.1-focal
         steps:
-            - uses: actions/checkout@v3
+            # - uses: actions/checkout@v3
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@v2
-              with:
-                  version: 7.x.x
+            # - name: Install pnpm
+            #   uses: pnpm/action-setup@v2
+            #   with:
+            #       version: 7.x.x
 
-            - name: Set up Node.js
-              uses: actions/setup-node@v3
-              with:
-                  node-version: 18
-                  cache: pnpm
+            # - name: Set up Node.js
+            #   uses: actions/setup-node@v3
+            #   with:
+            #       node-version: 18
+            #       cache: pnpm
 
-            - name: Install package.json dependencies with pnpm
-              run: pnpm install --frozen-lockfile
+            # - name: Install package.json dependencies with pnpm
+            #   run: pnpm install --frozen-lockfile
 
-            - name: Install CI utilities with pnpm
-              run: pnpm install concurrently http-server wait-on
+            # - name: Install CI utilities with pnpm
+            #   run: pnpm install concurrently http-server wait-on
 
-            - name: Build Storybook
-              run: pnpm build-storybook --quiet
+            # - name: Build Storybook
+            #   run: pnpm build-storybook --quiet
 
-            - name: Serve Storybook and run tests
-              run: |
-                  pnpm exec concurrently -k -s first -n "SRVR,TEST" -c "magenta,blue" \
-                    "pnpm exec http-server storybook-static --port 6006" \
-                    "pnpm exec wait-on http://127.0.0.1:6006 --timeout 60 && pnpm exec playwright test"
+            # - name: Serve Storybook and run tests
+            #   run: |
+            #       pnpm exec concurrently -k -s first -n "SRVR,TEST" -c "magenta,blue" \
+            #         "pnpm exec http-server storybook-static --port 6006" \
+            #         "pnpm exec wait-on http://127.0.0.1:6006 --timeout 60 && pnpm exec playwright test"
 
-            - name: Upload Playwright report
-              uses: actions/upload-artifact@v3
-              if: always()
-              with:
-                  name: playwright-report
-                  path: |
-                      playwright-report/
-                      test-results/
-                  retention-days: 7
+            # - name: Upload Playwright report
+            #   uses: actions/upload-artifact@v3
+            #   if: always()
+            #   with:
+            #       name: playwright-report
+            #       path: |
+            #           playwright-report/
+            #           test-results/
+            #       retention-days: 7
 
             - name: Setup Pages
               if: always()
               uses: actions/configure-pages@v2
+
+            - name: add example file
+              run: echo "Hello World" > example.txt
 
             - name: Upload artifact
               if: always()
@@ -61,8 +64,7 @@ jobs:
               with:
                   # Upload entire coverage folder
                   path: |
-                      playwright-report/
-                      test-results/
+                      example.txt
 
             - name: Deploy to GitHub Pages
               if: always()
