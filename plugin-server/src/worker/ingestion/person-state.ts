@@ -240,7 +240,7 @@ export class PersonState {
         }
 
         const update: Partial<Person> = {}
-        const updatedProperties = this.updatedPersonProperties(personFound.properties || {})
+        const updatedProperties = this.applyEventPropertyUpdates(personFound.properties || {})
 
         if (!equal(personFound.properties, updatedProperties)) {
             update.properties = updatedProperties
@@ -257,7 +257,7 @@ export class PersonState {
         }
     }
 
-    private updatedPersonProperties(personProperties: Properties): Properties {
+    private applyEventPropertyUpdates(personProperties: Properties): Properties {
         const updatedProperties = { ...personProperties }
 
         const properties: Properties = this.eventProperties['$set'] || {}
@@ -460,42 +460,16 @@ export class PersonState {
                 }
             }
         } else if (oldPerson && newPerson && oldPerson.id !== newPerson.id) {
-            // $create_alias and $identify will not merge a user who's already identified into anyone else
-            const isCallToMergeAnIdentifiedUser = oldPerson.is_identified
-
-            // For analyzing impact of merges we need to know how old data would need to get updated
-            // If we are smart we merge the newer person into the older one,
-            // so we need to know the newer person's age
-            const oldPersonAgeInMonths = Math.floor(Math.abs(oldPerson.created_at.diffNow('months').months))
-            const newPersonAgeInMonths = Math.floor(Math.abs(newPerson.created_at.diffNow('months').months))
-            // max for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
-            const newerPersonAge = Math.max(Math.min(oldPersonAgeInMonths, newPersonAgeInMonths), 36)
-
-            this.statsd?.increment('merge_users', {
-                call: isIdentifyCall ? 'identify' : 'alias',
-                teamId: newPerson.team_id.toString(),
-                oldPersonIdentified: String(oldPerson.is_identified),
-                newPersonIdentified: String(newPerson.is_identified),
-                newerPersonAge: String(newerPersonAge),
+            await this.mergePeople({
+                totalMergeAttempts,
+                shouldIdentifyPerson: isIdentifyCall,
+                mergeInto: newPerson,
+                mergeIntoDistinctId: distinctId,
+                otherPerson: oldPerson,
+                otherPersonDistinctId: previousDistinctId,
+                timestamp: timestamp,
+                excludeProperties,
             })
-            if (isCallToMergeAnIdentifiedUser) {
-                captureIngestionWarning(this.db, teamId, 'cannot_merge_already_identified', {
-                    sourcePersonDistinctId: previousDistinctId,
-                    targetPersonDistinctId: distinctId,
-                })
-                status.warn('🤔', 'refused to merge an already identified user via an $identify call')
-            } else {
-                await this.mergePeople({
-                    totalMergeAttempts,
-                    shouldIdentifyPerson: isIdentifyCall,
-                    mergeInto: newPerson,
-                    mergeIntoDistinctId: distinctId,
-                    otherPerson: oldPerson,
-                    otherPersonDistinctId: previousDistinctId,
-                    timestamp: timestamp,
-                    excludeProperties,
-                })
-            }
         }
     }
 
@@ -507,7 +481,7 @@ export class PersonState {
         timestamp,
         totalMergeAttempts = 0,
         shouldIdentifyPerson = true,
-        excludeProperties,
+        excludeProperties = false,
     }: {
         mergeInto: Person
         mergeIntoDistinctId: string
@@ -516,18 +490,51 @@ export class PersonState {
         timestamp: DateTime
         totalMergeAttempts: number
         shouldIdentifyPerson?: boolean
-        excludeProperties: boolean
+        excludeProperties?: boolean
     }): Promise<void> {
-        const teamId = mergeInto.team_id
+        const olderCreatedAt = DateTime.min(mergeInto.created_at, otherPerson.created_at)
+        const newerCreatedAt = DateTime.max(mergeInto.created_at, otherPerson.created_at)
 
-        let firstSeen = mergeInto.created_at
+        const mergeAllowed = this.isMergeAllowed(otherPerson)
 
-        // Merge properties
-        mergeInto.properties = { ...otherPerson.properties, ...mergeInto.properties }
-        if (otherPerson.created_at < firstSeen) {
-            // Keep the oldest created_at (i.e. the first time we've seen this person)
-            firstSeen = otherPerson.created_at
+        this.statsd?.increment('merge_users', {
+            call: shouldIdentifyPerson ? 'identify' : 'alias',
+            teamId: this.teamId.toString(),
+            oldPersonIdentified: String(otherPerson.is_identified),
+            newPersonIdentified: String(mergeInto.is_identified),
+            // For analyzing impact of merges we need to know how old data would need to get updated
+            // If we are smart we merge the newer person into the older one,
+            // so we need to know the newer person's age
+            newerPersonAgeInMonths: String(this.personAgeInMonthsLowCardinality(newerCreatedAt)),
+        })
+
+        // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
+        if (!mergeAllowed) {
+            // TODO: add event UUID to the ingestion warning
+            captureIngestionWarning(this.db, this.teamId, 'cannot_merge_already_identified', {
+                sourcePersonDistinctId: otherPersonDistinctId,
+                targetPersonDistinctId: mergeIntoDistinctId,
+            })
+            status.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call')
+            return
         }
+
+        // How the merge works:
+        // Merging properties:
+        //   on key conflict we use the properties from the person provided as the first argument in identify or alias calls (mergeInto person),
+        //   Note it's important for us to compute this before potentially swapping the persons for personID merging purposes in PoEEmbraceJoin mode
+        // In case of PoE Embrace the join mode:
+        //   we want to keep using the older person to reduce the number of partitions that need to be updated during squash
+        //   to do that we'll swap otherPerson and mergeInto person (after properties merge computation!)
+        //   additionally update person overrides table in postgres and clickhouse
+        //   TODO: ^
+        // If the merge fails:
+        //   we'll roll back the transaction and then try from scratch in the origial order of persons provided for property merges
+        //   that guarantees consistency of how properties are processed regardless of persons created_at timestamps and rollout state
+        //   we're calling aliasDeprecated as we need to refresh the persons info completely first
+
+        let properties: Properties = { ...otherPerson.properties, ...mergeInto.properties }
+        properties = this.applyEventPropertyUpdates(properties)
 
         let kafkaMessages: ProducerRecord[] = []
 
@@ -543,55 +550,83 @@ export class PersonState {
         // This is low-probability so likely won't occur on second retry of this block.
         // In the rare case of the person changing VERY often however, it may happen even a few times,
         // in which case we'll bail and rethrow the error.
-        await this.db.postgresTransaction('mergePeople', async (client) => {
-            try {
-                const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
-                    mergeInto,
-                    {
-                        created_at: firstSeen,
-                        properties: excludeProperties
-                            ? mergeInto.properties
-                            : this.updatedPersonProperties(mergeInto.properties),
-                        is_identified: true,
-                    },
-                    client
-                )
+        try {
+            let mergedPerson
+                // Keep the oldest created_at (i.e. the first time we've seen this person)
+            ;[kafkaMessages, mergedPerson] = await this.handleMergeTransaction(
+                mergeInto,
+                otherPerson,
+                olderCreatedAt,
+                properties
+            )
+            await this.db.kafkaProducer.queueMessages(kafkaMessages)
 
-                // :KLUDGE: Avoid unneeded fetches in updateProperties()
-                this.personContainer = this.personContainer.with(person)
-
-                // Merge the distinct IDs
-                await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
-
-                const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
-
-                const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
-
-                kafkaMessages = [...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages]
-            } catch (error) {
-                if (!(error instanceof DatabaseError)) {
-                    throw error // Very much not OK, this is some completely unexpected error
-                }
-
-                failedAttempts++
-                if (failedAttempts === MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
-                    throw error // Very much not OK, failed repeatedly so rethrowing the error
-                }
-
-                await this.aliasDeprecated(
-                    otherPersonDistinctId,
-                    mergeIntoDistinctId,
-                    teamId,
-                    timestamp,
-                    shouldIdentifyPerson,
-                    false,
-                    failedAttempts,
-                    excludeProperties
-                )
+            // :KLUDGE: Avoid unneeded fetches in updateProperties()
+            this.personContainer = this.personContainer.with(mergedPerson)
+        } catch (error) {
+            if (!(error instanceof DatabaseError)) {
+                throw error // Very much not OK, this is some completely unexpected error
             }
-        })
 
-        await this.db.kafkaProducer.queueMessages(kafkaMessages)
+            failedAttempts++
+            if (failedAttempts === MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
+                throw error // Very much not OK, failed repeatedly so rethrowing the error
+            }
+
+            // Note this is the persons in the original order (mergeIntoDistinctId and otherPersonDistinctId are never changed),
+            // which is important for property overrides on conflicts consistency
+            await this.aliasDeprecated(
+                otherPersonDistinctId,
+                mergeIntoDistinctId,
+                this.teamId,
+                timestamp,
+                shouldIdentifyPerson,
+                false,
+                failedAttempts,
+                excludeProperties
+            )
+        }
+    }
+
+    private isMergeAllowed(mergeFrom: Person): boolean {
+        // $create_alias and $identify will not merge a user who's already identified into anyone else
+        return !mergeFrom.is_identified
+    }
+
+    private personAgeInMonthsLowCardinality(timestamp: DateTime): number {
+        const ageInMonths = Math.floor(Math.abs(timestamp.diffNow('months').months))
+        // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
+        const ageLowCardinality = Math.min(ageInMonths, 50)
+        return ageLowCardinality
+    }
+
+    private async handleMergeTransaction(
+        mergeInto: Person,
+        otherPerson: Person,
+        createdAt: DateTime,
+        properties: Properties
+    ): Promise<[ProducerRecord[], Person]> {
+        return await this.db.postgresTransaction('mergePeople', async (client) => {
+            const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
+                mergeInto,
+                {
+                    created_at: createdAt,
+                    properties: properties,
+                    is_identified: true,
+                },
+                client
+            )
+
+            // Merge the distinct IDs
+            // TODO: Doesn't this table need to add updates to CH too?
+            await this.handleTablesDependingOnPersonID(otherPerson, mergeInto, client)
+
+            const distinctIdMessages = await this.db.moveDistinctIds(otherPerson, mergeInto, client)
+
+            const deletePersonMessages = await this.db.deletePerson(otherPerson, client)
+
+            return [[...updatePersonMessages, ...distinctIdMessages, ...deletePersonMessages], person]
+        })
     }
 
     private async handleTablesDependingOnPersonID(
