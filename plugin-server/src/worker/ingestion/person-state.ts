@@ -365,7 +365,7 @@ export class PersonState {
         )
     }
 
-    private async aliasDeprecated(
+    public async aliasDeprecated(
         previousDistinctId: string,
         distinctId: string,
         teamId: number,
