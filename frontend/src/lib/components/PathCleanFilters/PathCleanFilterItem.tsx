@@ -16,7 +16,7 @@ interface PathCleanFilterItem {
 
 export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFilterItem): JSX.Element {
     const [visible, setVisible] = useState(false)
-    const label = `${filter['alias']}::${filter['regex']}`
+    const label = `${filter.alias}::${filter.regex}`
 
     return (
         <Popup
