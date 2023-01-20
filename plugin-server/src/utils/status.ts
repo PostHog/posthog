@@ -1,6 +1,7 @@
 import pino from 'pino'
 
-import { PluginsServerConfig } from '../types'
+import { LogLevel, PluginsServerConfig } from '../types'
+import { isProdEnv } from './env-utils'
 
 export type StatusMethod = (icon: string, ...message: any[]) => void
 
@@ -13,6 +14,7 @@ export interface StatusBlueprint {
 
 export class Status implements StatusBlueprint {
     mode?: string
+    explicitLogLevel?: LogLevel
     logger: pino.Logger
     prompt: string
     transport: any
@@ -20,7 +22,8 @@ export class Status implements StatusBlueprint {
     constructor(mode?: string) {
         this.mode = mode
 
-        if (process.env.NODE_ENV === 'production') {
+        const logLevel: LogLevel = this.explicitLogLevel || LogLevel.Info
+        if (isProdEnv()) {
             this.logger = pino({
                 // By default pino will log the level number. So we can easily unify
                 // the log structure with other parts of the app e.g. the web
@@ -32,7 +35,7 @@ export class Status implements StatusBlueprint {
                         return { level: label }
                     },
                 },
-                level: 'info',
+                level: logLevel,
             })
         } else {
             // If we're not in production, we ensure that:
@@ -46,12 +49,11 @@ export class Status implements StatusBlueprint {
                 target: 'pino-pretty',
                 options: {
                     sync: true,
-                    level: 'debug',
+                    level: logLevel,
                 },
             })
-            this.logger = pino({ level: 'debug' }, this.transport)
+            this.logger = pino({ level: logLevel }, this.transport)
         }
-
         this.prompt = 'MAIN'
     }
 

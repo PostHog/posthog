@@ -452,6 +452,7 @@ export enum PropertyFilterType {
     Cohort = 'cohort',
     Recording = 'recording',
     Group = 'group',
+    HogQL = 'hogql',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -505,6 +506,11 @@ export interface FeaturePropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface HogQLPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.HogQL
+    key: string
+}
+
 export type PropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -514,6 +520,7 @@ export type PropertyFilter =
     | RecordingDurationFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
+    | HogQLPropertyFilter
 
 export type AnyPropertyFilter =
     | Partial<EventPropertyFilter>
@@ -524,6 +531,7 @@ export type AnyPropertyFilter =
     | Partial<RecordingDurationFilter>
     | Partial<GroupPropertyFilter>
     | Partial<FeaturePropertyFilter>
+    | Partial<HogQLPropertyFilter>
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -1865,6 +1873,7 @@ export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null
+    payloads: Record<string, JsonType>
 }
 
 export interface FeatureFlagType {
@@ -2393,6 +2402,10 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum GroupMathType {
+    UniqueGroup = 'unique_group',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -2619,3 +2632,5 @@ export interface RecordingReportLoadTimes {
     performanceEvents: RecordingReportLoadTimeRow
     firstPaint: RecordingReportLoadTimeRow
 }
+
+export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>

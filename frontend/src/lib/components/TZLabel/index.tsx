@@ -33,6 +33,7 @@ interface TZLabelRawProps {
     formatDate?: string
     formatTime?: string
     showPopover?: boolean
+    noStyles?: boolean
     className?: string
 }
 
@@ -43,6 +44,7 @@ function TZLabelRaw({
     formatDate,
     formatTime,
     showPopover = true,
+    noStyles = false,
     className,
 }: TZLabelRawProps): JSX.Element {
     usePeriodicRerender(1000)
@@ -56,7 +58,7 @@ function TZLabelRaw({
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
     const innerContent = (
-        <span className={clsx('tz-label', showPopover && 'tz-label--hoverable', className)}>
+        <span className={!noStyles ? clsx('tz-label', showPopover && 'tz-label--hoverable', className) : className}>
             {formatDate || formatTime
                 ? humanFriendlyDetailedTime(parsedTime, formatDate, formatTime)
                 : parsedTime.fromNow()}

@@ -374,6 +374,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
         loadRecordingSnapshotsFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
+                console.error('PostHog Recording Playback Error: No snapshots loaded')
                 actions.setErrorPlayerState(true)
             }
         },
@@ -453,6 +454,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()
+                console.error("Error: Player tried to seek to a position that hasn't loaded yet")
                 actions.setErrorPlayerState(true)
             }
 
@@ -583,6 +585,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             ) {
                 values.player?.replayer?.pause()
                 actions.endBuffer()
+                console.error('PostHog Recording Playback Error: Tried to access snapshot that is not loaded yet')
                 actions.setErrorPlayerState(true)
             }
 

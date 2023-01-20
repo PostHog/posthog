@@ -557,19 +557,39 @@ class ClickhouseTestMixin(QueryMatchingTest):
             yield queries
 
 
+@contextmanager
+def failhard_threadhook_context():
+    """
+    Context manager to ensure that exceptions raised by threads are treated as a
+    test failure.
+    """
+
+    def raise_hook(args: threading.ExceptHookArgs):
+        if args.exc_value is not None:
+            raise args.exc_type(args.exc_value)
+
+    old_hook, threading.excepthook = threading.excepthook, raise_hook
+    try:
+        yield old_hook
+    finally:
+        assert threading.excepthook is raise_hook
+        threading.excepthook = old_hook
+
+
 def run_clickhouse_statement_in_parallel(statements: List[str]):
     jobs = []
-    for item in statements:
-        thread = threading.Thread(target=sync_execute, args=(item,))
-        jobs.append(thread)
+    with failhard_threadhook_context():
+        for item in statements:
+            thread = threading.Thread(target=sync_execute, args=(item,))
+            jobs.append(thread)
 
-    # Start the threads (i.e. calculate the random number lists)
-    for j in jobs:
-        j.start()
+        # Start the threads (i.e. calculate the random number lists)
+        for j in jobs:
+            j.start()
 
-    # Ensure all of the threads have finished
-    for j in jobs:
-        j.join()
+        # Ensure all of the threads have finished
+        for j in jobs:
+            j.join()
 
 
 class ClickhouseDestroyTablesMixin(BaseTest):
