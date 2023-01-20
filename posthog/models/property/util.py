@@ -65,6 +65,7 @@ def parse_prop_grouped_clauses(
     group_properties_joined: bool = True,
     _top_level: bool = True,
 ) -> Tuple[str, Dict]:
+
     if not property_group or len(property_group.values) == 0:
         return "", {}
 
