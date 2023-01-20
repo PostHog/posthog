@@ -49,7 +49,11 @@ module.exports = {
     async postRender(page, context) {
         const storyContext = await getStoryContext(page, context)
         if (storyContext.parameters?.layout === 'fullscreen') {
-            await expectStoryToMatchSceneSnapshot(page, context)
+            if (storyContext.parameters.testRunner?.includeNavigation) {
+                await expectStoryToMatchFullPageSnapshot(page, context)
+            } else {
+                await expectStoryToMatchSceneSnapshot(page, context)
+            }
         } else {
             await expectStoryToMatchComponentSnapshot(page, context)
         }
