@@ -1,7 +1,7 @@
 import { initKeaTests } from '~/test/init'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { expectLogic, partial } from 'kea-test-utils'
-import { categoryRowKey, dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
+import { dataTableLogic } from '~/queries/nodes/DataTable/dataTableLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataTableNode, NodeKind } from '~/queries/schema'
 import { query } from '~/queries/query'
@@ -209,18 +209,14 @@ describe('dataTableLogic', () => {
             .delay(0)
             .toMatchValues({ responseLoading: false, response: partial({ results }) })
         await expectLogic(logic).toMatchValues({
-            resultsWithLabelRows: [
-                results[0],
-                {
-                    [categoryRowKey]: 'December 23, 2022',
-                },
-                results[1],
-                results[2],
-                {
-                    [categoryRowKey]: 'December 22, 2022',
-                },
-                results[3],
-                results[4],
+            dataTableRows: [
+                { result: results[0] },
+                { label: 'December 23, 2022' },
+                { result: results[1] },
+                { result: results[2] },
+                { label: 'December 22, 2022' },
+                { result: results[3] },
+                { result: results[4] },
             ],
         })
     })

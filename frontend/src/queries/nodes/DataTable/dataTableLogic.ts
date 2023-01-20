@@ -8,13 +8,22 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dayjs } from 'lib/dayjs'
+import equal from 'fast-deep-equal'
 
 export interface DataTableLogicProps {
     key: string
     query: DataTableNode
 }
 
-export const categoryRowKey = Symbol('__categoryRow__')
+export interface DataTableRow {
+    /** Display a row with a label. */
+    label?: JSX.Element | string | null
+    /** Display a row with results */
+    result?: Record<string, any> | any[]
+}
+
+export const loadingColumn = Symbol('...')
+export const errorColumn = Symbol('Error!')
 
 export const dataTableLogic = kea<dataTableLogicType>([
     props({} as DataTableLogicProps),
@@ -37,7 +46,7 @@ export const dataTableLogic = kea<dataTableLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             dataNodeLogic({ key: props.key, query: props.query.source }),
-            ['response', 'responseLoading'],
+            ['response', 'responseLoading', 'responseError'],
         ],
     })),
     selectors({
@@ -57,23 +66,33 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     ? (response?.columns as string[])
                     : null,
         ],
-        resultsWithLabelRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInResponse, s.columnsInQuery],
-            (sourceKind, orderBy, response, columnsInResponse, columnsInQuery): any[] | null => {
-                if (sourceKind === NodeKind.EventsQuery) {
-                    const results = (response as EventsQuery['response'] | null)?.results
-                    if (results) {
+        dataTableRows: [
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery],
+            (sourceKind, orderBy, response: AnyDataNode['response'], columnsInQuery): DataTableRow[] | null => {
+                if (response && sourceKind === NodeKind.EventsQuery) {
+                    const eventsQueryResponse = response as EventsQuery['response'] | null
+                    if (eventsQueryResponse) {
+                        const { results, columns: columnsInResponse } = eventsQueryResponse
                         const orderKey = orderBy?.[0]?.startsWith('-') ? orderBy[0].slice(1) : orderBy?.[0]
-                        const orderKeyIndex = (columnsInResponse ?? columnsInQuery).findIndex(
+                        const orderKeyIndex = columnsInResponse.findIndex(
                             (column) =>
                                 removeExpressionComment(column) === orderKey ||
                                 removeExpressionComment(column) === `-${orderKey}`
                         )
 
+                        const columnMap = Object.fromEntries(columnsInResponse.map((c, i) => [c, i]))
+                        const resultToDataTableRow = equal(columnsInQuery, columnsInResponse)
+                            ? (result: any[]): DataTableRow => ({ result })
+                            : (result: any[]): DataTableRow => ({
+                                  result: columnsInQuery.map((c) =>
+                                      c in columnMap ? result[columnMap[c]] : loadingColumn
+                                  ),
+                              })
+
                         // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {
                             let lastResult: any | null = null
-                            const newResults: any[] = []
+                            const newResults: DataTableRow[] = []
                             for (const result of results) {
                                 if (
                                     result &&
@@ -81,17 +100,21 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                     !dayjs(result[orderKeyIndex]).isSame(lastResult[orderKeyIndex], 'day')
                                 ) {
                                     newResults.push({
-                                        [categoryRowKey]: dayjs(result[orderKeyIndex]).format('LL'),
+                                        label: dayjs(result[orderKeyIndex]).format('LL'),
                                     })
                                 }
-                                newResults.push(result)
+                                newResults.push(resultToDataTableRow(result))
                                 lastResult = result
                             }
                             return newResults
+                        } else {
+                            return results.map((result) => resultToDataTableRow(result))
                         }
                     }
                 }
-                return response && 'results' in response ? (response as any).results ?? null : null
+                return response && 'results' in response && Array.isArray(response.results)
+                    ? response.results.map((result: any) => ({ result })) ?? null
+                    : null
             },
         ],
         queryWithDefaults: [
