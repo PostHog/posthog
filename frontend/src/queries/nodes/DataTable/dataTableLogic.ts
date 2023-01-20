@@ -67,14 +67,8 @@ export const dataTableLogic = kea<dataTableLogicType>([
                     : null,
         ],
         dataTableRows: [
-            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery, s.responseError],
-            (
-                sourceKind,
-                orderBy,
-                response: AnyDataNode['response'],
-                columnsInQuery,
-                responseError
-            ): DataTableRow[] | null => {
+            (s) => [s.sourceKind, s.orderBy, s.response, s.columnsInQuery],
+            (sourceKind, orderBy, response: AnyDataNode['response'], columnsInQuery): DataTableRow[] | null => {
                 if (response && sourceKind === NodeKind.EventsQuery) {
                     const eventsQueryResponse = response as EventsQuery['response'] | null
                     if (eventsQueryResponse) {
@@ -86,30 +80,14 @@ export const dataTableLogic = kea<dataTableLogicType>([
                                 removeExpressionComment(column) === `-${orderKey}`
                         )
 
-                        // if we errored by adding a new column, show the new columns with the old results
-                        // if the columns changed in any other way, return no results
-                        if (
-                            responseError &&
-                            columnsInResponse &&
-                            (columnsInQuery.length <= columnsInResponse.length ||
-                                columnsInResponse.find((c) => !columnsInQuery.includes(c)))
-                        ) {
-                            return []
-                        }
-
                         const columnMap = Object.fromEntries(columnsInResponse.map((c, i) => [c, i]))
                         const resultToDataTableRow = equal(columnsInQuery, columnsInResponse)
                             ? (result: any[]): DataTableRow => ({ result })
-                            : (result: any[]): DataTableRow => {
-                                  const newResult = columnsInQuery.map((c) =>
-                                      c in columnMap
-                                          ? result[columnMap[c]]
-                                          : responseError
-                                          ? errorColumn
-                                          : loadingColumn
-                                  )
-                                  return { result: newResult }
-                              }
+                            : (result: any[]): DataTableRow => ({
+                                  result: columnsInQuery.map((c) =>
+                                      c in columnMap ? result[columnMap[c]] : loadingColumn
+                                  ),
+                              })
 
                         // Add a label between results if the day changed
                         if (orderKey === 'timestamp' && orderKeyIndex !== -1) {

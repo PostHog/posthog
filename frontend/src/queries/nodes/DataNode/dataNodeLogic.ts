@@ -162,6 +162,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                 loadNextData: () => performance.now(),
             },
         ],
+        response: {
+            // Clear the response if a failure to avoid showing inconsistencies in the UI
+            loadDataFailure: () => null,
+        },
         responseError: [
             null as string | null,
             {
