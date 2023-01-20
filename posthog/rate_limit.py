@@ -5,8 +5,8 @@ from typing import List, Optional
 
 from rest_framework.throttling import SimpleRateThrottle
 from sentry_sdk.api import capture_exception
+from statshog.defaults.django import statsd
 
-from posthog.internal_metrics import incr
 from posthog.models.instance_setting import get_instance_setting
 from posthog.settings.utils import get_list
 
@@ -44,10 +44,12 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
         """
         try:
             return getattr(view, "team_id", None)
-        except KeyError:
+        except KeyError as e:
+            raise e
             return None
 
     def allow_request(self, request, view):
+
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
@@ -63,7 +65,7 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
                     path = path_by_org_pattern.sub("/api/organizations/ORG_ID/", path)
 
                 if self.team_is_allowed_to_bypass_throttle(team_id):
-                    incr(
+                    statsd.incr(
                         "team_allowed_to_bypass_rate_limit_exceeded",
                         tags={"team_id": team_id, "path": path},
                     )
@@ -71,7 +73,7 @@ class PassThroughTeamRateThrottle(SimpleRateThrottle):
                     scope = getattr(self, "scope", None)
                     rate = getattr(self, "rate", None)
 
-                    incr(
+                    statsd.incr(
                         "rate_limit_exceeded",
                         tags={"team_id": team_id, "scope": scope, "rate": rate, "path": path},
                     )
