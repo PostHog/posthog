@@ -8,6 +8,7 @@ import {
     FeaturePropertyFilter,
     FilterLogicalOperator,
     GroupPropertyFilter,
+    HogQLPropertyFilter,
     PersonPropertyFilter,
     PropertyFilter,
     PropertyFilterType,
@@ -57,7 +58,7 @@ export function isValidPropertyFilter(filter: AnyPropertyFilter): filter is Prop
     return (
         !!filter && // is not falsy
         'key' in filter && // has a "key" property
-        Object.values(filter).some((v) => !!v) // contains some properties with values
+        ((filter.type === 'hogql' && !!filter.key) || Object.values(filter).some((v) => !!v)) // contains some properties with values
     )
 }
 
@@ -89,6 +90,9 @@ export function isGroupPropertyFilter(filter?: AnyFilterLike | null): filter is 
 }
 export function isFeaturePropertyFilter(filter?: AnyFilterLike | null): filter is FeaturePropertyFilter {
     return filter?.type === PropertyFilterType.Feature
+}
+export function isHogQLPropertyFilter(filter?: AnyFilterLike | null): filter is HogQLPropertyFilter {
+    return filter?.type === PropertyFilterType.HogQL
 }
 
 export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is AnyPropertyFilter {
@@ -148,6 +152,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.Sessions,
+    [PropertyFilterType.HogQL]: TaxonomicFilterGroupType.HogQLExpression,
 }
 
 export function propertyFilterTypeToTaxonomicFilterType(

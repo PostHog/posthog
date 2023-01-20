@@ -20,7 +20,7 @@ function generateFeatureFlag(
         active: true,
         created_by: null,
         is_simple_flag: false,
-        rollout_percentage: null,
+        rollout_percentage: 0,
         ensure_experience_continuity: false,
         experiment_set: null,
         rollback_conditions: [],

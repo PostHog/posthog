@@ -55,7 +55,7 @@ const NEW_FLAG: FeatureFlagType = {
     key: '',
     name: '',
     filters: {
-        groups: [{ properties: [], rollout_percentage: null, variant: null }],
+        groups: [{ properties: [], rollout_percentage: 0, variant: null }],
         multivariate: null,
         payloads: {},
     },
@@ -132,7 +132,7 @@ const variantKeyToIndexFeatureFlagPayloads = (flag: FeatureFlagType): FeatureFla
 
     const newPayloads = {}
     flag.filters.multivariate?.variants.forEach((variant, index) => {
-        newPayloads[index] = flag.filters.payloads[variant.key]
+        newPayloads[index] = flag.filters.payloads?.[variant.key]
     })
     return {
         ...flag,
@@ -266,10 +266,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     if (!state) {
                         return state
                     }
-                    const groups = [
-                        ...state?.filters.groups,
-                        { properties: [], rollout_percentage: null, variant: null },
-                    ]
+                    const groups = [...state?.filters.groups, { properties: [], rollout_percentage: 0, variant: null }]
                     return { ...state, filters: { ...state.filters, groups } }
                 },
                 addRollbackCondition: (state) => {
@@ -406,7 +403,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ...state.filters,
                             aggregation_group_type_index: value,
                             // :TRICKY: We reset property filters after changing what you're aggregating by.
-                            groups: [{ properties: [], rollout_percentage: null, variant: null }],
+                            groups: [{ properties: [], rollout_percentage: 0, variant: null }],
                         },
                     }
                 },

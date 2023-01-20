@@ -99,3 +99,23 @@ class PersonDistinctId(models.Model):
 
     # current version of the id, used to sync with ClickHouse and collapse rows correctly for new clickhouse table
     version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)
+
+
+class PersonOverride(models.Model):
+    """A model of persons to be overriden in merge or merge-like events."""
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "old_person_id"], name="unique override per old_person_id")
+        ]
+
+    id = models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")
+    team: models.ForeignKey = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+    # We don't want to delete rows before we had a chance to propagate updates to the events table.
+    # To reduce potential side-effects, these are not ForeingKeys.
+    old_person_id = models.UUIDField(db_index=True)
+    override_person_id = models.UUIDField(db_index=True)
+
+    oldest_event: models.DateTimeField = models.DateTimeField()
+    version: models.BigIntegerField = models.BigIntegerField(null=True, blank=True)

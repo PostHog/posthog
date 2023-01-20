@@ -10,6 +10,7 @@ from rest_framework import exceptions
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_columns
 from posthog.constants import PropertyOperatorType
+from posthog.hogql.hogql import HogQLContext
 from posthog.models.cohort import Cohort
 from posthog.models.cohort.util import (
     format_cohort_subquery,
@@ -54,6 +55,7 @@ from posthog.utils import is_json, is_valid_regex
 def parse_prop_grouped_clauses(
     team_id: int,
     property_group: Optional[PropertyGroup],
+    hogql_context: Optional[HogQLContext] = None,
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -82,6 +84,7 @@ def parse_prop_grouped_clauses(
                     person_properties_mode=person_properties_mode,
                     person_id_joined_alias=person_id_joined_alias,
                     group_properties_joined=group_properties_joined,
+                    hogql_context=hogql_context,
                     _top_level=False,
                 )
                 group_clauses.append(clause)
@@ -102,6 +105,7 @@ def parse_prop_grouped_clauses(
             group_properties_joined=group_properties_joined,
             property_operator=property_group.type,
             team_id=team_id,
+            hogql_context=hogql_context,
         )
 
     if not _final:
@@ -124,6 +128,7 @@ def is_property_group(group: Union[Property, "PropertyGroup"]):
 def parse_prop_clauses(
     team_id: int,
     filters: List[Property],
+    hogql_context: Optional[HogQLContext],
     prepend: str = "global",
     table_name: str = "",
     allow_denormalized_props: bool = True,
@@ -314,6 +319,11 @@ def parse_prop_clauses(
             filter_query, filter_params = get_session_property_filter_statement(prop, idx, prepend)
             final.append(f"{property_operator} {filter_query}")
             params.update(filter_params)
+        elif prop.type == "hogql":
+            from posthog.hogql.hogql import translate_hogql
+
+            filter_query = translate_hogql(prop.key, hogql_context)
+            final.append(f"{property_operator} {filter_query}")
 
     if final:
         # remove the first operator

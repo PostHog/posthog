@@ -25,6 +25,7 @@ import { LemonSkeleton } from 'lib/components/LemonSkeleton'
 import { userLogic } from 'scenes/userLogic'
 import { PayGatePage } from 'lib/components/PayGatePage/PayGatePage'
 import { IconWindow } from '../../icons'
+import { TZLabel } from '@posthog/apps-common'
 
 const typeToIconAndDescription = {
     [SessionRecordingPlayerTab.ALL]: {
@@ -184,7 +185,7 @@ function PlayerInspectorListItem({
                 >
                     <span className="p-1 text-xs">
                         {timestampMode === 'absolute' ? (
-                            <>{item.timestamp.format('DD MMM HH:mm:ss')}</>
+                            <TZLabel time={item.timestamp} formatDate="DD, MMM" formatTime="hh:mm:ss" noStyles />
                         ) : (
                             <>
                                 {item.timeInRecording < 0 ? (
