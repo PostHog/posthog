@@ -1,33 +1,21 @@
 import { useActions, useValues } from 'kea'
 import { teamLogic } from 'scenes/teamLogic'
 import { PathCleanFilters } from 'lib/components/PathCleanFilters/PathCleanFilters'
-import { PathCleaningFilter } from '~/types'
 
-export function PathCleaningFiltersConfig(): JSX.Element {
+export function PathCleaningFiltersConfig(): JSX.Element | null {
     const { updateCurrentTeam } = useActions(teamLogic)
-    const { currentTeam, pathCleaningFiltersWithNew } = useValues(teamLogic)
+    const { currentTeam } = useValues(teamLogic)
 
-    const handleChange = (filters: PathCleaningFilter[]): void => {
-        updateCurrentTeam({ path_cleaning_filters: filters })
-    }
-
-    const onRemove = (index: number): void => {
-        const newState = (currentTeam?.path_cleaning_filters || []).filter((_, i) => i !== index)
-        handleChange(newState)
+    if (!currentTeam) {
+        return null
     }
 
     return (
-        <div>
-            {currentTeam && (
-                <PathCleanFilters
-                    pageKey="pathcleanfilters"
-                    pathCleaningFilters={pathCleaningFiltersWithNew}
-                    onChange={(newItem) => {
-                        handleChange([...(currentTeam?.path_cleaning_filters || []), newItem])
-                    }}
-                    onRemove={onRemove}
-                />
-            )}
-        </div>
+        <PathCleanFilters
+            filters={currentTeam.path_cleaning_filters}
+            setFilters={(filters) => {
+                updateCurrentTeam({ path_cleaning_filters: filters })
+            }}
+        />
     )
 }

@@ -1,7 +1,7 @@
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import api from 'lib/api'
 import type { teamLogicType } from './teamLogicType'
-import { CorrelationConfigType, PathCleaningFilter, PropertyOperator, TeamType } from '~/types'
+import { CorrelationConfigType, PropertyOperator, TeamType } from '~/types'
 import { userLogic } from './userLogic'
 import { identifierToHuman, isUserLoggedIn, resolveWebhookService } from 'lib/utils'
 import { organizationLogic } from './organizationLogic'
@@ -120,12 +120,6 @@ export const teamLogic = kea<teamLogicType>([
             (selectors) => [selectors.currentTeam, organizationLogic.selectors.currentOrganization],
             (currentTeam, currentOrganization): boolean =>
                 (currentTeam?.is_demo && currentOrganization?.teams && currentOrganization.teams.length == 1) || false,
-        ],
-        pathCleaningFiltersWithNew: [
-            (selectors) => [selectors.currentTeam],
-            (currentTeam): PathCleaningFilter[] => {
-                return currentTeam?.path_cleaning_filters ? [...currentTeam.path_cleaning_filters, {}] : [{}]
-            },
         ],
         funnelCorrelationConfig: [
             (selectors) => [selectors.currentTeam],
