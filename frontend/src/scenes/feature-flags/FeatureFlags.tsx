@@ -81,9 +81,13 @@ function OverViewTab(): JSX.Element {
             ? [
                   {
                       title: 'Tags',
-                      dataIndex: 'tags' as keyof FeatureFlagType,
-                      render: function Render(tags: FeatureFlagType['tags']) {
-                          return tags ? <ObjectTags tags={tags} staticOnly /> : null
+                      dataIndex: 'tags',
+                      render: function Render(_, featureFlag: FeatureFlagType) {
+                          const isExperiment = (featureFlag.experiment_set || []).length > 0
+                          const tags = isExperiment
+                              ? [...(featureFlag.tags || []), 'experiment']
+                              : [...featureFlag.tags]
+                          return featureFlag.tags ? <ObjectTags tags={tags} staticOnly /> : null
                       },
                   } as LemonTableColumn<FeatureFlagType, keyof FeatureFlagType | undefined>,
               ]
