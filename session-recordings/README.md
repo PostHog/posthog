@@ -64,11 +64,53 @@ recording and play this back with the rrweb player. The size of these recordings
 however can be large, so we should to provide some method of ensuring that the
 response size is bounded.
 
-TODO: fill out reasoning
+Before we can play back a recording, we want to first sort the events within the
+rrweb recording in order of the sequence of mutations. There is no other sorting
+we need to perform on the data. If we filter the events then we are left with an
+incomplete recording. So I posit that there is only one representation of this
+data that we need, and so the simplest solution on the querying side is to have
+already persisted the data in the ideal format, as a blob.
 
-Assume that we are to persist session recordings in at minimum 10 minute blobs,
-on the write path per session we would end up with 36 S3 blob posts for a 6 hour
-recording. Current S3 costs are:
+How can we achieve in order processing of rrweb events? There are likely other
+ways to do this, but the simplest with our setup would be to:
+
+1.  ensure that the rrweb/posthog-js client only tries to persist events after
+    if has had confirmation the the event immediately before it has already been
+    persisted. We need to ensure that HTTP 200 really does mean the we have
+    persisted.
+1.  persist all events from the same session to the same Kafka topic.
+
+With these points we should then essentially have a single in order log of the
+rrweb events for a session, which is the result that we would want to return for
+a query on `session_id`. We now need to make this queryable by the client. We
+can e.g. push these into Redis, but this reasonably memory hungry and we really
+want to persist this somewhere a little more durable. We could push this to
+Postgres but we don't need any of the sorting and filtering that it would offer,
+and don't need a transactional database and seems overblown.
+
+Instead we can persist the data to a blob store, the query side is then simply
+retrieving this blob. The downside here is that, given that the session is 6
+hours long, we'd need to push up the entire blob after 6 hours. We want to show
+something to the user before then however. Let's assume that what we want to
+show them is a playable recording, and it's for the purpose of debugging a
+change that they have made either to their website and the want to see how it
+records, or checking that the integration is working. For the former case then
+it is not required that the events go through the entire pipeline. It's possible
+that we can provide some tooling here to enable them to see what the recording
+would look like which wouldn't add any requirements to the backend
+implementation. For the latter, there are probably other fast feedback signals
+we can provide here to highlight that recordings are being captured.
+
+At any rate, if my assumptions about not actually needing immediate viewing and
+playback of recordings is wrong, then we can look at persisting partial
+recordings for viewing, or adding additional "hot" storage option to ensure
+that inflight recordings can be viewed. Or a combination of both.
+
+I'm going to say S3 seems like a sensible option for blob storage, others may
+also be appropriate. Assume that we go with the former solution above and are to
+persist session recordings in at minimum 10 minute blobs, on the write path per
+session we would end up with 36 S3 blob posts for a 6 hour recording. Current S3
+costs are:
 
     $0.005 per 1000 requests
 
@@ -87,6 +129,16 @@ We can further lifecycle to e.g. other S3 tiers to reduce costs, which will
 incurr costs similar to the inital `PUT`s but reduce the monthly costs to 20th
 of the existing monthly cost at the limit.
 
+To be able to start playing back a recording with `session_id`, we need to first
+see which blobs we need to pull, then pull the first one. This should be enough
+to start playing the first 10 minutes. We can then pull further blobs for
+subsequent time blocks.
+
+TODO: include window_id handling and active window metadata
+TODO: include details of handling of large Kafka messages / chunking / no chunk
+left behind via Kafka transactions
+TODO: include details on querying metadata
+
 ## Components
 
 ```mermaid
@@ -102,7 +154,7 @@ flowchart LR
    abc-stream -- periodic flush --> S3
    xyz-stream -- periodic flush --> S3
 
-   session_recording_consumer --> session_recordings_table(ClickHouse session recordings table)
+   session_recording_consumer -- metadata only --> session_recordings_table(ClickHouse session recordings table)
 
    session_recording_consumer -- for real-time viewing? --> hotstorage(maybe redis?)
 ```
