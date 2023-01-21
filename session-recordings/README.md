@@ -81,7 +81,7 @@ Session recordings, at least as they are defined currently give around 450GB per
 million session recordings, which is ~$0.022 per gig which gives **~$10 per
 million session recordings**. So that's
 
-    $20 per 1 million recordings on average
+    $10 / 1 million recordings + $10 / month / 1 million recordings on average
 
 ## Components
 
