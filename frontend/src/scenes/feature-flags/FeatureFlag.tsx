@@ -605,7 +605,7 @@ function FeatureFlagRollout({ readOnly }: FeatureFlagReadOnlyProps): JSX.Element
                                                     </span>
                                                 </Col>
                                                 <Col span={9}>
-                                                    {featureFlag.filters.payloads[index] ? (
+                                                    {featureFlag.filters.payloads?.[index] ? (
                                                         <JSONEditorInput
                                                             readOnly={true}
                                                             value={featureFlag.filters.payloads[index]}
