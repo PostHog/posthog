@@ -108,8 +108,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     }
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const useProvidedURL = true
-                    const response = await toolbarFetch(url || defaultUrl, 'GET', undefined, useProvidedURL)
+                    const response = await toolbarFetch(
+                        url || defaultUrl,
+                        'GET',
+                        undefined,
+                        url ? 'use-as-provided' : 'only-add-token'
+                    )
 
                     if (response.status === 403) {
                         toolbarLogic.actions.authenticate()
