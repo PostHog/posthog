@@ -79,9 +79,13 @@ sessions. That translates to **$10 per 1 million recordings** for the PUTs.
 
 Session recordings, at least as they are defined currently give around 450GB per
 million session recordings, which is ~$0.022 per gig which gives **~$10 per
-million session recordings**. So that's
+million session recordings** on standard Tier. So that's
 
     $10 / 1 million recordings + $10 / month / 1 million recordings on average
+
+We can further lifecycle to e.g. other S3 tiers to reduce costs, which will
+incurr costs similar to the inital `PUT`s but reduce the monthly costs to 20th
+of the existing monthly cost at the limit.
 
 ## Components
 
