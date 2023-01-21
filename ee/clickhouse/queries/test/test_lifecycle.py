@@ -55,7 +55,6 @@ class TestClickhouseLifecycle(ClickhouseTestMixin, lifecycle_test_factory(Trends
             },
             self.team,
         )
-
         result = Trends().run(
             Filter(
                 data={

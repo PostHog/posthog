@@ -9,6 +9,7 @@ from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
 from .event.event import Event
+from .event_buffer import EventBuffer
 from .event_definition import EventDefinition
 from .event_property import EventProperty
 from .experiment import Experiment
@@ -49,6 +50,7 @@ __all__ = [
     "ElementGroup",
     "Entity",
     "Event",
+    "EventBuffer",
     "EventDefinition",
     "EventProperty",
     "Experiment",

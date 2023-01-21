@@ -1,5 +1,5 @@
 import json
-from typing import Any, Dict, Optional, cast
+from typing import Any, Dict, List, Optional, cast
 
 from django.db.models import QuerySet
 from rest_framework import authentication, exceptions, request, serializers, status, viewsets
@@ -16,6 +16,8 @@ from posthog.models import FeatureFlag
 from posthog.models.activity_logging.activity_log import Detail, changes_between, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.cohort import Cohort
+from posthog.models.feature_flag import FeatureFlagMatcher
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.property import Property
 from posthog.permissions import ProjectMembershipNecessaryPermissions, TeamMemberAccessPermission
 
@@ -26,6 +28,9 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
     filters = serializers.DictField(source="get_filters", required=False)
     is_simple_flag = serializers.SerializerMethodField()
     rollout_percentage = serializers.SerializerMethodField()
+
+    experiment_set: serializers.PrimaryKeyRelatedField = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+
     name = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -46,6 +51,7 @@ class FeatureFlagSerializer(serializers.HyperlinkedModelSerializer):
             "is_simple_flag",
             "rollout_percentage",
             "ensure_experience_continuity",
+            "experiment_set",
         ]
 
     # Simple flags are ones that only have rollout_percentage
@@ -188,8 +194,9 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def get_queryset(self) -> QuerySet:
         queryset = super().get_queryset()
         if self.action == "list":
-            queryset = queryset.filter(deleted=False, experiment__isnull=True)
-        return queryset.order_by("-created_at")
+            queryset = queryset.filter(deleted=False).prefetch_related("experiment_set")
+
+        return queryset.select_related("created_by").order_by("-created_at")
 
     @action(methods=["GET"], detail=False)
     def my_flags(self, request: request.Request, **kwargs):
@@ -198,19 +205,56 @@ class FeatureFlagViewSet(StructuredViewSetMixin, ForbidDestroyModel, viewsets.Mo
 
         feature_flags = (
             FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            .prefetch_related("experiment_set")
             .select_related("created_by")
             .order_by("-created_at")
         )
         groups = json.loads(request.GET.get("groups", "{}"))
-        flags = []
-        for feature_flag in feature_flags:
-            match = feature_flag.matches(request.user.distinct_id, groups)
-            value = (match.variant or True) if match else False
+        flags: List[dict] = []
 
+        feature_flag_list = list(feature_flags)
+
+        if not feature_flag_list:
+            return Response(flags)
+
+        matches = FeatureFlagMatcher(feature_flag_list, request.user.distinct_id, groups).get_matches()
+        for feature_flag in feature_flags:
             flags.append(
-                {"feature_flag": FeatureFlagSerializer(feature_flag).data, "value": value,}
+                {
+                    "feature_flag": FeatureFlagSerializer(feature_flag).data,
+                    "value": matches.get(feature_flag.key, False),
+                }
             )
         return Response(flags)
+
+    @action(methods=["GET"], detail=False)
+    def local_evaluation(self, request: request.Request, **kwargs):
+
+        feature_flags = (
+            FeatureFlag.objects.filter(team=self.team, active=True, deleted=False)
+            .prefetch_related("experiment_set")
+            .select_related("created_by")
+            .order_by("-created_at")
+        )
+
+        parsed_flags = []
+        for feature_flag in feature_flags:
+            filters = feature_flag.get_filters()
+            feature_flag.filters = filters
+            parsed_flags.append(feature_flag)
+
+        # TODO: Handle cohorts the same way as feature evaluation would, by simplifying cohort properties to
+        # person properties
+
+        return Response(
+            {
+                "flags": [FeatureFlagSerializer(feature_flag).data for feature_flag in parsed_flags],
+                "group_type_mapping": {
+                    str(row.group_type_index): row.group_type
+                    for row in GroupTypeMapping.objects.filter(team_id=self.team_id)
+                },
+            }
+        )
 
     @action(methods=["GET"], url_path="activity", detail=False)
     def all_activity(self, request: request.Request, **kwargs):

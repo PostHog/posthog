@@ -3,7 +3,6 @@ import { useValues, useActions } from 'kea'
 import { userLogic } from 'scenes/userLogic'
 import { Col, Row, Switch } from 'antd'
 
-/* TODO: This should be moved to user's settings (good first issue) */
 export function ToolbarSettings(): JSX.Element {
     const { user, userLoading } = useValues(userLogic)
     const { updateUser } = useActions(userLogic)

@@ -17,10 +17,9 @@ export const insightsModel = kea<insightsModelType>({
     actions: () => ({
         renameInsight: (item: InsightModel) => ({ item }),
         renameInsightSuccess: (item: InsightModel) => ({ item }),
-        duplicateInsight: (item: InsightModel, dashboardId?: number, move: boolean = false) => ({
+        duplicateInsight: (item: InsightModel, dashboardId?: number) => ({
             item,
             dashboardId,
-            move,
         }),
         moveToDashboard: (item: InsightModel, fromDashboard: number, toDashboard: number, toDashboardName: string) => ({
             item,
@@ -90,7 +89,7 @@ export const insightsModel = kea<insightsModelType>({
                 }
             )
         },
-        duplicateInsight: async ({ item, dashboardId, move }) => {
+        duplicateInsight: async ({ item, dashboardId }) => {
             if (!item) {
                 return
             }
@@ -106,45 +105,7 @@ export const insightsModel = kea<insightsModelType>({
 
             const dashboard = dashboardId ? dashboardsModel.values.rawDashboards[dashboardId] : null
 
-            if (move && dashboard) {
-                const deletedItem = await api.update(
-                    `api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`,
-                    {
-                        deleted: true,
-                    }
-                )
-                dashboardsModel.actions.updateDashboardItem(deletedItem)
-
-                lemonToast.success(
-                    <>
-                        Insight moved to{' '}
-                        <b>
-                            <Link to={urls.dashboard(dashboard.id)}>{dashboard.name || 'Untitled'}</Link>
-                        </b>
-                    </>,
-                    {
-                        button: {
-                            label: 'Undo',
-                            action: async () => {
-                                const [restoredItem, removedItem] = await Promise.all([
-                                    api.update(`api/projects/${teamLogic.values.currentTeamId}/insights/${item.id}`, {
-                                        deleted: false,
-                                    }),
-                                    api.update(
-                                        `api/projects/${teamLogic.values.currentTeamId}/insights/${addedItem.id}`,
-                                        {
-                                            deleted: true,
-                                        }
-                                    ),
-                                ])
-                                lemonToast.success('Panel move reverted')
-                                dashboardsModel.actions.updateDashboardItem(restoredItem)
-                                dashboardsModel.actions.updateDashboardItem(removedItem)
-                            },
-                        },
-                    }
-                )
-            } else if (!move && dashboardId && dashboard) {
+            if (dashboardId && dashboard) {
                 lemonToast.success('Insight copied', {
                     button: {
                         label: `View ${dashboard.name}`,

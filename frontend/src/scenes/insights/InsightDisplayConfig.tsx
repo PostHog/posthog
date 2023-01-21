@@ -92,7 +92,6 @@ export function InsightDisplayConfig({ filters, activeView, disableTable }: Insi
                         <InsightDateFilter
                             defaultValue={'Last 7 days'}
                             disabled={showFunnelBarOptions && isFunnelEmpty(filters)}
-                            bordered
                             makeLabel={(key) => (
                                 <>
                                     <CalendarOutlined /> {key}

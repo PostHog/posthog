@@ -476,6 +476,11 @@ code.code {
     margin-left: 0.25rem;
 }
 
+.mx-auto {
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .mx-0 {
     margin-left: 0 !important;
     margin-right: 0 !important;
@@ -609,6 +614,10 @@ code.code {
     justify-content: center;
 }
 
+.justify-end {
+    justify-content: end;
+}
+
 .flex {
     display: flex;
 }
@@ -618,12 +627,20 @@ code.code {
     flex-direction: column;
 }
 
+.flex-row {
+    flex-direction: row;
+}
+
 .flex-wrap {
     flex-wrap: wrap;
 }
 
 .flex-auto {
     flex: auto;
+}
+
+.flex-grow {
+    flex-grow: 1;
 }
 
 .flex-center {
@@ -669,6 +686,14 @@ input::-ms-clear {
 
 .text-warning {
     color: var(--warning) !important;
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
+}
+
+.text-muted-alt {
+    color: var(--text-muted-alt) !important;
 }
 
 // Random general styles

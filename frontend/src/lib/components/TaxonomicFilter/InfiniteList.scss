@@ -27,13 +27,15 @@
             user-select: none;
 
             .taxonomic-list-row-contents-icon {
-                width: 30px;
                 min-width: 30px;
+                display: flex;
+                justify-content: center;
+                margin-right: 4px;
+                margin-left: -4px;
 
                 svg.taxonomy-icon {
                     vertical-align: middle;
                     flex-shrink: 0;
-                    height: 18.5px;
 
                     &.taxonomy-icon-muted {
                         path {
@@ -42,14 +44,8 @@
                     }
 
                     &.taxonomy-icon-verified {
-                        height: 24px;
-
                         path {
                             fill: var(--success);
-                        }
-
-                        &:not(.taxonomy-icon-ph) {
-                            margin-bottom: -4px; // Slightly larger height requires offset to look vertically centered
                         }
                     }
                 }

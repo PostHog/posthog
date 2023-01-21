@@ -65,7 +65,7 @@ export function PathItemFilters({
                                         remove(index)
                                     }}
                                 >
-                                    {filter.value as string}
+                                    {filter.value.toString()}
                                 </PropertyFilterButton>
                             )}
                         </PathItemSelector>

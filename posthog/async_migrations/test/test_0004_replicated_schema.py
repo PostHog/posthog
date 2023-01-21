@@ -30,7 +30,7 @@ def _create_event(**kwargs):
 
 class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
     def setUp(self):
-        self.recreate_database()
+        self.recreate_database(replication=False)
         sync_execute(KAFKA_EVENTS_TABLE_SQL())
         sync_execute(KAFKA_SESSION_RECORDING_EVENTS_TABLE_SQL())
         sync_execute(KAFKA_GROUPS_TABLE_SQL())
@@ -40,12 +40,11 @@ class Test0004ReplicatedSchema(AsyncMigrationBaseTest, ClickhouseTestMixin):
         sync_execute(KAFKA_DEAD_LETTER_QUEUE_TABLE_SQL())
 
     def tearDown(self):
-        self.recreate_database()
-        settings.CLICKHOUSE_REPLICATION = True
+        self.recreate_database(replication=True)
         super().tearDown()
 
-    def recreate_database(self):
-        settings.CLICKHOUSE_REPLICATION = False
+    def recreate_database(self, replication: bool):
+        settings.CLICKHOUSE_REPLICATION = replication
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         create_clickhouse_tables(0)

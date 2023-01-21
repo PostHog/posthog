@@ -30,8 +30,6 @@ import {
 } from 'lib/components/LemonSelectMultiple/LemonSelectMultiple'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { integrationsLogic } from 'scenes/project/Settings/integrationsLogic'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 import { Skeleton } from 'antd'
 
@@ -66,7 +64,6 @@ export function EditSubscription({
     const { deleteSubscription } = useActions(subscriptionslogic)
     const { slackChannels, slackChannelsLoading, slackIntegration, addToSlackButtonUrl } = useValues(integrationsLogic)
     const { loadSlackChannels } = useActions(integrationsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const emailDisabled = !preflight?.email_service_available
     const slackDisabled = !slackIntegration
@@ -167,11 +164,9 @@ export function EditSubscription({
                             <LemonInput placeholder="e.g. Weekly team report" />
                         </Field>
 
-                        {featureFlags[FEATURE_FLAGS.SUBSCRIPTIONS_SLACK] && (
-                            <Field name={'target_type'} label={'Destination'}>
-                                <LemonSelect options={targetTypeOptions} {...commonSelectProps} />
-                            </Field>
-                        )}
+                        <Field name={'target_type'} label={'Destination'}>
+                            <LemonSelect options={targetTypeOptions} {...commonSelectProps} />
+                        </Field>
 
                         {subscription.target_type === 'email' ? (
                             <>
@@ -199,7 +194,6 @@ export function EditSubscription({
                                             <LemonSelectMultiple
                                                 onChange={(val) => onChange(val.join(','))}
                                                 value={value?.split(',').filter(Boolean)}
-                                                filterOption={false}
                                                 disabled={emailDisabled}
                                                 mode="multiple-custom"
                                                 data-attr="subscribed-emails"
@@ -270,7 +264,6 @@ export function EditSubscription({
                                                     <LemonSelectMultiple
                                                         onChange={(val) => onChange(val)}
                                                         value={value}
-                                                        filterOption={true}
                                                         disabled={slackDisabled}
                                                         mode="single"
                                                         data-attr="select-slack-channel"
@@ -280,7 +273,7 @@ export function EditSubscription({
                                                     <div className="text-small text-muted mt-05">
                                                         Private channels are only shown if you have{' '}
                                                         <a
-                                                            href="https://posthog.com/docs/integrations/slack"
+                                                            href="https://posthog.com/docs/integrate/third-party/slack"
                                                             target="_blank"
                                                             rel="noopener"
                                                         >
@@ -301,7 +294,7 @@ export function EditSubscription({
                                                             to the channel otherwise Subscriptions will fail to be
                                                             delivered.{' '}
                                                             <a
-                                                                href="https://posthog.com/docs/integrations/slack"
+                                                                href="https://posthog.com/docs/integrate/third-party/slack"
                                                                 target="_blank"
                                                                 rel="noopener"
                                                             >

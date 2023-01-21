@@ -264,7 +264,7 @@ export class PersonState {
         timestamp: DateTime,
         isIdentifyCall: boolean
     ): Promise<void> {
-        // No reason to alias person against itself. Done by posthog-js-lite when updating user properties
+        // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (distinctId === previousDistinctId) {
             return
         }
@@ -280,7 +280,7 @@ export class PersonState {
         retryIfFailed = true,
         totalMergeAttempts = 0
     ): Promise<void> {
-        // No reason to alias person against itself. Done by posthog-js-lite when updating user properties
+        // No reason to alias person against itself. Done by posthog-node when updating user properties
         if (previousDistinctId === distinctId) {
             return
         }
@@ -423,7 +423,7 @@ export class PersonState {
         // This is low-probability so likely won't occur on second retry of this block.
         // In the rare case of the person changing VERY often however, it may happen even a few times,
         // in which case we'll bail and rethrow the error.
-        await this.db.postgresTransaction(async (client) => {
+        await this.db.postgresTransaction('mergePeople', async (client) => {
             try {
                 const [person, updatePersonMessages] = await this.db.updatePersonDeprecated(
                     mergeInto,

@@ -458,6 +458,9 @@
     "opt_out_capture": false,
     "posthog_version": "1.23.1",
     "email_service_available": false,
+    "slack_service": {
+        "available": false
+    },
     "is_debug": 1,
     "is_event_property_usage_enabled": false
 }

@@ -20,6 +20,7 @@ import {
     PropertyFilterValue,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
+    PropertyOperator,
     PropertyType,
     TimeUnitType,
 } from '~/types'
@@ -369,21 +370,34 @@ export function chooseOperatorMap(propertyType: PropertyType | undefined): Recor
     return choice
 }
 
-export function isOperatorMulti(operator: string): boolean {
-    return ['exact', 'is_not'].includes(operator)
+export function isOperatorMulti(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Exact, PropertyOperator.IsNot].includes(operator)
 }
 
-export function isOperatorFlag(operator: string): boolean {
+export function isOperatorFlag(operator: PropertyOperator): boolean {
     // these filter operators can only be just set, no additional parameter
-    return ['is_set', 'is_not_set'].includes(operator)
+    return [PropertyOperator.IsSet, PropertyOperator.IsNotSet].includes(operator)
 }
 
-export function isOperatorRegex(operator: string): boolean {
-    return ['regex', 'not_regex'].includes(operator)
+export function isOperatorRegex(operator: PropertyOperator): boolean {
+    return [PropertyOperator.Regex, PropertyOperator.NotRegex].includes(operator)
 }
 
-export function isOperatorDate(operator: string): boolean {
-    return ['is_date_before', 'is_date_after', 'is_date_exact'].includes(operator)
+export function isOperatorRange(operator: PropertyOperator): boolean {
+    return [
+        PropertyOperator.GreaterThan,
+        PropertyOperator.GreaterThanOrEqual,
+        PropertyOperator.LessThan,
+        PropertyOperator.LessThanOrEqual,
+        PropertyOperator.Between,
+        PropertyOperator.NotBetween,
+    ].includes(operator)
+}
+
+export function isOperatorDate(operator: PropertyOperator): boolean {
+    return [PropertyOperator.IsDateBefore, PropertyOperator.IsDateAfter, PropertyOperator.IsDateExact].includes(
+        operator
+    )
 }
 
 export function formatPropertyLabel(
@@ -604,7 +618,7 @@ export function isURL(input: any): boolean {
         return false
     }
     // Regex by regextester.com/115236
-    const regexp = /^(?:http(s)?:\/\/)([\w.-])+(?:[\w\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
+    const regexp = /^(?:http(s)?:\/\/)([\w*.-])+(?:[\w*\.-]+)+([\w\-\._~:/?#[\]@%!\$&'\(\)\*\+,;=.])+$/
     return !!input.trim().match(regexp)
 }
 

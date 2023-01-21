@@ -71,7 +71,6 @@ jobs:
                   mkdir -p frontend/dist
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
                   touch frontend/dist/exporter.html
 
             - name: Wait for Clickhouse & Kafka

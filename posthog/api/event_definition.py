@@ -7,7 +7,7 @@ from posthog.api.routing import StructuredViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import create_event_definitions_sql
-from posthog.constants import AvailableFeature
+from posthog.constants import AvailableFeature, CombinedEventType
 from posthog.exceptions import EnterpriseFeatureException
 from posthog.filters import TermSearchFilterBackend, term_search_filter_sql
 from posthog.models import EventDefinition, TaggedItem
@@ -68,9 +68,9 @@ class EventDefinitionViewSet(
     search_fields = ["name"]
 
     def get_queryset(self):
-        # `include_actions`
-        #   If true, return both list of event definitions and actions together.
-        include_actions = self.request.GET.get("include_actions", None) == "true"
+        # `type` = 'all' | 'event' | 'action_event'
+        # Allows this endpoint to return lists of event definitions, actions, or both.
+        event_type = CombinedEventType(self.request.GET.get("event_type", CombinedEventType.ALL))
 
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
@@ -84,7 +84,7 @@ class EventDefinitionViewSet(
             from ee.models.event_definition import EnterpriseEventDefinition
 
             # Prevent fetching deprecated `tags` field. Tags are separately fetched in TaggedItemSerializerMixin
-            sql = create_event_definitions_sql(include_actions, is_enterprise=True, conditions=search_query)
+            sql = create_event_definitions_sql(event_type, is_enterprise=True, conditions=search_query)
 
             ee_event_definitions = EnterpriseEventDefinition.objects.raw(sql, params=params)
             ee_event_definitions_list = ee_event_definitions.prefetch_related(
@@ -93,7 +93,7 @@ class EventDefinitionViewSet(
 
             return ee_event_definitions_list
 
-        sql = create_event_definitions_sql(include_actions, is_enterprise=False, conditions=search_query)
+        sql = create_event_definitions_sql(event_type, is_enterprise=False, conditions=search_query)
         event_definitions_list = EventDefinition.objects.raw(sql, params=params)
 
         return event_definitions_list

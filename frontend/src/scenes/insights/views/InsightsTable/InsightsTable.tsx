@@ -1,17 +1,16 @@
 import React from 'react'
 import { Dropdown, Menu } from 'antd'
-import { Tooltip } from 'lib/components/Tooltip'
 import { BindLogic, useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { getSeriesColor } from 'lib/colors'
 import { cohortsModel } from '~/models/cohortsModel'
-import { BreakdownKeyType, ChartDisplayType, CohortType, IntervalType, TrendResult } from '~/types'
+import { ChartDisplayType, IntervalType, TrendResult } from '~/types'
 import { average, median, capitalizeFirstLetter, humanFriendlyNumber } from 'lib/utils'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { CalcColumnState, insightsTableLogic } from './insightsTableLogic'
-import { DownOutlined, InfoCircleOutlined } from '@ant-design/icons'
+import { DownOutlined } from '@ant-design/icons'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesToggleWrapper } from './components/SeriesToggleWrapper'
@@ -26,6 +25,8 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconEdit } from 'lib/components/icons'
 import { countryCodeToName } from '../WorldMap'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 interface InsightsTableProps {
     /** Whether this is just a legend instead of standalone insight viz. Default: false. */
@@ -73,6 +74,8 @@ export function InsightsTable({
     const { indexedResults, hiddenLegendKeys, filters, resultsLoading } = useValues(trendsLogic(insightProps))
     const { toggleVisibility, setFilters } = useActions(trendsLogic(insightProps))
     const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
     const { reportInsightsTableCalcToggled } = useActions(eventUsageLogic)
 
     const hasMathUniqueFilter = !!(
@@ -86,14 +89,14 @@ export function InsightsTable({
 
     const handleEditClick = (item: IndexedTrendResult): void => {
         if (canEditSeriesNameInline) {
-            const entityFitler = entityFilterLogic.findMounted({
+            const entityFilter = entityFilterLogic.findMounted({
                 setFilters,
                 filters,
                 typeKey: filterKey,
             })
-            if (entityFitler) {
-                entityFitler.actions.selectFilter(item.action)
-                entityFitler.actions.showModal()
+            if (entityFilter) {
+                entityFilter.actions.selectFilter(item.action)
+                entityFilter.actions.showModal()
             }
         }
     }
@@ -182,7 +185,14 @@ export function InsightsTable({
                 <PropertyKeyInfo disableIcon disablePopover value={filters.breakdown.toString() || 'Breakdown Value'} />
             ),
             render: function RenderBreakdownValue(_, item: IndexedTrendResult) {
-                const breakdownLabel = formatBreakdownLabel(cohorts, item.breakdown_value)
+                const breakdownLabel = formatBreakdownLabel(
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    item.breakdown_value,
+                    item.filter?.breakdown,
+                    item.filter?.breakdown_type,
+                    item.filter?.breakdown_histogram_bin_count !== undefined
+                )
                 return (
                     <SeriesToggleWrapper
                         id={item.id}
@@ -194,8 +204,22 @@ export function InsightsTable({
             },
             key: 'breakdown',
             sorter: (a, b) => {
-                const labelA = formatBreakdownLabel(cohorts, a.breakdown_value)
-                const labelB = formatBreakdownLabel(cohorts, b.breakdown_value)
+                const labelA = formatBreakdownLabel(
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    a.breakdown_value,
+                    a.filter?.breakdown,
+                    a.filter?.breakdown_type,
+                    a.filter?.breakdown_histogram_bin_count !== undefined
+                )
+                const labelB = formatBreakdownLabel(
+                    cohorts,
+                    formatPropertyValueForDisplay,
+                    b.breakdown_value,
+                    b.filter?.breakdown,
+                    b.filter?.breakdown_type,
+                    a.filter?.breakdown_histogram_bin_count !== undefined
+                )
                 return labelA.localeCompare(labelB)
             },
         })
@@ -228,7 +252,9 @@ export function InsightsTable({
                     />
                 ),
                 render: function RenderPeriod(_, item: IndexedTrendResult) {
-                    return humanFriendlyNumber(item.data[index] ?? NaN)
+                    return item.action?.math_property
+                        ? formatPropertyValueForDisplay(item.action.math_property, item.data[index])
+                        : humanFriendlyNumber(item.data[index] ?? NaN)
                 },
                 key: `data-${index}`,
                 sorter: (a, b) => (a.data[index] ?? NaN) - (b.data[index] ?? NaN),
@@ -251,24 +277,18 @@ export function InsightsTable({
             ) : (
                 CALC_COLUMN_LABELS.total
             ),
-            render: function RenderCalc(count: any, item: IndexedTrendResult) {
+            render: function RenderCalc(_: any, item: IndexedTrendResult) {
+                let value
                 if (calcColumnState === 'total' || isDisplayModeNonTimeSeries) {
-                    return (item.count || item.aggregated_value || 'Unknown').toLocaleString()
+                    value = item.count || item.aggregated_value
                 } else if (calcColumnState === 'average') {
-                    return average(item.data).toLocaleString()
+                    value = average(item.data)
                 } else if (calcColumnState === 'median') {
-                    return median(item.data).toLocaleString()
+                    value = median(item.data)
                 }
-                return (
-                    <>
-                        {count?.toLocaleString?.()}
-                        {item.action && item.action?.math === 'dau' && (
-                            <Tooltip title="Keep in mind this is just the sum of all values in the row, not the unique users across the entire time period (i.e. this number may contain duplicate users).">
-                                <InfoCircleOutlined style={{ marginLeft: 4, color: 'var(--primary-alt)' }} />
-                            </Tooltip>
-                        )}
-                    </>
-                )
+                return item.action?.math_property
+                    ? formatPropertyValueForDisplay(item.action?.math_property, value)
+                    : (value ?? 'Unknown').toLocaleString()
             },
             sorter: (a, b) => (a.count || a.aggregated_value) - (b.count || b.aggregated_value),
             dataIndex: 'count',
@@ -290,18 +310,6 @@ export function InsightsTable({
             className="insights-table"
         />
     )
-}
-
-export function formatBreakdownLabel(cohorts?: CohortType[], breakdown_value?: BreakdownKeyType): string {
-    if (breakdown_value && typeof breakdown_value == 'number') {
-        return cohorts?.filter((c) => c.id == breakdown_value)[0]?.name || breakdown_value.toString()
-    } else if (typeof breakdown_value == 'string') {
-        return breakdown_value === 'nan' ? 'Other' : breakdown_value === '' ? 'None' : breakdown_value
-    } else if (Array.isArray(breakdown_value)) {
-        return breakdown_value.join('::')
-    } else {
-        return ''
-    }
 }
 
 export function formatCompareLabel(trendResult: TrendResult): string {

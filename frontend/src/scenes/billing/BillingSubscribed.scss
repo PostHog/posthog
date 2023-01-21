@@ -14,8 +14,22 @@
         text-align: center;
     }
 
-    .title-icon {
-        padding-top: 1rem;
-        font-size: 2rem;
+    .title {
+        display: flex;
+        vertical-align: middle;
+        justify-content: start;
+
+        > * + * {
+            margin-left: 0.25rem;
+        }
+
+        .title-icon {
+            font-size: 2rem;
+            margin: auto 0;
+        }
+    }
+
+    .cta-button {
+        width: 100%;
     }
 }

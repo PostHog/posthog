@@ -142,6 +142,40 @@ class TestPropertyDefinitionEnterpriseAPI(APIBaseTest):
         property.refresh_from_db()
         self.assertEqual(set(property.tagged_items.values_list("tag__name", flat=True)), {"official", "internal"})
 
+    def test_update_property_definition_property_type(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+        )
+
+        property = PropertyDefinition.objects.create(team=self.team, name="property")
+
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", {"property_type": "Numeric"},
+        )
+
+        response_data = response.json()
+        self.assertEqual(response_data["property_type"], "Numeric")
+        self.assertEqual(response_data["is_numerical"], True)
+        self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
+
+    def test_update_property_definition_non_numeric(self):
+        super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            plan="enterprise", valid_until=timezone.datetime(2038, 1, 19, 3, 14, 7)
+        )
+
+        property = PropertyDefinition.objects.create(
+            team=self.team, name="property", property_type="Numeric", is_numerical=True
+        )
+
+        response = self.client.patch(
+            f"/api/projects/@current/property_definitions/{str(property.id)}/", {"property_type": "DateTime"},
+        )
+
+        response_data = response.json()
+        self.assertEqual(response_data["property_type"], "DateTime")
+        self.assertEqual(response_data["is_numerical"], False)
+        self.assertEqual(response_data["updated_by"]["first_name"], self.user.first_name)
+
     def test_update_property_without_license(self):
         property = EnterprisePropertyDefinition.objects.create(team=self.team, name="enterprise property")
         response = self.client.patch(

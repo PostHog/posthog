@@ -1,13 +1,8 @@
-import React, { FormEvent } from 'react'
+import React from 'react'
 import { Tooltip } from 'lib/components/Tooltip'
 import { useActions, useValues } from 'kea'
-import { Modal, Select } from 'antd'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { saveToDashboardModalLogic } from 'lib/components/SaveToDashboard/saveToDashboardModalLogic'
-import { dashboardsModel } from '~/models/dashboardsModel'
+import { addToDashboardModalLogic } from 'lib/components/AddToDashboard/addToDashboardModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { lemonToast } from '../lemonToast'
-import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
 import './AddToDashboard.scss'
 import { IconMagnifier, IconCottage } from 'lib/components/icons'
@@ -46,7 +41,7 @@ const DashboardRelationRow = ({
     insight,
     canEditInsight,
 }: DashboardRelationRowProps): JSX.Element => {
-    const logic = saveToDashboardModalLogic({
+    const logic = addToDashboardModalLogic({
         insight: insight,
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
@@ -96,7 +91,7 @@ export function AddToDashboardModal({
     insight,
     canEditInsight,
 }: SaveToDashboardModalProps): JSX.Element {
-    const logic = saveToDashboardModalLogic({
+    const logic = addToDashboardModalLogic({
         insight: insight,
         fromDashboard: insight.dashboards?.[0] || undefined,
     })
@@ -174,65 +169,5 @@ export function AddToDashboardModal({
                 </LemonButton>
             </section>
         </LemonModal>
-    )
-}
-
-export function SaveToDashboardModal({ visible, closeModal, insight }: SaveToDashboardModalProps): JSX.Element {
-    const logic = saveToDashboardModalLogic({
-        insight: insight,
-        fromDashboard: insight.dashboards?.[0] || undefined,
-    })
-    const { nameSortedDashboards } = useValues(dashboardsModel)
-    const { dashboardId } = useValues(logic)
-    const { addNewDashboard, setDashboardId } = useActions(logic)
-    const { reportSavedInsightToDashboard } = useActions(eventUsageLogic)
-    const { insightLoading } = useValues(insightLogic)
-    const { updateInsight } = useActions(insightLogic)
-
-    async function save(event: MouseEvent | FormEvent): Promise<void> {
-        event.preventDefault()
-        updateInsight({ ...insight, dashboards: [dashboardId] }, () => {
-            reportSavedInsightToDashboard()
-            lemonToast.success('Insight added to dashboard', {
-                button: {
-                    label: 'View dashboard',
-                    action: () => router.actions.push(urls.dashboard(dashboardId)),
-                },
-            })
-            closeModal()
-        })
-    }
-
-    return (
-        <Modal
-            onOk={(e) => void save(e)}
-            onCancel={closeModal}
-            afterClose={closeModal}
-            confirmLoading={insightLoading}
-            visible={visible}
-            title="Add to dashboard"
-            okText="Add insight to dashboard"
-        >
-            <form onSubmit={(e) => void save(e)}>
-                <label>Dashboard</label>
-                <Select
-                    data-attr="add-to-dashboard-select"
-                    value={dashboardId}
-                    onChange={(id) => (id === 'new' ? addNewDashboard() : setDashboardId(id))}
-                    style={{ width: '100%' }}
-                >
-                    {nameSortedDashboards.map((dashboard, idx) => (
-                        <Select.Option
-                            data-attr={`add-to-dashboard-option-${idx}`}
-                            key={dashboard.id}
-                            value={dashboard.id}
-                        >
-                            {dashboard.name}
-                        </Select.Option>
-                    ))}
-                    <Select.Option value="new">+ New Dashboard</Select.Option>
-                </Select>
-            </form>
-        </Modal>
     )
 }

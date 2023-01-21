@@ -11,6 +11,10 @@
     line-height: 1rem;
     white-space: nowrap;
 
+    &.highlight {
+        background-color: var(--yellow-lightest);
+    }
+
     &.warning {
         background-color: var(--warning);
     }

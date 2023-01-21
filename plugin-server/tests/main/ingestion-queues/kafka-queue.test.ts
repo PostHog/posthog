@@ -41,7 +41,6 @@ describe.skip('KafkaQueue', () => {
         await resetTestDatabaseClickhouse(extraServerConfig)
         pluginServer = await startPluginsServer(extraServerConfig, makePiscina)
         hub = pluginServer.hub
-        piscina = pluginServer.piscina
         stopServer = pluginServer.stop
         posthog = createPosthog(hub, pluginConfig39)
     })
@@ -57,8 +56,6 @@ describe.skip('KafkaQueue', () => {
             increment: jest.fn(),
             gauge: jest.fn(),
         } as any
-
-        jest.spyOn(hub.eventsProcessor, 'produceEventToBuffer')
 
         const uuid = new UUIDT().toString()
 

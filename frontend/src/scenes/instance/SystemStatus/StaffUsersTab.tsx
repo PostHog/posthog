@@ -120,10 +120,10 @@ export function StaffUsersTab(): JSX.Element {
                             loading={allUsersLoading}
                             value={staffUsersToBeAdded}
                             onChange={(newValues) => setStaffUsersToBeAdded(newValues)}
-                            filterOption={false}
+                            filterOption={true}
                             mode="multiple"
                             data-attr="subscribed-emails"
-                            options={usersLemonSelectOptions(nonStaffUsers)}
+                            options={usersLemonSelectOptions(nonStaffUsers, 'uuid')}
                         />
                     </div>
                     <LemonButton

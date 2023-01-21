@@ -398,7 +398,6 @@ jobs:
                   python manage.py collectstatic --noinput
                   touch frontend/dist/index.html
                   touch frontend/dist/layout.html
-                  touch frontend/dist/shared_dashboard.html
                   touch frontend/dist/exporter.html
 
             - name: Run cloud tests (posthog-cloud)

@@ -18,10 +18,12 @@ import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { Close } from '~/toolbar/button/icons/Close'
 import { AimOutlined, QuestionOutlined } from '@ant-design/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { featureFlagsLogic } from '~/toolbar/flags/featureFlagsLogic'
 
 const HELP_URL = 'https://posthog.com/docs/user-guides/toolbar?utm_medium=in-product&utm_campaign=toolbar-help-button'
 
 export function ToolbarButton(): JSX.Element {
+    const { shouldSimplifyActions } = useValues(featureFlagsLogic)
     const {
         extensionPercentage,
         heatmapInfoVisible,
@@ -260,7 +262,13 @@ export function ToolbarButton(): JSX.Element {
                         y={toolbarListVerticalPadding + n++ * 60}
                         extensionPercentage={actionsExtensionPercentage}
                         rotationFixer={(r) => (side === 'right' && r < 0 ? 360 : 0)}
-                        label={buttonActionsVisible && (!allActionsLoading || actionCount > 0) ? null : 'Actions'}
+                        label={
+                            buttonActionsVisible && (!allActionsLoading || actionCount > 0)
+                                ? null
+                                : shouldSimplifyActions
+                                ? 'Calculated Events'
+                                : 'Actions'
+                        }
                         labelPosition={side === 'left' ? 'right' : 'left'}
                         labelStyle={{
                             opacity: actionsExtensionPercentage > 0.8 ? (actionsExtensionPercentage - 0.8) / 0.2 : 0,

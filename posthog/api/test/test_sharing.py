@@ -1,6 +1,9 @@
+from unittest.mock import patch
+
 from freezegun import freeze_time
 from rest_framework import status
 
+from posthog.models import ExportedAsset
 from posthog.models.dashboard import Dashboard
 from posthog.models.filters.filter import Filter
 from posthog.models.insight import Insight
@@ -111,3 +114,29 @@ class TestSharing(APIBaseTest):
         response = self.client.patch(f"/api/projects/{self.team.id}/dashboards/{dashboard.id}", {"deleted": True})
         response = self.client.get(f"/shared_dashboard/my_test_token")
         assert response.status_code == 404
+
+    @patch("posthog.models.exported_asset.object_storage.read_bytes")
+    @patch("posthog.api.sharing.asset_for_token")
+    def test_can_get_shared_dashboard_asset_with_no_content_but_content_location(
+        self, patched_asset_for_token, patched_object_storage
+    ) -> None:
+        asset = ExportedAsset.objects.create(
+            team_id=self.team.id,
+            export_format=ExportedAsset.ExportFormat.PNG,
+            content=None,
+            content_location="some object url",
+        )
+        patched_asset_for_token.return_value = asset
+
+        patched_object_storage.return_value = b"the image bytes"
+
+        # pytest parameterize doesn't work in unittest.TestCase classes :'(
+        for url in [
+            "/exporter/something.png?token=my_test_token",
+            "/shared_dashboard/something.png?token=my_test_token",
+        ]:
+            response = self.client.get(url)
+
+            assert response.status_code == 200
+            assert response.headers.get("Content-Type") == "image/png"
+            assert response.content == b"the image bytes"

@@ -18,7 +18,7 @@ WindowId = Optional[str]
 
 
 @dataclasses.dataclass
-class RecordingEventForObjectStorage:
+class ChunkedRecordingEvent:
     unix_timestamp: int
     recording_event_id: str
     session_id: str
@@ -277,7 +277,7 @@ def is_active_event(event: RecordingEventSummary) -> bool:
     return event.type == 3 and event.source in active_rr_web_sources
 
 
-ACTIVITY_THRESHOLD_SECONDS = 60
+ACTIVITY_THRESHOLD_SECONDS = 10
 
 
 def get_active_segments_from_event_list(
@@ -389,11 +389,23 @@ def paginate_list(list_to_paginate: List, limit: Optional[int], offset: int) -> 
 
 def get_session_recording_events_for_object_storage(
     events: List[Event], chunk_size=512 * 1024
-) -> List[RecordingEventForObjectStorage]:
+) -> List[ChunkedRecordingEvent]:
     recording_events_for_object_storage = []
     for event in events:
         if is_unchunked_snapshot(event):
-            # TODO: Handle payloads that aren't what we expect
+            required_properties = ["distinct_id", "$session_id", "$snapshot_data"]
+            for required_property in required_properties:
+                if required_property not in event["properties"]:
+                    e = ValueError(f'$snapshot events must contain property "{required_property}"')
+                    capture_exception(e)
+                    raise e
+
+            required_snapshot_properties = ["timestamp", "type"]
+            for required_snapshot_property in required_snapshot_properties:
+                if required_snapshot_property not in event["properties"]["$snapshot_data"]:
+                    e = ValueError(f'$snapshot events must contain snapshot data with "{required_snapshot_property}"')
+                    capture_exception(e)
+                    raise e
             distinct_id = event["properties"]["distinct_id"]
             session_id = event["properties"]["$session_id"]
             window_id = event["properties"].get("$window_id")
@@ -409,7 +421,7 @@ def get_session_recording_events_for_object_storage(
             chunk_count = len(chunked_recording_event_string)
             for chunk_index, chunk in enumerate(chunked_recording_event_string):
                 recording_events_for_object_storage.append(
-                    RecordingEventForObjectStorage(
+                    ChunkedRecordingEvent(
                         recording_event_id=recording_event_id,
                         distinct_id=distinct_id,
                         session_id=session_id,
@@ -430,25 +442,19 @@ def get_metadata_from_event_summaries(
 ) -> Tuple[List[RecordingSegment], Dict[WindowId, Dict]]:
     """
     This function processes the recording events into metadata.
-
     A recording can be composed of events from multiple windows/tabs. Recording events are seperated by
     `window_id`, so the playback experience is consistent (changes in one tab don't impact the recording
     of a different tab). However, we still want to playback the recording to the end user as the user interacted
     with their product.
-
     This function creates a "playlist" of recording segments that designates the order in which the front end
     should flip between players of different windows/tabs. To create this playlist, this function does the following:
-
     (1) For each recording event, we determine if it is "active" or not. An active event designates user
     activity (e.g. mouse movement).
-
     (2) We then generate "active segments" based on these lists of events. Active segments are segments
     of recordings where the maximum time between events determined to be active is less than a threshold (set to 60 seconds).
-
     (3) Next, we merge the active segments from all of the window_ids + sort them by start time. We now have the
     list of active segments. (note, it's very possible that active segments overlap if a user is flipping back
     and forth between tabs)
-
     (4) To complete the recording, we fill in the gaps between active segments with "inactive segments". In
     determining which window should be used for the inactive segment, we try to minimize the switching of windows.
     """

@@ -1,24 +1,22 @@
 import { Button, Col, Row } from 'antd'
-import React from 'react'
+import React, { PropsWithChildren } from 'react'
 import { WelcomeLogo } from 'scenes/authentication/WelcomeLogo'
 import './BillingSubscribed.scss'
 import hedgehogMain from 'public/hedgehog-bridge-page.png'
 import { helpButtonLogic } from 'lib/components/HelpButton/HelpButton'
-import { CheckCircleOutlined, CloseCircleOutlined, ArrowRightOutlined } from '@ant-design/icons'
+import { CheckCircleOutlined } from '@ant-design/icons'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Link } from 'lib/components/Link'
-import { billingSubscribedLogic, SubscriptionStatus } from './billingSubscribedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { dayjs } from 'lib/dayjs'
+import { billingLogic } from './billingLogic'
+import { LemonButton } from '@posthog/lemon-ui'
 
 export const scene: SceneExport = {
     component: BillingSubscribed,
-    logic: billingSubscribedLogic,
 }
 
-export function BillingSubscribed(): JSX.Element {
-    const { status } = useValues(billingSubscribedLogic)
+export function BillingSubscribedTheme({ children }: PropsWithChildren<unknown>): JSX.Element {
     const { toggleHelp } = useActions(helpButtonLogic)
 
     return (
@@ -29,7 +27,7 @@ export function BillingSubscribed(): JSX.Element {
                     <div className="inner-wrapper">
                         <WelcomeLogo view="signup" />
                         <div className="inner">
-                            {status === SubscriptionStatus.Success ? <SubscriptionSuccess /> : <SubscriptionFailure />}
+                            {children}
                             <div className="support-footer">
                                 Have questions?{' '}
                                 <Button type="link" onClick={toggleHelp} style={{ paddingLeft: 0 }}>
@@ -44,14 +42,16 @@ export function BillingSubscribed(): JSX.Element {
     )
 }
 
-function SubscriptionSuccess(): JSX.Element {
+export function BillingSubscribed(): JSX.Element {
     const { push } = useActions(router)
-    const { billing } = useValues(billingSubscribedLogic)
+    const { billing } = useValues(billingLogic)
 
     return (
-        <>
-            <CheckCircleOutlined style={{ color: 'var(--success)' }} className="title-icon" />
-            <h2 className="subtitle">You're all set!</h2>
+        <BillingSubscribedTheme>
+            <div className="title">
+                <CheckCircleOutlined style={{ color: 'var(--success)' }} className="title-icon" />
+                <h2 className="subtitle">You're all set!</h2>
+            </div>
             <p>
                 You are now subscribed
                 {billing?.is_billing_active && billing.plan && (
@@ -72,39 +72,9 @@ function SubscriptionSuccess(): JSX.Element {
                 Please reach out to <a href="mailto:hey@posthog.com">hey@posthog.com</a> if you have any billing
                 questions.
             </p>
-            <Button className="btn-bridge outlined" block onClick={() => push('/')}>
+            <LemonButton className="cta-button" type="primary" size="large" center={true} onClick={() => push('/')}>
                 Finish
-            </Button>
-        </>
-    )
-}
-
-function SubscriptionFailure(): JSX.Element {
-    const { sessionId } = useValues(billingSubscribedLogic)
-    return (
-        <>
-            <CloseCircleOutlined style={{ color: 'var(--danger)' }} className="title-icon" />
-            <h2 className="subtitle">Something went wrong</h2>
-            <p>
-                We couldn't start your subscription. Please try again with a{' '}
-                <b>different payment method or contact us</b> if the problem persists.
-            </p>
-            {sessionId && (
-                /* Note we include PostHog Cloud specifically (app.posthog.com) in case a self-hosted user 
-                ended up here for some reason. Should not happen as these should be processed by license.posthog.com */
-                <Button
-                    className="btn-bridge"
-                    block
-                    href={`https://app.posthog.com/billing/setup?session_id=${sessionId}`}
-                >
-                    Try again
-                </Button>
-            )}
-            <div className="mt text-center">
-                <Link to="/">
-                    Go to PostHog <ArrowRightOutlined />
-                </Link>
-            </div>
-        </>
+            </LemonButton>
+        </BillingSubscribedTheme>
     )
 }

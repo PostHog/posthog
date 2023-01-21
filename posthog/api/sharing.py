@@ -165,9 +165,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, StructuredViewSetMixin
 
         if asset:
             if request.path.endswith(f".{asset.file_ext}"):
-                if not asset.content:
-                    raise NotFound()
-
                 return get_content_response(asset, request.query_params.get("download") == "true")
 
             exported_data["type"] = "image"

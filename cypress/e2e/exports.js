@@ -10,7 +10,6 @@ describe('Exporting Insights', () => {
             req.reply(
                 decideResponse({
                     'export-dashboard-insights': true,
-                    ASYNC_EXPORT_CSV_FOR_LIVE_EVENTS: true,
                 })
             )
         )

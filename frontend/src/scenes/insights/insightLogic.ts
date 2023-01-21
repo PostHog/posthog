@@ -40,6 +40,7 @@ import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { mergeWithDashboardTile } from 'scenes/insights/utils/dashboardTiles'
 import { TriggerExportProps } from 'lib/components/ExportButton/exporter'
+import { parseProperties } from 'lib/components/PropertyFilters/utils'
 
 const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 const SHOW_TIMEOUT_MESSAGE_AFTER = 15000
@@ -554,25 +555,6 @@ export const insightLogic = kea<insightLogicType>({
                     : sum(filters.properties?.values?.map((x) => x.values.length) || [])
             },
         ],
-        supportsCsvExport: [
-            (s) => [s.insight],
-            ({ filters }): boolean => {
-                return filters?.insight === InsightType.TRENDS
-            },
-        ],
-        csvExportUrl: [
-            (s) => [s.insight, s.currentTeamId, s.supportsCsvExport],
-            (insight: Partial<InsightModel>, currentTeamId: number, supportsCsvExport: boolean) => {
-                const { filters, name, short_id, derived_name } = insight
-                if (filters && supportsCsvExport) {
-                    return `/api/projects/${currentTeamId}/insights/trend.csv/?${toParams({
-                        ...filterTrendsClientSideParams(filters),
-                        export_name: name || derived_name,
-                        export_insight_id: short_id,
-                    })}`
-                }
-            },
-        ],
         exporterResourceParams: [
             (s) => [s.filters, s.currentTeamId, s.insight],
             (
@@ -615,6 +597,31 @@ export const insightLogic = kea<insightLogicType>({
                 } else {
                     return null
                 }
+            },
+        ],
+        isUsingSessionAnalysis: [
+            (s) => [s.filters],
+            (filters: Partial<FilterType>): boolean => {
+                const entities = (filters.events || []).concat(filters.actions ?? [])
+                const using_session_breakdown = filters.breakdown_type === 'session'
+                const using_session_math = entities.some((entity) => entity.math === 'unique_session')
+                const using_session_property_math = entities.some((entity) => {
+                    // Should be made more generic is we ever add more session properties
+                    return entity.math_property === '$session_duration'
+                })
+                const using_entity_session_property_filter = entities.some((entity) => {
+                    return parseProperties(entity.properties).some((property) => property.type === 'session')
+                })
+                const using_global_session_property_filter = parseProperties(filters.properties).some(
+                    (property) => property.type === 'session'
+                )
+                return (
+                    using_session_breakdown ||
+                    using_session_math ||
+                    using_session_property_math ||
+                    using_entity_session_property_filter ||
+                    using_global_session_property_filter
+                )
             },
         ],
     },
@@ -687,7 +694,8 @@ export const insightLogic = kea<insightLogicType>({
                     values.isFirstLoad,
                     Boolean(fromDashboard),
                     0,
-                    changedKeysObj
+                    changedKeysObj,
+                    values.isUsingSessionAnalysis
                 )
 
                 actions.setNotFirstLoad()
@@ -700,7 +708,8 @@ export const insightLogic = kea<insightLogicType>({
                     values.isFirstLoad,
                     Boolean(fromDashboard),
                     10,
-                    changedKeysObj
+                    changedKeysObj,
+                    values.isUsingSessionAnalysis
                 )
             }
         },

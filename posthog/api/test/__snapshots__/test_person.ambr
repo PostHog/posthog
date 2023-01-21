@@ -1,3 +1,29 @@
+# name: TestPerson.test_filter_person_email
+  '
+  /* request:api_person_?$ (LegacyEnterprisePersonViewSet) */
+  SELECT id
+  FROM person
+  WHERE team_id = 2
+  GROUP BY id
+  HAVING max(is_deleted) = 0
+  AND has(['another@gmail.com'], replaceRegexpAll(JSONExtractRaw(properties, 'email'), '^"|"$', ''))
+  ORDER BY max(created_at) DESC, id
+  LIMIT 100
+  '
+---
+# name: TestPerson.test_filter_person_email_materialized
+  '
+  /* request:api_person_?$ (LegacyEnterprisePersonViewSet) */
+  SELECT id
+  FROM person
+  WHERE team_id = 2
+  GROUP BY id
+  HAVING max(is_deleted) = 0
+  AND has(['another@gmail.com'], "pmat_email")
+  ORDER BY max(created_at) DESC, id
+  LIMIT 100
+  '
+---
 # name: TestPerson.test_person_property_values
   '
   /* request:api_person_values_?$ (LegacyEnterprisePersonViewSet) */

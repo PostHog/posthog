@@ -11,13 +11,13 @@ from posthog.async_migrations.definition import (
     AsyncMigrationDefinition,
     AsyncMigrationOperation,
     AsyncMigrationOperationSQL,
-    AsyncMigrationType,
 )
 from posthog.async_migrations.utils import execute_op_clickhouse, run_optimize_table
 from posthog.clickhouse.kafka_engine import STORAGE_POLICY
 from posthog.clickhouse.table_engines import ReplacingMergeTree
 from posthog.client import sync_execute
 from posthog.constants import AnalyticsDBMS
+from posthog.models.async_migration import AsyncMigration
 from posthog.models.person.person import Person
 from posthog.models.person.sql import PERSONS_TABLE_MV_SQL
 from posthog.redis import get_client
@@ -69,12 +69,6 @@ class Migration(AsyncMigrationDefinition):
     description = "Move `person` table over to a improved schema from a correctness standpoint"
 
     depends_on = "0004_replicated_schema"
-
-    def precheck(self):
-        if not settings.MULTI_TENANCY:
-            return False, "This async migration is not yet ready for self-hosted users"
-
-        return True, None
 
     def is_required(self) -> bool:
         person_table_engine = sync_execute(
@@ -252,11 +246,13 @@ class Migration(AsyncMigrationDefinition):
             params,
         )
 
-    def progress(self, migration_instance: AsyncMigrationType) -> int:
+    def progress(self, migration_instance: AsyncMigration) -> int:
         # We weigh each step before copying persons as equal, and the persons copy as ~50% of progress
         result = 0.5 * migration_instance.current_operation_index / len(self.operations)
 
         if migration_instance.current_operation_index == len(self.operations) - 1:
-            result += 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+            result = 0.5 + 0.5 * (self.get_pg_copy_highwatermark() / self.pg_copy_target_person_id)
+        else:
+            result = 0.5 * migration_instance.current_operation_index / (len(self.operations) - 1)
 
         return int(100 * result)

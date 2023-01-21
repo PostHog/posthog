@@ -1,5 +1,4 @@
 .Animation {
-    width: 100%;
     max-width: 300px;
     // A correct aspect-ratio is be passed via a style prop. This is as a fallback.
     aspect-ratio: 1 / 1;
@@ -21,6 +20,19 @@
         height: 100%;
         svg {
             display: block;
+        }
+    }
+
+    &.Animation--large {
+        width: 100%;
+    }
+
+    &.Animation--small {
+        overflow: visible;
+
+        svg {
+            width: 45px !important;
+            height: 45px !important;
         }
     }
 }

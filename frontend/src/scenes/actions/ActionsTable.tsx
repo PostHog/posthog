@@ -22,8 +22,8 @@ import { LemonDivider } from 'lib/components/LemonDivider'
 import { More } from 'lib/components/LemonButton/More'
 import { combineUrl } from 'kea-router'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
-import { DataManagementPageHeader } from 'scenes/data-management/DataManagementPageHeader'
+import { DataManagementPageTabs, DataManagementTab } from 'scenes/data-management/DataManagementPageTabs'
+import { PageHeader } from 'lib/components/PageHeader'
 
 const searchActions = (sources: ActionType[], search: string): ActionType[] => {
     return new Fuse(sources, {
@@ -205,7 +205,12 @@ export function ActionsTable(): JSX.Element {
 
     return (
         <div data-attr="manage-events-table">
-            <DataManagementPageHeader activeTab={DataManagementTab.Actions} />
+            <PageHeader
+                title="Data Management"
+                caption="Use data management to organize events that come into PostHog. Reduce noise, clarify usage, and help collaborators get the most value from your data."
+                tabbedPage
+            />
+            <DataManagementPageTabs tab={DataManagementTab.Actions} />
             <Input.Search
                 placeholder="Search for actions"
                 allowClear

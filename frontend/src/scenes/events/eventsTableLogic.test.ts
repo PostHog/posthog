@@ -1,5 +1,4 @@
 import { eventsTableLogic } from 'scenes/events/eventsTableLogic'
-import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { router } from 'kea-router'
@@ -11,7 +10,6 @@ import { fromParamsGivenUrl } from 'lib/utils'
 import { useMocks } from '~/mocks/jest'
 
 const errorToastSpy = jest.spyOn(lemonToast, 'error')
-const successToastSpy = jest.spyOn(lemonToast, 'success')
 
 const timeNow = '2021-05-05T00:00:00.000Z'
 
@@ -20,9 +18,13 @@ jest.mock('lib/dayjs', () => {
     return { ...dayjs, now: () => dayjs.dayjs(timeNow) }
 })
 
+import { triggerExport } from 'lib/components/ExportButton/exporter'
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+jest.mock('lib/components/ExportButton/exporter')
+
 const randomBool = (): boolean => Math.random() < 0.5
 
-const randomString = (): string => Math.random().toString(36).substr(2, 5)
+const randomString = (): string => Math.random().toString(36).substring(2, 5)
 
 const makeEvent = (id: string = '1', timestamp: string = randomString()): EventType => ({
     id: id,
@@ -48,7 +50,6 @@ const afterTheFirstEvent = 'the first timestamp'
 const afterOneYearAgo = '2020-05-05T00:00:00.000Z'
 const fiveDaysAgo = '2021-04-30T00:00:00.000Z'
 const orderByTimestamp = '["-timestamp"]'
-const propertiesWithFilterValue = '[{"key":"fixed value","operator":"exact","type":"t","value":"v"}]'
 const emptyProperties = '[]'
 
 const getUrlParameters = (url: string): Record<string, any> => {
@@ -398,28 +399,6 @@ describe('eventsTableLogic', () => {
                         properties: emptyProperties,
                         orderBy: orderByTimestamp,
                         after: afterTheFirstEvent,
-                    })
-                })
-
-                it('can build the export URL when there are no properties or filters', async () => {
-                    await expectLogic(logic, () => {})
-
-                    expect(logic.values.exportUrl.startsWith(`/api/projects/${MOCK_TEAM_ID}/events.csv`)).toBe(true)
-                    expect(getUrlParameters(logic.values.exportUrl)).toEqual({
-                        properties: emptyProperties,
-                        orderBy: orderByTimestamp,
-                    })
-                })
-
-                it('can build the export URL when there are properties or filters', async () => {
-                    await expectLogic(logic, () => {
-                        logic.actions.setProperties([makePropertyFilter('fixed value')])
-                    })
-
-                    expect(logic.values.exportUrl.startsWith(`/api/projects/${MOCK_TEAM_ID}/events.csv`)).toBe(true)
-                    expect(getUrlParameters(logic.values.exportUrl)).toEqual({
-                        properties: propertiesWithFilterValue,
-                        orderBy: orderByTimestamp,
                     })
                 })
 
@@ -802,19 +781,17 @@ describe('eventsTableLogic', () => {
                 expect(errorToastSpy).toHaveBeenCalled()
             })
 
-            it('gives the user advice about the events export download', async () => {
-                window = Object.create(window)
-                Object.defineProperty(window, 'location', {
-                    value: {
-                        href: 'https://dummy.com',
-                    },
-                    writable: true,
-                })
-
+            it('can trigger CSV export', async () => {
                 await expectLogic(logic, () => {
                     logic.actions.startDownload()
                 })
-                expect(successToastSpy).toHaveBeenCalled()
+                expect(triggerExport).toHaveBeenCalledWith({
+                    export_context: {
+                        max_limit: 3500,
+                        path: `/api/projects/${MOCK_TEAM_ID}/events?properties=%5B%5D&orderBy=%5B%22-timestamp%22%5D`,
+                    },
+                    export_format: 'text/csv',
+                })
             })
         })
     })

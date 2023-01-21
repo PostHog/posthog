@@ -23,10 +23,6 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                 value={searchTerm}
                 onChange={(e) => {
                     setSearchTerm(e.target.value)
-                    if (!e.target.value) {
-                        setListFilters({ search: undefined })
-                        loadPersons()
-                    }
                 }}
                 enterButton
                 onPressEnter={(e) => {
@@ -35,8 +31,8 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                     loadPersons()
                 }}
                 allowClear
-                onSearch={() => {
-                    setListFilters({ search: searchTerm || undefined })
+                onSearch={(value) => {
+                    setListFilters({ search: value || undefined })
                     loadPersons()
                 }}
                 style={{ width: '100%' }}
@@ -46,8 +42,8 @@ export const PersonsSearch = ({ autoFocus = true }: { autoFocus?: boolean }): JS
                 type="stealth"
                 tooltip={
                     <>
-                        Search by email, name, ID, or even contents of properties. You can also search for persons who
-                        just <i>have</i> a property like so: "has:your_property".
+                        Search by email or Distinct ID. Email will match partially, for example: "@gmail.com". Distinct
+                        ID needs to match exactly.
                     </>
                 }
                 icon={<IconInfo />}

@@ -10,6 +10,7 @@ from django.urls.base import resolve
 from django.utils.cache import add_never_cache_headers
 from loginas.utils import is_impersonated_session
 
+from posthog.api.decide import get_decide
 from posthog.internal_metrics import incr
 from posthog.models import Action, Cohort, Dashboard, FeatureFlag, Insight, Team, User
 
@@ -53,16 +54,7 @@ class AllowIPMiddleware:
 
     def __call__(self, request: HttpRequest):
         response: HttpResponse = self.get_response(request)
-        if request.path.split("/")[1] in [
-            "decide",
-            "engage",
-            "track",
-            "capture",
-            "batch",
-            "e",
-            "static",
-            "_health",
-        ]:
+        if request.path.split("/")[1] in ["decide", "engage", "track", "capture", "batch", "e", "static", "_health"]:
             return response
         ip = self.extract_client_ip(request)
         if ip and any(ip_address(ip) in ip_network(block, strict=False) for block in self.ip_blocks):
@@ -186,4 +178,25 @@ class CHQueries(object):
 
         client._request_information = None
 
+        return response
+
+
+def shortcircuitmiddleware(f):
+    """ view decorator, the sole purpose to is 'rename' the function
+    '_shortcircuitmiddleware' """
+
+    def _shortcircuitmiddleware(*args, **kwargs):
+        return f(*args, **kwargs)
+
+    return _shortcircuitmiddleware
+
+
+class ShortCircuitMiddleware(object):
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request: HttpRequest):
+        if request.path == "/decide/" or request.path == "/decide":
+            return get_decide(request)
+        response: HttpResponse = self.get_response(request)
         return response

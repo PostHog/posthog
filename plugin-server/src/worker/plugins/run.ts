@@ -1,5 +1,6 @@
 import { PluginEvent, ProcessedPluginEvent } from '@posthog/plugin-scaffold'
 
+import { runInSpan } from '../../sentry'
 import { Hub, PluginConfig, PluginTaskType, VMMethods } from '../../types'
 import { processError } from '../../utils/db/error'
 import { IllegalOperationError } from '../../utils/utils'
@@ -11,12 +12,18 @@ export async function runOnEvent(hub: Hub, event: ProcessedPluginEvent): Promise
     await Promise.all(
         pluginMethodsToRun
             .filter(([, method]) => !!method)
-            .map(
-                async ([pluginConfig, onEvent]) =>
-                    await runRetriableFunction('on_event', hub, pluginConfig, {
-                        tryFn: async () => await onEvent!(event),
-                        event,
-                    })
+            .map(([pluginConfig, onEvent]) =>
+                runInSpan(
+                    {
+                        op: 'plugin.runOnEvent',
+                        description: pluginConfig.plugin?.name || '?',
+                    },
+                    () =>
+                        runRetriableFunction('on_event', hub, pluginConfig, {
+                            tryFn: async () => await onEvent!(event),
+                            event,
+                        })
+                )
             )
     )
 }
@@ -27,12 +34,18 @@ export async function runOnSnapshot(hub: Hub, event: ProcessedPluginEvent): Prom
     await Promise.all(
         pluginMethodsToRun
             .filter(([, method]) => !!method)
-            .map(
-                async ([pluginConfig, onSnapshot]) =>
-                    await runRetriableFunction('on_snapshot', hub, pluginConfig, {
-                        tryFn: async () => await onSnapshot!(event),
-                        event,
-                    })
+            .map(([pluginConfig, onSnapshot]) =>
+                runInSpan(
+                    {
+                        op: 'plugin.runOnSnapshot',
+                        description: pluginConfig.plugin?.name || '?',
+                    },
+                    () =>
+                        runRetriableFunction('on_snapshot', hub, pluginConfig, {
+                            tryFn: async () => await onSnapshot!(event),
+                            event,
+                        })
+                )
             )
     )
 }
@@ -42,7 +55,7 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
     const pluginMethodsToRun = await getPluginMethodsForTeam(hub, teamId, 'processEvent')
     let returnedEvent: PluginEvent | null = event
 
-    const pluginsSucceeded = []
+    const pluginsSucceeded: string[] = []
     const pluginsFailed = []
     const pluginsDeferred = []
     for (const [pluginConfig, processEvent] of pluginMethodsToRun) {
@@ -50,7 +63,14 @@ export async function runProcessEvent(hub: Hub, event: PluginEvent): Promise<Plu
             const timer = new Date()
 
             try {
-                returnedEvent = (await processEvent(returnedEvent)) || null
+                returnedEvent =
+                    (await runInSpan(
+                        {
+                            op: 'plugin.processEvent',
+                            description: pluginConfig.plugin?.name || '?',
+                        },
+                        () => processEvent(returnedEvent!)
+                    )) || null
                 if (returnedEvent && returnedEvent.team_id !== teamId) {
                     returnedEvent.team_id = teamId
                     throw new IllegalOperationError('Plugin tried to change event.team_id')
@@ -111,7 +131,17 @@ export async function runPluginTask(
                 `Task "${taskName}" not found for plugin "${pluginConfig?.plugin?.name}" with config id ${pluginConfig}`
             )
         }
-        response = await (payload ? task?.exec(payload) : task?.exec())
+        response = await runInSpan(
+            {
+                op: 'plugin.runTask',
+                description: pluginConfig?.plugin?.name || '?',
+                data: {
+                    taskName,
+                    taskType,
+                },
+            },
+            () => (payload ? task?.exec(payload) : task?.exec())
+        )
     } catch (error) {
         await processError(hub, pluginConfig || null, error)
 

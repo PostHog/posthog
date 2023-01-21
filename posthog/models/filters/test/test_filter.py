@@ -357,11 +357,12 @@ class TestDjangoPropertiesToQ(property_to_Q_test_factory(_filter_persons, _creat
 
         filter = Filter(data={"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}],})
 
-        matched_person = (
-            Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
-            .filter(properties_to_Q(filter.property_groups.flat, team_id=self.team.pk, is_direct_query=True))
-            .exists()
-        )
+        with self.assertNumQueries(1):
+            matched_person = (
+                Person.objects.filter(team_id=self.team.pk, persondistinctid__distinct_id=person1_distinct_id)
+                .filter(properties_to_Q(filter.property_groups.flat, team_id=self.team.pk, is_direct_query=True))
+                .exists()
+            )
         self.assertTrue(matched_person)
 
     def test_group_property_filters_direct(self):

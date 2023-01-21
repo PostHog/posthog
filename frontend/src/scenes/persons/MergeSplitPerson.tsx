@@ -75,17 +75,17 @@ function MergePerson(): JSX.Element {
 
             <LemonSelectMultiple
                 placeholder="Please select persons to merge"
-                onChange={(value) => setSelectedPersonsToMerge(value.map((x) => parseInt(x, 10)))}
+                onChange={(value) => setSelectedPersonsToMerge(value)}
                 filterOption={false}
                 onSearch={(value) => setListFilters({ search: value })}
                 mode="multiple"
                 data-attr="subscribed-emails"
                 value={selectedPersonsToMerge.map((x) => x.toString())}
                 options={(persons.results || [])
-                    .filter((p: PersonType) => p.id && p.uuid !== person.uuid)
+                    .filter((p: PersonType) => p.uuid && p.uuid !== person.uuid)
                     .map((p) => ({
-                        key: `${p.id}`,
-                        label: p.name,
+                        key: p.uuid as string,
+                        label: (p.name || p.uuid) as string,
                     }))}
                 disabled={executedLoading}
             />

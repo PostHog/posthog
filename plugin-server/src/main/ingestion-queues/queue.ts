@@ -25,11 +25,6 @@ export async function startQueues(
     workerMethods: Partial<WorkerMethods> = {}
 ): Promise<Queues> {
     const mergedWorkerMethods = {
-        runBufferEventPipeline: (event: PluginEvent) => {
-            server.lastActivity = new Date().valueOf()
-            server.lastActivityType = 'runBufferEventPipeline'
-            return piscina.run({ task: 'runBufferEventPipeline', args: { event } })
-        },
         runAsyncHandlersEventPipeline: (event: IngestionEvent) => {
             server.lastActivity = new Date().valueOf()
             server.lastActivityType = 'runAsyncHandlersEventPipeline'

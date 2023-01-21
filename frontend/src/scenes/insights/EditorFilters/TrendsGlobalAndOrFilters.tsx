@@ -2,7 +2,7 @@ import React from 'react'
 import { convertPropertiesToPropertyGroup } from 'lib/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { PropertyGroupFilters } from 'lib/components/PropertyGroupFilters/PropertyGroupFilters'
-import { EditorFilterProps } from '~/types'
+import { EditorFilterProps, InsightType } from '~/types'
 import { useActions, useValues } from 'kea'
 import { trendsLogic } from 'scenes/trends/trendsLogic'
 import { groupsModel } from '~/models/groupsModel'
@@ -14,18 +14,21 @@ export function TrendsGlobalAndOrFilters({ filters, insightProps }: EditorFilter
     const { allEventNames } = useValues(insightLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
+    const taxonomicGroupTypes = [
+        TaxonomicFilterGroupType.EventProperties,
+        TaxonomicFilterGroupType.PersonProperties,
+        ...groupsTaxonomicTypes,
+        TaxonomicFilterGroupType.Cohorts,
+        TaxonomicFilterGroupType.Elements,
+        ...(filters.insight === InsightType.TRENDS ? [TaxonomicFilterGroupType.Sessions] : []),
+    ]
+
     return (
         <PropertyGroupFilters
             noTitle
             value={convertPropertiesToPropertyGroup(filters.properties)}
             onChange={(properties) => setFilters({ properties })}
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.PersonProperties,
-                ...groupsTaxonomicTypes,
-                TaxonomicFilterGroupType.Cohorts,
-                TaxonomicFilterGroupType.Elements,
-            ]}
+            taxonomicGroupTypes={taxonomicGroupTypes}
             pageKey="insight-filters"
             eventNames={allEventNames}
             filters={filters}

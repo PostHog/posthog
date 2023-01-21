@@ -155,6 +155,8 @@ describe('isURL()', () => {
         expect(isURL('https://sevenapp.events/')).toEqual(true)
         expect(isURL('https://seven-stagingenv.web.app/')).toEqual(true)
         expect(isURL('https://salesforce.co.uk/')).toEqual(true)
+        expect(isURL('https://valid.*.example.com')).toEqual(true)
+        expect(isURL('https://*.valid.com')).toEqual(true)
     })
 
     it('recognizes non-URLs properly', () => {

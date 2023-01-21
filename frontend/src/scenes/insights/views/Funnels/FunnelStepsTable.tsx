@@ -7,7 +7,6 @@ import { BreakdownKeyType, FlattenedFunnelStepByBreakdown } from '~/types'
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
 import { getVisibilityIndex } from 'scenes/funnels/funnelUtils'
 import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from './funnelStepTableUtils'
-import { formatBreakdownLabel } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { cohortsModel } from '~/models/cohortsModel'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import { Lettermark, LettermarkColor } from 'lib/components/Lettermark/Lettermark'
@@ -16,6 +15,8 @@ import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/util
 import { ValueInspectorButton } from 'scenes/funnels/ValueInspectorButton'
 import { getSeriesColor } from 'lib/colors'
 import { IconFlag } from 'lib/components/icons'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
@@ -24,6 +25,7 @@ export function FunnelStepsTable(): JSX.Element | null {
         useValues(logic)
     const { setHiddenById, toggleVisibilityByBreakdown, openPersonsModalForSeries } = useActions(logic)
     const { cohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
 
     const isOnlySeries = flattenedBreakdowns.length === 1
     const allChecked = flattenedBreakdowns?.every(
@@ -71,7 +73,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                     ),
                     dataIndex: 'breakdown_value',
                     render: function RenderBreakdownValue(breakdownValue: BreakdownKeyType | undefined): JSX.Element {
-                        const label = formatBreakdownLabel(cohorts, breakdownValue)
+                        const label = formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, breakdownValue)
                         return isOnlySeries ? (
                             <span style={{ fontWeight: 500 }}>{label}</span>
                         ) : (

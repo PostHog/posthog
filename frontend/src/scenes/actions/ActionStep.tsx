@@ -293,7 +293,7 @@ function TypeSwitcher({
                 }
             >
                 <Radio.Button value="$autocapture">Autocapture</Radio.Button>
-                <Radio.Button value="event">Event</Radio.Button>
+                <Radio.Button value="event">Custom event</Radio.Button>
                 <Radio.Button value="$pageview">Page view</Radio.Button>
             </Radio.Group>
         </div>

@@ -11,9 +11,10 @@ import { humanFriendlyDuration, humanFriendlyNumber, percentage } from 'lib/util
 import { ensureTooltipElement } from 'scenes/insights/views/LineGraph/LineGraph'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { cohortsModel } from '~/models/cohortsModel'
-import { formatBreakdownLabel } from 'scenes/insights/views/InsightsTable/InsightsTable'
 import { ClickToInspectActors } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatBreakdownLabel } from 'scenes/insights/utils'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 2
@@ -27,7 +28,7 @@ interface FunnelTooltipProps {
 
 function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: FunnelTooltipProps): JSX.Element {
     const { cohorts } = useValues(cohortsModel)
-
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
         <div className="FunnelTooltip">
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
@@ -36,7 +37,7 @@ function FunnelTooltip({ showPersonsModal, stepIndex, series, groupTypeLabel }: 
                         filter={getActionFilterFromFunnelStep(series)}
                         style={{ display: 'inline-block' }}
                     />{' '}
-                    • {formatBreakdownLabel(cohorts, series.breakdown_value)}
+                    • {formatBreakdownLabel(cohorts, formatPropertyValueForDisplay, series.breakdown_value)}
                 </strong>
             </LemonRow>
             <LemonDivider style={{ marginTop: '0.25rem' }} />

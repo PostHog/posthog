@@ -1,16 +1,18 @@
-import { EnqueuedJob, JobQueue, OnJobCallback } from '../../types'
+import { TaskList } from 'graphile-worker'
+
+import { EnqueuedJob, JobQueue } from '../../types'
 
 export class JobQueueBase implements JobQueue {
     started: boolean
     paused: boolean
-    onJob: OnJobCallback | null
+    jobHandlers: TaskList
     timeout: NodeJS.Timeout | null
     intervalSeconds: number
 
     constructor() {
         this.started = false
         this.paused = false
-        this.onJob = null
+        this.jobHandlers = {}
         this.timeout = null
         this.intervalSeconds = 10
     }
@@ -21,9 +23,9 @@ export class JobQueueBase implements JobQueue {
         throw new Error('connectProducer() not implemented for job queue!')
     }
 
-    enqueue(retry: EnqueuedJob): void
+    enqueue(jobName: string, job: EnqueuedJob): void
     // eslint-disable-next-line @typescript-eslint/require-await, @typescript-eslint/no-unused-vars
-    async enqueue(retry: EnqueuedJob): Promise<void> {
+    async enqueue(jobName: string, job: EnqueuedJob): Promise<void> {
         throw new Error('enqueue() not implemented for job queue!')
     }
 
@@ -33,9 +35,9 @@ export class JobQueueBase implements JobQueue {
         throw new Error('disconnectProducer() not implemented for job queue!')
     }
 
-    startConsumer(onJob: OnJobCallback): void
-    async startConsumer(onJob: OnJobCallback): Promise<void> {
-        this.onJob = onJob
+    startConsumer(jobHandlers: TaskList): void
+    async startConsumer(jobHandlers: TaskList): Promise<void> {
+        this.jobHandlers = jobHandlers
         if (!this.started) {
             this.started = true
             await this.syncState()

@@ -11,7 +11,7 @@ from typing import (
     cast,
 )
 
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Exists, F, OuterRef, Q, Subquery
 
 from posthog.constants import PropertyOperatorType
 from posthog.models.filters.mixins.utils import cached_property
@@ -262,12 +262,19 @@ class Property:
             from posthog.models.cohort import Cohort
 
             cohort_id = int(cast(Union[str, int], value))
-            cohort = Cohort.objects.get(pk=cohort_id)
+
+            cohort = Cohort.objects.only("version").filter(pk=cohort_id)
             return Q(
                 Exists(
-                    CohortPeople.objects.filter(
-                        cohort_id=cohort.pk, person_id=OuterRef("id"), version=cohort.version
-                    ).only("id")
+                    CohortPeople.objects.annotate(cohort_version=Subquery(cohort.values("version")[:1]))
+                    .filter(cohort_id=cohort_id, person_id=OuterRef("id"), cohort__id=cohort_id)
+                    .filter(
+                        # bit of a hack. if cohort_version is NULL, the query is still `version = cohort_version`, which doesn't match
+                        # So just explicitly ask if cohort_version is null
+                        Q(cohort_version=F("version"))
+                        | Q(cohort_version__isnull=True)
+                    )
+                    .only("id")
                 )
             )
 

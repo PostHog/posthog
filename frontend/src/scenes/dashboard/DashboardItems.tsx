@@ -92,9 +92,6 @@ export function DashboardItems(): JSX.Element {
                         refresh={() => refreshAllDashboardItems([item])}
                         rename={() => renameInsight(item)}
                         duplicate={() => duplicateInsight(item)}
-                        moveToDashboardOld={(dashboardId: DashboardType['id']) =>
-                            duplicateInsight(item, dashboardId, true)
-                        }
                         moveToDashboard={({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                             if (!dashboard) {
                                 throw new Error('must be on a dashboard to move an insight')

@@ -72,10 +72,10 @@ export function DashboardCollaboration({ dashboardId }: { dashboardId: Dashboard
                                             value={explicitCollaboratorsToBeAdded}
                                             loading={explicitCollaboratorsLoading}
                                             onChange={(newValues) => setExplicitCollaboratorsToBeAdded(newValues)}
-                                            filterOption={false}
+                                            filterOption={true}
                                             mode="multiple"
                                             data-attr="subscribed-emails"
-                                            options={usersLemonSelectOptions(addableMembers)}
+                                            options={usersLemonSelectOptions(addableMembers, 'uuid')}
                                         />
                                     </div>
                                     <LemonButton

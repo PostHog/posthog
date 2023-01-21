@@ -107,13 +107,11 @@ export const actionEditLogic = kea<actionEditLogicType>([
                         throw response
                     }
 
-                    lemonToast.success(`${values.shouldSimplifyActions ? 'Event' : 'Action'} saved`)
+                    lemonToast.success(`${values.shouldSimplifyActions ? 'Calculated event' : 'Action'} saved`)
                     props.onSave(action as ActionType)
-                    if (values.shouldSimplifyActions) {
-                        actions.loadEventDefinitions(null)
-                    } else {
-                        actions.loadActions() // reload actions so they are immediately available
-                    }
+                    // reload actions so they are immediately available throughout the app
+                    actions.loadEventDefinitions(null)
+                    actions.loadActions()
                     return action
                 },
             },

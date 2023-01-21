@@ -1,35 +1,22 @@
 import './PropertyFilterButton.scss'
 import { Button } from 'antd'
-import { useValues } from 'kea'
-import { formatPropertyLabel, midEllipsis } from 'lib/utils'
 import React from 'react'
-import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter } from '~/types'
-import { keyMapping } from 'lib/components/PropertyKeyInfo'
-import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { CloseButton } from 'lib/components/CloseButton'
-import { IconCohort, IconPerson, UnverifiedEventStack } from 'lib/components/icons'
+import { IconCohort, IconPerson, UnverifiedEvent } from 'lib/components/icons'
 import { Tooltip } from 'lib/components/Tooltip'
+import { cohortsModel } from '~/models/cohortsModel'
+import { useValues } from 'kea'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
+import { formatPropertyLabel, midEllipsis } from 'lib/utils'
+import { keyMapping } from 'lib/components/PropertyKeyInfo'
 
 export interface PropertyFilterButtonProps {
     onClick?: () => void
     onClose?: () => void
-    children?: string | JSX.Element
+    children?: string
     item: AnyPropertyFilter
     style?: React.CSSProperties
-}
-
-export function PropertyFilterText({ item }: PropertyFilterButtonProps): JSX.Element {
-    const { cohortsById } = useValues(cohortsModel)
-    const { formatForDisplay } = useValues(propertyDefinitionsModel)
-
-    return (
-        <>
-            {formatPropertyLabel(item, cohortsById, keyMapping, (s) =>
-                midEllipsis(formatForDisplay(item.key, s)?.toString() || '', 32)
-            )}
-        </>
-    )
 }
 
 function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element {
@@ -38,7 +25,7 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
         case 'event':
             iconElement = (
                 <Tooltip title={'Event property'}>
-                    <UnverifiedEventStack width={'14'} height={'14'} />
+                    <UnverifiedEvent width={14} height={14} />
                 </Tooltip>
             )
             break
@@ -62,6 +49,18 @@ function PropertyFilterIcon({ item }: { item: AnyPropertyFilter }): JSX.Element 
 
 export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilterButtonProps>(
     function PropertyFilterButton({ onClick, onClose, children, item, style }, ref): JSX.Element {
+        const { cohortsById } = useValues(cohortsModel)
+        const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+        const label =
+            children ||
+            formatPropertyLabel(
+                item,
+                cohortsById,
+                keyMapping,
+                (s) => formatPropertyValueForDisplay(item.key, s)?.toString() || '?'
+            )
+
         return (
             <Button
                 shape="round"
@@ -71,8 +70,8 @@ export const PropertyFilterButton = React.forwardRef<HTMLElement, PropertyFilter
                 className="PropertyFilterButton ph-no-capture"
             >
                 <PropertyFilterIcon item={item} />
-                <span className="PropertyFilterButton-content">
-                    {children ? children : <PropertyFilterText item={item} />}
+                <span className="PropertyFilterButton-content" title={label}>
+                    {midEllipsis(label, 32)}
                 </span>
                 {onClose && (
                     <CloseButton

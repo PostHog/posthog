@@ -3,7 +3,7 @@ import { Modal, Button, Card, Row, Col } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
 import { router } from 'kea-router'
 import { urls } from 'scenes/urls'
-import { AuthorizedUrlsTable } from 'scenes/toolbar-launch/AuthorizedUrlsTable'
+import { AuthorizedUrls } from 'scenes/toolbar-launch/AuthorizedUrls'
 import { IconEdit } from 'lib/components/icons'
 import { LemonButton } from 'lib/components/LemonButton'
 import { useValues } from 'kea'
@@ -18,7 +18,7 @@ export function NewActionButton(): JSX.Element {
     return (
         <>
             <LemonButton type="primary" onClick={() => setVisible(true)} data-attr="create-action">
-                New {featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'Event' : 'Action'}
+                New {featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'Calculated Event' : 'Action'}
             </LemonButton>
             <Modal
                 visible={visible}
@@ -27,7 +27,7 @@ export function NewActionButton(): JSX.Element {
                     setVisible(false)
                     setAppUrlsVisible(false)
                 }}
-                title="Create new action"
+                title={`Create new ${featureFlags[FEATURE_FLAGS.SIMPLIFY_ACTIONS] ? 'calculated event' : 'action'}`}
                 footer={[
                     appUrlsVisible && (
                         <Button key="back-button" onClick={() => setAppUrlsVisible(false)}>
@@ -73,7 +73,7 @@ export function NewActionButton(): JSX.Element {
                         </Col>
                     </Row>
                 )}
-                {appUrlsVisible && <AuthorizedUrlsTable />}
+                {appUrlsVisible && <AuthorizedUrls />}
             </Modal>
         </>
     )

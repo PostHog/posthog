@@ -1132,28 +1132,28 @@ describe('vm tests', () => {
             const mockJobQueueInstance = (JobQueueManager as any).mock.instances[0]
             const mockEnqueue = mockJobQueueInstance.enqueue
             expect(mockEnqueue).toHaveBeenCalledTimes(1)
-            expect(mockEnqueue).toHaveBeenCalledWith({
+            expect(mockEnqueue).toHaveBeenCalledWith('pluginJob', {
                 payload: { batch: [event, event, event], batchId: expect.any(Number), retriesPerformedSoFar: 1 },
                 pluginConfigId: 39,
                 pluginConfigTeam: 2,
                 timestamp: expect.any(Number),
                 type: 'exportEventsWithRetry',
             })
-            const jobPayload = mockEnqueue.mock.calls[0][0].payload
+            const jobPayload = mockEnqueue.mock.calls[0][1].payload
 
             // run the job directly
             await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload)
 
             // enqueued again
             expect(mockEnqueue).toHaveBeenCalledTimes(2)
-            expect(mockEnqueue).toHaveBeenLastCalledWith({
+            expect(mockEnqueue).toHaveBeenLastCalledWith('pluginJob', {
                 payload: { batch: jobPayload.batch, batchId: jobPayload.batchId, retriesPerformedSoFar: 2 },
                 pluginConfigId: 39,
                 pluginConfigTeam: 2,
                 timestamp: expect.any(Number),
                 type: 'exportEventsWithRetry',
             })
-            const jobPayload2 = mockEnqueue.mock.calls[1][0].payload
+            const jobPayload2 = mockEnqueue.mock.calls[1][1].payload
 
             // run the job a second time
             await vm.tasks.job['exportEventsWithRetry'].exec(jobPayload2)
@@ -1195,7 +1195,7 @@ describe('vm tests', () => {
 
             // won't retry after the nth time where n = MAXIMUM_RETRIES
             for (let i = 2; i < 20; i++) {
-                const lastPayload = mockEnqueue.mock.calls[mockEnqueue.mock.calls.length - 1][0].payload
+                const lastPayload = mockEnqueue.mock.calls[mockEnqueue.mock.calls.length - 1][1].payload
                 await vm.tasks.job['exportEventsWithRetry'].exec(lastPayload)
                 expect(mockEnqueue).toHaveBeenCalledTimes(i > MAXIMUM_RETRIES ? MAXIMUM_RETRIES : i)
             }

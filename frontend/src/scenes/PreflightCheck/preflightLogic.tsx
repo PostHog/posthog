@@ -250,6 +250,7 @@ export const preflightLogic = kea<preflightLogicType>([
                     posthog_version: values.preflight.posthog_version,
                     realm: values.realm,
                     email_service_available: values.preflight.email_service_available,
+                    slack_service_available: values.preflight.slack_service?.available,
                 })
 
                 if (values.preflight.site_url) {

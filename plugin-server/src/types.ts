@@ -1,5 +1,6 @@
 import ClickHouse from '@posthog/clickhouse'
 import {
+    Element,
     Meta,
     PluginAttachment,
     PluginConfigSchema,
@@ -8,6 +9,7 @@ import {
     Properties,
 } from '@posthog/plugin-scaffold'
 import { Pool as GenericPool } from 'generic-pool'
+import { TaskList } from 'graphile-worker'
 import { StatsD } from 'hot-shots'
 import { Redis } from 'ioredis'
 import { Kafka } from 'kafkajs'
@@ -102,6 +104,7 @@ export interface PluginsServerConfig extends Record<string, any> {
     PLUGINS_RELOAD_PUBSUB_CHANNEL: string
     LOG_LEVEL: LogLevel
     SENTRY_DSN: string | null
+    SENTRY_PLUGIN_SERVER_TRACING_SAMPLE_RATE: number
     STATSD_HOST: string | null
     STATSD_PORT: number
     STATSD_PREFIX: string
@@ -200,13 +203,13 @@ export interface Hub extends PluginsServerConfig {
 export interface PluginServerCapabilities {
     ingestion?: boolean
     pluginScheduledTasks?: boolean
-    processJobs?: boolean
+    processPluginJobs?: boolean
     processAsyncHandlers?: boolean
     http?: boolean
 }
 
-export type OnJobCallback = (queue: EnqueuedJob[]) => Promise<void> | void
-export interface EnqueuedJob {
+export type EnqueuedJob = EnqueuedPluginJob | EnqueuedBufferJob
+export interface EnqueuedPluginJob {
     type: string
     payload: Record<string, any>
     timestamp: number
@@ -214,15 +217,25 @@ export interface EnqueuedJob {
     pluginConfigTeam: number
 }
 
+export interface EnqueuedBufferJob {
+    eventPayload: PluginEvent
+    timestamp: number
+}
+
+export enum JobName {
+    PLUGIN_JOB = 'pluginJob',
+    BUFFER_JOB = 'bufferJob',
+}
+
 export interface JobQueue {
-    startConsumer: (onJob: OnJobCallback) => Promise<void> | void
+    startConsumer: (jobHandlers: TaskList) => Promise<void> | void
     stopConsumer: () => Promise<void> | void
     pauseConsumer: () => Promise<void> | void
     resumeConsumer: () => Promise<void> | void
     isConsumerPaused: () => boolean
 
     connectProducer: () => Promise<void> | void
-    enqueue: (job: EnqueuedJob) => Promise<void> | void
+    enqueue: (jobName: string, job: EnqueuedJob) => Promise<void> | void
     disconnectProducer: () => Promise<void> | void
 }
 
@@ -265,12 +278,10 @@ export interface Plugin {
     plugin_type: 'local' | 'respository' | 'custom' | 'source'
     description?: string
     is_global: boolean
-    is_preinstalled: boolean
+    is_preinstalled?: boolean
     url?: string
-    config_schema: Record<string, PluginConfigSchema> | PluginConfigSchema[]
+    config_schema?: Record<string, PluginConfigSchema> | PluginConfigSchema[]
     tag?: string
-    /** @deprecated Replaced with source__index_ts */
-    source?: string
     /** Cached source for plugin.json from a joined PluginSourceFile query */
     source__plugin_json?: string
     /** Cached source for index.ts from a joined PluginSourceFile query */
@@ -280,8 +291,8 @@ export interface Plugin {
     error?: PluginError
     from_json?: boolean
     from_web?: boolean
-    created_at: string
-    updated_at: string
+    created_at?: string
+    updated_at?: string
     capabilities?: PluginCapabilities
     metrics?: StoredPluginMetrics
     is_stateless?: boolean
@@ -303,7 +314,7 @@ export interface PluginConfig {
     enabled: boolean
     order: number
     config: Record<string, unknown>
-    error?: PluginError
+    has_error: boolean
     attachments?: Record<string, PluginAttachment>
     vm?: LazyPluginVM | null
     created_at: string
@@ -389,7 +400,6 @@ export interface PluginTask {
 }
 
 export type WorkerMethods = {
-    runBufferEventPipeline: (event: PluginEvent) => Promise<IngestEventResponse>
     runAsyncHandlersEventPipeline: (event: IngestionEvent) => Promise<void>
     runEventPipeline: (event: PluginEvent) => Promise<void>
 }
@@ -501,20 +511,8 @@ export interface Team {
     ingested_event: boolean
 }
 
-/** Usable Element model. */
-export interface Element {
-    text?: string
-    tag_name?: string
-    href?: string
-    attr_id?: string
-    attr_class?: string[]
-    nth_child?: number
-    nth_of_type?: number
-    attributes?: Record<string, any>
-    event_id?: number
-    order?: number
-    group_id?: number
-}
+/** Re-export Element from scaffolding, for backwards compat. */
+export { Element } from '@posthog/plugin-scaffold'
 
 /** Usable Event model. */
 export interface Event {

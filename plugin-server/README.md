@@ -17,7 +17,7 @@ Let's get you developing the plugin server in no time:
 
 1. Make sure that the plugin server is configured correctly (see [Configuration](#Configuration)). The following settings need to be the same for the plugin server and the main server: `DATABASE_URL`, `REDIS_URL`, `KAFKA_HOSTS`, `CLICKHOUSE_HOST`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_USER`, and `CLICKHOUSE_PASSWORD`. Their default values should work just fine in local development though.
 
-1. Start the plugin server in autoreload mode with `yarn start`, or in compiled mode with `yarn build && yarn start:dist`, and develop away!
+1. Start the plugin server in autoreload mode with `yarn start:dev`, or in compiled mode with `yarn build && yarn start:dist`, and develop away!
 
 1. Prepare for running tests with `yarn setup:test`, which will run the necessary migrations. Run the tests themselves with `yarn test:{1,2}`.
 

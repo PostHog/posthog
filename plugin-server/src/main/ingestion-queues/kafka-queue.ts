@@ -5,9 +5,8 @@ import { Hub, WorkerMethods } from '../../types'
 import { timeoutGuard } from '../../utils/db/utils'
 import { status } from '../../utils/status'
 import { killGracefully } from '../../utils/utils'
-import { KAFKA_BUFFER, KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
+import { KAFKA_EVENTS_JSON, prefix as KAFKA_PREFIX } from './../../config/kafka-topics'
 import { eachBatchAsyncHandlers } from './batch-processing/each-batch-async-handlers'
-import { eachBatchBuffer } from './batch-processing/each-batch-buffer'
 import { eachBatchIngestion } from './batch-processing/each-batch-ingestion'
 import { addMetricsEventListeners, emitConsumerGroupMetrics } from './kafka-metrics'
 
@@ -25,9 +24,7 @@ export class KafkaQueue {
     private consumer: Consumer
     private consumerGroupMemberId: string | null
     private wasConsumerRan: boolean
-    private sleepTimeout: NodeJS.Timeout | null
     private ingestionTopic: string
-    private bufferTopic: string
     private eventsTopic: string
     private eachBatch: Record<string, EachBatchFunction>
 
@@ -37,16 +34,13 @@ export class KafkaQueue {
         this.consumer = KafkaQueue.buildConsumer(this.kafka, this.consumerGroupId())
         this.wasConsumerRan = false
         this.workerMethods = workerMethods
-        this.sleepTimeout = null
         this.consumerGroupMemberId = null
         this.consumerReady = false
 
         this.ingestionTopic = this.pluginsServer.KAFKA_CONSUMPTION_TOPIC!
-        this.bufferTopic = KAFKA_BUFFER
         this.eventsTopic = KAFKA_EVENTS_JSON
         this.eachBatch = {
             [this.ingestionTopic]: eachBatchIngestion,
-            [this.bufferTopic]: eachBatchBuffer,
             [this.eventsTopic]: eachBatchAsyncHandlers,
         }
     }
@@ -56,7 +50,6 @@ export class KafkaQueue {
 
         if (this.pluginsServer.capabilities.ingestion) {
             topics.push(this.ingestionTopic)
-            topics.push(this.bufferTopic)
         } else if (this.pluginsServer.capabilities.processAsyncHandlers) {
             topics.push(this.eventsTopic)
         } else {
@@ -124,13 +117,23 @@ export class KafkaQueue {
                                 "Probably the batch took longer than the session and we couldn't commit the offset"
                             )
                         }
-                        if (
-                            error.message &&
-                            !error.message.includes('The group is rebalancing, so a rejoin is needed') &&
-                            !error.message.includes('Specified group generation id is not valid') &&
-                            !error.message.includes('Could not find person with distinct id')
-                        ) {
-                            Sentry.captureException(error)
+                        if (error.message) {
+                            let logToSentry = true
+                            const messagesToIgnore = {
+                                'The group is rebalancing, so a rejoin is needed': 'group_rebalancing',
+                                'Specified group generation id is not valid': 'generation_id_invalid',
+                                'Could not find person with distinct id': 'person_not_found',
+                                'The coordinator is not aware of this member': 'not_aware_of_member',
+                            }
+                            for (const [msg, metricSuffix] of Object.entries(messagesToIgnore)) {
+                                if (error.message.includes(msg)) {
+                                    this.pluginsServer.statsd?.increment('each_batch_error_' + metricSuffix)
+                                    logToSentry = false
+                                }
+                            }
+                            if (logToSentry) {
+                                Sentry.captureException(error)
+                            }
                         }
                         throw error
                     }
@@ -138,28 +141,6 @@ export class KafkaQueue {
             })
         })
         return await startPromise
-    }
-
-    async bufferSleep(
-        sleepMs: number,
-        partition: number,
-        offset: string,
-        heartbeat: () => Promise<void>
-    ): Promise<void> {
-        await this.pause(this.bufferTopic, partition)
-        const sleepHeartbeatInterval = setInterval(async () => {
-            await heartbeat() // Send a heartbeat once a second so that the broker knows we're still alive
-        }, 1000)
-        this.sleepTimeout = setTimeout(() => {
-            if (this.sleepTimeout) {
-                clearTimeout(this.sleepTimeout)
-            }
-            clearInterval(sleepHeartbeatInterval)
-            // Seek so that after resuming we start exactly where we left off (with the cutoff message)
-            // instead of skipping over messages left for later in the last batch
-            this.consumer.seek({ topic: this.bufferTopic, partition, offset })
-            this.resume(this.bufferTopic, partition)
-        }, sleepMs)
     }
 
     async pause(targetTopic: string, partition?: number): Promise<void> {

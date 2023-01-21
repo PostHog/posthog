@@ -44,7 +44,7 @@ export function onEvent (event, { global }) {
         max: new Date(),
         min: new Date(Date.now()-${ONE_HOUR})
     }
-    testConsole.log('onEvent', event.event)
+    testConsole.log('onEvent', JSON.stringify(event))
 }
 
 export function onSnapshot (event) {
@@ -98,7 +98,11 @@ describe('E2E', () => {
 
             const uuid = new UUIDT().toString()
 
-            await posthog.capture('custom event', { name: 'haha', uuid })
+            const event = {
+                event: 'custom event',
+                properties: { name: 'haha', uuid },
+            }
+            await posthog.capture(event.event, event.properties)
 
             await delayUntilEventIngested(() => hub.db.fetchEvents())
 
@@ -112,7 +116,38 @@ describe('E2E', () => {
             expect(events[0].properties.upperUuid).toEqual(uuid.toUpperCase())
 
             // onEvent ran
-            expect(testConsole.read()).toEqual([['processEvent'], ['onEvent', 'custom event']])
+            const consoleOutput = testConsole.read()
+            expect(consoleOutput).toEqual([['processEvent'], ['onEvent', expect.any(String)]])
+
+            const onEventEvent = JSON.parse(consoleOutput[1][1])
+            expect(onEventEvent.event).toEqual('custom event')
+            expect(onEventEvent.properties).toEqual(expect.objectContaining(event.properties))
+        })
+
+        test('correct $autocapture properties included in onEvent calls', async () => {
+            // The plugin server does modifications to the `event.properties`
+            // and as a results we remove the initial `$elements` from the
+            // object. Thus we want to ensure that this information is passed
+            // through to any plugins with `onEvent` handlers
+            const properties = {
+                $elements: [{ tag_name: 'div', nth_child: 1, nth_of_type: 2, $el_text: '💻' }],
+            }
+            const event = {
+                event: '$autocapture',
+                properties: properties,
+            }
+            await posthog.capture(event.event, event.properties)
+
+            await delayUntilEventIngested(() => hub.db.fetchEvents(), 1)
+
+            // onEvent ran
+            const consoleOutput = testConsole.read()
+            expect(consoleOutput).toEqual([['processEvent'], ['onEvent', expect.any(String)]])
+
+            const onEventEvent = JSON.parse(consoleOutput[1][1])
+            expect(onEventEvent.elements).toEqual([
+                { attributes: {}, nth_child: 1, nth_of_type: 2, tag_name: 'div', text: '💻' },
+            ])
         })
 
         test('snapshot captured, processed, ingested', async () => {

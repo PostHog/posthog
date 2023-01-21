@@ -6,10 +6,6 @@
     font-size: 1.5rem;
     color: var(--primary-alt);
 
-    &:not(.custom-component) {
-        margin-left: 1.25rem !important;
-    }
-
     &.inline {
         display: inline-flex;
     }

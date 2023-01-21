@@ -401,7 +401,6 @@ export function SavedInsights(): JSX.Element {
                                 <DateFilter
                                     defaultValue="All time"
                                     disabled={false}
-                                    bordered={true}
                                     dateFrom={dateFrom}
                                     dateTo={dateTo}
                                     onChange={(fromDate, toDate) =>

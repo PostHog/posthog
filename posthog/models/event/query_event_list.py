@@ -5,6 +5,7 @@ from typing import Dict, List, Optional, Tuple, Union
 from dateutil.parser import isoparse
 from django.utils.timezone import now
 
+from posthog.api.utils import get_pk_or_uuid
 from posthog.client import query_with_columns
 from posthog.models import Action, Filter, Person, Team
 from posthog.models.action.util import format_action_filter
@@ -33,7 +34,7 @@ def determine_event_conditions(
             params.update({"before": timestamp})
         elif k == "person_id":
             result += """AND distinct_id IN (%(distinct_ids)s)"""
-            person = Person.objects.filter(pk=v, team_id=team.pk).first()
+            person = get_pk_or_uuid(Person.objects.all(), v).first()
             distinct_ids = person.distinct_ids if person is not None else []
             params.update({"distinct_ids": list(map(str, distinct_ids))})
         elif k == "distinct_id":

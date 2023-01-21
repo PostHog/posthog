@@ -106,6 +106,10 @@ class PropertiesSerializer(serializers.Serializer):
     properties = PropertySerializer(required=False, many=True, help_text=property_help_text)
 
 
+class PersonPropertiesSerializer(serializers.Serializer):
+    properties = PropertySerializer(required=False, many=True, help_text="Filter Persons by person properties.")
+
+
 math_help_text = """How to aggregate results, shown as \"counted by\" in the interface.
 - `total` (default): no aggregation, count by events
 - `dau`: count by unique users. Despite the name, if you select the `interval` to be weekly or monthly, this will show weekly or monthly active users respectively

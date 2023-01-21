@@ -7,6 +7,7 @@ import structlog
 from boto3 import client
 from botocore.client import Config
 from django.conf import settings
+from sentry_sdk import capture_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -88,6 +89,7 @@ class ObjectStorage(ObjectStorageClient):
             return s3_response["Body"].read()
         except Exception as e:
             logger.error("object_storage.read_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
+            capture_exception(e)
             raise ObjectStorageError("read failed") from e
 
     def list_all_objects(self, bucket: str, prefix: str) -> List[dict]:
@@ -137,6 +139,7 @@ class ObjectStorage(ObjectStorageClient):
             s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key)
         except Exception as e:
             logger.error("object_storage.write_failed", bucket=bucket, file_name=key, error=e, s3_response=s3_response)
+            capture_exception(e)
             raise ObjectStorageError("write failed") from e
 
 

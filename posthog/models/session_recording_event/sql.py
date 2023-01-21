@@ -131,5 +131,5 @@ DROP_SESSION_RECORDING_EVENTS_TABLE_SQL = lambda: (
 )
 
 UPDATE_RECORDINGS_TABLE_TTL_SQL = lambda: (
-    f"ALTER TABLE {SESSION_RECORDING_EVENTS_DATA_TABLE()} MODIFY TTL toDate(created_at) + toIntervalWeek(%(weeks)s)"
+    f"ALTER TABLE {SESSION_RECORDING_EVENTS_DATA_TABLE()} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}' MODIFY TTL toDate(created_at) + toIntervalWeek(%(weeks)s)"
 )

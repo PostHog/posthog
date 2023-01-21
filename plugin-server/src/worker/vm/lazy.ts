@@ -195,13 +195,20 @@ export class LazyPluginVM {
             ? pluginDigest(this.pluginConfig.plugin)
             : `plugin config ID '${this.pluginConfig.id}'`
         this.totalInitAttemptsCounter++
+        const timer = new Date()
         try {
             await vm?.run(`${this.vmResponseVariable}.methods.setupPlugin?.()`)
+            this.hub.statsd?.increment('plugin.setup.success', { plugin: this.pluginConfig.plugin?.name ?? '?' })
+            this.hub.statsd?.timing('plugin.setup.timing', timer, { plugin: this.pluginConfig.plugin?.name ?? '?' })
             this.ready = true
             status.info('🔌', `setupPlugin succeeded for ${logInfo}.`)
             await this.createLogEntry(`setupPlugin succeeded (instance ID ${this.hub.instanceId}).`)
             void clearError(this.hub, this.pluginConfig)
         } catch (error) {
+            this.hub.statsd?.increment('plugin.setup.fail', { plugin: this.pluginConfig.plugin?.name ?? '?' })
+            this.hub.statsd?.timing('plugin.setup.fail_timing', timer, {
+                plugin: this.pluginConfig.plugin?.name ?? '?',
+            })
             this.clearRetryTimeoutIfExists()
             if (error instanceof RetryError) {
                 error._attempt = this.totalInitAttemptsCounter
@@ -234,7 +241,7 @@ export class LazyPluginVM {
         }
     }
 
-    private async createLogEntry(message: string, logType = PluginLogEntryType.Info): Promise<void> {
+    public async createLogEntry(message: string, logType = PluginLogEntryType.Info): Promise<void> {
         await this.hub.db.queuePluginLogEntry({
             message,
             pluginConfig: this.pluginConfig,

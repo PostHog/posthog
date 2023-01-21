@@ -17,6 +17,7 @@ import {
     ChartDisplayType,
     ChartParams,
     DashboardType,
+    ExporterFormat,
     FilterType,
     InsightColor,
     InsightLogicProps,
@@ -36,7 +37,7 @@ import { IconSubtitles, IconSubtitlesOff } from '../icons'
 import { CSSTransition, Transition } from 'react-transition-group'
 import { InsightDetails } from './InsightDetails'
 import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/SavedInsights'
-import { DashboardPrivilegeLevel, FEATURE_FLAGS } from 'lib/constants'
+import { DashboardPrivilegeLevel } from 'lib/constants'
 import { funnelLogic } from 'scenes/funnels/funnelLogic'
 import { ActionsHorizontalBar, ActionsLineGraph, ActionsPie } from 'scenes/trends/viz'
 import { DashboardInsightsTable } from 'scenes/insights/views/InsightsTable/InsightsTable'
@@ -50,8 +51,8 @@ import { cohortsModel } from '~/models/cohortsModel'
 import { mathsLogic } from 'scenes/trends/mathsLogic'
 import { WorldMap } from 'scenes/insights/views/WorldMap'
 import { AlertMessage } from '../AlertMessage'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { UserActivityIndicator } from '../UserActivityIndicator/UserActivityIndicator'
+import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 
 // TODO: Add support for Retention to InsightDetails
 export const INSIGHT_TYPES_WHERE_DETAILS_UNSUPPORTED: InsightType[] = [InsightType.RETENTION]
@@ -146,7 +147,6 @@ export interface InsightCardProps extends React.HTMLAttributes<HTMLDivElement> {
     refresh?: () => void
     rename?: () => void
     duplicate?: () => void
-    moveToDashboardOld?: (dashboardId: DashboardType['id']) => void
     moveToDashboard?: (dashboard: DashboardType) => void
 }
 
@@ -160,7 +160,6 @@ interface InsightMetaProps
         | 'refresh'
         | 'rename'
         | 'duplicate'
-        | 'moveToDashboardOld'
         | 'moveToDashboard'
         | 'showEditingControls'
         | 'showDetailsControls'
@@ -182,7 +181,6 @@ function InsightMeta({
     refresh,
     rename,
     duplicate,
-    moveToDashboardOld,
     moveToDashboard,
     setPrimaryHeight,
     areDetailsShown,
@@ -191,7 +189,7 @@ function InsightMeta({
     showDetailsControls = true,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, description, tags, color, filters, dashboards } = insight
-
+    const { exporterResourceParams } = useValues(insightLogic)
     const { reportDashboardItemRefreshed } = useActions(eventUsageLogic)
     const { aggregationLabel } = useValues(groupsModel)
     const { cohortsById } = useValues(cohortsModel)
@@ -200,8 +198,6 @@ function InsightMeta({
     const otherDashboards: DashboardType[] = nameSortedDashboards.filter(
         (d: DashboardType) => !dashboards?.includes(d.id)
     )
-
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { ref: primaryRef, height: primaryHeight, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -331,41 +327,31 @@ function InsightMeta({
                                                             Set color
                                                         </LemonButtonWithPopup>
                                                     )}
-                                                    {editable &&
-                                                        moveToDashboardOld &&
-                                                        moveToDashboard &&
-                                                        otherDashboards.length > 0 && (
-                                                            <LemonButtonWithPopup
-                                                                type="stealth"
-                                                                popup={{
-                                                                    overlay: otherDashboards.map((otherDashboard) => (
-                                                                        <LemonButton
-                                                                            key={otherDashboard.id}
-                                                                            type="stealth"
-                                                                            onClick={() => {
-                                                                                !!featureFlags[
-                                                                                    FEATURE_FLAGS
-                                                                                        .MULTI_DASHBOARD_INSIGHTS
-                                                                                ]
-                                                                                    ? moveToDashboard(otherDashboard)
-                                                                                    : moveToDashboardOld(
-                                                                                          otherDashboard.id
-                                                                                      )
-                                                                            }}
-                                                                            fullWidth
-                                                                        >
-                                                                            {otherDashboard.name || <i>Untitled</i>}
-                                                                        </LemonButton>
-                                                                    )),
-                                                                    placement: 'right-start',
-                                                                    fallbackPlacements: ['left-start'],
-                                                                    actionable: true,
-                                                                }}
-                                                                fullWidth
-                                                            >
-                                                                Move to
-                                                            </LemonButtonWithPopup>
-                                                        )}
+                                                    {editable && moveToDashboard && otherDashboards.length > 0 && (
+                                                        <LemonButtonWithPopup
+                                                            type="stealth"
+                                                            popup={{
+                                                                overlay: otherDashboards.map((otherDashboard) => (
+                                                                    <LemonButton
+                                                                        key={otherDashboard.id}
+                                                                        type="stealth"
+                                                                        onClick={() => {
+                                                                            moveToDashboard(otherDashboard)
+                                                                        }}
+                                                                        fullWidth
+                                                                    >
+                                                                        {otherDashboard.name || <i>Untitled</i>}
+                                                                    </LemonButton>
+                                                                )),
+                                                                placement: 'right-start',
+                                                                fallbackPlacements: ['left-start'],
+                                                                actionable: true,
+                                                            }}
+                                                            fullWidth
+                                                        >
+                                                            Move to
+                                                        </LemonButtonWithPopup>
+                                                    )}
                                                     <LemonDivider />
                                                     {editable && (
                                                         <LemonButton
@@ -384,6 +370,22 @@ function InsightMeta({
                                                     <LemonButton type="stealth" onClick={duplicate} fullWidth>
                                                         Duplicate
                                                     </LemonButton>
+                                                    <LemonDivider />
+                                                    {exporterResourceParams ? (
+                                                        <ExportButton
+                                                            fullWidth
+                                                            items={[
+                                                                {
+                                                                    export_format: ExporterFormat.PNG,
+                                                                    insight: insight.id,
+                                                                },
+                                                                {
+                                                                    export_format: ExporterFormat.CSV,
+                                                                    export_context: exporterResourceParams,
+                                                                },
+                                                            ]}
+                                                        />
+                                                    ) : null}
                                                     {editable && (
                                                         <>
                                                             <LemonDivider />
@@ -521,7 +523,6 @@ function InsightCardInternal(
         refresh,
         rename,
         duplicate,
-        moveToDashboardOld,
         moveToDashboard,
         className,
         children,
@@ -581,7 +582,6 @@ function InsightCardInternal(
                     refresh={refresh}
                     rename={rename}
                     duplicate={duplicate}
-                    moveToDashboardOld={moveToDashboardOld}
                     moveToDashboard={moveToDashboard}
                     setPrimaryHeight={setMetaPrimaryHeight}
                     areDetailsShown={areDetailsShown}

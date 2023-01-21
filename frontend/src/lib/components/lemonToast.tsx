@@ -97,6 +97,7 @@ export const lemonToast = {
     promise(
         promise: Promise<any>,
         messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
+        icons: { pending?: JSX.Element; success?: JSX.Element; error?: JSX.Element } = {},
         { button, ...toastOptions }: ToastOptionsWithButton = {}
     ): Promise<any> {
         toastOptions = ensureToastId(toastOptions)
@@ -106,19 +107,19 @@ export const lemonToast = {
             {
                 pending: {
                     render: <ToastContent type={'info'} message={messages.pending} />,
-                    icon: <Spinner style={{ width: '1.5rem', height: '1.5rem' }} />,
+                    icon: icons.pending ?? <Spinner />,
                 },
                 success: {
                     render({ data }: ToastifyRenderProps<string>) {
                         return <ToastContent type={'success'} message={data || messages.success} />
                     },
-                    icon: <IconCheckmark />,
+                    icon: icons.success ?? <IconCheckmark />,
                 },
                 error: {
                     render({ data }: ToastifyRenderProps<Error>) {
                         return <ToastContent type={'error'} message={data?.message || messages.error} />
                     },
-                    icon: <IconErrorOutline />,
+                    icon: icons.error ?? <IconErrorOutline />,
                 },
             },
             toastOptions

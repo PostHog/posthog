@@ -22,6 +22,7 @@ import { More } from 'lib/components/LemonButton/More'
 import { LemonButton } from 'lib/components/LemonButton'
 import { LemonTag, LemonTagPropsType } from 'lib/components/LemonTag/LemonTag'
 import { IconRefresh, IconReplay } from 'lib/components/icons'
+import { AsyncMigrationParametersModal } from 'scenes/instance/AsyncMigrations/AsyncMigrationParametersModal'
 
 const { TabPane } = Tabs
 
@@ -34,8 +35,14 @@ const STATUS_RELOAD_INTERVAL_MS = 3000
 
 export function AsyncMigrations(): JSX.Element {
     const { user } = useValues(userLogic)
-    const { asyncMigrations, asyncMigrationsLoading, activeTab, asyncMigrationSettings, isAnyMigrationRunning } =
-        useValues(asyncMigrationsLogic)
+    const {
+        asyncMigrations,
+        asyncMigrationsLoading,
+        activeTab,
+        asyncMigrationSettings,
+        isAnyMigrationRunning,
+        activeAsyncMigrationModal,
+    } = useValues(asyncMigrationsLogic)
     const {
         triggerMigration,
         resumeMigration,
@@ -140,7 +147,7 @@ export function AsyncMigrations(): JSX.Element {
                                 <Button
                                     type="link"
                                     icon={<PlayCircleOutlined />}
-                                    onClick={() => triggerMigration(asyncMigration.id)}
+                                    onClick={() => triggerMigration(asyncMigration)}
                                 >
                                     Run
                                 </Button>
@@ -151,14 +158,14 @@ export function AsyncMigrations(): JSX.Element {
                                     <>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => forceStopMigration(asyncMigration.id)}
+                                            onClick={() => forceStopMigration(asyncMigration)}
                                             fullWidth
                                         >
                                             Stop and rollback
                                         </LemonButton>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => forceStopMigrationWithoutRollback(asyncMigration.id)}
+                                            onClick={() => forceStopMigrationWithoutRollback(asyncMigration)}
                                             fullWidth
                                         >
                                             Stop
@@ -174,14 +181,14 @@ export function AsyncMigrations(): JSX.Element {
                                     <>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => resumeMigration(asyncMigration.id)}
+                                            onClick={() => resumeMigration(asyncMigration)}
                                             fullWidth
                                         >
                                             Resume
                                         </LemonButton>
                                         <LemonButton
                                             type="stealth"
-                                            onClick={() => rollbackMigration(asyncMigration.id)}
+                                            onClick={() => rollbackMigration(asyncMigration)}
                                             fullWidth
                                         >
                                             Rollback
@@ -194,7 +201,7 @@ export function AsyncMigrations(): JSX.Element {
                                 <LemonButton
                                     type="stealth"
                                     icon={<IconReplay />}
-                                    onClick={() => triggerMigration(asyncMigration.id)}
+                                    onClick={() => triggerMigration(asyncMigration)}
                                     fullWidth
                                 />
                             </Tooltip>
@@ -260,6 +267,9 @@ export function AsyncMigrations(): JSX.Element {
                                 dataSource={asyncMigrations}
                                 expandable={rowExpansion}
                             />
+                            {activeAsyncMigrationModal ? (
+                                <AsyncMigrationParametersModal {...activeAsyncMigrationModal} />
+                            ) : null}
                         </>
                     ) : activeTab === AsyncMigrationsTab.Settings ? (
                         <>

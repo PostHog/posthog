@@ -41,6 +41,7 @@ export enum Scene {
     Annotations = 'Annotations',
     Billing = 'Billing',
     BillingSubscribed = 'BillingSubscribed',
+    BillingLocked = 'BillingLocked',
     Plugins = 'Plugins',
     FrontendAppScene = 'FrontendAppScene',
     SavedInsights = 'SavedInsights',

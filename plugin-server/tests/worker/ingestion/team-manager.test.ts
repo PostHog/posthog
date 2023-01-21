@@ -268,7 +268,6 @@ describe('TeamManager()', () => {
         it('does not capture event', async () => {
             await teamManager.updateEventNamesAndProperties(2, 'new-event', { property_name: 'efg', number: 4 })
 
-            expect(posthog.identify).not.toHaveBeenCalled()
             expect(posthog.capture).not.toHaveBeenCalled()
         })
 
@@ -311,13 +310,16 @@ describe('TeamManager()', () => {
                 })
 
                 const team = await teamManager.fetchTeam(2)
-                expect(posthog.identify).toHaveBeenCalledWith('plugin_test_user_distinct_id_1001')
-                expect(posthog.capture).toHaveBeenCalledWith('first team event ingested', {
-                    team: team!.uuid,
-                    host: 'localhost:8000',
-                    realm: undefined,
-                    sdk: 'python',
-                    $groups: {
+                expect(posthog.capture).toHaveBeenCalledWith({
+                    distinctId: 'plugin_test_user_distinct_id_1001',
+                    event: 'first team event ingested',
+                    properties: {
+                        team: team!.uuid,
+                        host: 'localhost:8000',
+                        realm: undefined,
+                        sdk: 'python',
+                    },
+                    groups: {
                         organization: 'ca30f2ec-e9a4-4001-bf27-3ef194086068',
                         project: team!.uuid,
                         instance: 'unknown',

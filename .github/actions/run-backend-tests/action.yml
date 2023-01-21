@@ -75,8 +75,8 @@ runs:
               mkdir -p frontend/dist
               touch frontend/dist/index.html
               touch frontend/dist/layout.html
-              touch frontend/dist/shared_dashboard.html
               touch frontend/dist/exporter.html
+              [ ! -f ./share/GeoLite2-City.mmdb ] && ( curl -L "https://mmdbcdn.posthog.net/" | brotli --decompress --output=./share/GeoLite2-City.mmdb )
 
         - name: Wait for Clickhouse & Kafka
           shell: bash

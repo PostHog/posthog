@@ -65,16 +65,25 @@ Loading.args = {
 
 export const Small = Template.bind({})
 Small.args = {
+    outlined: true,
     size: 'small',
+}
+
+export const Tall = Template.bind({})
+Tall.args = {
+    outlined: true,
+    size: 'tall',
 }
 
 export const Large = Template.bind({})
 Large.args = {
+    outlined: true,
     size: 'large',
 }
 
 export const FullWidth = Template.bind({})
 FullWidth.args = {
+    outlined: true,
     fullWidth: true,
 }
 

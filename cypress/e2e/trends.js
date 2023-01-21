@@ -28,7 +28,7 @@ describe('Trends', () => {
         cy.contains('Add graph series').click()
         cy.get('[data-attr=taxonomic-tab-actions]').click()
         cy.get('[data-attr=taxonomic-filter-searchfield]').click().type('home')
-        cy.contains('Hogflix homepage view').click()
+        cy.contains('Hogflix homepage view').click({ force: true })
 
         // then
         cy.get('[data-attr=trend-line-graph]').should('exist')

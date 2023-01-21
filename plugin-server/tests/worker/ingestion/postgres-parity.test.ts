@@ -416,7 +416,7 @@ describe('postgres parity', () => {
 
         // delete person
 
-        await hub.db.postgresTransaction(async (client) => {
+        await hub.db.postgresTransaction('', async (client) => {
             const deletePersonMessage = await hub.db.deletePerson(person, client)
             await hub.db!.kafkaProducer!.queueMessage(deletePersonMessage[0])
         })

@@ -170,7 +170,7 @@ def update_migration_progress(migration_instance: AsyncMigration):
 
     migration_instance.refresh_from_db()
     try:
-        progress = get_async_migration_definition(migration_instance.name).progress(migration_instance)  # type: ignore
+        progress = get_async_migration_definition(migration_instance.name).progress(migration_instance)
         update_async_migration(migration_instance=migration_instance, progress=progress)
     except:
         pass

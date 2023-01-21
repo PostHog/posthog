@@ -13,7 +13,7 @@ import { LemonTextArea } from 'lib/components/LemonTextArea/LemonTextArea'
 import { DASHBOARD_RESTRICTION_OPTIONS } from './DashboardCollaborators'
 
 export function NewDashboardModal(): JSX.Element {
-    const { hideNewDashboardModal } = useActions(newDashboardLogic)
+    const { hideNewDashboardModal, createAndGoToDashboard } = useActions(newDashboardLogic)
     const { isNewDashboardSubmitting, newDashboardModalVisible } = useValues(newDashboardLogic)
 
     return (
@@ -23,16 +23,25 @@ export function NewDashboardModal(): JSX.Element {
             onCancel={hideNewDashboardModal}
             visible={newDashboardModalVisible}
             footer={
-                <>
+                <div className="flex justify-end space-x-05 full-width">
                     <LemonButton
                         form="new-dashboard-form"
                         type="secondary"
                         data-attr="dashboard-cancel"
                         loading={isNewDashboardSubmitting}
-                        style={{ marginRight: '0.5rem' }}
                         onClick={hideNewDashboardModal}
                     >
                         Cancel
+                    </LemonButton>
+                    <LemonButton
+                        form="new-dashboard-form"
+                        type="secondary"
+                        data-attr="dashboard-submit"
+                        loading={isNewDashboardSubmitting}
+                        disabled={isNewDashboardSubmitting}
+                        onClick={createAndGoToDashboard}
+                    >
+                        Create and go to dashboard
                     </LemonButton>
                     <LemonButton
                         form="new-dashboard-form"
@@ -44,7 +53,7 @@ export function NewDashboardModal(): JSX.Element {
                     >
                         Create
                     </LemonButton>
-                </>
+                </div>
             }
         >
             <VerticalForm logic={newDashboardLogic} formKey="newDashboard" id="new-dashboard-form" enableFormOnSubmit>

@@ -2,22 +2,10 @@ import { PluginEvent } from '@posthog/plugin-scaffold'
 import { EachBatchPayload, KafkaMessage } from 'kafkajs'
 
 import { Hub, WorkerMethods } from '../../../types'
-import { normalizeEvent } from '../../../utils/event'
+import { formPluginEvent } from '../../../utils/event'
 import { status } from '../../../utils/status'
 import { KafkaQueue } from '../kafka-queue'
 import { eachBatch } from './each-batch'
-
-export function formPluginEvent(message: KafkaMessage): PluginEvent {
-    // TODO: inefficient to do this twice?
-    const { data: dataStr, ...rawEvent } = JSON.parse(message.value!.toString())
-    const combinedEvent = { ...rawEvent, ...JSON.parse(dataStr) }
-    const event: PluginEvent = normalizeEvent({
-        ...combinedEvent,
-        site_url: combinedEvent.site_url || null,
-        ip: combinedEvent.ip || null,
-    })
-    return event
-}
 
 export async function eachMessageIngestion(message: KafkaMessage, queue: KafkaQueue): Promise<void> {
     await ingestEvent(queue.pluginsServer, queue.workerMethods, formPluginEvent(message))

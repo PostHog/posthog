@@ -101,6 +101,7 @@ class ClickhouseTestGroupsApi(ClickhouseTestMixin, APIBaseTest):
                     "created_at": "2021-05-10T00:00:00Z",
                     "distinct_ids": ["1", "2"],
                     "id": "01795392-cc00-0003-7dc7-67a694604d72",
+                    "uuid": "01795392-cc00-0003-7dc7-67a694604d72",
                     "is_identified": False,
                     "name": "1",
                     "properties": {},
