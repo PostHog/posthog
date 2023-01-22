@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { List, Space } from 'antd'
 import { heatmapLogic } from '~/toolbar/elements/heatmapLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { getShadowRootPopupContainer } from '~/toolbar/utils'
@@ -12,6 +11,7 @@ import { IconSync } from 'lib/components/icons'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Tooltip } from 'lib/components/Tooltip'
 import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+import './HeatmapStat.scss'
 
 /**
  * Within the toolbar if a tooltip attaches to the body (the default) it is not visible
@@ -114,42 +114,30 @@ export function HeatmapStats(): JSX.Element {
                             />
                         </div>
                     </Tooltip>
-                    <List
-                        itemLayout="horizontal"
-                        dataSource={countedElements}
-                        renderItem={({ element, count, actionStep }, index) => (
-                            <List.Item
-                                onClick={() => setSelectedElement(element)}
-                                onMouseEnter={() => setHighlightElement(element)}
-                                onMouseLeave={() => setHighlightElement(null)}
-                                style={{ cursor: 'pointer' }}
-                            >
-                                <List.Item.Meta
-                                    title={
-                                        <Space>
-                                            <span
-                                                style={{
-                                                    display: 'inline-block',
-                                                    width: Math.floor(Math.log10(countedElements.length) + 1) * 12 + 6,
-                                                    textAlign: 'right',
-                                                    marginRight: 4,
-                                                }}
-                                            >
-                                                {index + 1}.
-                                            </span>
-                                            {actionStep?.text ||
-                                                (actionStep?.tag_name ? (
-                                                    <code>&lt;{actionStep.tag_name}&gt;</code>
-                                                ) : (
-                                                    <em>Element</em>
-                                                ))}
-                                        </Space>
-                                    }
-                                />
-                                <div>{count} clicks</div>
-                            </List.Item>
-                        )}
-                    />
+                    <div className="flex flex-col w-full">
+                        {countedElements.map(({ element, count, actionStep }, index) => {
+                            return (
+                                <div
+                                    className="p-2 flex flex-row justify-between cursor-pointer HeatmapStats__elements-list"
+                                    key={index}
+                                    onClick={() => setSelectedElement(element)}
+                                    onMouseEnter={() => setHighlightElement(element)}
+                                    onMouseLeave={() => setHighlightElement(null)}
+                                >
+                                    <div>
+                                        {index + 1}.&nbsp;
+                                        {actionStep?.text ||
+                                            (actionStep?.tag_name ? (
+                                                <code>&lt;{actionStep.tag_name}&gt;</code>
+                                            ) : (
+                                                <em>Element</em>
+                                            ))}
+                                    </div>
+                                    <div>{count} clicks</div>
+                                </div>
+                            )
+                        })}
+                    </div>
                 </div>
             ) : null}
         </div>
