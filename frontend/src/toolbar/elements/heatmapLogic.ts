@@ -35,8 +35,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
         loadMoreElementStats: true,
         storePageElements: (elements: HTMLHtmlElement[]) => ({ elements }),
+        setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
     }),
     reducers({
+        matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
         pageElements: [
             [] as HTMLHtmlElement[],
             {
@@ -149,14 +151,19 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     selectors(({ cache }) => ({
         elements: [
-            (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes, selectors.pageElements],
-            (elementStats, dataAttributes, pageElements) => {
+            (selectors) => [
+                selectors.elementStats,
+                toolbarLogic.selectors.dataAttributes,
+                selectors.pageElements,
+                selectors.matchLinksByHref,
+            ],
+            (elementStats, dataAttributes, pageElements, matchLinksByHref) => {
                 const elements: CountedHTMLElement[] = []
                 elementStats?.results.forEach((event) => {
                     let combinedSelector: string
                     let lastSelector: string | undefined
                     for (let i = 0; i < event.elements.length; i++) {
-                        const selector = elementToSelector(event.elements[i], dataAttributes) || '*'
+                        const selector = elementToSelector(event.elements[i], dataAttributes, matchLinksByHref) || '*'
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {

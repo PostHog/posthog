@@ -10,11 +10,19 @@ import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconSync } from 'lib/components/icons'
 import { AlertMessage } from 'lib/components/AlertMessage'
+import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 
 export function HeatmapStats(): JSX.Element {
-    const { countedElements, clickCount, heatmapEnabled, heatmapLoading, heatmapFilter, canLoadMoreElementStats } =
-        useValues(heatmapLogic)
-    const { setHeatmapFilter, loadMoreElementStats } = useActions(heatmapLogic)
+    const {
+        matchLinksByHref,
+        countedElements,
+        clickCount,
+        heatmapEnabled,
+        heatmapLoading,
+        heatmapFilter,
+        canLoadMoreElementStats,
+    } = useValues(heatmapLogic)
+    const { setHeatmapFilter, loadMoreElementStats, setMatchLinksByHref } = useActions(heatmapLogic)
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
@@ -56,6 +64,13 @@ export function HeatmapStats(): JSX.Element {
                                 Loaded all elements in this data range.
                             </AlertMessage>
                         )}
+                    </div>
+                    <div>
+                        <LemonCheckbox
+                            checked={matchLinksByHref}
+                            label={'Match links by their target URL'}
+                            onChange={(checked) => setMatchLinksByHref(checked)}
+                        />
                     </div>
                     <List
                         itemLayout="horizontal"

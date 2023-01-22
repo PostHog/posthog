@@ -23,7 +23,11 @@ export function matchesDataAttribute(element: ElementType, dataAttributes: strin
     }
 }
 
-export function elementToSelector(element: ElementType, dataAttributes: string[]): string {
+export function elementToSelector(
+    element: ElementType,
+    dataAttributes: string[],
+    matchByHref: boolean = false
+): string {
     let selector = ''
     const attribute = matchesDataAttribute(element, dataAttributes)
     if (attribute) {
@@ -43,7 +47,7 @@ export function elementToSelector(element: ElementType, dataAttributes: string[]
             .map((a) => `.${cssEscape(a)}`)
             .join('')
     }
-    if (element.href && element.tag_name === 'a') {
+    if (matchByHref && element.href && element.tag_name === 'a') {
         selector += `[href="${cssEscape(element.href)}"]`
     }
     if (element.nth_child) {
