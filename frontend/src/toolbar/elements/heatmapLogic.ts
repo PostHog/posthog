@@ -147,7 +147,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         ],
     })),
 
-    selectors({
+    selectors(({ cache }) => ({
         elements: [
             (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes, selectors.pageElements],
             (elementStats, dataAttributes, pageElements) => {
@@ -160,9 +160,16 @@ export const heatmapLogic = kea<heatmapLogicType>([
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
-                            const domElements = Array.from(
-                                querySelectorAllDeep(combinedSelector, document, pageElements)
-                            ) as HTMLElement[]
+                            if (cache.selectorToElement === undefined) {
+                                cache.selectorToElement = {}
+                            }
+                            let domElements: HTMLElement[] = cache.selectorToElement?.[combinedSelector] || []
+                            if (domElements.length === 0) {
+                                domElements = Array.from(
+                                    querySelectorAllDeep(combinedSelector, document, pageElements)
+                                ) as HTMLElement[]
+                                cache.selectorToElement[combinedSelector] = domElements
+                            }
 
                             if (domElements.length === 1) {
                                 const e = event.elements[i]
@@ -268,7 +275,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
             (countedElements) =>
                 countedElements ? countedElements.map((e) => e.count).reduce((a, b) => (b > a ? b : a), 0) : 0,
         ],
-    }),
+    })),
 
     afterMount(({ actions, values, cache }) => {
         if (values.heatmapEnabled) {
@@ -294,8 +301,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
         window.removeEventListener('keyup', cache.keyUpListener)
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         setHref: () => {
+            cache.selectorToElements = {}
             actions.storePageElements(collectAllElementsDeep('*', document))
         },
         loadMoreElementStats: () => {
