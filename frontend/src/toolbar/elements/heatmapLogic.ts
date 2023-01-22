@@ -22,6 +22,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
         values: [toolbarLogic, ['apiURL']],
+        actions: [currentPageLogic, ['setHref']],
     }),
     actions({
         getElementStats: (url?: string | null) => ({
@@ -33,8 +34,17 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
         loadMoreElementStats: true,
+        storePageElements: (elements: HTMLHtmlElement[]) => ({ elements }),
     }),
     reducers({
+        pageElements: [
+            [] as HTMLHtmlElement[],
+            {
+                storePageElements: (_, { elements }) => elements,
+                disableHeatmap: () => [],
+                enableHeatmap: () => collectAllElementsDeep('*', document),
+            },
+        ],
         canLoadMoreElementStats: [
             true,
             {
@@ -139,10 +149,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     selectors({
         elements: [
-            (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes],
-            (elementStats, dataAttributes) => {
+            (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes, selectors.pageElements],
+            (elementStats, dataAttributes, pageElements) => {
                 // cache all elements in shadow roots
-                const allElements = collectAllElementsDeep('*', document)
                 const elements: CountedHTMLElement[] = []
                 elementStats?.results.forEach((event) => {
                     let combinedSelector: string
@@ -153,7 +162,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                         try {
                             const domElements = Array.from(
-                                querySelectorAllDeep(combinedSelector, document, allElements)
+                                querySelectorAllDeep(combinedSelector, document, pageElements)
                             ) as HTMLElement[]
 
                             if (domElements.length === 1) {
@@ -186,7 +195,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
                             if (domElements.length === 0) {
                                 if (i === event.elements.length - 1) {
-                                    console.error(
+                                    console.log(
                                         'For event: ',
                                         event,
                                         '. Found a case with 0 elements using: ',
@@ -199,11 +208,11 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                     lastSelector = lastSelector ? `* > ${lastSelector}` : '*'
                                     continue
                                 } else {
-                                    console.log('Found empty selector')
+                                    console.log('heatmap: Found empty selector')
                                 }
                             }
                         } catch (error) {
-                            console.error('Invalid selector!', combinedSelector)
+                            console.log('Invalid selector!', combinedSelector)
                             break
                         }
 
@@ -264,6 +273,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     afterMount(({ actions, values, cache }) => {
         if (values.heatmapEnabled) {
+            actions.storePageElements(collectAllElementsDeep('*', document))
             actions.getElementStats()
         }
         cache.keyDownListener = (event: KeyboardEvent) => {
@@ -286,6 +296,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        setHref: () => {
+            actions.storePageElements(collectAllElementsDeep('*', document))
+        },
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
