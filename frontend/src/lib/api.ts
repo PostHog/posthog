@@ -36,6 +36,7 @@ import {
     FeatureFlagAssociatedRoleType,
     SessionRecordingType,
     PerformanceEvent,
+    RecentPerformancePageView,
 } from '~/types'
 import { getCurrentOrganizationId, getCurrentTeamId } from './utils/logics'
 import { CheckboxValueType } from 'antd/lib/checkbox/Group'
@@ -47,6 +48,7 @@ import { EVENT_PROPERTY_DEFINITIONS_PER_PAGE } from 'scenes/data-management/even
 import { ActivityLogItem, ActivityScope } from 'lib/components/ActivityLog/humanizeActivity'
 import { ActivityLogProps } from 'lib/components/ActivityLog/ActivityLog'
 import { SavedSessionRecordingPlaylistsResult } from 'scenes/session-recordings/saved-playlists/savedSessionRecordingPlaylistsLogic'
+import { dayjs } from 'lib/dayjs'
 
 export const ACTIVITY_PAGE_SIZE = 20
 
@@ -413,6 +415,13 @@ class ApiRequest {
     // Performance events
     public performanceEvents(teamId?: TeamType['id']): ApiRequest {
         return this.projectsDetail(teamId).addPathComponent('performance_events')
+    }
+
+    public recentPageViewPerformanceEvents(dateFrom: string, dateTo: string, teamId?: TeamType['id']): ApiRequest {
+        return this.projectsDetail(teamId)
+            .addPathComponent('performance_events')
+            .addPathComponent('recent_pageviews')
+            .withQueryString(toParams({ date_from: dateFrom, date_to: dateTo }))
     }
 
     // Request finalization
@@ -954,6 +963,15 @@ const api = {
         async listProperties(params: string): Promise<PaginatedResponse<SessionRecordingPropertiesType>> {
             return await new ApiRequest().recordings().withAction('properties').withQueryString(params).get()
         },
+
+        async get(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).withQueryString(params).get()
+        },
+
+        async listSnapshots(recordingId: SessionRecordingType['id'], params: string): Promise<SessionRecordingType> {
+            return await new ApiRequest().recording(recordingId).withAction('snapshots').withQueryString(params).get()
+        },
+
         async updateRecording(
             recordingId: SessionRecordingType['id'],
             recording: Partial<SessionRecordingType>,
@@ -1088,6 +1106,19 @@ const api = {
             teamId: TeamType['id'] = getCurrentTeamId()
         ): Promise<PaginatedResponse<PerformanceEvent>> {
             return new ApiRequest().performanceEvents(teamId).withQueryString(toParams(params)).get()
+        },
+        async recentPageViews(
+            teamId: TeamType['id'] = getCurrentTeamId(),
+            dateFrom?: string,
+            dateTo?: string
+        ): Promise<PaginatedResponse<RecentPerformancePageView>> {
+            return new ApiRequest()
+                .recentPageViewPerformanceEvents(
+                    dateFrom || dayjs().subtract(1, 'hour').toISOString(),
+                    dateTo || dayjs().toISOString(),
+                    teamId
+                )
+                .get()
         },
     },
 

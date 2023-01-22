@@ -6,11 +6,13 @@ import { AnyPropertyFilter } from '~/types'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { groupsModel } from '~/models/groupsModel'
 import { LemonSwitch } from '@posthog/lemon-ui'
+import { AlertMessage } from 'lib/components/AlertMessage'
 
 export function TestAccountFiltersConfig(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { reportTestAccountFiltersUpdated } = useActions(eventUsageLogic)
-    const { currentTeam, currentTeamLoading } = useValues(teamLogic)
+    const { currentTeam, currentTeamLoading, testAccountFilterWarningLabels, testAccountFilterFrequentMistakes } =
+        useValues(teamLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
     const handleChange = (filters: AnyPropertyFilter[]): void => {
@@ -21,6 +23,35 @@ export function TestAccountFiltersConfig(): JSX.Element {
     return (
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4">
+                {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
+                    <AlertMessage type="warning" className="m-2">
+                        <p>
+                            Positive filters here mean only events or persons matching these filters will be included.
+                            Internal and test account filters are normally excluding filters like does not equal or does
+                            not contain.
+                        </p>
+                        <p>Positive filters are currently set for the following properties: </p>
+                        <ul className="list-disc">
+                            {testAccountFilterWarningLabels.map((l, i) => (
+                                <li key={i} className="ml-4">
+                                    {l}
+                                </li>
+                            ))}
+                        </ul>
+                    </AlertMessage>
+                )}
+                {!!testAccountFilterFrequentMistakes && testAccountFilterFrequentMistakes.length > 0 && (
+                    <AlertMessage type="warning" className="m-2">
+                        <p>Your filter contains a setting that is likely to exclude or include unexpected users.</p>
+                        <ul className="list-disc">
+                            {testAccountFilterFrequentMistakes.map(({ key, type, fix }, i) => (
+                                <li key={i} className="ml-4">
+                                    {key} is a {type} property, but {fix}.
+                                </li>
+                            ))}
+                        </ul>
+                    </AlertMessage>
+                )}
                 {currentTeam && (
                     <PropertyFilters
                         pageKey="testaccountfilters"

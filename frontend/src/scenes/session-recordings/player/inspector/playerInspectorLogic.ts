@@ -23,6 +23,21 @@ import { eventWithTime } from 'rrweb/typings/types'
 import { CONSOLE_LOG_PLUGIN_NAME } from './v1/consoleLogsUtils'
 import { consoleLogsListLogic } from './v1/consoleLogsListLogic'
 
+export const IMAGE_WEB_EXTENSIONS = [
+    'png',
+    'jpg',
+    'jpeg',
+    'gif',
+    'tif',
+    'tiff',
+    'gif',
+    'svg',
+    'webp',
+    'bmp',
+    'ico',
+    'cur',
+]
+
 // Helping kea-typegen navigate the exported default class for Fuse
 // eslint-disable-next-line @typescript-eslint/no-empty-interface
 export interface Fuse extends FuseClass<InspectorListItem> {}
@@ -46,7 +61,7 @@ export type InspectorListItemConsole = InspectorListItemBase & {
 }
 
 export type InspectorListItemPerformance = InspectorListItemBase & {
-    type: SessionRecordingPlayerTab.PERFORMANCE
+    type: SessionRecordingPlayerTab.NETWORK
     data: PerformanceEvent
 }
 
@@ -58,7 +73,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     key((props: SessionRecordingPlayerLogicProps) => `${props.playerKey}-${props.sessionRecordingId}`),
     connect((props: SessionRecordingPlayerLogicProps) => ({
         logic: [eventUsageLogic],
-        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter']],
+        actions: [playerSettingsLogic, ['setTab', 'setMiniFilter', 'setSyncScroll']],
         values: [
             playerSettingsLogic,
             ['showOnlyMatching', 'tab', 'miniFiltersByKey'],
@@ -69,6 +84,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 'sessionPlayerData',
                 'sessionPlayerMetaData',
                 'sessionPlayerMetaDataLoading',
+                'sessionPlayerSnapshotDataLoading',
                 'sessionEventsData',
                 'sessionEventsDataLoading',
                 'windowIds',
@@ -83,7 +99,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
         setWindowIdFilter: (windowId: string | null) => ({ windowId }),
         setSearchQuery: (search: string) => ({ search }),
         setItemExpanded: (index: number, expanded: boolean) => ({ index, expanded }),
-        setSyncScroll: (syncScroll: boolean) => ({ syncScroll }),
+        setSyncScrollPaused: (paused: boolean) => ({ paused }),
     })),
     reducers(({}) => ({
         searchQuery: [
@@ -110,11 +126,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             },
         ],
 
-        syncScroll: [
+        syncScrollingPaused: [
             false,
             {
-                setSyncScroll: (_, { syncScroll }) => syncScroll,
-                setItemExpanded: () => false,
+                setTab: () => false,
+                setSyncScrollPaused: (_, { paused }) => paused,
+                setItemExpanded: () => true,
+                setSyncScroll: () => false,
             },
         ],
     })),
@@ -131,18 +149,6 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
     })),
 
     selectors(({}) => ({
-        loading: [
-            (s) => [s.sessionEventsDataLoading, s.performanceEventsLoading, s.sessionPlayerMetaDataLoading],
-            (sessionEventsDataLoading, performanceEventsLoading, sessionPlayerMetaDataLoading) => {
-                return {
-                    [SessionRecordingPlayerTab.ALL]: false,
-                    [SessionRecordingPlayerTab.EVENTS]: sessionEventsDataLoading,
-                    [SessionRecordingPlayerTab.CONSOLE]: sessionPlayerMetaDataLoading,
-                    [SessionRecordingPlayerTab.PERFORMANCE]: performanceEventsLoading,
-                }
-            },
-        ],
-
         recordingTimeInfo: [
             (s) => [s.sessionPlayerMetaData],
             (sessionPlayerMetaData): { start: Dayjs; end: Dayjs; duration: number } => {
@@ -158,6 +164,13 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
             () => [(_, props) => props.matching],
             (matchingEvents): MatchedRecordingEvent[] => {
                 return matchingEvents?.map((x: any) => x.events).flat() ?? []
+            },
+        ],
+
+        showMatchingEventsFilter: [
+            (s) => [s.matchingEvents, s.tab],
+            (matchingEvents, tab): boolean => {
+                return tab === SessionRecordingPlayerTab.EVENTS && matchingEvents.length > 0
             },
         ],
 
@@ -217,6 +230,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 s.miniFiltersByKey,
                 s.matchingEvents,
                 s.showOnlyMatching,
+                s.showMatchingEventsFilter,
                 s.windowIdFilter,
             ],
             (
@@ -229,6 +243,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 miniFiltersByKey,
                 matchingEvents,
                 showOnlyMatching,
+                showMatchingEventsFilter,
                 windowIdFilter
             ): InspectorListItem[] => {
                 // NOTE: Possible perf improvement here would be to have a selector to parse the items
@@ -239,10 +254,25 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 // PERFORMANCE EVENTS
                 if (
                     !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE] &&
-                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.PERFORMANCE)
+                    (tab === SessionRecordingPlayerTab.ALL || tab === SessionRecordingPlayerTab.NETWORK)
                 ) {
-                    for (const event of performanceEvents || []) {
+                    const performanceEventsArr = performanceEvents || []
+                    for (const event of performanceEventsArr) {
                         const timestamp = dayjs(event.timestamp)
+                        const responseStatus = event.response_status || 200
+
+                        // NOTE: Navigtion events are missing the first contentful paint info so we find the relevant first contentful paint event and add it to the navigation event
+                        if (event.entry_type === 'navigation' && !event.first_contentful_paint) {
+                            const firstContentfulPaint = performanceEventsArr.find(
+                                (x) =>
+                                    x.pageview_id === event.pageview_id &&
+                                    x.entry_type === 'paint' &&
+                                    x.name === 'first-contentful-paint'
+                            )
+                            if (firstContentfulPaint) {
+                                event.first_contentful_paint = firstContentfulPaint.start_time
+                            }
+                        }
 
                         let include = false
 
@@ -255,7 +285,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             (miniFiltersByKey['performance-document']?.enabled ||
                                 miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'navigation'
+                            ['navigation'].includes(event.entry_type || '')
                         ) {
                             include = true
                         }
@@ -269,9 +299,30 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         }
 
                         if (
-                            miniFiltersByKey['performance-assets']?.enabled &&
+                            miniFiltersByKey['performance-assets-js']?.enabled &&
                             event.entry_type === 'resource' &&
-                            ['img', 'script', 'css', 'link'].includes(event.initiator_type || '')
+                            (event.initiator_type === 'script' ||
+                                (['link', 'other'].includes(event.initiator_type || '') && event.name?.includes('.js')))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets-css']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            (event.initiator_type === 'css' ||
+                                (['link', 'other'].includes(event.initiator_type || '') &&
+                                    event.name?.includes('.css')))
+                        ) {
+                            include = true
+                        }
+
+                        if (
+                            miniFiltersByKey['performance-assets-img']?.enabled &&
+                            event.entry_type === 'resource' &&
+                            (event.initiator_type === 'img' ||
+                                (['link', 'other'].includes(event.initiator_type || '') &&
+                                    !!IMAGE_WEB_EXTENSIONS.some((ext) => event.name?.includes(`.${ext}`))))
                         ) {
                             include = true
                         }
@@ -279,14 +330,15 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         if (
                             miniFiltersByKey['performance-other']?.enabled &&
                             event.entry_type === 'resource' &&
-                            ['other'].includes(event.initiator_type || '')
+                            ['other'].includes(event.initiator_type || '') &&
+                            ![...IMAGE_WEB_EXTENSIONS, 'css', 'js'].some((ext) => event.name?.includes(`.${ext}`))
                         ) {
                             include = true
                         }
+
                         if (
-                            (miniFiltersByKey['performance-paint']?.enabled ||
-                                miniFiltersByKey['all-automatic']?.enabled) &&
-                            event.entry_type === 'paint'
+                            (miniFiltersByKey['all-errors']?.enabled || miniFiltersByKey['all-automatic']?.enabled) &&
+                            responseStatus >= 400
                         ) {
                             include = true
                         }
@@ -295,16 +347,22 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                             include = false
                         }
 
+                        if (event.entry_type === 'paint') {
+                            // We don't include paint events as they are covered in the navigation events
+                            include = false
+                        }
+
                         if (!include) {
                             continue
                         }
 
                         items.push({
-                            type: SessionRecordingPlayerTab.PERFORMANCE,
+                            type: SessionRecordingPlayerTab.NETWORK,
                             timestamp,
                             timeInRecording: timestamp.diff(recordingTimeInfo.start, 'ms'),
                             search: event.name || '',
                             data: event,
+                            highlightColor: responseStatus >= 400 ? 'danger' : undefined,
                             windowId: event.window_id,
                         })
                     }
@@ -401,7 +459,7 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
 
                         const isMatchingEvent = !!matchingEvents.find((x) => x.uuid === String(event.id))
 
-                        if (showOnlyMatching && tab === SessionRecordingPlayerTab.EVENTS) {
+                        if (showMatchingEventsFilter && showOnlyMatching) {
                             // Special case - overrides the others
                             include = include && isMatchingEvent
                         }
@@ -435,6 +493,49 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                 items.sort((a, b) => (a.timestamp.isAfter(b.timestamp) ? 1 : -1))
 
                 return items
+            },
+        ],
+
+        tabsState: [
+            (s) => [
+                s.sessionEventsDataLoading,
+                s.performanceEventsLoading,
+                s.sessionPlayerMetaDataLoading,
+                s.sessionPlayerSnapshotDataLoading,
+                s.sessionEventsData,
+                s.consoleLogs,
+                s.performanceEvents,
+            ],
+            (
+                sessionEventsDataLoading,
+                performanceEventsLoading,
+                sessionPlayerMetaDataLoading,
+                sessionPlayerSnapshotDataLoading,
+                events,
+                logs,
+                performanceEvents
+            ): Record<SessionRecordingPlayerTab, 'loading' | 'ready' | 'empty'> => {
+                return {
+                    [SessionRecordingPlayerTab.ALL]: 'ready',
+                    [SessionRecordingPlayerTab.EVENTS]:
+                        sessionEventsDataLoading || !events?.events
+                            ? 'loading'
+                            : events?.events.length
+                            ? 'ready'
+                            : 'empty',
+                    [SessionRecordingPlayerTab.CONSOLE]:
+                        sessionPlayerMetaDataLoading || sessionPlayerSnapshotDataLoading || !logs
+                            ? 'loading'
+                            : logs.length
+                            ? 'ready'
+                            : 'empty',
+                    [SessionRecordingPlayerTab.NETWORK]:
+                        performanceEventsLoading || !performanceEvents
+                            ? 'loading'
+                            : performanceEvents.length
+                            ? 'ready'
+                            : 'empty',
+                }
             },
         ],
 

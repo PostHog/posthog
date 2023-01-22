@@ -1,6 +1,6 @@
 import { PropertyFilterType } from '~/types'
 import { Tooltip } from 'lib/components/Tooltip'
-import { IconCohort, IconPerson, UnverifiedEvent } from 'lib/components/icons'
+import { IconCohort, IconPerson, IconUnverifiedEvent } from 'lib/components/icons'
 
 export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX.Element {
     let iconElement = <></>
@@ -8,7 +8,7 @@ export function PropertyFilterIcon({ type }: { type?: PropertyFilterType }): JSX
         case 'event':
             iconElement = (
                 <Tooltip title={'Event property'}>
-                    <UnverifiedEvent width={14} height={14} />
+                    <IconUnverifiedEvent />
                 </Tooltip>
             )
             break

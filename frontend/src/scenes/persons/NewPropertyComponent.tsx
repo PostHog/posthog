@@ -56,6 +56,8 @@ export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps
                         autoFocus
                         placeholder="try email, first_name, is_verified, membership_level, total_revenue"
                         onChange={(e) => setState({ ...state, key: e.target.value })}
+                        autoComplete="off"
+                        autoCapitalize="off"
                     />
                 </div>
                 <div className="input-set">
@@ -111,6 +113,8 @@ export function NewPropertyComponent({ editProperty }: NewPropertyComponentProps
                             onChange={(e) => setState({ ...state, value: e.target.value })}
                             id="propertyValue"
                             onKeyDown={(e) => e.key === 'Enter' && saveProperty()}
+                            autoComplete="off"
+                            autoCapitalize="off"
                         />
                     )}
                 </div>

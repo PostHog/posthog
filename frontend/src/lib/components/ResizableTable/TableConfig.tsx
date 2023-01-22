@@ -1,5 +1,4 @@
 import { Button, Col, Row, Space } from 'antd'
-import { CloseOutlined, LockOutlined } from '@ant-design/icons'
 import './TableConfig.scss'
 import { useActions, useValues } from 'kea'
 import { tableConfigLogic } from './tableConfigLogic'
@@ -8,12 +7,11 @@ import VirtualizedList, { ListRowProps } from 'react-virtualized/dist/es/List'
 import { AutoSizer } from 'react-virtualized/dist/es/AutoSizer'
 import { PropertyKeyInfo } from '../PropertyKeyInfo'
 import clsx from 'clsx'
-import { Tooltip } from 'lib/components/Tooltip'
 import { columnConfiguratorLogic } from 'lib/components/ResizableTable/columnConfiguratorLogic'
 import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonButton } from 'lib/components/LemonButton'
-import { IconTuning, SortableDragIcon } from 'lib/components/icons'
+import { IconClose, IconLock, IconTuning, SortableDragIcon } from 'lib/components/icons'
 import { LemonCheckbox } from 'lib/components/LemonCheckbox'
 import {
     SortableContainer as sortableContainer,
@@ -87,31 +85,30 @@ function ColumnConfigurator({ immutableColumns, defaultColumns }: TableConfigPro
         return (
             <div
                 className={clsx(['column-display-item', { selected: !disabled, disabled: disabled }])}
-                style={{ height: `${rowItemHeight}px` }}
+                /* eslint-disable-next-line react/forbid-dom-props */
+                style={{ height: rowItemHeight }}
             >
-                {!disabled && <DragHandle />}
-                <PropertyKeyInfo
-                    value={
-                        column.startsWith('properties.')
-                            ? column.substring(11)
-                            : column.startsWith('person.properties.')
-                            ? column.substring(18)
-                            : column
-                    }
-                />
-                <div className="text-right" style={{ flex: 1 }}>
-                    <Tooltip title={disabled ? 'Reserved' : 'Remove'}>
-                        {disabled ? (
-                            <LockOutlined />
-                        ) : (
-                            <CloseOutlined
-                                data-attr="column-display-item-remove-icon"
-                                style={{ color: 'var(--danger)' }}
-                                onClick={() => unselectColumn(column)}
-                            />
-                        )}
-                    </Tooltip>
+                <div className="flex items-center">
+                    {!disabled && <DragHandle />}
+                    <PropertyKeyInfo
+                        value={
+                            column.startsWith('properties.')
+                                ? column.substring(11)
+                                : column.startsWith('person.properties.')
+                                ? column.substring(18)
+                                : column
+                        }
+                    />
                 </div>
+                <LemonButton
+                    data-attr="column-display-item-remove-icon"
+                    onClick={() => unselectColumn(column)}
+                    status={!disabled ? 'danger' : 'muted'}
+                    size="small"
+                    icon={disabled ? <IconLock /> : <IconClose />}
+                    disabledReason={disabled && "This column can't be removed because it's essential."}
+                    tooltip={!disabled && 'Remove this column.'}
+                />
             </div>
         )
     }

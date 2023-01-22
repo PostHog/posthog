@@ -27,6 +27,12 @@ const EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX = new RegExp(
 )
 const EVENTS_SESSION_RECORDING_META_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/session_recordings`
 const EVENTS_SESSION_RECORDING_EVENTS_ENDPOINT = `api/projects/${MOCK_TEAM_ID}/events`
+const recordingGetDataMocks = {
+    '/api/projects/:team/session_recordings/:id/snapshots': recordingSnapshotsJson,
+    '/api/projects/:team/session_recordings/:id': recordingMetaJson,
+    '/api/projects/:team/events': { results: recordingEventsJson },
+    '/api/projects/:team/performance_events': { results: recordingPerformanceEventsJson },
+}
 
 describe('sessionRecordingDataLogic', () => {
     let logic: ReturnType<typeof sessionRecordingDataLogic.build>
@@ -34,12 +40,7 @@ describe('sessionRecordingDataLogic', () => {
     beforeEach(async () => {
         useAvailableFeatures([AvailableFeature.RECORDINGS_PERFORMANCE])
         useMocks({
-            get: {
-                '/api/projects/:team/session_recordings/:id/snapshots': { result: recordingSnapshotsJson },
-                '/api/projects/:team/session_recordings/:id': { result: recordingMetaJson },
-                '/api/projects/:team/events': { results: recordingEventsJson },
-                '/api/projects/:team/performance_events': { results: recordingPerformanceEventsJson },
-            },
+            get: recordingGetDataMocks,
         })
         initKeaTests()
         logic = sessionRecordingDataLogic({ sessionRecordingId: '2' })
@@ -60,8 +61,7 @@ describe('sessionRecordingDataLogic', () => {
                 sessionRecordingId: null,
                 sessionPlayerData: {
                     bufferedTo: null,
-                    metadata: { recordingDurationMs: 0, segments: [], playlists: [], startAndEndTimesByWindowId: {} },
-                    next: undefined,
+                    metadata: { recordingDurationMs: 0, segments: [], pinnedCount: 0, startAndEndTimesByWindowId: {} },
                     person: null,
                     snapshotsByWindowId: {},
                 },
@@ -77,10 +77,10 @@ describe('sessionRecordingDataLogic', () => {
         it('is triggered by mounting', async () => {
             const expectedData = {
                 person: recordingMetaJson.person,
-                metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                metadata: parseMetadataResponse(recordingMetaJson),
                 bufferedTo: {
-                    time: 44579,
-                    windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                    time: 167777,
+                    windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                 },
                 next: undefined,
                 snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
@@ -93,7 +93,7 @@ describe('sessionRecordingDataLogic', () => {
                 })
         })
 
-        it('fetch metadata error and snapshots success', async () => {
+        it('fetch metadata error', async () => {
             silenceKeaLoadersErrors()
             // Unmount and remount the logic to trigger fetching the data again after the mock change
             logic.unmount()
@@ -105,12 +105,7 @@ describe('sessionRecordingDataLogic', () => {
             logic.mount()
 
             await expectLogic(logic)
-                .toDispatchActionsInAnyOrder([
-                    'loadRecordingMeta',
-                    'loadRecordingSnapshots',
-                    'loadRecordingMetaFailure',
-                    'loadRecordingSnapshotsSuccess',
-                ])
+                .toDispatchActionsInAnyOrder(['loadRecordingMeta', 'loadRecordingMetaFailure'])
                 .toFinishAllListeners()
                 .toMatchValues({
                     sessionPlayerData: {
@@ -118,12 +113,11 @@ describe('sessionRecordingDataLogic', () => {
                         metadata: {
                             recordingDurationMs: 0,
                             segments: [],
-                            playlists: [],
+                            pinnedCount: 0,
                             startAndEndTimesByWindowId: {},
                         },
-                        next: undefined,
                         person: null,
-                        snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
+                        snapshotsByWindowId: {},
                     },
                 })
             resumeKeaLoadersErrors()
@@ -144,7 +138,7 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        metadata: parseMetadataResponse(recordingMetaJson),
                         snapshotsByWindowId: {},
                         bufferedTo: null,
                     },
@@ -183,7 +177,7 @@ describe('sessionRecordingDataLogic', () => {
                     eventsApiParams: {
                         after: '2021-12-09T19:35:59Z',
                         before: '2021-12-09T20:23:24Z',
-                        person_id: 1,
+                        person_id: '1',
                         orderBy: ['timestamp'],
                         properties: {
                             type: 'OR',
@@ -274,12 +268,12 @@ describe('sessionRecordingDataLogic', () => {
             api.get
                 .mockImplementationOnce(async (url: string) => {
                     if (combineUrl(url).pathname.startsWith(EVENTS_SESSION_RECORDING_META_ENDPOINT)) {
-                        return { result: recordingMetaJson }
+                        return recordingMetaJson
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
                     if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                        return { result: recordingSnapshotsJson }
+                        return { ...recordingSnapshotsJson }
                     }
                 })
                 .mockImplementationOnce(async (url: string) => {
@@ -290,6 +284,7 @@ describe('sessionRecordingDataLogic', () => {
                 .mockImplementationOnce(async () => {
                     throw new Error('Error in third request')
                 })
+
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingMeta()
             })
@@ -385,7 +380,7 @@ describe('sessionRecordingDataLogic', () => {
                     eventsApiParams: {
                         after: '2021-12-09T19:35:59Z',
                         before: '2021-12-09T20:23:24Z',
-                        person_id: 1,
+                        person_id: '1',
                         orderBy: ['timestamp'],
                         properties: {
                             type: 'OR',
@@ -415,7 +410,11 @@ describe('sessionRecordingDataLogic', () => {
                             ],
                         },
                     },
-                    performanceEvents: recordingPerformanceEventsJson,
+                    performanceEvents: expect.arrayContaining([
+                        expect.objectContaining({
+                            entry_type: 'navigation',
+                        }),
+                    ]),
                 })
         })
     })
@@ -438,10 +437,10 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        metadata: parseMetadataResponse(recordingMetaJson),
                         bufferedTo: {
-                            time: 44579,
-                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            time: 167777,
+                            windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                         },
                         next: undefined,
                         snapshotsByWindowId: recordingSnapshotsJson.snapshot_data_by_window_id,
@@ -451,44 +450,52 @@ describe('sessionRecordingDataLogic', () => {
         })
 
         it('fetch all chunks of recording', async () => {
+            let nthSnapshotCall = 0
+            logic.unmount()
+            useAvailableFeatures([])
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id/snapshots': (req) => {
+                        if (req.url.pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                            const payload = {
+                                ...recordingSnapshotsJson,
+                                next: nthSnapshotCall === 0 ? firstNext : undefined,
+                            }
+                            nthSnapshotCall += 1
+                            return [200, payload]
+                        }
+                    },
+                },
+            })
+            logic.mount()
+
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
             api.get.mockClear()
 
-            const snapshotUrl = createSnapshotEndpoint(1)
+            const snapshotUrl = createSnapshotEndpoint(3)
             const firstNext = `${snapshotUrl}/?offset=200&limit=200`
-
-            api.get
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                        return { result: { ...recordingSnapshotsJson, next: firstNext } }
-                    }
-                })
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                        return { result: { ...recordingSnapshotsJson } }
-                    }
-                })
 
             await expectLogic(logic, () => {
                 logic.actions.loadRecordingSnapshots()
-            })
-                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: {
-                        person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
-                        bufferedTo: {
-                            time: 44579,
-                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
-                        },
-                        snapshotsByWindowId: {
-                            '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
-                            '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': snapsWindow2,
-                        },
-                        next: firstNext,
+            }).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
+
+            expectLogic(logic).toMatchValues({
+                sessionPlayerData: {
+                    person: recordingMetaJson.person,
+                    metadata: parseMetadataResponse(recordingMetaJson),
+                    bufferedTo: {
+                        time: 167777,
+                        windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                     },
-                })
+                    snapshotsByWindowId: {
+                        '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
+                        '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': snapsWindow2,
+                    },
+                    next: firstNext,
+                },
+            })
+            await expectLogic(logic)
                 .toDispatchActions([
                     logic.actionCreators.loadRecordingSnapshots(firstNext),
                     'loadRecordingSnapshotsSuccess',
@@ -496,10 +503,10 @@ describe('sessionRecordingDataLogic', () => {
                 .toMatchValues({
                     sessionPlayerData: {
                         person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
+                        metadata: parseMetadataResponse(recordingMetaJson),
                         bufferedTo: {
-                            time: 44579,
-                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
+                            time: 167777,
+                            windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                         },
                         snapshotsByWindowId: {
                             '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': [
@@ -517,45 +524,59 @@ describe('sessionRecordingDataLogic', () => {
                 .toFinishAllListeners()
             expect(api.get).toBeCalledTimes(2)
         })
+
         it('server error mid-way through recording', async () => {
+            let nthSnapshotCall = 0
+            logic.unmount()
+            useAvailableFeatures([])
+            useMocks({
+                get: {
+                    '/api/projects/:team/session_recordings/:id/snapshots': (req) => {
+                        if (req.url.pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
+                            if (nthSnapshotCall === 0) {
+                                const payload = {
+                                    ...recordingSnapshotsJson,
+                                    next: firstNext,
+                                }
+                                nthSnapshotCall += 1
+                                return [200, payload]
+                            } else {
+                                throw new Error('Error in second request')
+                            }
+                        }
+                    },
+                },
+            })
+            logic.mount()
+
             await expectLogic(preflightLogic).toDispatchActions(['loadPreflightSuccess'])
             await expectLogic(logic).toMount([eventUsageLogic]).toFinishAllListeners()
-
             api.get.mockClear()
-            expect(api.get).toBeCalledTimes(0)
 
             const snapshotUrl = createSnapshotEndpoint(1)
             const firstNext = `${snapshotUrl}/?offset=200&limit=200`
             silenceKeaLoadersErrors()
-            api.get
-                .mockImplementationOnce(async (url: string) => {
-                    if (combineUrl(url).pathname.match(EVENTS_SESSION_RECORDING_SNAPSHOTS_ENDPOINT_REGEX)) {
-                        return { result: { ...recordingSnapshotsJson, next: firstNext } }
-                    }
-                })
-                .mockImplementationOnce(async () => {
-                    throw new Error('Error in second request')
-                })
 
             await expectLogic(logic, async () => {
                 await logic.actions.loadRecordingSnapshots()
-            })
-                .toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
-                .toMatchValues({
-                    sessionPlayerData: {
-                        person: recordingMetaJson.person,
-                        metadata: parseMetadataResponse(recordingMetaJson.session_recording),
-                        bufferedTo: {
-                            time: 44579,
-                            windowId: '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f',
-                        },
-                        snapshotsByWindowId: {
-                            '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
-                            '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': snapsWindow2,
-                        },
-                        next: firstNext,
+            }).toDispatchActions(['loadRecordingSnapshots', 'loadRecordingSnapshotsSuccess'])
+
+            expectLogic(logic).toMatchValues({
+                sessionPlayerData: {
+                    person: recordingMetaJson.person,
+                    metadata: parseMetadataResponse(recordingMetaJson),
+                    bufferedTo: {
+                        time: 167777,
+                        windowId: '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841',
                     },
-                })
+                    snapshotsByWindowId: {
+                        '17da0b29e21c36-0df8b0cc82d45-1c306851-1fa400-17da0b29e2213f': snapsWindow1,
+                        '182830cdf4b28a9-02530f1179ed36-1c525635-384000-182830cdf4c2841': snapsWindow2,
+                    },
+                    next: firstNext,
+                },
+            })
+            await expectLogic(logic)
                 .toDispatchActions([
                     logic.actionCreators.loadRecordingSnapshots(firstNext),
                     'loadRecordingSnapshotsFailure',

@@ -32,7 +32,7 @@ export function LemonLabel({
 
             {info ? (
                 <Tooltip title={info}>
-                    <IconInfo className="text-xl text-muted-alt" />
+                    <IconInfo className="text-xl text-muted-alt shrink-0" />
                 </Tooltip>
             ) : null}
         </label>

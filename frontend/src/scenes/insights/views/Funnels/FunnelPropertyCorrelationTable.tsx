@@ -192,7 +192,7 @@ export function FunnelPropertyCorrelationTable(): JSX.Element | null {
                                         pointerEvents: 'none',
                                     }}
                                 >
-                                    Dropoff
+                                    Drop-off
                                 </Checkbox>
                             </div>
                         </Row>
@@ -306,10 +306,7 @@ const CorrelationActionsCell = ({ record }: { record: FunnelCorrelation }): JSX.
                 }
             >
                 <LemonButton status="stealth" onClick={() => setPopoverOpen(!popoverOpen)}>
-                    <EllipsisOutlined
-                        style={{ color: 'var(--primary)', fontSize: 24 }}
-                        className="insight-dropdown-actions"
-                    />
+                    <EllipsisOutlined className="insight-dropdown-actions" />
                 </LemonButton>
             </Popup>
         </Row>

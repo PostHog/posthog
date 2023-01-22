@@ -78,7 +78,7 @@ export function EventRowActions({ event }: EventActionProps): JSX.Element {
                             Create action from event
                         </LemonButton>
                     )}
-                    {!!event.properties.$session_id && (
+                    {!!event.properties?.$session_id && (
                         <LemonButton
                             status="stealth"
                             to={urls.sessionRecording(event.properties.$session_id)}

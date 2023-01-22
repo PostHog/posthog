@@ -3,8 +3,8 @@ import api, { getJSONOrThrow } from 'lib/api'
 import { getResponseBytes } from 'scenes/insights/utils'
 
 export interface TimeToSeeDataPayload {
-    type: 'dashboard_load' | 'insight_load' | 'properties_timeline_load' // TODO: Track `actors_load` too
-    context: 'dashboard' | 'insight' | 'actors_modal'
+    type: 'dashboard_load' | 'insight_load' | 'properties_timeline_load' | 'property_values_load' | 'properties_load'
+    context: 'dashboard' | 'insight' | 'actors_modal' | 'filters'
     time_to_see_data_ms: number
     primary_interaction_id: string
     query_id?: string
@@ -13,8 +13,8 @@ export interface TimeToSeeDataPayload {
     api_url?: string
     insight?: string
     action?: string
-    insights_fetched: number
-    insights_fetched_cached: number
+    insights_fetched?: number
+    insights_fetched_cached?: number
     min_last_refresh?: string | null
     max_last_refresh?: string | null
     // Signifies whether the action was user-initiated or a secondary effect

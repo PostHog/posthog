@@ -15,12 +15,12 @@ import {
     IconLive,
     IconOpenInApp,
     IconPerson,
-    IconPin,
+    IconPinOutline,
     IconPlus,
     IconRecording,
     IconSettings,
     IconTools,
-    UnverifiedEvent,
+    IconUnverifiedEvent,
 } from 'lib/components/icons'
 import { LemonDivider } from 'lib/components/LemonDivider'
 import { Lettermark } from 'lib/components/Lettermark/Lettermark'
@@ -127,7 +127,7 @@ function Pages(): JSX.Element {
                                         ) : (
                                             <>
                                                 <div className="flex items-center gap-2">
-                                                    <IconPin className="text-2xl text-muted-alt" />
+                                                    <IconPinOutline className="text-2xl text-muted-alt" />
                                                     <div>
                                                         <Link
                                                             onClick={() => setArePinnedDashboardsShown(false)}
@@ -179,7 +179,7 @@ function Pages(): JSX.Element {
 
                     <PageButton icon={<IconLive />} identifier={Scene.Events} to={urls.events()} />
                     <PageButton
-                        icon={<UnverifiedEvent />}
+                        icon={<IconUnverifiedEvent />}
                         identifier={Scene.DataManagement}
                         to={urls.eventDefinitions()}
                     />

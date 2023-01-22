@@ -40,13 +40,14 @@ export function InsightViz({ query, setQuery }: InsightVizProps): JSX.Element {
         // TODO: this is hacky - we prevent overwriting the insight in case
         // of a saved insight. instead we should handle loading a saved insight
         // in a query as well. needs discussion around api and node schema.
-        if (response && !hasDashboardItemId) {
+        const typedResponse: Record<string, any> | undefined | null = response
+        if (typedResponse && !hasDashboardItemId) {
             setInsight(
                 {
                     ...insight,
-                    result: response.result,
-                    next: response.next,
-                    timezone: response.timezone,
+                    result: typedResponse.result,
+                    next: typedResponse.next,
+                    timezone: typedResponse.timezone,
                     filters: queryNodeToFilter(query.source),
                 },
                 {}

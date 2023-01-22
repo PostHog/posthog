@@ -13,7 +13,6 @@ import {
     InsightModel,
     InsightType,
     HelpType,
-    AvailableFeature,
     SessionRecordingUsageType,
     FunnelCorrelation,
     ItemMode,
@@ -354,8 +353,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         reportSavedInsightFilterUsed: (filterKeys: string[]) => ({ filterKeys }),
         reportSavedInsightLayoutChanged: (layout: string) => ({ layout }),
         reportSavedInsightNewInsightClicked: (insightType: string) => ({ insightType }),
-        reportPayGateShown: (identifier: AvailableFeature) => ({ identifier }),
-        reportPayGateDismissed: (identifier: AvailableFeature) => ({ identifier }),
         reportPersonMerged: (merge_count: number) => ({ merge_count }),
         reportPersonSplit: (merge_count: number) => ({ merge_count }),
         reportRecording: (
@@ -937,12 +934,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>({
         },
         reportRecordingScrollTo: ({ rowIndex }) => {
             posthog.capture(`recording event list scrolled`, { rowIndex })
-        },
-        reportPayGateShown: (props) => {
-            posthog.capture('pay gate shown', props)
-        },
-        reportPayGateDismissed: (props) => {
-            posthog.capture('pay gate dismissed', props)
         },
         reportPersonMerged: (props) => {
             posthog.capture('merge person completed', props)

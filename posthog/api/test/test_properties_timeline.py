@@ -6,6 +6,7 @@ from typing import Any, Dict, Literal, Optional
 from freezegun.api import freeze_time
 from rest_framework import status
 
+from posthog.models.filters.mixins.base import BreakdownType
 from posthog.models.group.util import create_group
 from posthog.queries.properties_timeline.properties_timeline import PropertiesTimelineResult
 from posthog.settings.dynamic_settings import CONSTANCE_CONFIG
@@ -22,7 +23,7 @@ from posthog.test.base import (
 
 def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
     materialized_column_kwargs = (
-        {"person_properties": ["bar"]} if actor_type == "person" else {"group_properties": ["bar"]}
+        {"person_properties": ["foo", "bar"]} if actor_type == "person" else {"group_properties": ["foo", "bar"]}
     )
     main_actor_id = uuid.UUID("12345678-0000-0000-0000-000000000001") if actor_type == "person" else "test"
 
@@ -65,6 +66,8 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
             events: Optional[list] = None,
             actions: Optional[list] = None,
             properties: Optional[list] = None,
+            breakdown: Optional[str] = None,
+            breakdown_type: Optional[BreakdownType] = None,
             date_from: Optional[str],
             date_to: Optional[str],
             display: str = "ActionsTable",
@@ -76,6 +79,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                 f"?events={json.dumps(events or [])}&actions={json.dumps(actions or [])}"
                 f"&properties={json.dumps(properties or [])}&display={display}"
                 f"&date_from={date_from or ''}&date_to={date_to or ''}&interval={interval or ''}"
+                f"&breakdown={breakdown or ''}&breakdown_type={(breakdown_type or actor_type) if breakdown else ''}"
             )
             properties_timeline = self.client.get(url)
             self.assertEqual(properties_timeline.status_code, expected_status)
@@ -109,7 +113,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                     "points": [
                         {
                             "properties": {"foo": "abc", "bar": 123},
-                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "relevant_event_count": 1,
                             "timestamp": "2020-01-01T00:00:00Z",
                         }
                     ],
@@ -146,6 +150,117 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                 {
                     "points": [],  # No relevant events in range
                     "crucial_property_keys": ["bar"],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+                },
+            )
+
+        @also_test_with_materialized_columns(**materialized_column_kwargs)
+        @snapshot_clickhouse_queries
+        def test_timeline_with_two_events_in_range_using_filter_on_series(self):
+            self._create_actor({"foo": "abc", "bar": 123})
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 123},
+                timestamp="2020-01-01T00:00:00Z",  # Exactly the same as date_from
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "klm", "bar": 123},
+                timestamp="2020-01-01T21:37:00Z",
+            )
+            flush_persons_and_events()
+
+            timeline = self._get_timeline_result(
+                events=[
+                    {
+                        "id": "$pageview",
+                        "properties": [
+                            {
+                                "key": "foo",
+                                "type": "person",
+                                "value": ["whatever"],
+                                "operator": "exact",
+                            },
+                            {
+                                "key": "fin",
+                                "type": "event",
+                                "value": ["anything"],
+                                "operator": "exact",
+                            },
+                        ],
+                    }
+                ],
+                properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+                date_from="2020-01-01",
+                date_to="2020-01-05",
+            )
+
+            self.assertEqual(
+                timeline,
+                {
+                    "points": [
+                        {
+                            "properties": {"foo": "abc", "bar": 123},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-01T00:00:00Z",
+                        },
+                        {
+                            "properties": {"foo": "klm", "bar": 123},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-01T21:37:00Z",
+                        },
+                    ],
+                    "crucial_property_keys": ["bar", "foo"],
+                    "effective_date_from": "2020-01-01T00:00:00+00:00",
+                    "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
+                },
+            )
+
+        @also_test_with_materialized_columns(**materialized_column_kwargs)
+        @snapshot_clickhouse_queries
+        def test_timeline_with_two_events_in_range_using_breakdown(self):
+            self._create_actor({"foo": "abc", "bar": 123})
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "abc", "bar": 123},
+                timestamp="2020-01-01T00:00:00Z",  # Exactly the same as date_from
+            )
+            self._create_event(
+                event="$pageview",
+                actor_properties={"foo": "klm", "bar": 123},
+                timestamp="2020-01-01T21:37:00Z",
+            )
+            flush_persons_and_events()
+
+            timeline = self._get_timeline_result(
+                events=[
+                    {
+                        "id": "$pageview",
+                    }
+                ],
+                breakdown="foo",
+                properties=[{"key": "bar", "value": "xyz", "type": "person"}],
+                date_from="2020-01-01",
+                date_to="2020-01-05",
+            )
+
+            self.assertEqual(
+                timeline,
+                {
+                    "points": [
+                        {
+                            "properties": {"foo": "abc", "bar": 123},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-01T00:00:00Z",
+                        },
+                        {
+                            "properties": {"foo": "klm", "bar": 123},
+                            "relevant_event_count": 1,
+                            "timestamp": "2020-01-01T21:37:00Z",
+                        },
+                    ],
+                    "crucial_property_keys": ["bar", "foo"],
                     "effective_date_from": "2020-01-01T00:00:00+00:00",
                     "effective_date_to": "2020-01-05T23:59:59.999999+00:00",
                 },
@@ -189,7 +304,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                     "points": [
                         {
                             "properties": {"foo": "abc", "bar": 456},
-                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "relevant_event_count": 1,
                             "timestamp": "2020-01-02T00:00:00Z",
                         },
                         {
@@ -251,7 +366,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                     "points": [
                         {
                             "properties": {"foo": "abc", "bar": 456},
-                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "relevant_event_count": 1,
                             "timestamp": "2020-01-02T00:00:00Z",
                         },
                         {
@@ -311,7 +426,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                     "points": [
                         {
                             "properties": {"foo": "abc", "bar": 456},
-                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "relevant_event_count": 1,
                             "timestamp": "2020-01-02T00:00:00Z",
                         },
                         {
@@ -373,7 +488,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                     "points": [
                         {
                             "properties": {"foo": "abc", "bar": 456},
-                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "relevant_event_count": 1,
                             "timestamp": "2020-01-01T00:00:00Z",
                         },
                         {
@@ -434,7 +549,7 @@ def properties_timeline_test_factory(actor_type: Literal["person", "group"]):
                     "points": [
                         {
                             "properties": {"foo": "abc", "bar": 456},
-                            "relevant_event_count": 1,  # 0 here means the person was created within range
+                            "relevant_event_count": 1,
                             "timestamp": "2020-01-02T00:00:00Z",
                         },
                         {

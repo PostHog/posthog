@@ -1,9 +1,7 @@
 import { EventName } from './EventName'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
-import { Tooltip } from 'lib/components/Tooltip'
 import { URL_MATCHING_HINTS } from 'scenes/actions/hints'
 import { Col, Radio, RadioChangeEvent } from 'antd'
-import { InfoCircleOutlined } from '@ant-design/icons'
 import { ActionStepType } from '~/types'
 import { LemonButton, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { IconClose, IconOpenInApp } from 'lib/components/icons'
@@ -247,21 +245,13 @@ function AutocaptureFields({
                 step={step}
                 sendStep={sendStep}
                 item="selector"
-                label={
-                    <>
-                        HTML selector matches
-                        <Tooltip title="Click here to learn more about supported selectors">
-                            <Link to={`${learnMoreLink}#matching-selectors`} target="_blank">
-                                <InfoCircleOutlined />
-                            </Link>
-                        </Tooltip>
-                    </>
-                }
+                label="HTML selector matches"
                 placeholder='button[data-attr="my-id"]'
                 caption={
                     <span>
                         CSS selector or an HTML attribute that ideally uniquely identifies your element. Example:{' '}
-                        <code className="code">[data-attr="signup"]</code>
+                        <code className="code">[data-attr="signup"]</code>.{' '}
+                        <Link to={`${learnMoreLink}#matching-selectors`}>Learn more in Docs.</Link>
                     </span>
                 }
             />

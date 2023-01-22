@@ -1,7 +1,7 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -64,7 +64,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -120,7 +120,7 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events.2
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -180,7 +180,7 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events_materialized
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -243,7 +243,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -299,7 +299,7 @@
 # name: TestClickhouseRetention.test_groups_aggregating_person_on_events_materialized.2
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -359,7 +359,7 @@
 # name: TestClickhouseRetention.test_groups_filtering_person_on_events
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -447,7 +447,7 @@
 # name: TestClickhouseRetention.test_groups_filtering_person_on_events.1
   '
   WITH actor_query AS
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           NULL as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -662,7 +662,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -674,7 +674,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND e.person_id != toUUIDOrZero('')
+          AND notEmpty(e.person_id)
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -693,9 +693,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
-                                                                intervals_from_base,
-                                                                actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,
@@ -723,7 +723,7 @@
   SELECT actor_id,
          groupArray(actor_activity.intervals_from_base) AS appearances
   FROM
-    (WITH 'week' as period,
+    (WITH 'Week' as period,
           [0] as breakdown_values_filter,
           NULL as selected_interval,
           returning_event_query as
@@ -735,7 +735,7 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND e.person_id != toUUIDOrZero('')
+          AND notEmpty(e.person_id)
         GROUP BY target,
                  event_date),
           target_event_query as
@@ -754,9 +754,9 @@
           AND toDateTime(e.timestamp) >= toDateTime('2020-06-07 00:00:00', 'UTC')
           AND toDateTime(e.timestamp) <= toDateTime('2020-07-27 00:00:00', 'UTC')
           AND (NOT has([''], "$group_0"))
-          AND e.person_id != toUUIDOrZero('') ) SELECT DISTINCT breakdown_values,
-                                                                intervals_from_base,
-                                                                actor_id
+          AND notEmpty(e.person_id) ) SELECT DISTINCT breakdown_values,
+                                                      intervals_from_base,
+                                                      actor_id
      FROM
        (SELECT target_event.breakdown_values AS breakdown_values,
                datediff(period, target_event.event_date, returning_event.event_date) AS intervals_from_base,

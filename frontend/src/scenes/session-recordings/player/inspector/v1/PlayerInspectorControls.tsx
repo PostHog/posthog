@@ -1,7 +1,7 @@
 import { LemonButton, LemonInput, LemonSwitch, LemonSelect } from '@posthog/lemon-ui'
 import { Tooltip } from 'antd'
 import { useValues, useActions } from 'kea'
-import { IconInfo, IconTerminal, UnverifiedEvent } from 'lib/components/icons'
+import { IconInfo, IconTerminal, IconUnverifiedEvent } from 'lib/components/icons'
 import { capitalizeFirstLetter } from 'lib/utils'
 import { SessionRecordingPlayerTab } from '~/types'
 import { IconWindow } from '../../icons'
@@ -13,7 +13,7 @@ import { consoleLogsListLogic } from './consoleLogsListLogic'
 import { eventsListLogic } from './eventsListLogic'
 
 const TabToIcon = {
-    [SessionRecordingPlayerTab.EVENTS]: <UnverifiedEvent />,
+    [SessionRecordingPlayerTab.EVENTS]: <IconUnverifiedEvent />,
     [SessionRecordingPlayerTab.CONSOLE]: <IconTerminal />,
 }
 
@@ -23,7 +23,7 @@ export function PlayerInspectorControls({
     matching,
 }: SessionRecordingPlayerLogicProps): JSX.Element {
     const logicProps = { sessionRecordingId, playerKey }
-    const { windowIdFilter, tab, loading } = useValues(playerInspectorLogic(logicProps))
+    const { windowIdFilter, tab, tabsState } = useValues(playerInspectorLogic(logicProps))
     const { setWindowIdFilter, setTab } = useActions(playerInspectorLogic(logicProps))
     const { showOnlyMatching } = useValues(playerSettingsLogic)
     const { setShowOnlyMatching } = useActions(playerSettingsLogic)
@@ -47,7 +47,7 @@ export function PlayerInspectorControls({
                             status={tab === tabId ? 'primary' : 'primary-alt'}
                             active={tab === tabId}
                             onClick={() => setTab(tabId)}
-                            loading={loading[tabId]}
+                            loading={tabsState[tabId] === 'loading'}
                         >
                             {capitalizeFirstLetter(tabId)}
                         </LemonButton>

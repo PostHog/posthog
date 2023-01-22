@@ -41,6 +41,8 @@ function EditTextValueComponent({
             autoFocus
             onBlur={() => onChange(null, false)}
             onPressEnter={(e) => onChange((e.target as HTMLInputElement).value, true)}
+            autoComplete="off"
+            autoCapitalize="off"
         />
     )
 }

@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { DateTime } from 'luxon'
 
-import { ClickHouseTimestamp, LogLevel } from '../src/types'
+import { ClickHouseTimestamp } from '../src/types'
 import { safeClickhouseString } from '../src/utils/db/utils'
 import {
     bufferToStream,
@@ -10,7 +10,6 @@ import {
     escapeClickHouseString,
     groupBy,
     sanitizeSqlIdentifier,
-    setLogLevel,
     stringify,
     UUID,
     UUIDT,
@@ -25,94 +24,6 @@ describe('utils', () => {
         const buffer = Buffer.from(zip, 'base64')
         const stream = bufferToStream(buffer)
         expect(stream.read()).toEqual(buffer)
-    })
-
-    test('setLogLevel', () => {
-        function resetMocks() {
-            console.debug = jest.fn()
-            console.info = jest.fn()
-            console.log = jest.fn()
-            console.warn = jest.fn()
-            console.error = jest.fn()
-        }
-
-        resetMocks()
-        setLogLevel(LogLevel.Debug)
-        console.debug('debug')
-        console.info('debug')
-        console.log('debug')
-        console.warn('debug')
-        console.error('debug')
-        expect(console.debug).toHaveBeenCalledWith('debug')
-        expect(console.info).toHaveBeenCalledWith('debug')
-        expect(console.log).toHaveBeenCalledWith('debug')
-        expect(console.warn).toHaveBeenCalledWith('debug')
-        expect(console.error).toHaveBeenCalledWith('debug')
-
-        resetMocks()
-        setLogLevel(LogLevel.Info)
-        console.debug('info')
-        console.info('info')
-        console.log('info')
-        console.warn('info')
-        console.error('info')
-        expect((console.debug as any)._original).toBeDefined()
-        expect(console.info).toHaveBeenCalledWith('info')
-        expect(console.log).toHaveBeenCalledWith('info')
-        expect(console.warn).toHaveBeenCalledWith('info')
-        expect(console.error).toHaveBeenCalledWith('info')
-
-        resetMocks()
-        setLogLevel(LogLevel.Log)
-        console.debug('log')
-        console.info('log')
-        console.log('log')
-        console.warn('log')
-        console.error('log')
-        expect((console.debug as any)._original).toBeDefined()
-        expect((console.info as any)._original).toBeDefined()
-        expect(console.log).toHaveBeenCalledWith('log')
-        expect(console.warn).toHaveBeenCalledWith('log')
-        expect(console.error).toHaveBeenCalledWith('log')
-
-        resetMocks()
-        setLogLevel(LogLevel.Warn)
-        console.debug('warn')
-        console.info('warn')
-        console.log('warn')
-        console.warn('warn')
-        console.error('warn')
-        expect((console.debug as any)._original).toBeDefined()
-        expect((console.info as any)._original).toBeDefined()
-        expect((console.log as any)._original).toBeDefined()
-        expect(console.warn).toHaveBeenCalledWith('warn')
-        expect(console.error).toHaveBeenCalledWith('warn')
-
-        resetMocks()
-        setLogLevel(LogLevel.Error)
-        console.debug('error')
-        console.info('error')
-        console.log('error')
-        console.warn('error')
-        console.error('error')
-        expect((console.debug as any)._original).toBeDefined()
-        expect((console.info as any)._original).toBeDefined()
-        expect((console.log as any)._original).toBeDefined()
-        expect((console.warn as any)._original).toBeDefined()
-        expect(console.error).toHaveBeenCalledWith('error')
-
-        resetMocks()
-        setLogLevel(LogLevel.None)
-        console.debug('none')
-        console.info('none')
-        console.log('none')
-        console.warn('none')
-        console.error('none')
-        expect((console.debug as any)._original).toBeDefined()
-        expect((console.info as any)._original).toBeDefined()
-        expect((console.log as any)._original).toBeDefined()
-        expect((console.warn as any)._original).toBeDefined()
-        expect((console.error as any)._original).toBeDefined()
     })
 
     test('cloneObject', () => {

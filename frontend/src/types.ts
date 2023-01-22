@@ -149,6 +149,7 @@ export interface OrganizationBasicType {
 interface OrganizationMetadata {
     taxonomy_set_events_count: number
     taxonomy_set_properties_count: number
+    instance_tag?: string
 }
 
 export interface OrganizationType extends OrganizationBasicType {
@@ -428,6 +429,7 @@ export enum PropertyFilterType {
     Cohort = 'cohort',
     Recording = 'recording',
     Group = 'group',
+    HogQL = 'hogql',
 }
 
 /** Sync with plugin-server/src/types.ts */
@@ -481,6 +483,11 @@ export interface FeaturePropertyFilter extends BasePropertyFilter {
     operator: PropertyOperator
 }
 
+export interface HogQLPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.HogQL
+    key: string
+}
+
 export type PropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
@@ -490,6 +497,7 @@ export type PropertyFilter =
     | RecordingDurationFilter
     | GroupPropertyFilter
     | FeaturePropertyFilter
+    | HogQLPropertyFilter
 
 export type AnyPropertyFilter =
     | Partial<EventPropertyFilter>
@@ -500,6 +508,7 @@ export type AnyPropertyFilter =
     | Partial<RecordingDurationFilter>
     | Partial<GroupPropertyFilter>
     | Partial<FeaturePropertyFilter>
+    | Partial<HogQLPropertyFilter>
 
 export type AnyFilterLike = AnyPropertyFilter | PropertyGroupFilter | PropertyGroupFilterValue
 
@@ -555,10 +564,10 @@ export interface RecordingStartAndEndTime {
 }
 
 export interface SessionRecordingMeta {
+    pinnedCount: number
     segments: RecordingSegment[]
     startAndEndTimesByWindowId: Record<string, RecordingStartAndEndTime>
     recordingDurationMs: number
-    playlists?: SessionRecordingPlaylistType['id'][]
 }
 
 export interface SessionPlayerSnapshotData {
@@ -585,7 +594,7 @@ export enum SessionRecordingPlayerTab {
     ALL = 'all',
     EVENTS = 'events',
     CONSOLE = 'console',
-    PERFORMANCE = 'performance',
+    NETWORK = 'network',
 }
 
 export enum SessionPlayerState {
@@ -873,6 +882,13 @@ export interface SessionRecordingPlaylistType {
     filters?: RecordingFilters
 }
 
+export interface SessionRecordingSegmentType {
+    start_time: string
+    end_time: string
+    window_id: string
+    is_active: boolean
+}
+
 export interface SessionRecordingType {
     id: string
     /** Whether this recording has been viewed already. */
@@ -888,11 +904,18 @@ export interface SessionRecordingType {
     distinct_id?: string
     email?: string
     person?: PersonType
-    /** List of static playlists that this recording is referenced on */
-    playlists?: SessionRecordingPlaylistType['id'][]
     click_count?: number
     keypress_count?: number
-    urls?: string[]
+    start_url?: string
+    /** Count of number of playlists this recording is pinned to. **/
+    pinned_count?: number
+    /** Where this recording information was loaded from (S3 or Clickhouse) */
+    storage?: string
+
+    // These values are only present when loaded as a full recording
+    segments?: SessionRecordingSegmentType[]
+    start_and_end_times_by_window_id?: Record<string, Record<string, string>>
+    snapshot_data_by_window_id?: Record<string, eventWithTime[]>
 }
 
 export interface SessionRecordingPropertiesType {
@@ -903,6 +926,16 @@ export interface SessionRecordingPropertiesType {
 export interface SessionRecordingEvents {
     next?: string
     events: RecordingEventType[]
+}
+
+export interface PerformancePageView {
+    session_id: string
+    pageview_id: string
+    timestamp: string
+}
+export interface RecentPerformancePageView extends PerformancePageView {
+    page_url: string
+    duration: number
 }
 
 export interface PerformanceEvent {
@@ -961,6 +994,11 @@ export interface PerformanceEvent {
     navigation_type?: string
     unload_event_end?: number
     unload_event_start?: number
+
+    // Performance summary fields calculated on frontend
+    first_contentful_paint?: number // https://web.dev/fcp/
+    time_to_interactive?: number // https://web.dev/tti/
+    total_blocking_time?: number // https://web.dev/tbt/
 }
 
 export interface CurrentBillCycleType {
@@ -1351,6 +1389,7 @@ export interface FilterType {
     properties?: AnyPropertyFilter[] | PropertyGroupFilter
     events?: Record<string, any>[]
     actions?: Record<string, any>[]
+    new_entity?: Record<string, any>[]
 
     filter_test_accounts?: boolean
     from_dashboard?: boolean | number
@@ -1381,6 +1420,8 @@ export interface PropertiesTimelineFilterType {
     actions?: Record<string, any>[] // EntitiesMixin
     aggregation_group_type_index?: number // GroupsAggregationMixin
     display?: ChartDisplayType // DisplayDerivedMixin
+    breakdown_type?: BreakdownType | null
+    breakdown?: BreakdownKeyType
 }
 
 export interface TrendsFilterType extends FilterType {
@@ -1428,7 +1469,6 @@ export interface FunnelsFilterType extends FilterType {
     funnel_step?: number
     entrance_period_start?: string // this and drop_off is used for funnels time conversion date for the persons modal
     drop_off?: boolean
-    new_entity?: Record<string, any>[]
     hidden_legend_keys?: Record<string, boolean | undefined> // used to toggle visibilities in table and legend
 }
 export interface PathsFilterType extends FilterType {
@@ -1489,6 +1529,7 @@ export interface EventsListQueryParams {
     after?: string
     before?: string
     limit?: number
+    offset?: number
 }
 
 export interface RecordingEventsFilters {
@@ -1786,6 +1827,7 @@ export interface FeatureFlagFilters {
     groups: FeatureFlagGroupType[]
     multivariate: MultivariateFlagOptions | null
     aggregation_group_type_index?: number | null
+    payloads: Record<string, JsonType>
 }
 
 export interface FeatureFlagType {
@@ -1804,6 +1846,7 @@ export interface FeatureFlagType {
     rollback_conditions: FeatureFlagRollbackConditions[]
     performed_rollback: boolean
     can_edit: boolean
+    tags: string[]
 }
 
 export interface FeatureFlagRollbackConditions {
@@ -2313,6 +2356,10 @@ export enum CountPerActorMathType {
     P99 = 'p99_count_per_actor',
 }
 
+export enum GroupMathType {
+    UniqueGroup = 'unique_group',
+}
+
 export enum ActorGroupType {
     Person = 'person',
     GroupPrefix = 'group',
@@ -2539,3 +2586,5 @@ export interface RecordingReportLoadTimes {
     performanceEvents: RecordingReportLoadTimeRow
     firstPaint: RecordingReportLoadTimeRow
 }
+
+export type JsonType = string | number | boolean | null | { [key: string]: JsonType } | Array<JsonType>
