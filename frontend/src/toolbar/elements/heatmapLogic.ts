@@ -214,7 +214,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                                     lastSelector = lastSelector ? `* > ${lastSelector}` : '*'
                                     continue
                                 } else {
-                                    console.log('heatmap: Found empty selector')
+                                    console.log('heatmap: Found empty selector: ', combinedSelector)
                                 }
                             }
                         } catch (error) {
