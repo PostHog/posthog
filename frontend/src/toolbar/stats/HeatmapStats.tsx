@@ -9,8 +9,49 @@ import { LemonInput } from 'lib/components/LemonInput/LemonInput'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { LemonButton } from 'lib/components/LemonButton'
 import { IconSync } from 'lib/components/icons'
-import { AlertMessage } from 'lib/components/AlertMessage'
-import { LemonCheckbox } from 'lib/components/LemonCheckbox'
+import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
+import { Tooltip } from 'lib/components/Tooltip'
+import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
+
+/**
+ * Within the toolbar if a tooltip attaches to the body (the default) it is not visible
+ *
+ * LemonButton can accept a `disabledReason` prop, but it attaches its tooltip to the body
+ *
+ * This component wraps the LemonButton in a div, and attaches the tooltip to that div
+ * and passes the correct stacking context so that the tooltip is visible
+ * */
+function ButtonWithTooltipInStackingContext(props: {
+    canLoadMoreElementStats: any
+    onClick: () => any
+    popupContainer: () => any
+}): JSX.Element {
+    const button = (
+        <>
+            <LemonButton
+                icon={<IconSync />}
+                type={'secondary'}
+                status={'primary-alt'}
+                size={'small'}
+                onClick={props.onClick}
+                disabled={!props.canLoadMoreElementStats}
+            >
+                Load more
+            </LemonButton>
+        </>
+    )
+    return (
+        <>
+            {props.canLoadMoreElementStats ? (
+                button
+            ) : (
+                <Tooltip title={'Loaded all elements in this data range.'} getPopupContainer={props.popupContainer}>
+                    <div>{button}</div>
+                </Tooltip>
+            )}
+        </>
+    )
+}
 
 export function HeatmapStats(): JSX.Element {
     const {
@@ -26,6 +67,7 @@ export function HeatmapStats(): JSX.Element {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
+    const { buttonWindowRef } = useValues(toolbarButtonLogic)
 
     return (
         <div className="m-4">
@@ -49,29 +91,29 @@ export function HeatmapStats(): JSX.Element {
                         Found: {countedElements.length} elements / {clickCount} clicks!
                     </div>
                     <div>
-                        <LemonButton
-                            icon={<IconSync />}
-                            type={'secondary'}
-                            status={'primary-alt'}
-                            size={'small'}
+                        <ButtonWithTooltipInStackingContext
+                            canLoadMoreElementStats={canLoadMoreElementStats}
                             onClick={() => loadMoreElementStats()}
-                            disabled={!canLoadMoreElementStats}
-                        >
-                            Load more
-                        </LemonButton>
-                        {canLoadMoreElementStats ? null : (
-                            <AlertMessage type={'info'} className={'mt-2'}>
-                                Loaded all elements in this data range.
-                            </AlertMessage>
-                        )}
-                    </div>
-                    <div>
-                        <LemonCheckbox
-                            checked={matchLinksByHref}
-                            label={'Match links by their target URL'}
-                            onChange={(checked) => setMatchLinksByHref(checked)}
+                            popupContainer={() => buttonWindowRef?.current ?? document.body}
                         />
                     </div>
+
+                    <Tooltip
+                        title={
+                            'Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.'
+                        }
+                        getPopupContainer={() => buttonWindowRef?.current ?? document.body}
+                    >
+                        <div>
+                            <LemonSwitch
+                                checked={matchLinksByHref}
+                                label={'Match links by their target URL'}
+                                onChange={(checked) => setMatchLinksByHref(checked)}
+                                fullWidth={true}
+                                bordered={true}
+                            />
+                        </div>
+                    </Tooltip>
                     <List
                         itemLayout="horizontal"
                         dataSource={countedElements}
