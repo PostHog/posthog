@@ -11,6 +11,8 @@ from kafka import KafkaProducer
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
 from posthog.models.person_overrides.sql import (
+    DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL,
+    DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
     KAFKA_PERSON_OVERRIDES_TABLE_SQL,
     PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL,
 )
@@ -38,6 +40,7 @@ def test_can_insert_person_overrides():
             "override_person_id": str(override_person_id),
             "oldest_event": oldest_event.isoformat(),
             "merged_at": merged_at.isoformat(),
+            "created_at": datetime.now(tz=pytz.UTC).isoformat(),
             "version": 2,
         }
         future = producer.send(
@@ -48,9 +51,9 @@ def test_can_insert_person_overrides():
 
         future.get(timeout=5)  # Wait for an ack from Kafka
 
-        # Wait up to 10 seconds for ClickHouse to consume the message
+        # Wait up to 5 tries for ClickHouse to consume the message
         results = []
-        for _ in range(10):
+        for _ in range(5):
             results = sync_execute(
                 """
                 SELECT
@@ -62,7 +65,8 @@ def test_can_insert_person_overrides():
                     merged_at,
                     version
                 FROM
-                    person_overrides WHERE old_person_id = %(old_person_id)s
+                    person_overrides
+                WHERE old_person_id = %(old_person_id)s
                 """,
                 {"old_person_id": str(old_person_id)},
             )
@@ -78,3 +82,6 @@ def test_can_insert_person_overrides():
         assert created_at > datetime.now(tz=pytz.UTC) - timedelta(seconds=10)
     finally:
         producer.close()
+
+        sync_execute(DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL)
+        sync_execute(DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL)
