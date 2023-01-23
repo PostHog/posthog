@@ -2,7 +2,7 @@
 # impact of this is that all events that were associated with the Persons should
 # now appear to be associated with a single Person.
 #
-# In the ClickHouse `sharded_events` tabke we gave a `person_id` column that
+# In the ClickHouse `sharded_events` table we have a `person_id` column that
 # contains the UUID of the Person that the event is associated with. When a
 # merge happens, we do not immediately update the `person_id` column in the
 # `sharded_events` table. Instead, we create a new row in the `person_overrides`
