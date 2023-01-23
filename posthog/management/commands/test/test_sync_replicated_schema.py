@@ -2,7 +2,7 @@ import pytest
 from django.conf import settings
 
 from posthog.client import sync_execute
-from posthog.conftest import create_clickhouse_tables
+from posthog.conftest import create_clickhouse_tables_quickly
 from posthog.management.commands.sync_replicated_schema import Command
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
@@ -17,7 +17,7 @@ class TestSyncReplicatedSchema(BaseTest, ClickhouseTestMixin):
         sync_execute(f"DROP DATABASE {settings.CLICKHOUSE_DATABASE} SYNC")
         sync_execute(f"CREATE DATABASE {settings.CLICKHOUSE_DATABASE}")
         if create_tables:
-            create_clickhouse_tables(0)
+            create_clickhouse_tables_quickly()
 
     def test_analyze_test_cluster(self):
         self.recreate_database(create_tables=True)
