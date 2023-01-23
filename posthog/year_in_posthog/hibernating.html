@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    {% load static %}
+    <meta charset="utf-8">
+    <title>My year in PostHog</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2021-04-29">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/icons/favicon-32x32.png?v=2021-04-29">
+    <link rel="icon" type="image/png" sizes="16x16" href="/static/icons/favicon-16x16.png?v=2021-04-29">
+    {% if not debug %}
+        <link rel="shortcut icon" href="/static/icons/favicon.ico?v=2021-04-29">
+    {% else %}
+        <link rel="shortcut icon" href="/static/icons/favicon-dev.ico?v=2021-04-29">
+    {% endif %}
+    <link rel="preload" href="{% static 'Inter.woff2' %}" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="{% static 'Inter.woff' %}" as="font" type="font/woff" crossorigin>
+    <script>
+        !function (t, e) {
+            var o, n, p, r;
+            e.__SV || (window.posthog = e, e._i = [], e.init = function (i, s, a) {
+                function g(t, e) {
+                    var o = e.split(".");
+                    2 == o.length && (t = t[o[0]], e = o[1]), t[e] = function () {
+                        t.push([e].concat(Array.prototype.slice.call(arguments, 0)))
+                    }
+                }
+
+                (p = t.createElement("script")).type = "text/javascript", p.async = !0, p.src = s.api_host + "/static/array.js", (r = t.getElementsByTagName("script")[0]).parentNode.insertBefore(p, r);
+                var u = e;
+                for (void 0 !== a ? u = e[a] = [] : a = "posthog", u.people = u.people || [], u.toString = function (t) {
+                    var e = "posthog";
+                    return "posthog" !== a && (e += "." + a), t || (e += " (stub)"), e
+                }, u.people.toString = function () {
+                    return u.toString(1) + ".people (stub)"
+                }, o = "capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags".split(" "), n = 0; n < o.length; n++) {
+                    g(u, o[n]);
+                }
+                e._i.push([i, s, a])
+            }, e.__SV = 1)
+        }(document, window.posthog || []);
+        posthog.init('{{api_token}}', {
+            api_host: window.location.origin, loaded: function (posthog) {
+                posthog.capture('year in posthog hibernating viewed', {
+                    'yearInPostHog': 2022
+                });
+            }
+        })
+    </script>
+    <style>
+        /* Inter; bold (700); latin */
+        @font-face {
+            font-family: 'Inter';
+            font-style: normal;
+            font-weight: 700;
+            font-display: swap;
+            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
+            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+
+        @font-face {
+            font-family: 'Inter';
+            font-style: normal;
+            font-weight: 500;
+            font-display: swap;
+            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
+            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+
+        /* Inter; normal (400); latin */
+        @font-face {
+            font-family: 'Inter';
+            font-style: normal;
+            font-weight: 400;
+            font-display: swap;
+            src: url('{% static 'Inter.woff2' %}') format('woff2'), url('{% static 'Inter.woff' %}') format('woff');
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+2000-206F, U+2074, U+20AC,
+            U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+
+        html {
+            font-family: "Inter", -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
+            height: 100%;
+            width: 100%;
+        }
+
+        body {
+            background-color: #2D2D2D;
+            color: #fff;
+            display: flex;
+            flex-direction: column;
+            max-width: 1280px;
+            align-items: center;
+            justify-content: center;
+            margin: auto;
+            padding: 5rem 1rem;
+        }
+
+        body:before {
+            content: ' ';
+            display: block;
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0.1;
+            background-image: url("{%  static "background.png" %}");
+            background-repeat: no-repeat;
+            background-position: 50% 0;
+            background-size: cover;
+        }
+
+        h1 {
+            margin: 0;
+            text-align: center;
+        }
+
+        @media only screen and (min-width: 650px) {
+            h1 {
+                margin-bottom: -4rem;
+            }
+        }
+
+        img {
+            width: 100%;
+        }
+
+        @media only screen and (min-width: 650px) {
+            img {
+                max-width: 800px;
+            }
+        }
+
+    </style>
+</head>
+<body>
+
+<h1>Year in PostHog is hibernating.</h1>
+<img src="{% static 'sleeping-hog.png' %}" alt="Year in PostHog is hibernating."/>
+
+</body>
+</html>
