@@ -5,7 +5,7 @@ import { LemonSnack } from 'lib/components/LemonSnack/LemonSnack'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { billingTestLogic } from './billingTestLogic'
+import { billingV2Logic } from './billingV2Logic'
 import './PlanTable.scss'
 
 export type Product = {
@@ -365,7 +365,7 @@ export function PlanIcon({
 }
 
 export function PlanTable({ redirectPath }: { redirectPath: string }): JSX.Element {
-    const { billing } = useValues(billingTestLogic)
+    const { billing } = useValues(billingV2Logic)
     const { reportBillingUpgradeClicked } = useActions(eventUsageLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 

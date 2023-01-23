@@ -88,14 +88,22 @@ CLICKHOUSE_FUNCTIONS = {
     "trunc": "trunc",
 }
 # Permitted HogQL aggregations
-HOGQL_AGGREGATIONS = [
-    "count",
-    "min",
-    "max",
-    "sum",
-    "avg",
-    "any",
-]
+HOGQL_AGGREGATIONS = {
+    "count": 0,
+    "countIf": 1,
+    "countDistinct": 1,
+    "countDistinctIf": 2,
+    "min": 1,
+    "minIf": 2,
+    "max": 1,
+    "maxIf": 2,
+    "sum": 1,
+    "sumIf": 2,
+    "avg": 1,
+    "avgIf": 2,
+    "any": 1,
+    "anyIf": 2,
+}
 # Keywords passed to ClickHouse without transformation
 KEYWORDS = ["true", "false", "null"]
 
@@ -259,36 +267,34 @@ def translate_ast(node: ast.AST, stack: List[ast.AST], context: HogQLContext) ->
         call_name = node.func.id
         if call_name in HOGQL_AGGREGATIONS:
             context.found_aggregation = True
+            required_arg_count = HOGQL_AGGREGATIONS[call_name]
 
-            if call_name == "count" and len(node.args) == 0:
+            if required_arg_count != len(node.args):
+                raise ValueError(
+                    f"Aggregation '{call_name}' requires {required_arg_count} argument{'s' if required_arg_count != 1 else ''}, found {len(node.args)}"
+                )
+
+            # check that we're not running inside another aggregate
+            for stack_node in stack:
+                if (
+                    stack_node != node
+                    and isinstance(stack_node, ast.Call)
+                    and isinstance(stack_node.func, ast.Name)
+                    and stack_node.func.id in HOGQL_AGGREGATIONS
+                ):
+                    raise ValueError(
+                        f"Aggregation '{call_name}' cannot be nested inside another aggregation '{stack_node.func.id}'."
+                    )
+
+            translated_args = ", ".join([translate_ast(arg, stack, context) for arg in node.args])
+            if call_name == "count":
                 response = "count(*)"
+            elif call_name == "countDistinct":
+                response = f"count(distinct {translated_args})"
+            elif call_name == "countDistinctIf":
+                response = f"countIf(distinct {translated_args})"
             else:
-                if call_name == "count" and len(node.args) != 1:
-                    raise ValueError(f"Aggregation 'count' expects one or zero arguments.")
-                elif len(node.args) != 1:
-                    raise ValueError(f"Aggregation '{call_name}' expects just one argument.")
-
-                # check that we're not running inside another aggregate
-                for stack_node in stack:
-                    if (
-                        stack_node != node
-                        and isinstance(stack_node, ast.Call)
-                        and isinstance(stack_node.func, ast.Name)
-                        and stack_node.func.id in HOGQL_AGGREGATIONS
-                    ):
-                        raise ValueError(
-                            f"Aggregation '{call_name}' cannot be nested inside another aggregation '{stack_node.func.id}'."
-                        )
-
-                # check that we're running an aggregate on a property
-                properties_before = len(context.attribute_list)
-                if call_name == "count":
-                    response = f"{call_name}(distinct {translate_ast(node.args[0], stack, context)})"
-                else:
-                    response = f"{call_name}({translate_ast(node.args[0], stack, context)})"
-                properties_after = len(context.attribute_list)
-                if properties_after == properties_before:
-                    raise ValueError(f"{call_name}(...) must be called on fields or properties, not literals.")
+                response = f"{call_name}({translated_args})"
 
         elif node.func.id in CLICKHOUSE_FUNCTIONS:
             response = f"{CLICKHOUSE_FUNCTIONS[node.func.id]}({', '.join([translate_ast(arg, stack, context) for arg in node.args])})"

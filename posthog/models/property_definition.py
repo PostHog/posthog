@@ -59,7 +59,6 @@ class PropertyDefinition(UUIDModel):
     volume_30_day: models.IntegerField = models.IntegerField(default=None, null=True)  # Deprecated in #4480
 
     class Meta:
-        unique_together = ("team", "name")
         indexes = (
             [
                 GinIndex(
@@ -86,5 +85,5 @@ class PropertyDefinition(UUIDModel):
         return f"{self.name} / {self.team.name}"
 
     # This is a dynamically calculated field in api/property_definition.py. Defaults to `True` here to help serializers.
-    def is_event_property(self) -> None:
+    def is_seen_on_filtered_events(self) -> None:
         return None

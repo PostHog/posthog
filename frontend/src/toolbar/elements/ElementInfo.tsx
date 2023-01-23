@@ -29,7 +29,7 @@ function ElementStatistic({
 }
 
 export function ElementInfo(): JSX.Element | null {
-    const { clickCount } = useValues(heatmapLogic)
+    const { clickCount: totalClickCount } = useValues(heatmapLogic)
 
     const { hoverElementMeta, selectedElementMeta } = useValues(elementsLogic)
     const { createAction } = useActions(elementsLogic)
@@ -40,7 +40,7 @@ export function ElementInfo(): JSX.Element | null {
         return null
     }
 
-    const { element, position, count, actionStep } = activeMeta
+    const { element, position, count, clickCount, rageclickCount, actionStep } = activeMeta
 
     return (
         <>
@@ -60,14 +60,20 @@ export function ElementInfo(): JSX.Element | null {
                             <ElementStatistic
                                 title="Clicks"
                                 value={count || 0}
-                                suffix={`/ ${clickCount} (${
-                                    clickCount === 0 ? '-' : Math.round(((count || 0) / clickCount) * 10000) / 100
+                                suffix={`/ ${totalClickCount} (${
+                                    totalClickCount === 0
+                                        ? '-'
+                                        : Math.round(((count || 0) / totalClickCount) * 10000) / 100
                                 }%)`}
                             />
                         </div>
                         <div className={'w-1/3'}>
                             <ElementStatistic title="Ranking" prefix="#" value={position || 0} />
                         </div>
+                    </div>
+                    <div className={'flex flex-row gap-4 mt-2'}>
+                        <ElementStatistic title={'Autocapture clicks'} value={clickCount || 0} />
+                        <ElementStatistic title={'Rageclicks'} value={rageclickCount || 0} />
                     </div>
                 </div>
             ) : null}

@@ -72,7 +72,7 @@ export const mockEventPropertyDefinition = {
     updated_by: null,
     volume_30_day: 2,
     query_usage_30_day: 1,
-    is_event_property: true,
+    is_seen_on_filtered_events: true,
     property_type: undefined,
 }
 
@@ -89,7 +89,7 @@ export const mockEventPropertyDefinitions: PropertyDefinition[] = [
     id: `uuid-${index}-foobar`,
     name: name || `misc-${index}-generated`,
     description: `${name || 'name generation'} is the best!`,
-    is_event_property: (name || '').includes('$'),
+    is_seen_on_filtered_events: (name || '').includes('$'),
 }))
 
 export const mockPersonProperty = {
