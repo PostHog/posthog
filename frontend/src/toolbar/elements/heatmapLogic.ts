@@ -22,7 +22,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
     path(['toolbar', 'elements', 'heatmapLogic']),
     connect({
         values: [toolbarLogic, ['apiURL']],
-        actions: [currentPageLogic, ['setHref']],
     }),
     actions({
         getElementStats: (url?: string | null) => ({
@@ -34,17 +33,8 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
         loadMoreElementStats: true,
-        storePageElements: (elements: HTMLHtmlElement[]) => ({ elements }),
     }),
     reducers({
-        pageElements: [
-            [] as HTMLHtmlElement[],
-            {
-                storePageElements: (_, { elements }) => elements,
-                disableHeatmap: () => [],
-                enableHeatmap: () => collectAllElementsDeep('*', document),
-            },
-        ],
         canLoadMoreElementStats: [
             true,
             {
@@ -149,8 +139,17 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     selectors(({ cache }) => ({
         elements: [
-            (selectors) => [selectors.elementStats, toolbarLogic.selectors.dataAttributes, selectors.pageElements],
-            (elementStats, dataAttributes, pageElements) => {
+            (selectors) => [
+                selectors.elementStats,
+                toolbarLogic.selectors.dataAttributes,
+                currentPageLogic.selectors.href,
+            ],
+            (elementStats, dataAttributes, href) => {
+                cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
+                cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
+
+                cache.lastHref = href
+
                 const elements: CountedHTMLElement[] = []
                 elementStats?.results.forEach((event) => {
                     let combinedSelector: string
@@ -165,7 +164,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
                             let domElements: HTMLElement[] | undefined = cache.selectorToElement?.[combinedSelector]
                             if (domElements === undefined) {
                                 domElements = Array.from(
-                                    querySelectorAllDeep(combinedSelector, document, pageElements)
+                                    querySelectorAllDeep(combinedSelector, document, cache.pageElements)
                                 ) as HTMLElement[]
                                 cache.selectorToElement[combinedSelector] = domElements
                             }
@@ -278,7 +277,6 @@ export const heatmapLogic = kea<heatmapLogicType>([
 
     afterMount(({ actions, values, cache }) => {
         if (values.heatmapEnabled) {
-            actions.storePageElements(collectAllElementsDeep('*', document))
             actions.getElementStats()
         }
         cache.keyDownListener = (event: KeyboardEvent) => {
@@ -300,11 +298,7 @@ export const heatmapLogic = kea<heatmapLogicType>([
         window.removeEventListener('keyup', cache.keyUpListener)
     }),
 
-    listeners(({ actions, values, cache }) => ({
-        setHref: () => {
-            cache.selectorToElements = {}
-            actions.storePageElements(collectAllElementsDeep('*', document))
-        },
+    listeners(({ actions, values }) => ({
         loadMoreElementStats: () => {
             if (values.elementStats?.next) {
                 actions.getElementStats(values.elementStats.next)
