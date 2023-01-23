@@ -16,7 +16,7 @@ export enum DataManagementTab {
 }
 
 const tabUrls = {
-    [DataManagementTab.PropertyDefinitions]: urls.eventPropertyDefinitions(),
+    [DataManagementTab.PropertyDefinitions]: urls.propertyDefinitions(),
     [DataManagementTab.EventDefinitions]: urls.eventDefinitions(),
     [DataManagementTab.Actions]: urls.actions(),
     [DataManagementTab.IngestionWarnings]: urls.ingestionWarnings(),

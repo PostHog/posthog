@@ -100,7 +100,7 @@ export const definitionLogic = kea<definitionLogicType>([
         backDetailUrl: [
             (s) => [s.isEvent, s.definition],
             (isEvent, definition) =>
-                isEvent ? urls.eventDefinition(definition.id) : urls.eventPropertyDefinition(definition.id),
+                isEvent ? urls.eventDefinition(definition.id) : urls.propertyDefinition(definition.id),
         ],
         breadcrumbs: [
             (s) => [s.definition, s.isEvent],
@@ -108,11 +108,11 @@ export const definitionLogic = kea<definitionLogicType>([
                 return [
                     {
                         name: `Data Management`,
-                        path: isEvent ? urls.eventDefinitions() : urls.eventPropertyDefinitions(),
+                        path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
                         name: isEvent ? 'Events' : 'Event Properties',
-                        path: isEvent ? urls.eventDefinitions() : urls.eventPropertyDefinitions(),
+                        path: isEvent ? urls.eventDefinitions() : urls.propertyDefinitions(),
                     },
                     {
                         name: definition?.id !== 'new' ? getPropertyLabel(definition?.name) || 'Untitled' : 'Untitled',

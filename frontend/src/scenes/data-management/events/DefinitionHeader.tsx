@@ -161,7 +161,7 @@ export function PropertyDefinitionHeader({
                 getName: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                 getValue: (propertyDefinition: PropertyDefinition) => propertyDefinition.name,
                 getFullDetailUrl: (propertyDefinition: PropertyDefinition) =>
-                    urls.eventPropertyDefinition(propertyDefinition.id),
+                    urls.propertyDefinition(propertyDefinition.id),
                 ...propertyTaxonomicGroupProps(),
             }}
             {...props}

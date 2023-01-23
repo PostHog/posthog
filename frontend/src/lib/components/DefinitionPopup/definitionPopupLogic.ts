@@ -182,7 +182,7 @@ export const definitionPopupLogic = kea<definitionPopupLogicType>({
                     return urls.eventDefinition((definition as EventDefinition).id)
                 } else if (isProperty) {
                     // Property Definitions
-                    return urls.eventPropertyDefinition((definition as PropertyDefinition).id)
+                    return urls.propertyDefinition((definition as PropertyDefinition).id)
                 } else if (isCohort) {
                     // Cohort
                     return urls.cohort((definition as CohortType).id)

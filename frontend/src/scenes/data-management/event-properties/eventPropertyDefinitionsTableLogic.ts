@@ -132,7 +132,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
                     },
                     {
                         name: 'Event Properties',
-                        path: urls.eventPropertyDefinitions(),
+                        path: urls.propertyDefinitions(),
                     },
                 ]
             },

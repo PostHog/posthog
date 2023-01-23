@@ -76,7 +76,7 @@ describe('eventPropertyDefinitionsTableLogic', () => {
         }`
 
         it('load event definitions on navigate and cache', async () => {
-            const url = urls.eventPropertyDefinitions()
+            const url = urls.propertyDefinitions()
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([
@@ -110,7 +110,7 @@ describe('eventPropertyDefinitionsTableLogic', () => {
         })
 
         it('pagination forwards and backwards', async () => {
-            const url = urls.eventPropertyDefinitions()
+            const url = urls.propertyDefinitions()
             router.actions.push(url)
             await expectLogic(logic)
                 .toDispatchActions([
