@@ -38,6 +38,11 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
         }
     }, [!!billing])
 
+    const { ref, size } = useResizeBreakpoints({
+        0: 'small',
+        1000: 'medium',
+    })
+
     if (!billing && billingLoading) {
         return <SpinnerOverlay />
     }
@@ -72,11 +77,6 @@ export function BillingV2({ redirectPath = '', showCurrentUsage = true }: Billin
     }
 
     const products = billing?.products
-
-    const { ref, size } = useResizeBreakpoints({
-        0: 'small',
-        1000: 'medium',
-    })
 
     return (
         <div ref={ref}>
