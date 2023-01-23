@@ -21,7 +21,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.1
@@ -65,7 +65,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.2
@@ -94,7 +94,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.3
@@ -123,7 +123,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.4
@@ -131,7 +131,7 @@
   SELECT (1) AS "a"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.5
@@ -142,7 +142,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.6
@@ -153,7 +153,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '
 ---
 # name: TestDecide.test_decide_doesnt_error_out_when_database_is_down.7
@@ -242,7 +242,7 @@
          "posthog_user"."events_column_config"
   FROM "posthog_user"
   WHERE "posthog_user"."id" = 2
-  LIMIT 21 /**/
+  LIMIT 21
   '
 ---
 # name: TestDecide.test_web_app_queries.1
@@ -286,7 +286,7 @@
          "posthog_team"."event_properties_numerical"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 2
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '
 ---
 # name: TestDecide.test_web_app_queries.2
@@ -315,7 +315,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '
 ---
 # name: TestDecide.test_web_app_queries.3
@@ -344,7 +344,7 @@
   INNER JOIN "posthog_organization" ON ("posthog_organizationmembership"."organization_id" = "posthog_organization"."id")
   WHERE ("posthog_organizationmembership"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid
          AND "posthog_organizationmembership"."user_id" = 2)
-  LIMIT 21 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 21
   '
 ---
 # name: TestDecide.test_web_app_queries.4
@@ -352,7 +352,7 @@
   SELECT (1) AS "a"
   FROM "posthog_grouptypemapping"
   WHERE "posthog_grouptypemapping"."team_id" = 2
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '
 ---
 # name: TestDecide.test_web_app_queries.5
@@ -363,7 +363,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:PERSON_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '
 ---
 # name: TestDecide.test_web_app_queries.6
@@ -374,7 +374,7 @@
   FROM "posthog_instancesetting"
   WHERE "posthog_instancesetting"."key" = 'constance:posthog:GROUPS_ON_EVENTS_ENABLED'
   ORDER BY "posthog_instancesetting"."id" ASC
-  LIMIT 1 /*controller='team-detail',route='api/projects/%28%3FP%3Cid%3E%5B%5E/.%5D%2B%29/%3F%24'*/
+  LIMIT 1
   '
 ---
 # name: TestDecide.test_web_app_queries.7
