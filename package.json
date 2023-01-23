@@ -235,7 +235,6 @@
         "raw-loader": "^4.0.2",
         "sass-loader": "^10.0.1",
         "storybook-addon-pseudo-states": "^1.15.1",
-        "storybook-addon-turbo-build": "^1.1.0",
         "style-loader": "^2.0.0",
         "sucrase": "^3.29.0",
         "timekeeper": "^2.2.0",

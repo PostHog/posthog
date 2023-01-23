@@ -1874,9 +1874,10 @@ export interface PrevalidatedInvite {
 }
 
 interface InstancePreferencesInterface {
-    debug_queries: boolean
     /** Whether debug queries option should be shown on the command palette. */
-    disable_paid_fs: boolean /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
+    debug_queries: boolean
+    /** Whether paid features showcasing / upsells are completely disabled throughout the app. */
+    disable_paid_fs: boolean
 }
 
 export interface PreflightStatus {
@@ -2171,8 +2172,6 @@ export interface AppContext {
     switched_team: TeamType['id'] | null
     /** First day of the week (0 = Sun, 1 = Mon, ...) */
     week_start: number
-
-    year_in_hog_url?: string
 }
 
 export type StoredMetricMathOperations = 'max' | 'min' | 'sum'

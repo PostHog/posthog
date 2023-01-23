@@ -17,12 +17,6 @@ module.exports = {
         '@storybook/addon-storysource',
         '@storybook/addon-a11y',
         'storybook-addon-pseudo-states',
-        {
-            name: 'storybook-addon-turbo-build',
-            options: {
-                optimizationLevel: 3,
-            },
-        },
     ],
     staticDirs: ['public'],
     babel: async () => {

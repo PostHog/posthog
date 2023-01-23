@@ -311,16 +311,10 @@ def render_template(template_name: str, request: HttpRequest, context: Dict = {}
     context["js_capture_time_to_see_data"] = settings.CAPTURE_TIME_TO_SEE_DATA
     context["js_url"] = get_js_url(request)
 
-    try:
-        year_in_hog_url = f"/year_in_posthog/2022/{str(request.user.uuid)}"  # type: ignore
-    except:
-        year_in_hog_url = None
-
     posthog_app_context: Dict[str, Any] = {
         "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
         "anonymous": not request.user or not request.user.is_authenticated,
         "week_start": 1,  # Monday
-        "year_in_hog_url": year_in_hog_url,
     }
 
     from posthog.api.geoip import get_geoip_properties  # avoids circular import
