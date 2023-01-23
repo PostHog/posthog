@@ -377,7 +377,7 @@
               CROSS JOIN
                 (SELECT breakdown_value
                  FROM
-                   (SELECT ['London', 'Belo Horizonte'] as breakdown_value) ARRAY
+                   (SELECT ['London', 'Belo Horizonte', ''] as breakdown_value) ARRAY
                  JOIN breakdown_value) as sec
               ORDER BY breakdown_value,
                        day_start
@@ -389,7 +389,7 @@
                 AND event = 'session end'
                 AND toDateTime(timestamp, 'UTC') >= toDateTime(toStartOfDay(toDateTime('2019-12-28 00:00:00', 'UTC')), 'UTC')
                 AND toDateTime(timestamp, 'UTC') <= toDateTime('2020-01-04 23:59:59', 'UTC')
-                AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Belo Horizonte'])
+                AND replaceRegexpAll(JSONExtractRaw(properties, 'location'), '^"|"$', '') in (['London', 'Belo Horizonte', ''])
               GROUP BY day_start,
                        breakdown_value))
         GROUP BY day_start,

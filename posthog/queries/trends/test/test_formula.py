@@ -208,15 +208,15 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0])
         self.assertEqual(response[1]["label"], "Paris")
 
+        # regression test for empty string values
+        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
+        self.assertEqual(response[2]["label"], "")
+
         # Regression test to ensure we actually get data for "Belo Horizonte" below
         # We previously had a bug where if series B,C,D, etc. had a value not present
         # in series A, we'd just default to an empty string
-        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0])
-        self.assertEqual(response[2]["label"], "Belo Horizonte")
-
-        # regression test for empty string values
-        self.assertEqual(response[3]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
-        self.assertEqual(response[3]["label"], "")
+        self.assertEqual(response[3]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0])
+        self.assertEqual(response[3]["label"], "Belo Horizonte")
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
         with freeze_time("2020-01-04T13:01:01Z"):
