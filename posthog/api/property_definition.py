@@ -81,7 +81,7 @@ class QueryContext:
             return self
 
     def with_event_property_filter(
-        self, event_names: Optional[str], is_event_property: Optional[str]
+        self, event_names: Optional[str], filter_by_event_names: Optional[str]
     ) -> "QueryContext":
         event_property_filter = ""
         event_name_filter = ""
@@ -95,21 +95,19 @@ class QueryContext:
 
         is_filtering_by_event_names = event_names and len(event_names) > 0
 
-        if is_filtering_by_event_names or is_event_property is not None:
+        if is_filtering_by_event_names:
             event_property_field = (
                 f"case when {self.posthog_eventproperty_table_join_alias}.id is null then false else true end"
             )
+
+            if filter_by_event_names == "true":
+                event_property_filter = f"AND {event_property_field} = true"
 
         if is_filtering_by_event_names:
             event_name_join_filter = " AND event in %(event_names)s"
             qualified_event_name_join_filter = (
                 f" AND {self.posthog_eventproperty_table_join_alias}.event in %(event_names)s"
             )
-
-        if is_event_property == "true":
-            event_property_filter = f"AND {event_property_field} = true"
-        elif is_event_property == "false":
-            event_property_filter = f"AND {event_property_field} = false"
 
         return dataclasses.replace(
             self,
@@ -138,12 +136,14 @@ class QueryContext:
 
     def as_sql(self):
         query = f"""
-            SELECT {self.property_definition_fields},{self.event_property_field} AS is_event_property
+            SELECT {self.property_definition_fields},{self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = {self.team_id} AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
+            WHERE posthog_propertydefinition.team_id = {self.team_id}
+              AND type = {PropertyDefinition.Type.EVENT}
+              AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter} {self.event_name_filter}
-            ORDER BY is_event_property DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, posthog_propertydefinition.query_usage_30_day DESC NULLS LAST, posthog_propertydefinition.name ASC
             LIMIT {self.limit} OFFSET {self.offset}
             """
 
@@ -154,7 +154,9 @@ class QueryContext:
             SELECT count(*) as full_count
             FROM {self.table}
             {self._join_on_event_property()}
-            WHERE posthog_propertydefinition.team_id = {self.team_id} AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
+            WHERE posthog_propertydefinition.team_id = {self.team_id}
+              AND type = {PropertyDefinition.Type.EVENT}
+              AND posthog_propertydefinition.name NOT IN %(excluded_properties)s
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter} {self.event_name_filter}
             """
 
@@ -207,8 +209,8 @@ class PropertyDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelS
             "query_usage_30_day",
             "property_type",
             "tags",
-            # This is a calculated property, it means either this property has been seen on any event, or it has been seen with the provided `event_names` query param events
-            "is_event_property",
+            # This is a calculated property, set when property has been seen with the provided `event_names` query param events. NULL if no `event_names` provided
+            "is_seen_on_filtered_events",
         )
 
     def update(self, property_definition: PropertyDefinition, validated_data):
@@ -271,7 +273,7 @@ class PropertyDefinitionViewSet(
     pagination_class = NotCountingLimitOffsetPaginator
 
     def get_queryset(self):
-        queryset = PropertyDefinition.objects
+        queryset = PropertyDefinition.objects.filter(type=PropertyDefinition.Type.EVENT)
 
         property_definition_fields = ", ".join(
             [f'posthog_propertydefinition."{f.column}"' for f in PropertyDefinition._meta.get_fields() if hasattr(f, "column")]  # type: ignore
@@ -322,7 +324,7 @@ class PropertyDefinitionViewSet(
             .with_feature_flags(self.request.GET.get("is_feature_flag"))
             .with_event_property_filter(
                 event_names=self.request.GET.get("event_names", None),
-                is_event_property=self.request.GET.get("is_event_property", None),
+                filter_by_event_names=self.request.GET.get("filter_by_event_names", None),
             )
             .with_search(search_query, search_kwargs)
             .with_excluded_properties(self.request.GET.get("excluded_properties", None))

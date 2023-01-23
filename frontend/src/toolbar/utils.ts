@@ -372,11 +372,26 @@ export async function toolbarFetch(
     url: string,
     method: string = 'GET',
     payload?: Record<string, any>,
-    useProvidedURL?: boolean
+    /*
+     allows caller to control how the provided URL is altered before use
+     if "full" then the payload and URL are taken apart and reconstructed
+     if "only-add-token" the URL is unchanged, the payload is not used
+     but the temporary token is added to the URL
+     if "use-as-provided" then the URL is used as-is, and the payload is not used
+     this is because the heatmapLogic needs more control over how the query parameters are constructed
+    */
+    urlConstruction: 'full' | 'only-add-token' | 'use-as-provided' = 'full'
 ): Promise<Response> {
-    const { pathname, searchParams } = combineUrl(url)
-    const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
-    const fullUrl = useProvidedURL ? url : `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
+    let fullUrl: string
+    if (urlConstruction === 'use-as-provided') {
+        fullUrl = url
+    } else if (urlConstruction === 'only-add-token') {
+        fullUrl = `${url}&temporary_token=${toolbarLogic.values.temporaryToken}`
+    } else {
+        const { pathname, searchParams } = combineUrl(url)
+        const params = { ...searchParams, temporary_token: toolbarLogic.values.temporaryToken }
+        fullUrl = `${toolbarLogic.values.apiURL}${pathname}${encodeParams(params, '?')}`
+    }
 
     const payloadData = payload
         ? {

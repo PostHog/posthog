@@ -8,6 +8,7 @@ import {
     IconGauge,
     IconTerminal,
     IconUnverifiedEvent,
+    IconPause,
 } from 'lib/components/icons'
 import { Spinner } from 'lib/components/Spinner/Spinner'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -28,12 +29,11 @@ const TabToIcon = {
 }
 
 export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps): JSX.Element {
-    const { windowIdFilter, tab, searchQuery, syncScroll, tabsState, windowIds, showMatchingEventsFilter } = useValues(
-        playerInspectorLogic(props)
-    )
-    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScroll } = useActions(playerInspectorLogic(props))
-    const { showOnlyMatching, timestampMode, miniFilters } = useValues(playerSettingsLogic)
-    const { setShowOnlyMatching, setTimestampMode, setMiniFilter } = useActions(playerSettingsLogic)
+    const { windowIdFilter, tab, searchQuery, syncScrollingPaused, tabsState, windowIds, showMatchingEventsFilter } =
+        useValues(playerInspectorLogic(props))
+    const { setWindowIdFilter, setTab, setSearchQuery, setSyncScrollPaused } = useActions(playerInspectorLogic(props))
+    const { showOnlyMatching, timestampMode, miniFilters, syncScroll } = useValues(playerSettingsLogic)
+    const { setShowOnlyMatching, setTimestampMode, setMiniFilter, setSyncScroll } = useActions(playerSettingsLogic)
 
     const { featureFlags } = useValues(featureFlagLogic)
     const inspectorPerformance = !!featureFlags[FEATURE_FLAGS.RECORDINGS_INSPECTOR_PERFORMANCE]
@@ -162,11 +162,27 @@ export function PlayerInspectorControls(props: SessionRecordingPlayerLogicProps)
                         noPadding
                         status="primary-alt"
                         type={syncScroll ? 'primary' : 'tertiary'}
-                        onClick={() => setSyncScroll(!syncScroll)}
+                        onClick={() => {
+                            // If the user has syncScrolling on but it is paused due to interacting with the Inspector, we want to resume it
+                            if (syncScroll && syncScrollingPaused) {
+                                setSyncScrollPaused(false)
+                            } else {
+                                // Otherwise we are just toggling the settting
+                                setSyncScroll(!syncScroll)
+                            }
+                        }}
                         tooltipPlacement="left"
-                        tooltip={'Scroll the list in sync with the recording playback'}
+                        tooltip={
+                            syncScroll && syncScrollingPaused
+                                ? 'Synced scrolling is paused - click to resume'
+                                : 'Scroll the list in sync with the recording playback'
+                        }
                     >
-                        <IconPlayCircle className="text-lg m-1" />
+                        {syncScroll && syncScrollingPaused ? (
+                            <IconPause className="text-lg m-1" />
+                        ) : (
+                            <IconPlayCircle className="text-lg m-1" />
+                        )}
                     </LemonButton>
                 </div>
             </div>
