@@ -30,25 +30,26 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
 
         -- The timestamp the merge of the two people was completed.
         merged_at DateTime64(6, 'UTC') NOT NULL,
-        -- The timestamp rows are created.
+        -- The timestamp of the oldest event associated with the
+        -- `old_person_id`.
+        oldest_event DateTime64(6, 'UTC') NOT NULL,
+        -- The timestamp rows are created. This isn't part of the JOIN process
+        -- with the events table but rather a housekeeping column to allow us to
+        -- see when the row was created. This shouldn't have any impact of the
+        -- JOIN as it will be stored separately with the Wide ClickHouse table
+        -- storage.
         created_at DateTime64(6, 'UTC') DEFAULT now(),
 
         -- the specific version of the `old_person_id` mapping. This is used to
         -- allow us to discard old mappings as new ones are added.
-        version INT NOT NULL,
-
-        -- A flag that can be used to tombstone a mapping. This is useful in
-        -- cases where all references to e.g. `old_person_id` have been removed,
-        -- and can therefore be excluded from the JOIN, thereby making the right
-        -- side of the JOIN smaller and the JOIN faster. It is then possible to
-        -- e.g. perform periodic `ALTER TABLE ... DELETE WHERE is_deleted = 1`
-        -- or similar to reclaim space and performance.
-        is_deleted UInt8 DEFAULT 0
+        version INT NOT NULL
     )
 
     -- By specifying Replacing merge tree on version, we allow ClickHouse to
     -- discard old versions of a `old_person_id` mapping. This should help keep
-    -- performance in check as new versions are added.
+    -- performance in check as new versions are added. Note that given we can
+    -- have partitioning by `oldest_event` which will change as we update
+    -- `person_id` on old partitions.
     --
     -- We also need to ensure that the data is replicated to all replicas in the
     -- cluster, as we do not have any constraints on person_id and which shard
@@ -62,6 +63,13 @@ PERSON_OVERRIDES_CREATE_TABLE_SQL = f"""
         '{{replica}}-{{shard}}',
         version
     )
+
+    -- We partition the table by the `oldest_event` column. This allows us to
+    -- handle updating the events table partition by partition, progressing each
+    -- override partition by partition in lockstep with the events table. Note
+    -- that this means it is possible that we have a mapping from
+    -- `old_person_id` in multiple partitions during the merge process.
+    PARTITION BY toYYYYMM(oldest_event)
 
     -- We want to collapse down on the `old_person_id` such that we end up with
     -- the newest known mapping for it in the table. Query side we will need to
