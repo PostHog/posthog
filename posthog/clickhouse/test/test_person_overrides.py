@@ -1,7 +1,6 @@
 import json
 from datetime import datetime, timedelta
 from time import sleep
-from typing import List, cast
 from uuid import uuid4
 
 import pytest
@@ -75,7 +74,7 @@ def test_can_insert_person_overrides():
                 break
             sleep(1)
 
-        results = cast(List, results)
+        assert isinstance(results, list)
         assert results != []
         [result] = results
         created_at, *the_rest = result
