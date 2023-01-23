@@ -91,7 +91,16 @@ KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
         'JSONEachRow' -- Specify that we should pass Kafka messages as JSON
     )
 
-    EMPTY AS SELECT *
+    EMPTY AS SELECT
+        team_id,
+        old_person_id,
+        override_person_id,
+        merged_at,
+        oldest_event,
+        -- We don't want to insert this column via Kafka, as it's
+        -- set as a default value in the `person_overrides` table.
+        -- created_at,
+        version
     FROM `{CLICKHOUSE_DATABASE}`.`person_overrides`
 """
 
