@@ -33,8 +33,10 @@ export const heatmapLogic = kea<heatmapLogicType>([
         setShiftPressed: (shiftPressed: boolean) => ({ shiftPressed }),
         setHeatmapFilter: (filter: Partial<FilterType>) => ({ filter }),
         loadMoreElementStats: true,
+        setMatchLinksByHref: (matchLinksByHref: boolean) => ({ matchLinksByHref }),
     }),
     reducers({
+        matchLinksByHref: [false, { setMatchLinksByHref: (_, { matchLinksByHref }) => matchLinksByHref }],
         canLoadMoreElementStats: [
             true,
             {
@@ -143,8 +145,9 @@ export const heatmapLogic = kea<heatmapLogicType>([
                 selectors.elementStats,
                 toolbarLogic.selectors.dataAttributes,
                 currentPageLogic.selectors.href,
+                selectors.matchLinksByHref,
             ],
-            (elementStats, dataAttributes, href) => {
+            (elementStats, dataAttributes, href, matchLinksByHref) => {
                 cache.pageElements = cache.lastHref == href ? cache.pageElements : collectAllElementsDeep('*', document)
                 cache.selectorToElements = cache.lastHref == href ? cache.selectorToElements : {}
 
@@ -155,7 +158,12 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     let combinedSelector: string
                     let lastSelector: string | undefined
                     for (let i = 0; i < event.elements.length; i++) {
-                        const selector = elementToSelector(event.elements[i], dataAttributes) || '*'
+                        const element = event.elements[i]
+                        const selector =
+                            elementToSelector(
+                                matchLinksByHref ? element : { ...element, href: undefined },
+                                dataAttributes
+                            ) || '*'
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
