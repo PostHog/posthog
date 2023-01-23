@@ -174,7 +174,7 @@ export const eventPropertyDefinitionsTableLogic = kea<eventPropertyDefinitionsTa
         },
     })),
     urlToAction(({ actions, values }) => ({
-        '/data-management/event-properties': (_, searchParams) => {
+        [urls.propertyDefinitions()]: (_, searchParams) => {
             if (!objectsEqual(cleanFilters(values.filters), cleanFilters(router.values.searchParams))) {
                 actions.setFilters(searchParams as Filters)
             } else if (!values.eventPropertyDefinitions.results.length && !values.eventPropertyDefinitionsLoading) {
