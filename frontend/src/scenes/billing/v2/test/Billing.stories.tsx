@@ -5,7 +5,7 @@ import preflightJson from '~/mocks/fixtures/_preflight.json'
 import billingJson from '~/mocks/fixtures/_billing_v2.json'
 
 export default {
-    title: 'Scenes-Other/Billing v2',
+    title: 'Scenes-Other/Billing v2 Test',
     parameters: { layout: 'fullscreen', options: { showPanel: false }, viewMode: 'story' },
     decorators: [
         mswDecorator({
