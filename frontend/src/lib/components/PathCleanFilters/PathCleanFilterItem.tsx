@@ -1,9 +1,8 @@
 import { useState } from 'react'
-import { Button } from 'antd'
 
 import { PathCleaningFilter } from '~/types'
+import { LemonPill } from '@posthog/lemon-ui'
 import { Popup } from 'lib/components/Popup/Popup'
-import { CloseButton } from 'lib/components/CloseButton'
 import { midEllipsis } from 'lib/utils'
 
 import { PathRegexPopup } from './PathRegexPopup'
@@ -24,22 +23,14 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
             onClickOutside={() => setVisible(false)}
             overlay={<PathRegexPopup filter={filter} onSave={onChange} onCancel={() => setVisible(false)} />}
         >
-            <Button
-                shape="round"
+            <LemonPill
                 onClick={() => {
                     setVisible(!visible)
                 }}
-                className="PropertyFilterButton"
+                onDelete={onRemove}
             >
-                <span className="PropertyFilterButton-content" title={label}>
-                    {midEllipsis(label, 32)}
-                </span>
-                <CloseButton
-                    onClick={() => {
-                        onRemove()
-                    }}
-                />
-            </Button>
+                <span title={label}>{midEllipsis(label, 32)}</span>
+            </LemonPill>
         </Popup>
     )
 }

@@ -1,4 +1,3 @@
-import '../../../scenes/actions/Actions.scss' // TODO: is this used by <FilterRow />?
 import { PathCleaningFilter } from '~/types'
 import { PathCleanFilterItem } from './PathCleanFilterItem'
 import { PathCleanFilterAddItemButton } from './PathCleanFilterAddItemButton'
