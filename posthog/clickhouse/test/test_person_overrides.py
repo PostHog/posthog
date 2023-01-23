@@ -20,7 +20,7 @@ from posthog.settings.data_stores import KAFKA_HOSTS
 
 @pytest.mark.django_db
 def test_can_insert_person_overrides():
-    # By default the test suite runs with ClickHouse no Kafka or Materialixzed
+    # By default the test suite runs with ClickHouse no Kafka or Materialized
     # Views. Updating to include these seems to be a [larger task to
     # fix](https://github.com/PostHog/posthog/pull/13878), so here we create
     # just the missing tables we need to verify functionality.
