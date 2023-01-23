@@ -11,12 +11,12 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 export enum DataManagementTab {
     Actions = 'actions',
     EventDefinitions = 'events',
-    EventPropertyDefinitions = 'properties',
+    PropertyDefinitions = 'properties',
     IngestionWarnings = 'warnings',
 }
 
 const tabUrls = {
-    [DataManagementTab.EventPropertyDefinitions]: urls.eventPropertyDefinitions(),
+    [DataManagementTab.PropertyDefinitions]: urls.eventPropertyDefinitions(),
     [DataManagementTab.EventDefinitions]: urls.eventDefinitions(),
     [DataManagementTab.Actions]: urls.actions(),
     [DataManagementTab.IngestionWarnings]: urls.ingestionWarnings(),
@@ -95,10 +95,10 @@ export function DataManagementPageTabs({ tab }: { tab: DataManagementTab }): JSX
                         }
                         data-attr="data-management-event-properties-tab"
                     >
-                        Event Properties
+                        Properties
                     </TitleWithIcon>
                 }
-                key={DataManagementTab.EventPropertyDefinitions}
+                key={DataManagementTab.PropertyDefinitions}
             />
             {showWarningsTab && (
                 <Tabs.TabPane
