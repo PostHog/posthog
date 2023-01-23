@@ -281,7 +281,6 @@
 
 @each $name, $hex in $colors {
     .hover\:text-#{$name}:hover {
-        // identify this line
         color: $hex;
     }
     .hover\:bg-#{$name}:hover {
