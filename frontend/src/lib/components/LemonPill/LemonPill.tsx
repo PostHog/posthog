@@ -14,7 +14,16 @@ export function LemonPill({ children, onClick, onDelete }: LemonPillProps): JSX.
             onClick={onClick}
         >
             {children}
-            <LemonButton className="ml-1" size="small" status="danger" icon={<IconClose />} onClick={onDelete} />
+            <LemonButton
+                className="ml-1"
+                size="small"
+                status="danger"
+                icon={<IconClose />}
+                onClick={(event) => {
+                    event.stopPropagation()
+                    onDelete()
+                }}
+            />
         </div>
     )
 }

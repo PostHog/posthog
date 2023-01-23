@@ -17,7 +17,16 @@ export function PathCleanFilterAddItemButton({ onAdd }: PathCleanFilterAddItemBu
         <Popup
             visible={visible}
             onClickOutside={() => setVisible(false)}
-            overlay={<PathRegexPopup onSave={onAdd} onCancel={() => setVisible(false)} isNew />}
+            overlay={
+                <PathRegexPopup
+                    onSave={(filter: PathCleaningFilter) => {
+                        onAdd(filter)
+                        setVisible(false)
+                    }}
+                    onCancel={() => setVisible(false)}
+                    isNew
+                />
+            }
         >
             <LemonButton onClick={() => setVisible(!visible)} type="secondary" size="small" icon={<IconPlus />}>
                 Add rule
