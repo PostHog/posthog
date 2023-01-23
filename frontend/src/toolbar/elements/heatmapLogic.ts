@@ -163,7 +163,13 @@ export const heatmapLogic = kea<heatmapLogicType>([
                     let combinedSelector: string
                     let lastSelector: string | undefined
                     for (let i = 0; i < event.elements.length; i++) {
-                        const selector = elementToSelector(event.elements[i], dataAttributes, matchLinksByHref) || '*'
+                        const element = event.elements[i]
+                        const selector =
+                            elementToSelector(
+                                matchLinksByHref ? element : { ...element, href: undefined },
+                                dataAttributes
+                            ) || '*'
+
                         combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
                         try {
