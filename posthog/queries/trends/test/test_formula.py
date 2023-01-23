@@ -80,6 +80,18 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
                 },
             )
 
+            _create_event(
+                team=self.team,
+                event="session end",
+                distinct_id="blabla",
+                properties={
+                    "session duration": 400,
+                    "location": "",
+                    "$session_id": "1",
+                    "$group_0": "org:5",
+                },
+            )
+
     def _run(self, extra: Dict = {}, run_at: Optional[str] = None):
         with freeze_time(run_at or "2020-01-04T13:01:01Z"):
             action_response = Trends().run(
@@ -179,9 +191,7 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_clickhouse_queries
     def test_breakdown_with_different_breakdown_values_per_series(self):
-        # Regression test to ensure we actually get data for "Belo Horizonte" below
-        # We previously had a bug where if series B,C,D, etc. had a value not present
-        # in series A, we'd just default to an empty string
+
         response = self._run(
             {
                 "events": [
@@ -197,8 +207,16 @@ class TestFormula(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["label"], "London")
         self.assertEqual(response[1]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0, 0.0])
         self.assertEqual(response[1]["label"], "Paris")
+
+        # Regression test to ensure we actually get data for "Belo Horizonte" below
+        # We previously had a bug where if series B,C,D, etc. had a value not present
+        # in series A, we'd just default to an empty string
         self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 500.0, 0.0])
         self.assertEqual(response[2]["label"], "Belo Horizonte")
+
+        # regression test for empty string values
+        self.assertEqual(response[2]["data"], [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 400.0, 0.0])
+        self.assertEqual(response[2]["label"], "")
 
     def test_breakdown_counts_of_different_events_one_without_events(self):
         with freeze_time("2020-01-04T13:01:01Z"):
