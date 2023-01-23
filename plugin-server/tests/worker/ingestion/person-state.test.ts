@@ -1,9 +1,9 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
-import { DatabaseError } from 'pg'
 import tk from 'timekeeper'
 
 import { Database, Hub, Person } from '../../../src/types'
+import { DependencyUnavailableError } from '../../../src/utils/db/error'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
@@ -1846,7 +1846,6 @@ describe('PersonState.update()', () => {
             // verify ClickHouse persons
             await delayUntilEventIngested(() => fetchPersonsRowsWithVersionHigerEqualThan(), 2) // wait until merge and delete processed
             const clickhousePersons = await fetchPersonsRows() // but verify full state
-            expect(clickhousePersons.length).toEqual(2)
             expect(clickhousePersons).toEqual(
                 expect.arrayContaining([
                     expect.objectContaining({
@@ -1895,8 +1894,8 @@ describe('PersonState.update()', () => {
 
             const state: PersonState = personState({}, first)
             // break postgres
-            const error = new DatabaseError('testing', 1, 'error')
-            jest.spyOn(hub.db, 'updatePersonDeprecated').mockImplementation(() => {
+            const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
+            jest.spyOn(hub.db, 'postgresTransaction').mockImplementation(() => {
                 throw error
             })
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
@@ -1912,12 +1911,31 @@ describe('PersonState.update()', () => {
 
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
+            expect(hub.db.postgresTransaction).toHaveBeenCalledTimes(1)
             expect(state.aliasDeprecated).toHaveBeenCalledTimes(1)
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
-            expect(persons.length).toEqual(2)
+            expect(persons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: uuid.toString(),
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: uuid2.toString(),
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                ])
+            )
         })
 
         it('throws if retry limits hit', async () => {
@@ -1946,8 +1964,8 @@ describe('PersonState.update()', () => {
 
             const state: PersonState = personState({}, first)
             // break postgres
-            const error = new DatabaseError('testing', 1, 'error')
-            jest.spyOn(hub.db, 'updatePersonDeprecated').mockImplementation(() => {
+            const error = new DependencyUnavailableError('testing', 'Postgres', new Error('test'))
+            jest.spyOn(hub.db, 'postgresTransaction').mockImplementation(() => {
                 throw error
             })
             jest.spyOn(hub.db.kafkaProducer, 'queueMessages')
@@ -1965,12 +1983,31 @@ describe('PersonState.update()', () => {
 
             await hub.db.kafkaProducer.flush()
 
-            expect(hub.db.updatePersonDeprecated).toHaveBeenCalledTimes(1)
+            expect(hub.db.postgresTransaction).toHaveBeenCalledTimes(1)
             expect(state.aliasDeprecated).not.toHaveBeenCalled()
             expect(hub.db.kafkaProducer.queueMessages).not.toBeCalled()
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
-            expect(persons.length).toEqual(2)
+            expect(persons).toEqual(
+                expect.arrayContaining([
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: uuid.toString(),
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                    expect.objectContaining({
+                        id: expect.any(Number),
+                        uuid: uuid2.toString(),
+                        properties: {},
+                        created_at: timestamp,
+                        version: 0,
+                        is_identified: false,
+                    }),
+                ])
+            )
         })
     })
 

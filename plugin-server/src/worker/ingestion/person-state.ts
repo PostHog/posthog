@@ -4,7 +4,7 @@ import equal from 'fast-deep-equal'
 import { StatsD } from 'hot-shots'
 import { ProducerRecord } from 'kafkajs'
 import { DateTime } from 'luxon'
-import { DatabaseError, PoolClient } from 'pg'
+import { PoolClient } from 'pg'
 
 import { Person, PropertyUpdateOperation } from '../../types'
 import { DB } from '../../utils/db/db'
@@ -564,10 +564,6 @@ export class PersonState {
             // :KLUDGE: Avoid unneeded fetches in updateProperties()
             this.personContainer = this.personContainer.with(mergedPerson)
         } catch (error) {
-            if (!(error instanceof DatabaseError)) {
-                throw error // Very much not OK, this is some completely unexpected error
-            }
-
             failedAttempts++
             if (failedAttempts >= MAX_FAILED_PERSON_MERGE_ATTEMPTS) {
                 throw error // Very much not OK, failed repeatedly so rethrowing the error
