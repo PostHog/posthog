@@ -104,12 +104,33 @@ KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
     FROM `{CLICKHOUSE_DATABASE}`.`person_overrides`
 """
 
+DROP_KAFKA_PERSON_OVERRIDES_TABLE_SQL = f"""
+    DROP TABLE IF EXISTS `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    SYNC
+"""
+
 # Materialized View that watches the Kafka table for data and inserts into the
 # `person_overrides` table.
 PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
     CREATE MATERIALIZED VIEW IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
     ON CLUSTER '{CLICKHOUSE_CLUSTER}'
     TO `{CLICKHOUSE_DATABASE}`.`person_overrides`
-    AS SELECT *
+    AS SELECT
+        team_id,
+        old_person_id,
+        override_person_id,
+        merged_at,
+        oldest_event,
+        -- We don't want to insert this column via Kafka, as it's
+        -- set as a default value in the `person_overrides` table.
+        -- created_at,
+        version
     FROM `{CLICKHOUSE_DATABASE}`.`kafka_person_overrides`
+"""
+
+DROP_PERSON_OVERRIDES_CREATE_MATERIALIZED_VIEW_SQL = f"""
+    DROP VIEW IF EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_mv`
+    ON CLUSTER '{CLICKHOUSE_CLUSTER}'
+    SYNC
 """

@@ -32,15 +32,16 @@ def test_can_insert_person_overrides():
     try:
         old_person_id = uuid4()
         override_person_id = uuid4()
-        oldest_event = datetime.fromisoformat("2020-01-01 00:00:00").replace(tzinfo=pytz.UTC)
-        merged_at = datetime.fromisoformat("2020-01-02 00:00:00").replace(tzinfo=pytz.UTC)
+        oldest_event_string = "2020-01-01 00:00:00"
+        oldest_event = datetime.fromisoformat(oldest_event_string).replace(tzinfo=pytz.UTC)
+        merged_at_string = "2020-01-02 00:00:00"
+        merged_at = datetime.fromisoformat(merged_at_string).replace(tzinfo=pytz.UTC)
         message = {
             "team_id": 1,
             "old_person_id": str(old_person_id),
             "override_person_id": str(override_person_id),
-            "oldest_event": oldest_event.isoformat(),
-            "merged_at": merged_at.isoformat(),
-            "created_at": datetime.now(tz=pytz.UTC).isoformat(),
+            "oldest_event": oldest_event_string,
+            "merged_at": merged_at_string,
             "version": 2,
         }
         future = producer.send(
@@ -78,7 +79,7 @@ def test_can_insert_person_overrides():
         assert results != []
         [result] = results
         created_at, *the_rest = result
-        assert the_rest == (1, old_person_id, override_person_id, oldest_event, merged_at, 2)
+        assert the_rest == [1, old_person_id, override_person_id, oldest_event, merged_at, 2]
         assert created_at > datetime.now(tz=pytz.UTC) - timedelta(seconds=10)
     finally:
         producer.close()
