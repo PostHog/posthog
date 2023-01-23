@@ -297,19 +297,6 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
     )
 
     const firstRowLeft = [
-        showSavedQueries && isEventsQuery(query.source) ? <SavedQueries query={query} setQuery={setQuery} /> : null,
-        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
-        showElapsedTime ? <ElapsedTime /> : null,
-    ].filter((x) => !!x)
-
-    const firstRowRight = [
-        showColumnConfigurator && isEventsQuery(query.source) ? (
-            <ColumnConfigurator query={query} setQuery={setQuery} />
-        ) : null,
-        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
-    ].filter((x) => !!x)
-
-    const secondRowLeft = [
         showDateRange && isEventsQuery(query.source) ? (
             <DateRange query={query.source} setQuery={setQuerySource} />
         ) : null,
@@ -327,8 +314,24 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
         ) : null,
     ].filter((x) => !!x)
 
+    const firstRowRight = [
+        showSavedQueries && isEventsQuery(query.source) ? <SavedQueries query={query} setQuery={setQuery} /> : null,
+    ].filter((x) => !!x)
+
+    const secondRowLeft = [
+        showReload ? canLoadNewData ? <AutoLoad /> : <Reload /> : null,
+        showElapsedTime ? <ElapsedTime /> : null,
+    ].filter((x) => !!x)
+
+    const secondRowRight = [
+        showColumnConfigurator && isEventsQuery(query.source) ? (
+            <ColumnConfigurator query={query} setQuery={setQuery} />
+        ) : null,
+        showExport ? <DataTableExport query={query} setQuery={setQuery} /> : null,
+    ].filter((x) => !!x)
+
     const showFirstRow = firstRowLeft.length > 0 || firstRowRight.length > 0
-    const showSecondRow = secondRowLeft.length > 0
+    const showSecondRow = secondRowLeft.length > 0 || secondRowRight.length > 0
     const inlineEditorButtonOnRow = showFirstRow ? 1 : showSecondRow ? 2 : 0
 
     return (
@@ -350,6 +353,7 @@ export function DataTable({ query, setQuery, context }: DataTableProps): JSX.Ele
                         <div className="flex gap-4 items-center">
                             {secondRowLeft}
                             <div className="flex-1" />
+                            {secondRowRight}
                             {inlineEditorButtonOnRow === 2 ? (
                                 <InlineEditorButton query={query} setQuery={setQuery as (node: Node) => void} />
                             ) : null}
