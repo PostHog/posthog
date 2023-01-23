@@ -1,7 +1,7 @@
 import { toId } from '../../helpers/storybook'
 import { test, expect } from '../../fixtures/storybook'
 
-test.describe.skip('trends insight', () => {
+test.describe('trends insight', () => {
     test('displays line viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Line'))
         await storyPage.expectSceneScreenshot()
@@ -73,7 +73,7 @@ test.describe.skip('trends insight', () => {
     })
 })
 
-test.describe.skip('funnel insight', () => {
+test.describe('funnel insight', () => {
     test('displays left to right viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Funnel Left to Right'))
         await storyPage.expectSceneScreenshot()
@@ -105,7 +105,7 @@ test.describe.skip('funnel insight', () => {
     })
 })
 
-test.describe.skip('retention insight', () => {
+test.describe('retention insight', () => {
     test('displays viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Retention'))
         await storyPage.expectSceneScreenshot()
@@ -117,14 +117,14 @@ test.describe.skip('retention insight', () => {
     // })
 })
 
-test.describe.skip('lifecycle insight', () => {
+test.describe('lifecycle insight', () => {
     test('displays viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Lifecycle'))
         await storyPage.expectSceneScreenshot()
     })
 })
 
-test.describe.skip('stickiness insight', () => {
+test.describe('stickiness insight', () => {
     test('displays viz correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Stickiness'))
         await storyPage.expectSceneScreenshot()
@@ -140,7 +140,7 @@ test.skip('user paths insights', () => {
     })
 })
 
-test.describe.skip('error states', () => {
+test.describe('error states', () => {
     test('display the empty state correctly', async ({ storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights/Error States', 'Empty State'))
         await storyPage.expectSceneScreenshot()
@@ -163,7 +163,7 @@ test.describe.skip('error states', () => {
     })
 })
 
-test.describe.skip('tooltip', () => {
+test.describe('tooltip', () => {
     test('displays correctly', async ({ page, storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Line'))
 
@@ -180,7 +180,7 @@ test.describe.skip('tooltip', () => {
     })
 })
 
-test.describe.skip('annotations popover', () => {
+test.describe('annotations popover', () => {
     test('displays correctly', async ({ page, storyPage }) => {
         await storyPage.goto(toId('Scenes-App/Insights', 'Trends Line'))
 
