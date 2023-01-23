@@ -10,7 +10,6 @@ import { LemonButton } from 'lib/components/LemonButton'
 import { IconSync } from 'lib/components/icons'
 import { LemonSwitch } from 'lib/components/LemonSwitch/LemonSwitch'
 import { Tooltip } from 'lib/components/Tooltip'
-import { toolbarButtonLogic } from '~/toolbar/button/toolbarButtonLogic'
 import './HeatmapStat.scss'
 
 /**
@@ -45,7 +44,10 @@ function ButtonWithTooltipInStackingContext(props: {
             {props.canLoadMoreElementStats ? (
                 button
             ) : (
-                <Tooltip title={'Loaded all elements in this data range.'} getPopupContainer={props.popupContainer}>
+                <Tooltip
+                    title={'Loaded all elements in this data range.'}
+                    getPopupContainer={getShadowRootPopupContainer}
+                >
                     <div>{button}</div>
                 </Tooltip>
             )}
@@ -67,7 +69,6 @@ export function HeatmapStats(): JSX.Element {
     const { setHighlightElement, setSelectedElement } = useActions(elementsLogic)
     const { wildcardHref } = useValues(currentPageLogic)
     const { setWildcardHref } = useActions(currentPageLogic)
-    const { buttonWindowRef } = useValues(toolbarButtonLogic)
 
     return (
         <div className="m-4">
@@ -94,7 +95,7 @@ export function HeatmapStats(): JSX.Element {
                         <ButtonWithTooltipInStackingContext
                             canLoadMoreElementStats={canLoadMoreElementStats}
                             onClick={() => loadMoreElementStats()}
-                            popupContainer={() => buttonWindowRef?.current ?? document.body}
+                            popupContainer={getShadowRootPopupContainer}
                         />
                     </div>
 
@@ -102,7 +103,7 @@ export function HeatmapStats(): JSX.Element {
                         title={
                             'Matching links by their target URL can exclude clicks from the heatmap if the URL is too unique.'
                         }
-                        getPopupContainer={() => buttonWindowRef?.current ?? document.body}
+                        getPopupContainer={getShadowRootPopupContainer}
                     >
                         <div>
                             <LemonSwitch

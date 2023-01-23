@@ -5,7 +5,6 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import type { toolbarButtonLogicType } from './toolbarButtonLogicType'
 import { posthog } from '~/toolbar/posthog'
-import { MutableRefObject } from 'react'
 
 export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     path: ['toolbar', 'button', 'toolbarButtonLogic'],
@@ -22,9 +21,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
         saveHeatmapPosition: (x: number, y: number) => ({ x, y }),
         saveActionsPosition: (x: number, y: number) => ({ x, y }),
         saveFlagsPosition: (x: number, y: number) => ({ x, y }),
-        storeButtonWindowRef: (buttonWindowRef: null | MutableRefObject<HTMLElement | null>) => ({
-            buttonWindowRef,
-        }),
     }),
 
     windowValues: () => ({
@@ -33,10 +29,6 @@ export const toolbarButtonLogic = kea<toolbarButtonLogicType>({
     }),
 
     reducers: () => ({
-        buttonWindowRef: [
-            null as null | MutableRefObject<HTMLElement | null>,
-            { storeButtonWindowRef: (_, { buttonWindowRef }) => buttonWindowRef },
-        ],
         heatmapInfoVisible: [
             false,
             {
