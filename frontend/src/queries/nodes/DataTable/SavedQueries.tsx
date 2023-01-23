@@ -12,7 +12,7 @@ interface SavedQueriesProps {
 
 const eventsQueries: Record<string, EventsQuery> = {
     'Live events (default)': getDefaultEventsSceneQuery().source as EventsQuery,
-    'Events counts': {
+    'Event counts': {
         kind: NodeKind.EventsQuery,
         select: ['event', 'count()'],
         after: '-24h',
