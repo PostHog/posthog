@@ -505,7 +505,7 @@ export class PersonState {
             // For analyzing impact of merges we need to know how old data would need to get updated
             // If we are smart we merge the newer person into the older one,
             // so we need to know the newer person's age
-            newerPersonAgeInMonths: String(this.personAgeInMonthsLowCardinality(newerCreatedAt)),
+            newerPersonAgeInMonths: String(ageInMonthsLowCardinality(newerCreatedAt)),
         })
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and exit
@@ -593,13 +593,6 @@ export class PersonState {
         return !mergeFrom.is_identified
     }
 
-    private personAgeInMonthsLowCardinality(timestamp: DateTime): number {
-        const ageInMonths = Math.floor(Math.abs(timestamp.diffNow('months').months))
-        // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
-        const ageLowCardinality = Math.min(ageInMonths, 50)
-        return ageLowCardinality
-    }
-
     private async handleMergeTransaction(
         mergeInto: Person,
         otherPerson: Person,
@@ -663,4 +656,11 @@ export function updatePersonStateExceptProperties(
     // by some delay period before finally creating the event we will push into
     // ClickHouse.
     return new PersonState(...params).updateExceptProperties()
+}
+
+export function ageInMonthsLowCardinality(timestamp: DateTime): number {
+    const ageInMonths = Math.max(-Math.floor(timestamp.diffNow('months').months), 0)
+    // for getting low cardinality for statsd metrics tags, which can cause issues in e.g. InfluxDB: https://docs.influxdata.com/influxdb/cloud/write-data/best-practices/resolve-high-cardinality/
+    const ageLowCardinality = Math.min(ageInMonths, 50)
+    return ageLowCardinality
 }

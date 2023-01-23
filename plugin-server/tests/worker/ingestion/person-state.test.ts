@@ -1,12 +1,13 @@
 import { PluginEvent } from '@posthog/plugin-scaffold'
 import { DateTime } from 'luxon'
 import { DatabaseError } from 'pg'
+import tk from 'timekeeper'
 
 import { Database, Hub, Person } from '../../../src/types'
 import { createHub } from '../../../src/utils/db/hub'
 import { UUIDT } from '../../../src/utils/utils'
 import { LazyPersonContainer } from '../../../src/worker/ingestion/lazy-person-container'
-import { PersonState } from '../../../src/worker/ingestion/person-state'
+import { ageInMonthsLowCardinality, PersonState } from '../../../src/worker/ingestion/person-state'
 import { delayUntilEventIngested, resetTestDatabaseClickhouse } from '../../helpers/clickhouse'
 import { createUserTeamAndOrganization, insertRow, resetTestDatabase } from '../../helpers/sql'
 
@@ -1970,6 +1971,32 @@ describe('PersonState.update()', () => {
             // verify Postgres persons
             const persons = await hub.db.fetchPersons()
             expect(persons.length).toEqual(2)
+        })
+    })
+
+    describe('ageInMonthsLowCardinality', () => {
+        beforeEach(() => {
+            tk.freeze(new Date('2022-03-15'))
+        })
+        it('gets the correct age in months', () => {
+            let date = DateTime.fromISO('2022-01-16')
+            expect(ageInMonthsLowCardinality(date)).toEqual(2)
+            date = DateTime.fromISO('2022-01-14')
+            expect(ageInMonthsLowCardinality(date)).toEqual(3)
+            date = DateTime.fromISO('2021-11-25')
+            expect(ageInMonthsLowCardinality(date)).toEqual(4)
+        })
+        it('returns 0 for future dates', () => {
+            let date = DateTime.fromISO('2022-06-01')
+            expect(ageInMonthsLowCardinality(date)).toEqual(0)
+            date = DateTime.fromISO('2023-01-01')
+            expect(ageInMonthsLowCardinality(date)).toEqual(0)
+        })
+        it('returns a low cardinality value', () => {
+            let date = DateTime.fromISO('1990-01-01')
+            expect(ageInMonthsLowCardinality(date)).toEqual(50)
+            date = DateTime.fromMillis(0)
+            expect(ageInMonthsLowCardinality(date)).toEqual(50)
         })
     })
 })
